@@ -446,13 +446,17 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     </style>
     """, unsafe_allow_html=True)
 
+    # 각 서브플롯 목표 높이(px) — 고정값으로 관리
+    # main:160  spacer:6  price:115  win_prob:85  ev:85  → 합계 451px
+    PX = {'main': 160, 'spacer': 6, 'price': 115, 'win_prob': 85, 'ev': 85,
+          'macd': 80, 'rsi': 80}
     active_plots = ['main', 'spacer', 'price', 'win_prob', 'ev']
-    row_heights = [0.35, 0.04, 0.22, 0.13, 0.13]
     if show_indicators:
         active_plots += ['macd', 'rsi']
-        row_heights += [0.12, 0.12]
     total_rows = len(active_plots)
-    fig = make_subplots(rows=total_rows, cols=1, row_heights=row_heights, vertical_spacing=0.015)
+    total_h = sum(PX[p] for p in active_plots)
+    row_heights = [PX[p] / total_h for p in active_plots]
+    fig = make_subplots(rows=total_rows, cols=1, row_heights=row_heights, vertical_spacing=0.008)
     current_row = 1
 
     # ── [1] Main scatter (로그-로그) ──
@@ -632,13 +636,12 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     fig.update_xaxes(showticklabels=True, tickformat="%y/%m/%d", row=total_rows, col=1)
 
     fig.update_layout(
-        height=580 if not show_indicators else 760,
+        height=total_h,   # px 합산값 그대로 사용 (서브플롯 크기 고정)
         autosize=True,
         showlegend=False,
         hovermode='x unified',
         dragmode='pan',
-        margin=dict(l=2, r=18, t=6, b=22),  # r=18: 오른쪽 여백으로 잘림 방지
-        # 창 크기 변화에도 잘려 보이지 않도록
+        margin=dict(l=2, r=18, t=4, b=20),
         paper_bgcolor='white',
         plot_bgcolor='white',
     )
@@ -738,8 +741,8 @@ def main():
             border-color:{bg}!important;
             color:{fg}!important;
             font-weight:700!important;
-            height:1.3rem!important;
-            font-size:0.65rem!important;
+            height:1.4rem!important;
+            font-size:0.68rem!important;
             padding:0!important;
             line-height:1!important;
             min-height:0!important;
@@ -773,7 +776,7 @@ def main():
     /* 두 컬럼 항상 가로 배치 (모바일 포함) */
     div[data-testid="stHorizontalBlock"] {{
         flex-wrap: nowrap !important;
-        gap: 3px !important;
+        gap: 0px !important;
         align-items: flex-start !important;
     }}
     /* 버튼 컬럼: 좁게 고정, 패딩 제거 */
@@ -783,14 +786,13 @@ def main():
         max-width: 62px !important;
         padding: 0 !important;
     }}
-    /* 그래프 컬럼: 남은 공간 사용, overflow는 visible 유지 (잘림 방지) */
+    /* 그래프 컬럼: 남은 공간 최대한 사용, 잘림 방지 */
     div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"]:last-child {{
         flex: 1 1 0 !important;
         min-width: 0 !important;
         overflow: visible !important;
-        /* Streamlit 기본 column padding을 줄여 그래프 공간 확보 */
-        padding-left: 4px !important;
-        padding-right: 4px !important;
+        padding-left: 2px !important;
+        padding-right: 2px !important;
     }}
     /* 버튼 컬럼 내 세로 간격 제거 (버튼끼리 붙임) */
     div[data-testid="stColumn"]:first-child div[data-testid="stVerticalBlock"] > div {{
