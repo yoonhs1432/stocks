@@ -80,6 +80,40 @@ def get_action_emoji(win_prob, expected_return) -> str:
     return '⚪'
 
 
+@st.cache_data(show_spinner=False)
+def compute_all_signals(df_close: pd.DataFrame, train_end_str: str) -> dict:
+    """전체 TARGET_TICKERS의 투자의견 이모지를 사전 계산해 반환 (캐싱)."""
+    signals = {}
+    train_end_date = pd.to_datetime(train_end_str) + pd.offsets.MonthEnd(0)
+    df_x = df_close[[f'{X_ASSET_FIXED}_Close']]
+
+    for ticker in TARGET_TICKERS:
+        col = f'{ticker}_Close'
+        if col not in df_close.columns:
+            signals[ticker] = '⚪'
+            continue
+        try:
+            df_y = df_close[[col]]
+            df_merged = pd.merge(df_x, df_y, left_index=True, right_index=True).dropna()
+            if len(df_merged) < 60:
+                signals[ticker] = '⚪'
+                continue
+
+            # 정규화 & 베타
+            df_merged, beta, _ = _compute_normalized(df_merged, X_ASSET_FIXED, ticker)
+            df_merged, _ = _compute_indicators(df_merged, ticker)
+
+            # 최적 주기 간단 추정 (고정값 사용해 속도 최우선)
+            df_merged = _compute_targets(df_merged, ticker, 60)
+            df_merged, win_prob, _, expected_return = _train_and_predict(df_merged, train_end_date)
+
+            signals[ticker] = get_action_emoji(win_prob, expected_return)
+        except Exception:
+            signals[ticker] = '⚪'
+
+    return signals
+
+
 # ====================================================
 # 3. 데이터 다운로드 (캐싱)
 # ====================================================
@@ -427,6 +461,16 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
                  guide_n: int, view_months: int,
                  show_indicators: bool, avg_cycle: int) -> None:
 
+    # ── 모바일 스크롤 보호: 차트 터치 이벤트가 페이지 스크롤을 막지 않도록 설정 ──
+    st.markdown("""
+    <style>
+    /* 세로 스크롤은 브라우저에 위임, 가로 스와이프만 Plotly가 처리 */
+    .js-plotly-plot, .js-plotly-plot .plotly, .js-plotly-plot svg {
+        touch-action: pan-y !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
     active_plots = ['main', 'spacer', 'price', 'win_prob', 'ev']
     row_heights = [0.35, 0.06, 0.2, 0.12, 0.12]
     if show_indicators:
@@ -634,7 +678,7 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     fig.update_xaxes(range=[view_start, df_daily.index[-1]], row=3, col=1)
 
     st.plotly_chart(fig, use_container_width=True,
-                     config={'scrollZoom': False, 'displayModeBar': False})
+                     config={'scrollZoom': False, 'displayModeBar': False, 'doubleClick': 'reset'})
 
 
 # ====================================================
@@ -684,6 +728,13 @@ def main():
                 st.error(f"'{selected_ticker}' 데이터를 가져올 수 없습니다. 티커를 확인해 주세요.")
                 return
             df_close = pd.concat([df_close, df_custom], axis=1).ffill()
+
+    # 전체 티커 신호 사전 계산 (캐싱되므로 최초 1회만 실제 계산)
+    default_train_end = "2026-03"
+    all_signals = compute_all_signals(df_close, default_train_end)
+    # 아직 없는 항목만 채워넣기 (직접 분석한 결과가 있으면 덮어쓰지 않음)
+    for t, emoji in all_signals.items():
+        st.session_state.ticker_signals.setdefault(t, emoji)
 
     # 사이드바 렌더링 (selected_ticker 전달)
     cfg = render_sidebar(df_close, selected_ticker)
