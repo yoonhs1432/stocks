@@ -57,6 +57,27 @@ def init_session_state() -> None:
     """session_state 초기화. 앱 최초 실행 시 한 번만 호출."""
     if 'trade_history' not in st.session_state:
         st.session_state.trade_history = load_trade_history()
+    if 'ticker_signals' not in st.session_state:
+        st.session_state.ticker_signals = {}  # {ticker: emoji}
+
+
+def get_action_emoji(win_prob, expected_return) -> str:
+    """승률·기대수익으로 투자의견 이모지만 반환."""
+    if win_prob is None or expected_return is None:
+        return '⚪'
+    if win_prob >= 60.0 and expected_return >= 8.0:
+        return '🔥'
+    elif win_prob >= 55.0 and expected_return >= 4.0:
+        return '🟢'
+    elif win_prob >= 52.0 and expected_return >= 1.0:
+        return '🟡'
+    elif win_prob <= 40.0 and expected_return <= -8.0:
+        return '🧊'
+    elif win_prob <= 45.0 and expected_return <= -4.0:
+        return '🔴'
+    elif win_prob <= 48.0 and expected_return <= -1.0:
+        return '🟠'
+    return '⚪'
 
 
 # ====================================================
@@ -607,11 +628,13 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
         height=650 if not show_indicators else 850,
         showlegend=False,
         hovermode='x unified',
+        dragmode=False,
         margin=dict(l=10, r=10, t=10, b=30)
     )
     fig.update_xaxes(range=[view_start, df_daily.index[-1]], row=3, col=1)
 
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, use_container_width=True,
+                     config={'scrollZoom': False, 'displayModeBar': False})
 
 
 # ====================================================
@@ -627,7 +650,10 @@ def main():
     RADIO_OPTIONS = TARGET_TICKERS + ["✏️ 직접 입력"]
     radio_choice = st.radio(
         "분석 종목", RADIO_OPTIONS, horizontal=True, label_visibility="collapsed",
-        format_func=lambda t: display_name(t) if t != "✏️ 직접 입력" else t
+        format_func=lambda t: (
+            t if t == "✏️ 직접 입력"
+            else f"{display_name(t)}{st.session_state.ticker_signals.get(t, '')}"
+        )
     )
 
     if radio_choice == "✏️ 직접 입력":
@@ -679,6 +705,8 @@ def main():
 
     # 요약 카드
     z_score_now = float(df_daily['Z_Score'].iloc[-1]) if 'Z_Score' in df_daily.columns and not df_daily['Z_Score'].isna().all() else None
+    # 분석 결과를 라디오 버튼 이모지용으로 저장
+    st.session_state.ticker_signals[selected_ticker] = get_action_emoji(win_prob, expected_return)
     render_summary_card(selected_ticker, beta, avg_cycle, win_prob, sell_prob, expected_return, z_score_now)
 
     # 차트
