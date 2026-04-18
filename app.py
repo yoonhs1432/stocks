@@ -186,22 +186,15 @@ def add_filled_blocks(fig, df, y_col, condition, color, row, col, baseline_y):
 # ====================================================
 def main():
     with st.sidebar:
-        # 💡 [Req] 실시간 데이터 새로고침 -> Refresh
-        if st.button("Refresh", use_container_width=True):
-            st.cache_data.clear()
-            st.rerun()
-            
         st.markdown("### 📊 종목 및 뷰어 옵션")
-        selected_ticker = st.selectbox("🎯 분석할 종목", TARGET_TICKERS)
+        selected_ticker = st.sidebar.radio("🎯 분석할 종목", TARGET_TICKERS, horizontal=True)
         
         st.markdown("### ⚙️ 분석 파라미터 조절")
         train_start = st.text_input("학습 시작 (YYYY-MM)", "2021-01")
         train_end = st.text_input("학습 종료 (YYYY-MM)", "2026-03")
         view_months = st.number_input("차트 조회 기간 (최근 N개월)", min_value=1, max_value=240, value=12, step=1)
-        guide_n = st.number_input("가이드라인 기울기 (n)", min_value=1, max_value=20, value=4, step=1)
         
-        # 💡 [Req] 보조지표 표시 체크박스를 파라미터 조절 항목 안으로 이동
-        show_indicators = st.checkbox("MACD&RSI 표시", value=False)
+        guide_n = st.number_input("가이드라인 기울기 (n)", min_value=1, max_value=20, value=4, step=1)
         
         fetch_start_date = f"{train_start}-01"
         df_close = fetch_all_data(TARGET_TICKERS, fetch_start_date)
@@ -215,10 +208,12 @@ def main():
             selected_cycle = 60
 
         st.markdown("---")
+        show_indicators = st.checkbox("MACD&RSI 표시", value=False)
+        
+        st.markdown("---")
         st.markdown("### 📝 매매 기록 관리")
         
-        # 💡 [Req] 새로운 기록 추가 -> Add
-        with st.expander("➕ Add"):
+        with st.expander("➕ 새로운 기록 추가"):
             t_ticker = st.selectbox("종목", TARGET_TICKERS, index=TARGET_TICKERS.index(selected_ticker))
             t_date = st.date_input("날짜", datetime.date.today())
             t_type = st.radio("종류", ['buy', 'sell'], horizontal=True)
@@ -229,8 +224,7 @@ def main():
                 st.success("저장 완료!")
                 st.rerun()
 
-        # 💡 [Req] 기존 기록 삭제 -> Delete
-        with st.expander("🗑️ Delete"):
+        with st.expander("🗑️ 기존 기록 삭제"):
             if selected_ticker in TRADE_HISTORY and TRADE_HISTORY[selected_ticker]:
                 for i, record in enumerate(TRADE_HISTORY[selected_ticker]):
                     cols = st.columns([3, 2, 1])
@@ -256,8 +250,8 @@ def main():
         res = process_asset_data(df_x, df_y, X_ASSET_FIXED, selected_ticker, selected_cycle, train_end_date)
         df_processed, df_daily, beta, win_prob, sell_prob, expected_return, avg_cycle, std_resid = res
 
-    # 💡 [Req] 타이틀 변경: {티커} 주가 분석 프로그램
-    st.markdown(f"#### 📈 {selected_ticker} 주가 분석 프로그램")
+    # UI 상단 컴팩트 요약 카드 
+    st.markdown(f"#### 📈 {selected_ticker} 퀀트 대시보드")
     
     if win_prob is not None and expected_return is not None:
         if win_prob >= 60.0 and expected_return >= 8.0: action, color = "🔥 적극 매수", "#1e8449"
@@ -274,10 +268,11 @@ def main():
         action, color, win_prob, expected_return = "데이터 부족", "gray", 0, 0
         wp_color, ev_color = "black", "black"
 
-    cols = st.columns(6, gap="small") 
+    cols = st.columns(6) 
     def small_metric(label, value, val_color="black"):
-        return f"<div style='text-align: center; padding: 2px; white-space: nowrap;'><div style='font-size: 13px; color: gray; margin-bottom: 2px;'>{label}</div><div style='font-size: 16px; font-weight: bold; color: {val_color};'>{value}</div></div>"
+        return f"<div style='text-align: center; padding: 5px;'><div style='font-size: 13px; color: gray; margin-bottom: 2px;'>{label}</div><div style='font-size: 17px; font-weight: bold; color: {val_color};'>{value}</div></div>"
 
+    # 💡 [Req] 요약 카드 이름 심플하게 변경
     cols[0].markdown(small_metric("티커", selected_ticker, "#2c3e50"), unsafe_allow_html=True)
     cols[1].markdown(small_metric("투자 의견", action, color), unsafe_allow_html=True)
     cols[2].markdown(small_metric("승률", f"{win_prob:.1f}%" if win_prob else "N/A", wp_color), unsafe_allow_html=True)
@@ -288,6 +283,7 @@ def main():
     # ====================================================
     # 5. 동적 그래프 그리기 
     # ====================================================
+    # 💡 [Req] 1번째 산점도와 2번째 차트가 겹치지 않도록 'spacer(투명 공백 줄)' 삽입
     active_plots = ['main', 'spacer', 'price', 'win_prob', 'ev']
     row_heights = [0.35, 0.06, 0.2, 0.12, 0.12]
 
@@ -295,8 +291,7 @@ def main():
         active_plots.extend(['macd', 'rsi'])
         row_heights.extend([0.12, 0.12])
 
-    # 💡 [Req] 2,3,4 그래프 침범 방지를 위해 vertical_spacing을 0.02 -> 0.04로 조정
-    fig = make_subplots(rows=len(active_plots), cols=1, row_heights=row_heights, vertical_spacing=0.04)
+    fig = make_subplots(rows=len(active_plots), cols=1, row_heights=row_heights, vertical_spacing=0.02)
     current_row = 1
     total_rows = len(active_plots)
 
@@ -311,22 +306,14 @@ def main():
     min_y_val_main = df_daily[f'{selected_ticker}_Norm'].min()
     max_y_val_main = df_daily[f'{selected_ticker}_Norm'].max()
 
-    x_range = [np.log10(min_x_val_main * 0.98), np.log10(max_x_val_main * 1.02)]
-    y_range = [np.log10(min_y_val_main * 0.90), np.log10(max_y_val_main * 1.10)]
-
-    y_limit_bottom = 10 ** (y_range[0] - 0.2)
-    y_limit_top = 10 ** (y_range[1] + 0.2)
-
     empirical_c = df_daily[f'{selected_ticker}_Norm'] / (df_daily[f'{X_ASSET_FIXED}_Norm'] ** guide_n)
     log_c_min, log_c_max = np.log10(empirical_c.min()), np.log10(empirical_c.max())
     
     for log_c in np.linspace(log_c_min - 1.0, log_c_max + 1.0, 15): 
         c_val = 10 ** log_c
         y_guide = c_val * (x_vals ** guide_n)
-        y_guide_clipped = np.where((y_guide > y_limit_bottom) & (y_guide < y_limit_top), y_guide, np.nan)
-        
         fig.add_trace(go.Scatter(
-            x=x_vals, y=y_guide_clipped, mode='lines', 
+            x=x_vals, y=y_guide, mode='lines', 
             line=dict(color='rgba(200, 200, 200, 0.6)', width=1, dash='dot'), 
             showlegend=False, hoverinfo='skip'), row=current_row, col=1)
 
@@ -356,19 +343,22 @@ def main():
         marker=dict(symbol='star', color='hotpink', size=16, line=dict(color='black', width=1)),
         name='Current Position'), row=current_row, col=1)
     
+    x_range = [np.log10(min_x_val_main * 0.98), np.log10(max_x_val_main * 1.02)]
+    y_range = [np.log10(min_y_val_main * 0.90), np.log10(max_y_val_main * 1.10)]
+
     fig.update_xaxes(type="log", title_text="", showgrid=False, range=x_range, row=current_row, col=1)
     fig.update_yaxes(type="log", title_text=f"{selected_ticker}", showgrid=False, range=y_range, row=current_row, col=1)
     current_row += 1
 
     # ----------------------------------------
-    # [2] Spacer Row
+    # [2] Spacer Row (축 끄기)
     # ----------------------------------------
     fig.update_xaxes(visible=False, row=current_row, col=1)
     fig.update_yaxes(visible=False, row=current_row, col=1)
     current_row += 1
 
     # ----------------------------------------
-    # [3] Price (View-based Re-normalization)
+    # 💡 [Req] 조회 기간 기준 Re-normalization 처리
     # ----------------------------------------
     view_start_date = df_daily.index[-1] - pd.DateOffset(months=view_months)
     view_df = df_daily[df_daily.index >= view_start_date]
@@ -382,6 +372,9 @@ def main():
     df_daily['Plot_Norm_SPY'] = df_daily[f'{X_ASSET_FIXED}_Norm'] / base_spy_view
     df_daily['Plot_Norm_Ticker'] = df_daily[f'{selected_ticker}_Norm'] / base_ticker_view
 
+    # ----------------------------------------
+    # [3] Price (재정규화된 값 사용)
+    # ----------------------------------------
     fig.add_trace(go.Scatter(
         x=df_daily.index, y=df_daily['Plot_Norm_SPY'],
         mode='lines', line=dict(color='gray', width=1.5), name=f'{X_ASSET_FIXED}'), row=current_row, col=1)
@@ -390,6 +383,7 @@ def main():
         x=df_daily.index, y=df_daily['Plot_Norm_Ticker'],
         mode='lines', line=dict(color='black', width=1.5), name=f'{selected_ticker}'), row=current_row, col=1)
     
+    # y축 range 설정을 뷰(view) 기간 내의 min/max로 계산
     min_price_val = df_daily.loc[df_daily.index >= view_start_date, ['Plot_Norm_SPY', 'Plot_Norm_Ticker']].min().min()
     max_price_val = df_daily.loc[df_daily.index >= view_start_date, ['Plot_Norm_SPY', 'Plot_Norm_Ticker']].max().max()
     price_baseline = min_price_val * 0.95 
@@ -467,29 +461,39 @@ def main():
             x_val = df_daily.loc[d_date, f'{X_ASSET_FIXED}_Norm']
             y_val_main = df_daily.loc[d_date, f'{selected_ticker}_Norm']
             
+            # 첫 번째 그래프(Main)에 마커 표시
             fig.add_trace(go.Scatter(
                 x=[x_val], y=[y_val_main], mode='markers',
                 marker=dict(symbol=marker_symbol, size=10, color=marker_color, line=dict(width=1, color='black')),
                 name=f"{t_type.upper()} ({t_date.date()})"
             ), row=1, col=1)
             
+            # 아래 시계열 차트들(Price ~ 보조지표)에 수직선 표시 (spacer 제외)
             for r in range(3, total_rows + 1):
                 fig.add_vline(x=t_date, line_dash="dash", line_color=marker_color, opacity=0.6, row=r, col=1)
 
+    # ====================================================
+    # 💡 [Req] 테두리 및 축 표시 정밀 조정
+    # ====================================================
+    # 1. 모든 플롯 테두리 ON
     fig.update_xaxes(showline=True, linewidth=1, linecolor='black', mirror=True)
     fig.update_yaxes(showline=True, linewidth=1, linecolor='black', mirror=True)
 
+    # 2. Spacer row (2번째 줄) 테두리 OFF 복구
     fig.update_xaxes(visible=False, row=2, col=1)
     fig.update_yaxes(visible=False, row=2, col=1)
 
+    # 3. Time Series 그래프들의 X축 레이블 숨김 (마지막 하나만 표시)
     for r in range(3, total_rows):
         fig.update_xaxes(showticklabels=False, tickformat="%y/%m/%d", row=r, col=1)
     
+    # 4. 맨 마지막 그래프 X축 레이블 표시 적용
     fig.update_xaxes(showticklabels=True, tickformat="%y/%m/%d", row=total_rows, col=1)
 
     total_chart_height = 650 if not show_indicators else 850
     fig.update_layout(height=total_chart_height, showlegend=False, hovermode='x unified', margin=dict(l=10, r=10, t=10, b=30))
 
+    # X축 보기 기간 설정 (Price 차트 기준, row=3으로 조정됨)
     fig.update_xaxes(range=[view_start_date, df_daily.index[-1]], row=3, col=1)
 
     st.plotly_chart(fig, use_container_width=True)
