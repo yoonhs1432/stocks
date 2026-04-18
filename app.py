@@ -448,7 +448,7 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
 
     # 각 서브플롯 목표 높이(px) — 고정값으로 관리
     # main:160  spacer:6  price:115  win_prob:85  ev:85  → 합계 451px
-    PX = {'main': 160, 'spacer': 6, 'price': 115, 'win_prob': 85, 'ev': 85,
+    PX = {'main': 140, 'spacer': 25, 'price': 100, 'win_prob': 80, 'ev': 80,
           'macd': 80, 'rsi': 80}
     active_plots = ['main', 'spacer', 'price', 'win_prob', 'ev']
     if show_indicators:
@@ -456,7 +456,7 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     total_rows = len(active_plots)
     total_h = sum(PX[p] for p in active_plots)
     row_heights = [PX[p] / total_h for p in active_plots]
-    fig = make_subplots(rows=total_rows, cols=1, row_heights=row_heights, vertical_spacing=0.008)
+    fig = make_subplots(rows=total_rows, cols=1, row_heights=row_heights, vertical_spacing=0.02)
     current_row = 1
 
     # ── [1] Main scatter (로그-로그) ──
@@ -776,7 +776,7 @@ def main():
     /* 두 컬럼 항상 가로 배치 (모바일 포함) */
     div[data-testid="stHorizontalBlock"] {{
         flex-wrap: nowrap !important;
-        gap: 0px !important;
+        gap: 5px !important;
         align-items: flex-start !important;
     }}
     /* 버튼 컬럼: 좁게 고정, 패딩 제거 */
