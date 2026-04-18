@@ -5,6 +5,8 @@ import pandas as pd
 import json
 import os
 from sklearn.linear_model import LinearRegression, LogisticRegression, Ridge
+from sklearn.preprocessing import StandardScaler
+from sklearn.ensemble import GradientBoostingClassifier, GradientBoostingRegressor
 import FinanceDataReader as fdr
 import streamlit as st
 import plotly.graph_objects as go
@@ -51,6 +53,8 @@ def init_session_state() -> None:
         st.session_state.ticker_signals = {}  # {ticker: emoji}
     if 'selected_option' not in st.session_state:
         st.session_state.selected_option = TARGET_TICKERS[0]
+    if 'model_type' not in st.session_state:
+        st.session_state.model_type = 'linear'
 def get_action_emoji(win_prob, expected_return) -> str:
     """승률·기대수익으로 투자의견 이모지만 반환."""
     if win_prob is None or expected_return is None:
@@ -179,7 +183,7 @@ def _compute_normalized(df: pd.DataFrame, x_name: str, y_name: str) -> pd.DataFr
     df['Predicted'] = np.exp(model.intercept_) * df[f'{x_name}_Norm'] ** beta
     return df, beta, model
 def _compute_indicators(df: pd.DataFrame, y_name: str) -> pd.DataFrame:
-    """RSI / MACD / Z-Score 계산."""
+    """RSI / MACD / Z-Score / Vol_21 / Mom_60 계산."""
     df = df.copy()
     close = df[f'{y_name}_Close']
     # RSI
@@ -187,16 +191,22 @@ def _compute_indicators(df: pd.DataFrame, y_name: str) -> pd.DataFrame:
     gain = delta.where(delta > 0, 0).ewm(alpha=1 / 14, adjust=False).mean()
     loss = (-delta.where(delta < 0, 0)).ewm(alpha=1 / 14, adjust=False).mean()
     df['RSI'] = 100 - (100 / (1 + gain / loss))
-    # MACD
+    # MACD (차트 표시용 유지, ML 피처에서는 제외)
     ema12 = close.ewm(span=12, adjust=False).mean()
     ema26 = close.ewm(span=26, adjust=False).mean()
     df['MACD'] = ema12 - ema26
     df['MACD_Signal'] = df['MACD'].ewm(span=9, adjust=False).mean()
     df['MACD_Hist'] = df['MACD'] - df['MACD_Signal']
-    # Z-Score (잔차 기준)
+    # Z-Score — expanding std로 lookahead 제거
+    # (std_resid는 차트 ±1.5σ 밴드용으로 전체 기간 기준 유지)
     log_resid = np.log(df[f'{y_name}_Norm']) - np.log(df['Predicted'])
     std_resid = log_resid.std()
-    df['Z_Score'] = log_resid / std_resid
+    expanding_std = log_resid.expanding(min_periods=30).std()
+    df['Z_Score'] = log_resid / expanding_std.replace(0, np.nan)
+    # 21일 실현변동성 (일간 수익률 std, %)
+    df['Vol_21'] = close.pct_change().rolling(window=21, min_periods=10).std() * 100
+    # 60일 모멘텀 (%) — RSI와 시간축이 달라 정보 중복 낮음
+    df['Mom_60'] = close.pct_change(60) * 100
     return df, std_resid
 def _compute_targets(df: pd.DataFrame, y_name: str, selected_cycle: int) -> pd.DataFrame:
     """미래 평균 가격 기반 Target / Target_Return 계산."""
@@ -212,32 +222,55 @@ def _compute_targets(df: pd.DataFrame, y_name: str, selected_cycle: int) -> pd.D
         (df['Future_Avg_Price'] / df[f'{y_name}_Norm'] - 1) * 100
     )
     return df
-def _train_and_predict(df: pd.DataFrame, train_end_date) -> tuple:
-    """ML 학습 및 예측. (win_prob, sell_prob, expected_return) 반환."""
+def _train_and_predict(df: pd.DataFrame, train_end_date,
+                       model_type: str = 'linear') -> tuple:
+    """ML 학습 및 예측.
+    model_type: 'linear' → LogisticRegression + Ridge (StandardScaler 적용)
+                'gbm'    → GradientBoostingClassifier + GradientBoostingRegressor
+    """
     for col in ['Win_Prob', 'Sell_Prob', 'Expected_Return']:
         df[col] = np.nan
-    features = ['Z_Score', 'RSI', 'MACD_Hist']
+    # Z_Score·RSI(단기 역추세/모멘텀) + Vol_21(변동성 레짐) + Mom_60(중기 모멘텀)
+    features = ['Z_Score', 'RSI', 'Vol_21', 'Mom_60']
     ml_df = df[features + ['Target', 'Target_Return']].dropna()
     train_df = ml_df.loc[:train_end_date]
     win_prob = sell_prob = expected_return = None
     if len(train_df) > 30:
-        X_tr = train_df[features]
-        clf = LogisticRegression(class_weight='balanced').fit(X_tr, train_df['Target'])
-        reg = Ridge(alpha=1.0).fit(X_tr, train_df['Target_Return'])
+        X_tr = train_df[features].values
+        y_clf = train_df['Target'].values
+        y_reg = train_df['Target_Return'].values
+        if model_type == 'linear':
+            scaler = StandardScaler()
+            X_tr_fit = scaler.fit_transform(X_tr)
+            clf = LogisticRegression(class_weight='balanced').fit(X_tr_fit, y_clf)
+            reg = Ridge(alpha=1.0).fit(X_tr_fit, y_reg)
+        else:  # 'gbm'
+            scaler = None
+            X_tr_fit = X_tr
+            clf = GradientBoostingClassifier(
+                n_estimators=400, max_depth=2, learning_rate=0.01,
+                subsample=0.7, min_samples_leaf=20, random_state=42
+            ).fit(X_tr_fit, y_clf)
+            reg = GradientBoostingRegressor(
+                n_estimators=400, max_depth=2, learning_rate=0.01,
+                subsample=0.7, min_samples_leaf=20, random_state=42
+            ).fit(X_tr_fit, y_reg)
         valid_idx = df.dropna(subset=features).index
-        feat_valid = df.loc[valid_idx, features]
-        if not feat_valid.empty:
-            probs = clf.predict_proba(feat_valid)
+        feat_valid = df.loc[valid_idx, features].values
+        if len(feat_valid) > 0:
+            X_valid = scaler.transform(feat_valid) if scaler else feat_valid
+            probs = clf.predict_proba(X_valid)
             df.loc[valid_idx, 'Win_Prob'] = probs[:, 1] * 100
             df.loc[valid_idx, 'Sell_Prob'] = probs[:, 0] * 100
             win_prob, sell_prob = probs[-1, 1] * 100, probs[-1, 0] * 100
-            evs = reg.predict(feat_valid)
+            evs = reg.predict(X_valid)
             df.loc[valid_idx, 'Expected_Return'] = evs
             expected_return = evs[-1]
     return df, win_prob, sell_prob, expected_return
 def process_asset_data(df_x: pd.DataFrame, df_y: pd.DataFrame,
                        x_name: str, y_name: str,
-                       selected_cycle: int, train_end_date) -> tuple:
+                       selected_cycle: int, train_end_date,
+                       model_type: str = 'linear') -> tuple:
     """전체 처리 파이프라인 조합."""
     df = pd.merge(df_x, df_y, left_index=True, right_index=True).dropna().sort_index()
     if df.empty:
@@ -246,7 +279,8 @@ def process_asset_data(df_x: pd.DataFrame, df_y: pd.DataFrame,
     df_daily = df.copy()
     df_daily, std_resid = _compute_indicators(df_daily, y_name)
     df_daily = _compute_targets(df_daily, y_name, selected_cycle)
-    df_daily, win_prob, sell_prob, expected_return = _train_and_predict(df_daily, train_end_date)
+    df_daily, win_prob, sell_prob, expected_return = _train_and_predict(
+        df_daily, train_end_date, model_type)
     return df, df_daily, beta, win_prob, sell_prob, expected_return, selected_cycle, std_resid
 # ====================================================
 # 6. 차트 헬퍼
@@ -295,6 +329,26 @@ def render_sidebar(df_close: pd.DataFrame, selected_ticker: str) -> dict:
         st.markdown("---")
         show_indicators = st.checkbox("MACD&RSI 표시", value=False)
         st.markdown("---")
+        st.markdown("### 🤖 ML 모델 선택")
+        _model_options = ['linear', 'gbm']
+        _model_idx = _model_options.index(
+            st.session_state.get('model_type', 'linear')
+        )
+        model_type = st.radio(
+            "모델",
+            options=_model_options,
+            format_func=lambda x: (
+                '선형 모델 (기본)' if x == 'linear' else '그래디언트 부스팅'
+            ),
+            index=_model_idx,
+            label_visibility="collapsed"
+        )
+        # 변경 즉시 session_state에 저장 → 종목 변경 후 rerun에서도 유지
+        st.session_state.model_type = model_type
+        if model_type == 'gbm':
+            st.caption("⚠️ 분석 시간이 다소 길어질 수 있습니다.\n\n"
+                       "종목 버튼 이모지는 항상 선형 모델 기준으로 표시됩니다.")
+        st.markdown("---")
         st.markdown("### 📝 매매 기록 관리")
         # 기록 추가
         with st.expander("➕ 새로운 기록 추가"):
@@ -335,6 +389,7 @@ def render_sidebar(df_close: pd.DataFrame, selected_ticker: str) -> dict:
         'guide_n': guide_n,
         'selected_cycle': selected_cycle,
         'show_indicators': show_indicators,
+        'model_type': model_type,
     }
 # ====================================================
 # 8. 요약 카드
@@ -576,8 +631,8 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
                 name=f"{t_type.upper()} ({t_date.date()})"
             ), row=1, col=1)
             for r in range(3, total_rows + 1):
-                fig.add_vline(x=t_date, line_dash="dash",
-                              line_color=marker_color, opacity=0.6, row=r, col=1)
+                fig.add_vline(x=t_date, line_dash="solid", line_width=0.8,
+                              line_color=marker_color, opacity=0.5, row=r, col=1)
     # ── 축 스타일 정리 ──
     fig.update_xaxes(showline=True, linewidth=1, linecolor='black', mirror=True)
     fig.update_yaxes(showline=True, linewidth=1, linecolor='black', mirror=True)
@@ -614,11 +669,16 @@ def main():
         all_signals = compute_all_signals(df_close, default_train_end)
 
     # 제목과 데이터 기준일을 한 줄에 배치
-    last_date_str = df_close.index[-1].strftime('%Y년 %m월 %d일 %H:%M') if not df_close.empty else "알 수 없음"
+    KST = datetime.timezone(datetime.timedelta(hours=9))
+    last_date_str = df_close.index[-1].strftime('%Y-%m-%d') if not df_close.empty else "알 수 없음"
+    queried_at_str = datetime.datetime.now(KST).strftime('%Y-%m-%d %H:%M')
     st.markdown(
-        f"<div style='display:flex;align-items:baseline;gap:12px;margin-bottom:4px;'>"
+        f"<div style='display:flex;align-items:center;gap:12px;margin-bottom:4px;'>"
         f"<span style='font-size:1.4rem;font-weight:700;'>📊 퀀트 대시보드</span>"
-        f"<span style='font-size:11px;color:#aaa;'>데이터 기준일: {last_date_str}</span>"
+        f"<span style='font-size:11px;color:#aaa;line-height:1.6;'>"
+        f"데이터 기준일: {last_date_str}<br>"
+        f"조회 시각: {queried_at_str}"
+        f"</span>"
         f"</div>",
         unsafe_allow_html=True
     )
@@ -758,7 +818,8 @@ def main():
         df_y = df_close[[f'{selected_ticker}_Close']]
         res = process_asset_data(
             df_x, df_y, X_ASSET_FIXED, selected_ticker,
-            cfg['selected_cycle'], train_end_date
+            cfg['selected_cycle'], train_end_date,
+            st.session_state.get('model_type', 'linear')
         )
     df_processed, df_daily, beta, win_prob, sell_prob, expected_return, avg_cycle, std_resid = res
     if df_daily is None:
