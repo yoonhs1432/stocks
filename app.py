@@ -366,29 +366,29 @@ def render_summary_card(selected_ticker: str, beta: float, avg_cycle: int,
         wp_str = ev_str = "N/A"
     def metric_html(label: str, value: str, val_color: str) -> str:
         return (
-            f"<div style='text-align:center;padding:4px 8px;flex:1 1 0;min-width:0;'>"
-            f"<div style='font-size:10px;color:#aaa;margin-bottom:2px;white-space:nowrap;"
+            f"<div style='text-align:center;padding:2px 4px;flex:1 1 0;min-width:0;'>"
+            f"<div style='font-size:9px;color:#aaa;margin-bottom:1px;white-space:nowrap;"
             f"text-transform:uppercase;letter-spacing:0.04em;'>{label}</div>"
-            f"<div style='font-size:14px;font-weight:700;color:{val_color};white-space:nowrap;'>{value}</div>"
+            f"<div style='font-size:13px;font-weight:700;color:{val_color};white-space:nowrap;'>{value}</div>"
             f"</div>"
         )
     metrics_row = (
         "display:flex;flex-wrap:nowrap;justify-content:space-around;"
-        "align-items:center;overflow-x:auto;-webkit-overflow-scrolling:touch;padding:4px 0;"
+        "align-items:center;overflow-x:auto;-webkit-overflow-scrolling:touch;padding:2px 0;"
     )
     z_val = f"{z_score:+.2f}" if z_score is not None else "N/A"
     z_color = ("#e74c3c" if z_score is not None and z_score >= 1.5
                else "#2980b9" if z_score is not None and z_score <= -1.5
                else "#2c3e50")
     card_html = (
-        "<div style='border:1px solid #e0e0e0;border-radius:12px;padding:10px 8px 8px;'>"
+        "<div style='border:1px solid #e0e0e0;border-radius:10px;padding:7px 6px 5px;'>"
         # ── 투자 의견 (크게 강조) ──
-        "<div style='text-align:center;padding:2px 0 6px;'>"
-        "<div style='font-size:10px;color:#aaa;margin-bottom:4px;"
+        "<div style='text-align:center;padding:0 0 4px;'>"
+        "<div style='font-size:9px;color:#aaa;margin-bottom:2px;"
         "text-transform:uppercase;letter-spacing:0.06em;'>투자 의견</div>"
-        f"<div style='font-size:24px;font-weight:800;color:{color};line-height:1.2;'>{action}</div>"
+        f"<div style='font-size:20px;font-weight:800;color:{color};line-height:1.2;'>{action}</div>"
         "</div>"
-        "<hr style='margin:4px 8px 2px;border:none;border-top:1px solid #f0f0f0;'>"
+        "<hr style='margin:3px 6px 2px;border:none;border-top:1px solid #f0f0f0;'>"
         # ── 보조 지표 (작게) ──
         f"<div style='{metrics_row}'>"
         + metric_html("승률", wp_str, wp_color)
@@ -412,15 +412,6 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     /* 세로 스크롤은 브라우저에 위임, 가로 스와이프만 Plotly가 처리 */
     .js-plotly-plot, .js-plotly-plot .plotly, .js-plotly-plot svg {
         touch-action: pan-y !important;
-    }
-    /* 모바일에서 차트 최대 높이 제한 */
-    @media screen and (max-width: 768px) {
-        .js-plotly-plot {
-            max-height: 480px !important;
-        }
-        .js-plotly-plot .plotly {
-            max-height: 480px !important;
-        }
     }
     </style>
     """, unsafe_allow_html=True)
@@ -596,7 +587,7 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
         fig.update_xaxes(showticklabels=False, tickformat="%y/%m/%d", row=r, col=1)
     fig.update_xaxes(showticklabels=True, tickformat="%y/%m/%d", row=total_rows, col=1)
     fig.update_layout(
-        height=600 if not show_indicators else 800,
+        height=560 if not show_indicators else 760,
         showlegend=False,
         hovermode='x unified',
         dragmode=False,
@@ -623,7 +614,7 @@ def main():
         all_signals = compute_all_signals(df_close, default_train_end)
 
     # 제목과 데이터 기준일을 한 줄에 배치
-    last_date_str = df_close.index[-1].strftime('%Y년 %m월 %d일') if not df_close.empty else "알 수 없음"
+    last_date_str = df_close.index[-1].strftime('%Y년 %m월 %d일 %H:%M') if not df_close.empty else "알 수 없음"
     st.markdown(
         f"<div style='display:flex;align-items:baseline;gap:12px;margin-bottom:4px;'>"
         f"<span style='font-size:1.4rem;font-weight:700;'>📊 퀀트 대시보드</span>"
@@ -650,18 +641,23 @@ def main():
         st.session_state.selected_option = all_options[0]
 
     # ── 격자(표) 형태 버튼 렌더링 (직접 입력 제외) ──
-    # 열 수를 고정해 수직 선 정렬을 보장한다.
-    N_COLS = 6
+    # 데스크탑 8열(16종목 → 2행), 모바일 4열(→ 4행) 로 컴팩트하게 배치
+    N_COLS = 8
     st.markdown("""
     <style>
-    /* 버튼 높이·폰트 통일 */
+    /* 버튼 높이·폰트 소형화 */
     div[data-testid="stHorizontalBlock"] button {
-        height: 2.4rem;
-        padding: 0 4px;
-        font-size: 0.82rem;
+        height: 1.5rem;
+        padding: 0 2px;
+        font-size: 0.72rem;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
+    }
+    /* 직접 입력 full-width 버튼도 같은 높이 */
+    div[data-testid="stVerticalBlock"] > div > button {
+        height: 1.5rem !important;
+        font-size: 0.72rem !important;
     }
     /* 선택 버튼 파란색 (primary 빨강이 매도 이모지와 혼동되므로) */
     button[kind="primary"] {
@@ -673,16 +669,16 @@ def main():
         background-color: #0D47A1 !important;
         border-color: #0D47A1 !important;
     }
-    /* 모바일: 단일열 스택 방지 → 3열 고정 */
+    /* 모바일: 단일열 스택 방지 → 4열 고정 */
     @media screen and (max-width: 768px) {
         div[data-testid="stHorizontalBlock"] {
             flex-wrap: wrap !important;
-            gap: 4px !important;
+            gap: 3px !important;
         }
         div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"] {
-            flex: 0 0 calc(33.333% - 4px) !important;
-            min-width: calc(33.333% - 4px) !important;
-            max-width: calc(33.333% - 4px) !important;
+            flex: 0 0 calc(25% - 3px) !important;
+            min-width: calc(25% - 3px) !important;
+            max-width: calc(25% - 3px) !important;
             padding-left: 0 !important;
             padding-right: 0 !important;
         }
@@ -743,7 +739,8 @@ def main():
     if not selected_ticker:
         st.info("분석할 티커를 입력해 주세요.")
         return
-    st.markdown("---")
+    st.markdown("<hr style='margin:6px 0;border:none;border-top:1px solid #e0e0e0;'>",
+                unsafe_allow_html=True)
     # 커스텀 티커는 별도 fetch 후 병합
     if f'{selected_ticker}_Close' not in df_close.columns:
         with st.spinner(f"{selected_ticker} 데이터를 불러오는 중..."):
