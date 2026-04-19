@@ -414,35 +414,38 @@ def render_sidebar(df_close: pd.DataFrame, selected_ticker: str) -> dict:
             st.caption(f"☁️ Gist 연동됨 (`{_gid[:8]}...`)")
         else:
             st.caption("💾 로컬 저장 (Gist 미설정)")
-        with st.expander("➕ 새로운 기록 추가"):
-            ticker_options = TARGET_TICKERS if selected_ticker in TARGET_TICKERS \
-                else [selected_ticker] + TARGET_TICKERS
-            default_idx = ticker_options.index(selected_ticker)
-            t_ticker = st.selectbox("종목", ticker_options, index=default_idx)
-            t_date = st.date_input("날짜", datetime.date.today())
-            t_type = st.radio("종류", ['buy', 'sell'], horizontal=True)
-            if st.button("기록 저장"):
-                if t_ticker not in st.session_state.trade_history:
-                    st.session_state.trade_history[t_ticker] = []
-                st.session_state.trade_history[t_ticker].append(
-                    {'date': t_date.strftime("%Y-%m-%d"), 'type': t_type}
-                )
-                save_trade_history(st.session_state.trade_history)
-                st.success("저장 완료!")
-                st.rerun()
-        with st.expander("🗑️ 기존 기록 삭제"):
-            history = st.session_state.trade_history
-            if selected_ticker in history and history[selected_ticker]:
-                for i, record in enumerate(history[selected_ticker]):
-                    cols = st.columns([3, 2, 1])
-                    cols[0].write(record['date'])
-                    cols[1].write(record['type'].upper())
-                    if cols[2].button("🗑️", key=f"del_{selected_ticker}_{i}"):
-                        st.session_state.trade_history[selected_ticker].pop(i)
-                        save_trade_history(st.session_state.trade_history)
-                        st.rerun()
-            else:
-                st.info("매매 기록이 없습니다.")
+
+        st.markdown("**➕ 새로운 기록 추가**")
+        ticker_options = TARGET_TICKERS if selected_ticker in TARGET_TICKERS \
+            else [selected_ticker] + TARGET_TICKERS
+        default_idx = ticker_options.index(selected_ticker)
+        t_ticker = st.selectbox("종목", ticker_options, index=default_idx)
+        t_date = st.date_input("날짜", datetime.date.today())
+        t_type = st.radio("종류", ['buy', 'sell'], horizontal=True)
+        if st.button("기록 저장"):
+            if t_ticker not in st.session_state.trade_history:
+                st.session_state.trade_history[t_ticker] = []
+            st.session_state.trade_history[t_ticker].append(
+                {'date': t_date.strftime("%Y-%m-%d"), 'type': t_type}
+            )
+            save_trade_history(st.session_state.trade_history)
+            st.success("저장 완료!")
+            st.rerun()
+
+        st.markdown("---")
+        st.markdown("**🗑️ 기존 기록 삭제**")
+        history = st.session_state.trade_history
+        if selected_ticker in history and history[selected_ticker]:
+            for i, record in enumerate(history[selected_ticker]):
+                cols = st.columns([3, 2, 1])
+                cols[0].write(record['date'])
+                cols[1].write(record['type'].upper())
+                if cols[2].button("🗑️", key=f"del_{selected_ticker}_{i}"):
+                    st.session_state.trade_history[selected_ticker].pop(i)
+                    save_trade_history(st.session_state.trade_history)
+                    st.rerun()
+        else:
+            st.info("매매 기록이 없습니다.")
     return {
         'train_start': train_start,
         'train_end': train_end,
@@ -726,22 +729,6 @@ def main():
     default_start = "2021-01-01"
     default_train_end = "2026-03"
 
-    # ── 제목: 항상 맨 위에 표시 ──
-    # session_state에 캐시된 날짜를 사용하므로 spinner 중에도 사라지지 않음
-    KST = datetime.timezone(datetime.timedelta(hours=9))
-    queried_at = datetime.datetime.now(KST).strftime('%Y-%m-%d %H:%M')
-    cached_date = st.session_state.get('last_data_date', '')
-    date_part = f"기준: {cached_date}&nbsp;·&nbsp;" if cached_date else ""
-    st.markdown(
-        f"<div style='display:flex;align-items:center;gap:10px;"
-        f"margin-bottom:3px;padding-bottom:3px;border-bottom:1px solid #f0f0f0;'>"
-        f"<b style='font-size:1.15rem;white-space:nowrap;'>📊 퀀트 대시보드</b>"
-        f"<span style='font-size:10px;color:#bbb;white-space:nowrap;'>"
-        f"{date_part}조회: {queried_at}"
-        f"</span></div>",
-        unsafe_allow_html=True
-    )
-
     # ── 데이터 로드 & 전체 신호 사전 계산 ──
     with st.spinner("데이터 로드 중... (최초 실행 시 수십 초 소요될 수 있습니다)"):
         df_close = fetch_all_data(TARGET_TICKERS, default_start)
@@ -892,6 +879,21 @@ def main():
     </style>
     """
     st.markdown(global_css, unsafe_allow_html=True)
+
+    # ── 제목: CSS 주입 후 렌더링하여 항상 표시 ──
+    KST = datetime.timezone(datetime.timedelta(hours=9))
+    queried_at = datetime.datetime.now(KST).strftime('%Y-%m-%d %H:%M')
+    cached_date = st.session_state.get('last_data_date', '')
+    date_part = f"기준: {cached_date}&nbsp;·&nbsp;" if cached_date else ""
+    st.markdown(
+        f"<div style='display:flex;align-items:center;gap:10px;"
+        f"margin-bottom:3px;padding-bottom:3px;border-bottom:1px solid #ddd;'>"
+        f"<b style='font-size:1.15rem;white-space:nowrap;color:#111;'>📊 퀀트 대시보드</b>"
+        f"<span style='font-size:10px;color:#999;white-space:nowrap;'>"
+        f"{date_part}조회: {queried_at}"
+        f"</span></div>",
+        unsafe_allow_html=True
+    )
 
     # ── 컬러 범례 (한 줄, 컴팩트) ──
     legend_parts = []
