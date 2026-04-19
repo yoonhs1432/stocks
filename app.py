@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import json
 import os
+import requests
 from sklearn.linear_model import LinearRegression, LogisticRegression, Ridge
 from sklearn.preprocessing import StandardScaler
 from sklearn.ensemble import GradientBoostingClassifier, GradientBoostingRegressor
@@ -50,23 +51,75 @@ def safe_key(ticker: str) -> str:
     return ticker.replace('-', '_').replace('.', '_').replace('/', '_')
 
 TRADE_FILE = 'trade_history.json'
+GIST_FILENAME = 'quant_trade_history.json'
+
 # ====================================================
-# 2. 매매 기록 관리 (session_state 기반)
+# 2. 매매 기록 관리
 # ====================================================
+# ── Gist 설정 읽기 ──────────────────────────────────
+# Streamlit Cloud: .streamlit/secrets.toml 에 아래 두 줄 추가
+#   GITHUB_TOKEN = "ghp_xxxxxxxxxxxx"   # GitHub 개인 액세스 토큰 (gist 권한 필요)
+#   GIST_ID      = "abc123def456..."    # 빈 private Gist 를 미리 만들어두고 ID 입력
+#
+# 로컬 실행: 환경변수로 동일하게 전달하거나, 그냥 로컬 JSON 사용 (자동 폴백)
+def _gist_cfg() -> tuple[str, str]:
+    try:
+        token   = st.secrets.get("GITHUB_TOKEN", "") or os.environ.get("GITHUB_TOKEN", "")
+        gist_id = st.secrets.get("GIST_ID", "")      or os.environ.get("GIST_ID", "")
+        return str(token).strip(), str(gist_id).strip()
+    except Exception:
+        return "", ""
+
+def _gist_headers(token: str) -> dict:
+    return {"Authorization": f"token {token}", "Accept": "application/vnd.github+json"}
+
 def load_trade_history() -> dict:
+    """Gist 설정이 있으면 Gist에서 로드, 없으면 로컬 JSON."""
+    token, gist_id = _gist_cfg()
+    if token and gist_id:
+        try:
+            resp = requests.get(
+                f"https://api.github.com/gists/{gist_id}",
+                headers=_gist_headers(token), timeout=6
+            )
+            if resp.ok:
+                files = resp.json().get("files", {})
+                if GIST_FILENAME in files:
+                    content = files[GIST_FILENAME]["content"]
+                    return json.loads(content)
+        except Exception:
+            pass  # 네트워크 오류 시 로컬 폴백
+
+    # ── 로컬 폴백 ──
     if os.path.exists(TRADE_FILE):
         with open(TRADE_FILE, 'r', encoding='utf-8') as f:
             return json.load(f)
-    default = {
-        'BITU': [{'date': '2026-04-01', 'type': 'buy'}, {'date': '2026-04-13', 'type': 'buy'}],
-        'TQQQ': [{'date': '2026-04-01', 'type': 'buy'}]
-    }
-    save_trade_history(default)
-    return default
+    return {}   # 기본값: 빈 딕셔너리 (코드에 하드코딩하지 않음)
 
 def save_trade_history(history: dict) -> None:
+    """로컬 JSON 저장 + Gist 설정이 있으면 Gist에도 동기화."""
+    # 항상 로컬에 저장 (오프라인 캐시)
     with open(TRADE_FILE, 'w', encoding='utf-8') as f:
         json.dump(history, f, indent=4, ensure_ascii=False)
+
+    # Gist 동기화
+    token, gist_id = _gist_cfg()
+    if token and gist_id:
+        try:
+            payload = {
+                "files": {
+                    GIST_FILENAME: {
+                        "content": json.dumps(history, indent=4, ensure_ascii=False)
+                    }
+                }
+            }
+            requests.patch(
+                f"https://api.github.com/gists/{gist_id}",
+                headers=_gist_headers(token),
+                json=payload, timeout=6
+            )
+        except Exception:
+            pass  # Gist 저장 실패해도 로컬은 이미 저장됨
 
 def init_session_state() -> None:
     if 'trade_history' not in st.session_state:
@@ -355,6 +408,12 @@ def render_sidebar(df_close: pd.DataFrame, selected_ticker: str) -> dict:
                        "종목 버튼 색상은 항상 선형 모델 기준으로 표시됩니다.")
         st.markdown("---")
         st.markdown("### 📝 매매 기록 관리")
+        # Gist 연결 상태 표시
+        _tok, _gid = _gist_cfg()
+        if _tok and _gid:
+            st.caption(f"☁️ Gist 연동됨 (`{_gid[:8]}...`)")
+        else:
+            st.caption("💾 로컬 저장 (Gist 미설정)")
         with st.expander("➕ 새로운 기록 추가"):
             ticker_options = TARGET_TICKERS if selected_ticker in TARGET_TICKERS \
                 else [selected_ticker] + TARGET_TICKERS
@@ -661,8 +720,27 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
 # ====================================================
 # 10. 메인 진입점
 # ====================================================
+def _render_title(slot, last_date_str: str = "") -> None:
+    """제목 행 렌더링 (slot: st.empty() 또는 st)."""
+    KST = datetime.timezone(datetime.timedelta(hours=9))
+    queried_at = datetime.datetime.now(KST).strftime('%Y-%m-%d %H:%M')
+    date_part = f"기준: {last_date_str}&nbsp;·&nbsp;" if last_date_str else ""
+    slot.markdown(
+        f"<div style='display:flex;align-items:center;gap:10px;"
+        f"margin-bottom:3px;padding-bottom:3px;border-bottom:1px solid #f0f0f0;'>"
+        f"<b style='font-size:1.15rem;white-space:nowrap;'>📊 퀀트 대시보드</b>"
+        f"<span style='font-size:10px;color:#bbb;white-space:nowrap;'>"
+        f"{date_part}조회: {queried_at}"
+        f"</span></div>",
+        unsafe_allow_html=True
+    )
+
 def main():
     init_session_state()
+
+    # ── 제목: 가장 먼저 렌더링 → 종목 전환 시에도 사라지지 않음 ──
+    title_slot = st.empty()
+    _render_title(title_slot)   # 데이터 기준일은 로드 후 업데이트
 
     default_start = "2021-01-01"
     default_train_end = "2026-03"
@@ -671,6 +749,10 @@ def main():
     with st.spinner("데이터 로드 중... (최초 실행 시 수십 초 소요될 수 있습니다)"):
         df_close = fetch_all_data(TARGET_TICKERS, default_start)
         all_signals = compute_all_signals(df_close, default_train_end)
+
+    # 데이터 로드 완료 → 제목에 기준일 업데이트
+    last_date_str = df_close.index[-1].strftime('%Y-%m-%d') if not df_close.empty else ""
+    _render_title(title_slot, last_date_str)
 
     for t, emoji in all_signals.items():
         st.session_state.ticker_signals.setdefault(t, emoji)
@@ -813,22 +895,6 @@ def main():
     </style>
     """
     st.markdown(global_css, unsafe_allow_html=True)
-
-    # ════════════════════════════════════════════════
-    #  제목 행
-    # ════════════════════════════════════════════════
-    KST = datetime.timezone(datetime.timedelta(hours=9))
-    last_date_str = df_close.index[-1].strftime('%Y-%m-%d') if not df_close.empty else "N/A"
-    queried_at_str = datetime.datetime.now(KST).strftime('%Y-%m-%d %H:%M')
-    st.markdown(
-        f"<div style='display:flex;align-items:center;gap:10px;"
-        f"margin-bottom:3px;padding-bottom:3px;border-bottom:1px solid #f0f0f0;'>"
-        f"<b style='font-size:1.15rem;white-space:nowrap;'>📊 퀀트 대시보드</b>"
-        f"<span style='font-size:10px;color:#bbb;white-space:nowrap;'>"
-        f"기준: {last_date_str}&nbsp;·&nbsp;조회: {queried_at_str}"
-        f"</span></div>",
-        unsafe_allow_html=True
-    )
 
     # ── 컬러 범례 (한 줄, 컴팩트) ──
     legend_parts = []
