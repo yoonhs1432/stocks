@@ -720,12 +720,19 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
 # ====================================================
 # 10. 메인 진입점
 # ====================================================
-def _render_title(slot, last_date_str: str = "") -> None:
-    """제목 행 렌더링 (slot: st.empty() 또는 st)."""
+def main():
+    init_session_state()
+
+    default_start = "2021-01-01"
+    default_train_end = "2026-03"
+
+    # ── 제목: 항상 맨 위에 표시 ──
+    # session_state에 캐시된 날짜를 사용하므로 spinner 중에도 사라지지 않음
     KST = datetime.timezone(datetime.timedelta(hours=9))
     queried_at = datetime.datetime.now(KST).strftime('%Y-%m-%d %H:%M')
-    date_part = f"기준: {last_date_str}&nbsp;·&nbsp;" if last_date_str else ""
-    slot.markdown(
+    cached_date = st.session_state.get('last_data_date', '')
+    date_part = f"기준: {cached_date}&nbsp;·&nbsp;" if cached_date else ""
+    st.markdown(
         f"<div style='display:flex;align-items:center;gap:10px;"
         f"margin-bottom:3px;padding-bottom:3px;border-bottom:1px solid #f0f0f0;'>"
         f"<b style='font-size:1.15rem;white-space:nowrap;'>📊 퀀트 대시보드</b>"
@@ -735,24 +742,14 @@ def _render_title(slot, last_date_str: str = "") -> None:
         unsafe_allow_html=True
     )
 
-def main():
-    init_session_state()
-
-    # ── 제목: 가장 먼저 렌더링 → 종목 전환 시에도 사라지지 않음 ──
-    title_slot = st.empty()
-    _render_title(title_slot)   # 데이터 기준일은 로드 후 업데이트
-
-    default_start = "2021-01-01"
-    default_train_end = "2026-03"
-
     # ── 데이터 로드 & 전체 신호 사전 계산 ──
     with st.spinner("데이터 로드 중... (최초 실행 시 수십 초 소요될 수 있습니다)"):
         df_close = fetch_all_data(TARGET_TICKERS, default_start)
         all_signals = compute_all_signals(df_close, default_train_end)
 
-    # 데이터 로드 완료 → 제목에 기준일 업데이트
-    last_date_str = df_close.index[-1].strftime('%Y-%m-%d') if not df_close.empty else ""
-    _render_title(title_slot, last_date_str)
+    # 로드 완료 → 다음 rerun에서 제목에 쓸 날짜 캐싱
+    if not df_close.empty:
+        st.session_state.last_data_date = df_close.index[-1].strftime('%Y-%m-%d')
 
     for t, emoji in all_signals.items():
         st.session_state.ticker_signals.setdefault(t, emoji)
@@ -855,37 +852,37 @@ def main():
         padding-bottom: 0.5rem !important;
         max-width: 100% !important;
     }}
-    /* 두 컬럼 항상 가로 배치 (모바일 포함) */
-    div[data-testid="stHorizontalBlock"] {{
+    /* 두 컬럼 항상 가로 배치 (모바일 포함) - 메인 영역만 */
+    section[data-testid="stMain"] div[data-testid="stHorizontalBlock"] {{
         flex-wrap: nowrap !important;
         gap: 5px !important;
         align-items: flex-start !important;
     }}
-    /* 버튼 컬럼: 좁게 고정, 패딩 제거 */
-    div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"]:first-child {{
+    /* 버튼 컬럼: 좁게 고정, 패딩 제거 - 메인 영역만 */
+    section[data-testid="stMain"] div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"]:first-child {{
         flex: 0 0 62px !important;
         min-width: 62px !important;
         max-width: 62px !important;
         padding: 0 !important;
     }}
-    /* 그래프 컬럼: 남은 공간 최대한 사용, 잘림 방지 */
-    div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"]:last-child {{
+    /* 그래프 컬럼: 남은 공간 최대한 사용, 잘림 방지 - 메인 영역만 */
+    section[data-testid="stMain"] div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"]:last-child {{
         flex: 1 1 0 !important;
         min-width: 0 !important;
         overflow: visible !important;
         padding-left: 2px !important;
         padding-right: 2px !important;
     }}
-    /* 버튼 컬럼 내 세로 간격 제거 (버튼끼리 붙임) */
-    div[data-testid="stColumn"]:first-child div[data-testid="stVerticalBlock"] > div {{
+    /* 버튼 컬럼 내 세로 간격 제거 (버튼끼리 붙임) - 메인 영역만 */
+    section[data-testid="stMain"] div[data-testid="stColumn"]:first-child div[data-testid="stVerticalBlock"] > div {{
         margin-bottom: 1px !important;
         padding: 0 !important;
     }}
-    div[data-testid="stColumn"]:first-child div[data-testid="stVerticalBlock"] {{
+    section[data-testid="stMain"] div[data-testid="stColumn"]:first-child div[data-testid="stVerticalBlock"] {{
         gap: 0 !important;
     }}
-    /* 버튼 내부 p 태그 마진 제거 */
-    div[data-testid="stColumn"]:first-child button p {{
+    /* 버튼 내부 p 태그 마진 제거 - 메인 영역만 */
+    section[data-testid="stMain"] div[data-testid="stColumn"]:first-child button p {{
         margin: 0 !important;
         padding: 0 !important;
         font-size: 0.65rem !important;
