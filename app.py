@@ -1,4 +1,3 @@
-import time
 import datetime
 import numpy as np
 import pandas as pd
@@ -132,6 +131,8 @@ def init_session_state() -> None:
         st.session_state.model_type = 'linear'
     if 'custom_ticker_input' not in st.session_state:
         st.session_state.custom_ticker_input = ''
+    if 'last_data_date' not in st.session_state:
+        st.session_state.last_data_date = ''
 
 def get_action_emoji(win_prob, expected_return) -> str:
     if win_prob is None or expected_return is None:
@@ -169,10 +170,10 @@ def compute_all_signals(df_close: pd.DataFrame, train_end_str: str) -> dict:
             price_series = df_close[col].dropna()
             cycles_list = find_available_cycles(price_series, min_w=20, max_w=365)
             optimal_cycle = get_optimal_cycle(price_series, cycles_list)
-            df_merged, beta, _ = _compute_normalized(df_merged, X_ASSET_FIXED, ticker)
+            df_merged, beta = _compute_normalized(df_merged, X_ASSET_FIXED, ticker)
             df_merged, _ = _compute_indicators(df_merged, ticker)
             df_merged = _compute_targets(df_merged, ticker, optimal_cycle)
-            df_merged, win_prob, _, expected_return = _train_and_predict(df_merged, train_end_date)
+            df_merged, win_prob, expected_return = _train_and_predict(df_merged, train_end_date)
             signals[ticker] = get_action_emoji(win_prob, expected_return)
         except Exception:
             signals[ticker] = '⚪'
@@ -244,7 +245,7 @@ def get_optimal_cycle(price_series: pd.Series, cycles_list: list) -> int:
 # ====================================================
 # 5. 데이터 처리 (역할 분리)
 # ====================================================
-def _compute_normalized(df: pd.DataFrame, x_name: str, y_name: str) -> pd.DataFrame:
+def _compute_normalized(df: pd.DataFrame, x_name: str, y_name: str) -> tuple:
     df = df.copy()
     base_x = df[f'{x_name}_Close'].iloc[0]
     base_y = df[f'{y_name}_Close'].iloc[0]
@@ -255,7 +256,7 @@ def _compute_normalized(df: pd.DataFrame, x_name: str, y_name: str) -> pd.DataFr
     model = LinearRegression().fit(log_x.values.reshape(-1, 1), log_y.values)
     beta = model.coef_[0]
     df['Predicted'] = np.exp(model.intercept_) * df[f'{x_name}_Norm'] ** beta
-    return df, beta, model
+    return df, beta
 
 def _compute_indicators(df: pd.DataFrame, y_name: str) -> pd.DataFrame:
     df = df.copy()
@@ -293,12 +294,12 @@ def _compute_targets(df: pd.DataFrame, y_name: str, selected_cycle: int) -> pd.D
 
 def _train_and_predict(df: pd.DataFrame, train_end_date,
                        model_type: str = 'linear') -> tuple:
-    for col in ['Win_Prob', 'Sell_Prob', 'Expected_Return']:
+    for col in ['Win_Prob', 'Expected_Return']:
         df[col] = np.nan
     features = ['Z_Score', 'RSI', 'Vol_21', 'Mom_60']
     ml_df = df[features + ['Target', 'Target_Return']].dropna()
     train_df = ml_df.loc[:train_end_date]
-    win_prob = sell_prob = expected_return = None
+    win_prob = expected_return = None
     if len(train_df) > 30:
         X_tr = train_df[features].values
         y_clf = train_df['Target'].values
@@ -325,12 +326,11 @@ def _train_and_predict(df: pd.DataFrame, train_end_date,
             X_valid = scaler.transform(feat_valid) if scaler else feat_valid
             probs = clf.predict_proba(X_valid)
             df.loc[valid_idx, 'Win_Prob'] = probs[:, 1] * 100
-            df.loc[valid_idx, 'Sell_Prob'] = probs[:, 0] * 100
-            win_prob, sell_prob = probs[-1, 1] * 100, probs[-1, 0] * 100
+            win_prob = probs[-1, 1] * 100
             evs = reg.predict(X_valid)
             df.loc[valid_idx, 'Expected_Return'] = evs
             expected_return = evs[-1]
-    return df, win_prob, sell_prob, expected_return
+    return df, win_prob, expected_return
 
 def process_asset_data(df_x: pd.DataFrame, df_y: pd.DataFrame,
                        x_name: str, y_name: str,
@@ -338,14 +338,13 @@ def process_asset_data(df_x: pd.DataFrame, df_y: pd.DataFrame,
                        model_type: str = 'linear') -> tuple:
     df = pd.merge(df_x, df_y, left_index=True, right_index=True).dropna().sort_index()
     if df.empty:
-        return (None,) * 8
-    df, beta, _ = _compute_normalized(df, x_name, y_name)
+        return (None,) * 6
+    df, beta = _compute_normalized(df, x_name, y_name)
     df_daily = df.copy()
     df_daily, std_resid = _compute_indicators(df_daily, y_name)
     df_daily = _compute_targets(df_daily, y_name, selected_cycle)
-    df_daily, win_prob, sell_prob, expected_return = _train_and_predict(
-        df_daily, train_end_date, model_type)
-    return df, df_daily, beta, win_prob, sell_prob, expected_return, selected_cycle, std_resid
+    df_daily, win_prob, expected_return = _train_and_predict(df_daily, train_end_date, model_type)
+    return df_daily, beta, win_prob, expected_return, selected_cycle, std_resid
 
 # ====================================================
 # 6. 차트 헬퍼
@@ -377,7 +376,6 @@ def add_filled_blocks(fig, df: pd.DataFrame, y_col: str, condition: pd.Series,
 def render_sidebar(df_close: pd.DataFrame, selected_ticker: str) -> dict:
     with st.sidebar:
         st.markdown("### ⚙️ 분석 파라미터 조절")
-        train_start = st.text_input("학습 시작 (YYYY-MM)", "2021-01")
         train_end = st.text_input("학습 종료 (YYYY-MM)", "2026-03")
         view_months = st.number_input("차트 조회 기간 (최근 N개월)", min_value=1, max_value=240, value=12, step=1)
         guide_n = st.number_input("가이드라인 기울기 (n)", min_value=1, max_value=20, value=4, step=1)
@@ -447,7 +445,6 @@ def render_sidebar(df_close: pd.DataFrame, selected_ticker: str) -> dict:
         else:
             st.info("매매 기록이 없습니다.")
     return {
-        'train_start': train_start,
         'train_end': train_end,
         'view_months': view_months,
         'guide_n': guide_n,
@@ -457,43 +454,7 @@ def render_sidebar(df_close: pd.DataFrame, selected_ticker: str) -> dict:
     }
 
 # ====================================================
-# 8. 요약 카드 (컴팩트 한 줄)
-# ====================================================
-def render_summary_card(selected_ticker: str, avg_cycle,
-                        win_prob, sell_prob, expected_return) -> None:
-    emoji = get_action_emoji(win_prob, expected_return) if win_prob is not None else '⚪'
-    action_text = ACTION_LABELS.get(emoji, '관망')
-    bg_color, _ = SIGNAL_STYLE.get(emoji, ('#7f8c8d', '#fff'))
-
-    if win_prob is not None and expected_return is not None:
-        wp_color = "#c0392b" if win_prob >= 50.0 else "#2980b9"
-        ev_color = "#c0392b" if expected_return >= 0.0 else "#2980b9"
-        wp_str = f"{win_prob:.1f}%"
-        ev_str = f"{expected_return:+.1f}%"
-    else:
-        wp_color = ev_color = "#7f8c8d"
-        wp_str = ev_str = "N/A"
-
-    cycle_str = f"{avg_cycle}일" if avg_cycle else "N/A"
-
-    card_html = (
-        f"<div style='display:flex;align-items:center;gap:10px;flex-wrap:wrap;"
-        f"padding:5px 10px;border-radius:6px;border-left:4px solid {bg_color};"
-        f"background:{bg_color}14;margin-bottom:4px;'>"
-        f"<b style='font-size:14px;color:{bg_color};white-space:nowrap;'>{action_text}</b>"
-        f"<span style='width:1px;height:14px;background:#ddd;display:inline-block;'></span>"
-        f"<span style='font-size:11px;color:#666;'>승률&nbsp;"
-        f"<b style='color:{wp_color};font-size:13px;'>{wp_str}</b></span>"
-        f"<span style='font-size:11px;color:#666;'>기대수익&nbsp;"
-        f"<b style='color:{ev_color};font-size:13px;'>{ev_str}</b></span>"
-        f"<span style='font-size:11px;color:#666;'>주기&nbsp;"
-        f"<b style='color:#333;font-size:13px;'>{cycle_str}</b></span>"
-        f"</div>"
-    )
-    st.markdown(card_html, unsafe_allow_html=True)
-
-# ====================================================
-# 9. 차트 렌더링
+# 8. 차트 렌더링
 # ====================================================
 def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
                  beta: float, std_resid: float,
@@ -698,8 +659,7 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     fig.update_xaxes(showticklabels=True, tickformat="%y/%m/%d", row=total_rows, col=1)
 
     fig.update_layout(
-        height=total_h,   # px 합산값 그대로 사용 (서브플롯 크기 고정)
-        autosize=True,
+        height=total_h,
         showlegend=False,
         hovermode='x unified',
         dragmode='pan',
@@ -772,19 +732,18 @@ def main():
     train_end_date = pd.to_datetime(cfg['train_end']) + pd.offsets.MonthEnd(0)
 
     # ── 분석 ──
-    df_daily = df_processed = None
-    beta = win_prob = sell_prob = expected_return = avg_cycle = std_resid = None
+    df_daily = None
+    beta = win_prob = expected_return = avg_cycle = std_resid = None
 
     if selected_ticker and f'{selected_ticker}_Close' in df_close.columns:
         with st.spinner(f"{display_name(selected_ticker)} 분석 중..."):
             df_x = df_close[[f'{X_ASSET_FIXED}_Close']]
             df_y = df_close[[f'{selected_ticker}_Close']]
-            res = process_asset_data(
+            df_daily, beta, win_prob, expected_return, avg_cycle, std_resid = process_asset_data(
                 df_x, df_y, X_ASSET_FIXED, selected_ticker,
                 cfg['selected_cycle'], train_end_date,
                 st.session_state.get('model_type', 'linear')
             )
-        df_processed, df_daily, beta, win_prob, sell_prob, expected_return, avg_cycle, std_resid = res
         if df_daily is not None:
             st.session_state.ticker_signals[selected_ticker] = get_action_emoji(win_prob, expected_return)
 
