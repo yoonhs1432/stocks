@@ -11,56 +11,71 @@ import FinanceDataReader as fdr
 import streamlit as st
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+
 # ====================================================
 # 1. 전역 설정
 # ====================================================
 st.set_page_config(page_title="퀀트 트레이딩 대시보드", layout="wide")
-X_ASSET_FIXED = 'SPY'
-TARGET_TICKERS = ['SPYU', 'TQQQ', 'SOXL', 'FNGU', 'BTC-USD', 'BITU', 'ETH-USD', 'ETHT',
-                  'HIBL', 'TARK', 'QPUX', 'BNKU', 'GDXU', 'KORU', '005930', 'UPXI']
+
+X_ASSET_FIXED      = 'SPY'
+TARGET_TICKERS     = ['SPYU', 'TQQQ', 'SOXL', 'FNGU', 'BTC-USD', 'BITU', 'ETH-USD', 'ETHT',
+                      'HIBL', 'TARK', 'QPUX', 'BNKU', 'GDXU', 'KORU', '005930', 'UPXI']
 TICKER_DISPLAY_NAMES: dict = {
     'BTC-USD': 'BTC',
     'ETH-USD': 'ETH',
     '005930':  '삼성전자',
 }
-# 투자의견별 버튼 배경색 / 글자색
+DEFAULT_REFRESH_MINS = 10  # 기본 자동 새로고침 간격 (분)
+
+# ── 5단계 투자의견 (한국 증시 관례: 상승=빨강, 하락=파랑) ──
 SIGNAL_STYLE: dict = {
-    '🔥': ('#1e8449', '#ffffff'),   # 적극매수
-    '🟢': ('#27ae60', '#ffffff'),   # 매수
-    '🟡': ('#c9a800', '#1a1a1a'),   # 분할매수
-    '⚪': ('#7f8c8d', '#ffffff'),   # 관망
-    '🟠': ('#d35400', '#ffffff'),   # 분할매도
-    '🔴': ('#c0392b', '#ffffff'),   # 매도
-    '🧊': ('#1a5276', '#ffffff'),   # 적극매도
+    'FB': ('#dc2626', '#ffffff'),   # 풀매수
+    'B':  ('#fca5a5', '#1a1a1a'),   # 매수
+    'H':  ('#9ca3af', '#ffffff'),   # 관망
+    'S':  ('#93c5fd', '#1a1a1a'),   # 매도
+    'FS': ('#1d4ed8', '#ffffff'),   # 풀매도
 }
 ACTION_LABELS: dict = {
-    '🔥': '적극 매수', '🟢': '매수', '🟡': '분할 매수',
-    '⚪': '관망', '🟠': '분할 매도', '🔴': '매도', '🧊': '적극 매도',
+    'FB': '풀 매수', 'B': '매수', 'H': '관망', 'S': '매도', 'FS': '풀 매도',
 }
 LEGEND_ITEMS = [
-    ('#1e8449', '적극매수'), ('#27ae60', '매수'), ('#c9a800', '분할매수'),
-    ('#7f8c8d', '관망'), ('#d35400', '분할매도'), ('#c0392b', '매도'), ('#1a5276', '적극매도'),
+    ('#dc2626', '풀매수'), ('#fca5a5', '매수'), ('#9ca3af', '관망'),
+    ('#93c5fd', '매도'), ('#1d4ed8', '풀매도'),
 ]
 
 def display_name(ticker: str) -> str:
     return TICKER_DISPLAY_NAMES.get(ticker, ticker)
 
 def safe_key(ticker: str) -> str:
-    """CSS 클래스명 및 Streamlit 키에 안전한 문자열 반환."""
     return ticker.replace('-', '_').replace('.', '_').replace('/', '_')
 
-TRADE_FILE = 'trade_history.json'
+# ====================================================
+# 2. 설정 · 매매 기록 영속화
+# ====================================================
+TRADE_FILE    = 'trade_history.json'
+SETTINGS_FILE = 'settings.json'
 GIST_FILENAME = 'quant_trade_history.json'
 
-# ====================================================
-# 2. 매매 기록 관리
-# ====================================================
-# ── Gist 설정 읽기 ──────────────────────────────────
-# Streamlit Cloud: .streamlit/secrets.toml 에 아래 두 줄 추가
-#   GITHUB_TOKEN = "ghp_xxxxxxxxxxxx"   # GitHub 개인 액세스 토큰 (gist 권한 필요)
-#   GIST_ID      = "abc123def456..."    # 빈 private Gist 를 미리 만들어두고 ID 입력
-#
-# 로컬 실행: 환경변수로 동일하게 전달하거나, 그냥 로컬 JSON 사용 (자동 폴백)
+def load_settings() -> dict:
+    if os.path.exists(SETTINGS_FILE):
+        try:
+            with open(SETTINGS_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {}
+
+def save_settings(settings: dict) -> None:
+    try:
+        with open(SETTINGS_FILE, 'w', encoding='utf-8') as f:
+            json.dump(settings, f, indent=2, ensure_ascii=False)
+    except Exception:
+        pass
+
+# ── GitHub Gist (클라우드 매매 기록 동기화) ──────────
+# Streamlit Cloud: .streamlit/secrets.toml 에 추가
+#   GITHUB_TOKEN = "ghp_xxxxxxxxxxxx"
+#   GIST_ID      = "abc123def456..."
 def _gist_cfg() -> tuple[str, str]:
     try:
         token   = st.secrets.get("GITHUB_TOKEN", "") or os.environ.get("GITHUB_TOKEN", "")
@@ -73,52 +88,34 @@ def _gist_headers(token: str) -> dict:
     return {"Authorization": f"token {token}", "Accept": "application/vnd.github+json"}
 
 def load_trade_history() -> dict:
-    """Gist 설정이 있으면 Gist에서 로드, 없으면 로컬 JSON."""
     token, gist_id = _gist_cfg()
     if token and gist_id:
         try:
-            resp = requests.get(
-                f"https://api.github.com/gists/{gist_id}",
-                headers=_gist_headers(token), timeout=6
-            )
+            resp = requests.get(f"https://api.github.com/gists/{gist_id}",
+                                headers=_gist_headers(token), timeout=6)
             if resp.ok:
                 files = resp.json().get("files", {})
                 if GIST_FILENAME in files:
-                    content = files[GIST_FILENAME]["content"]
-                    return json.loads(content)
+                    return json.loads(files[GIST_FILENAME]["content"])
         except Exception:
-            pass  # 네트워크 오류 시 로컬 폴백
-
-    # ── 로컬 폴백 ──
+            pass
     if os.path.exists(TRADE_FILE):
         with open(TRADE_FILE, 'r', encoding='utf-8') as f:
             return json.load(f)
-    return {}   # 기본값: 빈 딕셔너리 (코드에 하드코딩하지 않음)
+    return {}
 
 def save_trade_history(history: dict) -> None:
-    """로컬 JSON 저장 + Gist 설정이 있으면 Gist에도 동기화."""
-    # 항상 로컬에 저장 (오프라인 캐시)
     with open(TRADE_FILE, 'w', encoding='utf-8') as f:
         json.dump(history, f, indent=4, ensure_ascii=False)
-
-    # Gist 동기화
     token, gist_id = _gist_cfg()
     if token and gist_id:
         try:
-            payload = {
-                "files": {
-                    GIST_FILENAME: {
-                        "content": json.dumps(history, indent=4, ensure_ascii=False)
-                    }
-                }
-            }
-            requests.patch(
-                f"https://api.github.com/gists/{gist_id}",
-                headers=_gist_headers(token),
-                json=payload, timeout=6
-            )
+            payload = {"files": {GIST_FILENAME: {
+                "content": json.dumps(history, indent=4, ensure_ascii=False)}}}
+            requests.patch(f"https://api.github.com/gists/{gist_id}",
+                           headers=_gist_headers(token), json=payload, timeout=6)
         except Exception:
-            pass  # Gist 저장 실패해도 로컬은 이미 저장됨
+            pass
 
 def init_session_state() -> None:
     if 'trade_history' not in st.session_state:
@@ -133,60 +130,36 @@ def init_session_state() -> None:
         st.session_state.custom_ticker_input = ''
     if 'last_data_date' not in st.session_state:
         st.session_state.last_data_date = ''
-
-def get_action_emoji(win_prob, expected_return) -> str:
-    if win_prob is None or expected_return is None:
-        return '⚪'
-    if win_prob >= 60.0 and expected_return >= 8.0:
-        return '🔥'
-    elif win_prob >= 55.0 and expected_return >= 4.0:
-        return '🟢'
-    elif win_prob >= 52.0 and expected_return >= 1.0:
-        return '🟡'
-    elif win_prob <= 40.0 and expected_return <= -8.0:
-        return '🧊'
-    elif win_prob <= 45.0 and expected_return <= -4.0:
-        return '🔴'
-    elif win_prob <= 48.0 and expected_return <= -1.0:
-        return '🟠'
-    return '⚪'
-
-@st.cache_data(show_spinner=False)
-def compute_all_signals(df_close: pd.DataFrame, train_end_str: str) -> dict:
-    signals = {}
-    train_end_date = pd.to_datetime(train_end_str) + pd.offsets.MonthEnd(0)
-    df_x = df_close[[f'{X_ASSET_FIXED}_Close']]
-    for ticker in TARGET_TICKERS:
-        col = f'{ticker}_Close'
-        if col not in df_close.columns:
-            signals[ticker] = '⚪'
-            continue
-        try:
-            df_y = df_close[[col]]
-            df_merged = pd.merge(df_x, df_y, left_index=True, right_index=True).dropna()
-            if len(df_merged) < 60:
-                signals[ticker] = '⚪'
-                continue
-            price_series = df_close[col].dropna()
-            cycles_list = find_available_cycles(price_series, min_w=20, max_w=365)
-            optimal_cycle = get_optimal_cycle(price_series, cycles_list)
-            df_merged, beta = _compute_normalized(df_merged, X_ASSET_FIXED, ticker)
-            df_merged, _ = _compute_indicators(df_merged, ticker)
-            df_merged = _compute_targets(df_merged, ticker, optimal_cycle)
-            df_merged, win_prob, expected_return = _train_and_predict(df_merged, train_end_date)
-            signals[ticker] = get_action_emoji(win_prob, expected_return)
-        except Exception:
-            signals[ticker] = '⚪'
-    return signals
+    # view_months: 설정 파일에서 복원
+    if 'view_months' not in st.session_state:
+        st.session_state.view_months = load_settings().get('view_months', 12)
+    if 'refresh_mins' not in st.session_state:
+        st.session_state.refresh_mins = DEFAULT_REFRESH_MINS
 
 # ====================================================
-# 3. 데이터 다운로드 (캐싱)
+# 3. 투자의견 (5단계)
+# ====================================================
+def get_signal(win_prob, expected_return) -> str:
+    """win_prob · expected_return → 5단계 신호 키 반환"""
+    if win_prob is None or expected_return is None:
+        return 'H'
+    if win_prob >= 60.0 and expected_return >= 8.0:
+        return 'FB'
+    if win_prob >= 54.0 and expected_return >= 3.0:
+        return 'B'
+    if win_prob <= 40.0 and expected_return <= -8.0:
+        return 'FS'
+    if win_prob <= 46.0 and expected_return <= -3.0:
+        return 'S'
+    return 'H'
+
+# ====================================================
+# 4. 데이터 다운로드 (캐싱)
 # ====================================================
 @st.cache_data(show_spinner=False)
 def fetch_all_data(tickers: list, start_date_str: str) -> pd.DataFrame:
     df_list = []
-    all_tickers = [X_ASSET_FIXED] + tickers
-    for ticker in all_tickers:
+    for ticker in [X_ASSET_FIXED] + list(tickers):
         try:
             data = fdr.DataReader(ticker, start_date_str)
             if not data.empty:
@@ -194,9 +167,7 @@ def fetch_all_data(tickers: list, start_date_str: str) -> pd.DataFrame:
                 df_list.append(data[['Close']].rename(columns={'Close': f'{ticker}_Close'}))
         except Exception:
             continue
-    if df_list:
-        return pd.concat(df_list, axis=1).ffill()
-    return pd.DataFrame()
+    return pd.concat(df_list, axis=1).ffill() if df_list else pd.DataFrame()
 
 @st.cache_data(show_spinner=False)
 def fetch_single_ticker(ticker: str, start_date_str: str) -> pd.DataFrame:
@@ -210,12 +181,15 @@ def fetch_single_ticker(ticker: str, start_date_str: str) -> pd.DataFrame:
     return pd.DataFrame()
 
 # ====================================================
-# 4. 주기 탐색 (캐싱)
+# 5. 주기 탐색
+#    min_w=35, max_w=90 → 35~90일 범위에서 탐색 (≈40일 주기 선호)
 # ====================================================
 @st.cache_data(show_spinner=False)
-def find_available_cycles(price_series: pd.Series, min_w: int = 20, max_w: int = 365, step: int = 5) -> list:
+def find_available_cycles(price_series: pd.Series,
+                          min_w: int = 35, max_w: int = 90, step: int = 5) -> list:
+    """극값 평균 간격 기반 사이클 후보 탐색 (35~90일)."""
     price_series = price_series.dropna()
-    cycles = set()
+    cycles: set[int] = set()
     for w in range(min_w, max_w + 1, step):
         roll_max = price_series.rolling(window=w, center=True, min_periods=3).max()
         roll_min = price_series.rolling(window=w, center=True, min_periods=3).min()
@@ -225,25 +199,25 @@ def find_available_cycles(price_series: pd.Series, min_w: int = 20, max_w: int =
             avg_c = int(np.diff(extrema_indices).mean())
             if min_w <= avg_c <= max_w:
                 cycles.add(avg_c)
-    return sorted(list(cycles)) if cycles else [60]
+    return sorted(cycles) if cycles else [50]
 
 @st.cache_data(show_spinner=False)
-def get_optimal_cycle(price_series: pd.Series, cycles_list: list) -> int:
+def get_optimal_cycle(price_series: pd.Series, cycles_list: list,
+                      min_autocorr: float = 0.10) -> int:
+    """자기상관계수 기반 최적 주기 선택. 유효 신호 없으면 50일 반환."""
     if not cycles_list:
-        return 60
+        return 50
     detrended = price_series - price_series.rolling(window=100, min_periods=1).mean()
-    best_cycle = cycles_list[len(cycles_list) // 2]
-    best_score = -np.inf
+    best_cycle, best_score = 50, -np.inf
     for c in cycles_list:
         if len(detrended.dropna()) > c * 2:
             score = detrended.autocorr(lag=c)
             if pd.notna(score) and score > best_score:
-                best_score = score
-                best_cycle = c
-    return best_cycle
+                best_score, best_cycle = score, c
+    return best_cycle if best_score >= min_autocorr else 50
 
 # ====================================================
-# 5. 데이터 처리 (역할 분리)
+# 6. 데이터 처리
 # ====================================================
 def _compute_normalized(df: pd.DataFrame, x_name: str, y_name: str) -> tuple:
     df = df.copy()
@@ -251,45 +225,43 @@ def _compute_normalized(df: pd.DataFrame, x_name: str, y_name: str) -> tuple:
     base_y = df[f'{y_name}_Close'].iloc[0]
     df[f'{x_name}_Norm'] = df[f'{x_name}_Close'] / base_x
     df[f'{y_name}_Norm'] = df[f'{y_name}_Close'] / base_y
-    log_x = np.log(df[f'{x_name}_Norm'])
-    log_y = np.log(df[f'{y_name}_Norm'])
-    model = LinearRegression().fit(log_x.values.reshape(-1, 1), log_y.values)
-    beta = model.coef_[0]
+    log_x  = np.log(df[f'{x_name}_Norm'])
+    log_y  = np.log(df[f'{y_name}_Norm'])
+    model  = LinearRegression().fit(log_x.values.reshape(-1, 1), log_y.values)
+    beta   = model.coef_[0]
     df['Predicted'] = np.exp(model.intercept_) * df[f'{x_name}_Norm'] ** beta
     return df, beta
 
-def _compute_indicators(df: pd.DataFrame, y_name: str) -> pd.DataFrame:
-    df = df.copy()
+def _compute_indicators(df: pd.DataFrame, y_name: str) -> tuple:
+    df    = df.copy()
     close = df[f'{y_name}_Close']
     delta = close.diff()
-    gain = delta.where(delta > 0, 0).ewm(alpha=1 / 14, adjust=False).mean()
-    loss = (-delta.where(delta < 0, 0)).ewm(alpha=1 / 14, adjust=False).mean()
-    df['RSI'] = 100 - (100 / (1 + gain / loss))
-    ema12 = close.ewm(span=12, adjust=False).mean()
-    ema26 = close.ewm(span=26, adjust=False).mean()
-    df['MACD'] = ema12 - ema26
+    gain  = delta.where(delta > 0, 0).ewm(alpha=1/14, adjust=False).mean()
+    loss  = (-delta.where(delta < 0, 0)).ewm(alpha=1/14, adjust=False).mean()
+    df['RSI']         = 100 - (100 / (1 + gain / loss))
+    ema12             = close.ewm(span=12, adjust=False).mean()
+    ema26             = close.ewm(span=26, adjust=False).mean()
+    df['MACD']        = ema12 - ema26
     df['MACD_Signal'] = df['MACD'].ewm(span=9, adjust=False).mean()
-    df['MACD_Hist'] = df['MACD'] - df['MACD_Signal']
-    log_resid = np.log(df[f'{y_name}_Norm']) - np.log(df['Predicted'])
-    std_resid = log_resid.std()
-    expanding_std = log_resid.expanding(min_periods=30).std()
-    df['Z_Score'] = log_resid / expanding_std.replace(0, np.nan)
-    df['Vol_21'] = close.pct_change().rolling(window=21, min_periods=10).std() * 100
-    df['Mom_60'] = close.pct_change(60) * 100
+    df['MACD_Hist']   = df['MACD'] - df['MACD_Signal']
+    log_resid         = np.log(df[f'{y_name}_Norm']) - np.log(df['Predicted'])
+    std_resid         = log_resid.std()
+    expanding_std     = log_resid.expanding(min_periods=30).std()
+    df['Z_Score']     = log_resid / expanding_std.replace(0, np.nan)
+    df['Vol_21']      = close.pct_change().rolling(window=21, min_periods=10).std() * 100
+    df['Mom_60']      = close.pct_change(60) * 100
     return df, std_resid
 
-def _compute_targets(df: pd.DataFrame, y_name: str, selected_cycle: int) -> pd.DataFrame:
+def _compute_targets(df: pd.DataFrame, y_name: str, cycle: int) -> pd.DataFrame:
     df = df.copy()
     shifted = df[f'{y_name}_Norm'].shift(-1)
-    df['Future_Avg_Price'] = shifted.iloc[::-1].rolling(window=selected_cycle).mean().iloc[::-1]
+    df['Future_Avg_Price'] = shifted.iloc[::-1].rolling(window=cycle).mean().iloc[::-1]
     df['Target'] = np.where(
         df['Future_Avg_Price'].isna(), np.nan,
-        (df['Future_Avg_Price'] > df[f'{y_name}_Norm']).astype(int)
-    )
+        (df['Future_Avg_Price'] > df[f'{y_name}_Norm']).astype(int))
     df['Target_Return'] = np.where(
         df['Future_Avg_Price'].isna(), np.nan,
-        (df['Future_Avg_Price'] / df[f'{y_name}_Norm'] - 1) * 100
-    )
+        (df['Future_Avg_Price'] / df[f'{y_name}_Norm'] - 1) * 100)
     return df
 
 def _train_and_predict(df: pd.DataFrame, train_end_date,
@@ -297,20 +269,20 @@ def _train_and_predict(df: pd.DataFrame, train_end_date,
     for col in ['Win_Prob', 'Expected_Return']:
         df[col] = np.nan
     features = ['Z_Score', 'RSI', 'Vol_21', 'Mom_60']
-    ml_df = df[features + ['Target', 'Target_Return']].dropna()
+    ml_df    = df[features + ['Target', 'Target_Return']].dropna()
     train_df = ml_df.loc[:train_end_date]
     win_prob = expected_return = None
     if len(train_df) > 30:
-        X_tr = train_df[features].values
+        X_tr  = train_df[features].values
         y_clf = train_df['Target'].values
         y_reg = train_df['Target_Return'].values
         if model_type == 'linear':
-            scaler = StandardScaler()
+            scaler   = StandardScaler()
             X_tr_fit = scaler.fit_transform(X_tr)
             clf = LogisticRegression(class_weight='balanced').fit(X_tr_fit, y_clf)
             reg = Ridge(alpha=1.0).fit(X_tr_fit, y_reg)
         else:
-            scaler = None
+            scaler   = None
             X_tr_fit = X_tr
             clf = GradientBoostingClassifier(
                 n_estimators=400, max_depth=2, learning_rate=0.01,
@@ -320,21 +292,21 @@ def _train_and_predict(df: pd.DataFrame, train_end_date,
                 n_estimators=400, max_depth=2, learning_rate=0.01,
                 subsample=0.7, min_samples_leaf=20, random_state=42
             ).fit(X_tr_fit, y_reg)
-        valid_idx = df.dropna(subset=features).index
+        valid_idx  = df.dropna(subset=features).index
         feat_valid = df.loc[valid_idx, features].values
         if len(feat_valid) > 0:
             X_valid = scaler.transform(feat_valid) if scaler else feat_valid
-            probs = clf.predict_proba(X_valid)
-            df.loc[valid_idx, 'Win_Prob'] = probs[:, 1] * 100
-            win_prob = probs[-1, 1] * 100
+            probs   = clf.predict_proba(X_valid)
+            df.loc[valid_idx, 'Win_Prob']        = probs[:, 1] * 100
+            win_prob                             = probs[-1, 1] * 100
             evs = reg.predict(X_valid)
             df.loc[valid_idx, 'Expected_Return'] = evs
-            expected_return = evs[-1]
+            expected_return                      = evs[-1]
     return df, win_prob, expected_return
 
 def process_asset_data(df_x: pd.DataFrame, df_y: pd.DataFrame,
                        x_name: str, y_name: str,
-                       selected_cycle: int, train_end_date,
+                       cycle: int, train_end_date,
                        model_type: str = 'linear') -> tuple:
     df = pd.merge(df_x, df_y, left_index=True, right_index=True).dropna().sort_index()
     if df.empty:
@@ -342,12 +314,41 @@ def process_asset_data(df_x: pd.DataFrame, df_y: pd.DataFrame,
     df, beta = _compute_normalized(df, x_name, y_name)
     df_daily = df.copy()
     df_daily, std_resid = _compute_indicators(df_daily, y_name)
-    df_daily = _compute_targets(df_daily, y_name, selected_cycle)
+    df_daily = _compute_targets(df_daily, y_name, cycle)
     df_daily, win_prob, expected_return = _train_and_predict(df_daily, train_end_date, model_type)
-    return df_daily, beta, win_prob, expected_return, selected_cycle, std_resid
+    return df_daily, beta, win_prob, expected_return, cycle, std_resid
 
 # ====================================================
-# 6. 차트 헬퍼
+# 7. 전체 종목 일괄 분석 (캐싱)
+#    캐시 히트 시 종목 버튼 클릭 → 즉시 렌더링 (재분석 없음)
+# ====================================================
+@st.cache_data(show_spinner=False)
+def compute_all_analyses(df_close: pd.DataFrame,
+                         train_end_str: str,
+                         model_type: str) -> dict:
+    """TARGET_TICKERS 전체를 한 번에 분석. 결과 캐싱으로 종목 전환을 즉각 처리."""
+    results: dict = {}
+    train_end_date = pd.to_datetime(train_end_str) + pd.offsets.MonthEnd(0)
+    df_x = df_close[[f'{X_ASSET_FIXED}_Close']]
+    for ticker in TARGET_TICKERS:
+        col = f'{ticker}_Close'
+        if col not in df_close.columns:
+            results[ticker] = None
+            continue
+        try:
+            price_series = df_close[col].dropna()
+            cycles_list  = find_available_cycles(price_series)
+            cycle        = get_optimal_cycle(price_series, cycles_list)
+            df_y         = df_close[[col]]
+            results[ticker] = process_asset_data(
+                df_x, df_y, X_ASSET_FIXED, ticker,
+                cycle, train_end_date, model_type)
+        except Exception:
+            results[ticker] = None
+    return results
+
+# ====================================================
+# 8. 차트 헬퍼
 # ====================================================
 def add_filled_blocks(fig, df: pd.DataFrame, y_col: str, condition: pd.Series,
                       color: str, row: int, col: int, baseline_y: float) -> None:
@@ -356,76 +357,60 @@ def add_filled_blocks(fig, df: pd.DataFrame, y_col: str, condition: pd.Series,
         return
     groups = (~condition).cumsum()[condition]
     for _, group in valid_data.groupby(groups):
-        if len(group) < 1:
-            continue
         fig.add_trace(go.Scatter(
             x=group.index, y=[baseline_y] * len(group),
             mode='lines', line=dict(width=0, color='rgba(0,0,0,0)'),
-            showlegend=False, hoverinfo='skip'
-        ), row=row, col=col)
+            showlegend=False, hoverinfo='skip'), row=row, col=col)
         fig.add_trace(go.Scatter(
             x=group.index, y=group[y_col],
             mode='lines', line=dict(width=0, color='rgba(0,0,0,0)'),
             fill='tonexty', fillcolor=color,
-            showlegend=False, hoverinfo='skip'
-        ), row=row, col=col)
+            showlegend=False, hoverinfo='skip'), row=row, col=col)
 
 # ====================================================
-# 7. 사이드바 UI
+# 9. 사이드바
 # ====================================================
-def render_sidebar(df_close: pd.DataFrame, selected_ticker: str) -> dict:
+def render_sidebar(selected_ticker: str) -> dict:
     with st.sidebar:
-        st.markdown("### ⚙️ 분석 파라미터 조절")
-        train_end = st.text_input("학습 종료 (YYYY-MM)", "2026-03")
-        view_months = st.number_input("차트 조회 기간 (최근 N개월)", min_value=1, max_value=240, value=12, step=1)
-        guide_n = st.number_input("가이드라인 기울기 (n)", min_value=1, max_value=20, value=4, step=1)
-        selected_cycle = 60
-        if not df_close.empty and f'{selected_ticker}_Close' in df_close.columns:
-            cycles_list = find_available_cycles(df_close[f'{selected_ticker}_Close'], min_w=20, max_w=365)
-            optimal_cycle = get_optimal_cycle(df_close[f'{selected_ticker}_Close'], cycles_list)
-            default_index = cycles_list.index(optimal_cycle) if optimal_cycle in cycles_list else 0
-            selected_cycle = st.selectbox(
-                f"🔄 분석 주기 선택 (추천: {optimal_cycle}일)", cycles_list, index=default_index
-            )
+        st.markdown("### ⚙️ 분석 파라미터")
+        train_end    = st.text_input("학습 종료 (YYYY-MM)", "2026-03")
+        view_months  = st.number_input("차트 조회 기간 (최근 N개월)",
+                                       min_value=1, max_value=240,
+                                       value=st.session_state.view_months, step=1)
+        guide_n      = st.number_input("가이드라인 기울기 (n)",
+                                       min_value=1, max_value=20, value=4, step=1)
+        refresh_mins = st.number_input("자동 새로고침 (분)",
+                                       min_value=1, max_value=120,
+                                       value=st.session_state.refresh_mins, step=1)
         st.markdown("---")
-        show_indicators = st.checkbox("MACD&RSI 표시", value=False)
+        show_indicators = st.checkbox("MACD & RSI 표시", value=False)
         st.markdown("---")
-        st.markdown("### 🤖 ML 모델 선택")
-        _model_options = ['linear', 'gbm']
-        _model_idx = _model_options.index(st.session_state.get('model_type', 'linear'))
+        st.markdown("### 🤖 ML 모델")
+        model_options = ['linear', 'gbm']
         model_type = st.radio(
-            "모델",
-            options=_model_options,
-            format_func=lambda x: ('선형 모델 (기본)' if x == 'linear' else '그래디언트 부스팅'),
-            index=_model_idx,
-            label_visibility="collapsed"
-        )
+            "모델", options=model_options,
+            format_func=lambda x: '선형 모델 (기본)' if x == 'linear' else '그래디언트 부스팅',
+            index=model_options.index(st.session_state.get('model_type', 'linear')),
+            label_visibility="collapsed")
         st.session_state.model_type = model_type
         if model_type == 'gbm':
-            st.caption("⚠️ 분석 시간이 다소 길어질 수 있습니다.\n\n"
-                       "종목 버튼 색상은 항상 선형 모델 기준으로 표시됩니다.")
+            st.caption("⚠️ 분석 시간이 다소 길어질 수 있습니다.")
         st.markdown("---")
         st.markdown("### 📝 매매 기록 관리")
-        # Gist 연결 상태 표시
         _tok, _gid = _gist_cfg()
-        if _tok and _gid:
-            st.caption(f"☁️ Gist 연동됨 (`{_gid[:8]}...`)")
-        else:
-            st.caption("💾 로컬 저장 (Gist 미설정)")
+        st.caption(f"☁️ Gist 연동됨 (`{_gid[:8]}...`)" if (_tok and _gid)
+                   else "💾 로컬 저장 (Gist 미설정)")
 
         st.markdown("**➕ 새로운 기록 추가**")
-        ticker_options = TARGET_TICKERS if selected_ticker in TARGET_TICKERS \
-            else [selected_ticker] + TARGET_TICKERS
-        default_idx = ticker_options.index(selected_ticker)
-        t_ticker = st.selectbox("종목", ticker_options, index=default_idx)
-        t_date = st.date_input("날짜", datetime.date.today())
-        t_type = st.radio("종류", ['buy', 'sell'], horizontal=True)
+        ticker_options = (TARGET_TICKERS if selected_ticker in TARGET_TICKERS
+                          else [selected_ticker] + TARGET_TICKERS)
+        t_ticker = st.selectbox("종목", ticker_options,
+                                index=ticker_options.index(selected_ticker))
+        t_date   = st.date_input("날짜", datetime.date.today())
+        t_type   = st.radio("종류", ['buy', 'sell'], horizontal=True)
         if st.button("기록 저장"):
-            if t_ticker not in st.session_state.trade_history:
-                st.session_state.trade_history[t_ticker] = []
-            st.session_state.trade_history[t_ticker].append(
-                {'date': t_date.strftime("%Y-%m-%d"), 'type': t_type}
-            )
+            st.session_state.trade_history.setdefault(t_ticker, []).append(
+                {'date': t_date.strftime("%Y-%m-%d"), 'type': t_type})
             save_trade_history(st.session_state.trade_history)
             st.success("저장 완료!")
             st.rerun()
@@ -444,97 +429,101 @@ def render_sidebar(df_close: pd.DataFrame, selected_ticker: str) -> dict:
                     st.rerun()
         else:
             st.info("매매 기록이 없습니다.")
-    return {
-        'train_end': train_end,
-        'view_months': view_months,
-        'guide_n': guide_n,
-        'selected_cycle': selected_cycle,
-        'show_indicators': show_indicators,
-        'model_type': model_type,
-    }
+
+    return {'train_end': train_end, 'view_months': int(view_months),
+            'guide_n': guide_n, 'show_indicators': show_indicators,
+            'model_type': model_type, 'refresh_mins': int(refresh_mins)}
 
 # ====================================================
-# 8. 차트 렌더링
+# 10. 차트 렌더링
 # ====================================================
 def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
                  beta: float, std_resid: float,
                  guide_n: int, view_months: int,
                  show_indicators: bool, avg_cycle: int) -> None:
-    # 모바일 터치: plotly가 모든 터치 이벤트 처리 (pinch-zoom + pan 허용)
     st.markdown("""
     <style>
     .js-plotly-plot, .js-plotly-plot .plotly, .js-plotly-plot svg {
         touch-action: none !important;
     }
-    </style>
-    """, unsafe_allow_html=True)
+    </style>""", unsafe_allow_html=True)
 
-    # 각 서브플롯 목표 높이(px) — 고정값으로 관리
-    # main:160  spacer:6  price:115  win_prob:85  ev:85  → 합계 451px
     PX = {'main': 140, 'spacer': 25, 'price': 100, 'win_prob': 80, 'ev': 80,
           'macd': 80, 'rsi': 80}
     active_plots = ['main', 'spacer', 'price', 'win_prob', 'ev']
     if show_indicators:
         active_plots += ['macd', 'rsi']
-    total_rows = len(active_plots)
-    total_h = sum(PX[p] for p in active_plots)
+    total_rows  = len(active_plots)
+    total_h     = sum(PX[p] for p in active_plots)
     row_heights = [PX[p] / total_h for p in active_plots]
-    fig = make_subplots(rows=total_rows, cols=1, row_heights=row_heights, vertical_spacing=0.02)
+    fig         = make_subplots(rows=total_rows, cols=1,
+                                row_heights=row_heights, vertical_spacing=0.02)
     current_row = 1
 
-    # ── [1] Main scatter (로그-로그) ──
-    sdf = df_daily.sort_values(f'{X_ASSET_FIXED}_Norm')
+    # ── [1] 로그-로그 산점도 ──
+    sdf    = df_daily.sort_values(f'{X_ASSET_FIXED}_Norm')
     x_vals = sdf[f'{X_ASSET_FIXED}_Norm']
-    min_x = df_daily[f'{X_ASSET_FIXED}_Norm'].min()
-    max_x = df_daily[f'{X_ASSET_FIXED}_Norm'].max()
-    min_y = df_daily[f'{selected_ticker}_Norm'].min()
-    max_y = df_daily[f'{selected_ticker}_Norm'].max()
-    empirical_c = df_daily[f'{selected_ticker}_Norm'] / (df_daily[f'{X_ASSET_FIXED}_Norm'] ** guide_n)
-    log_c_min = np.log10(empirical_c.min())
-    log_c_max = np.log10(empirical_c.max())
-    for log_c in np.linspace(log_c_min - 1.0, log_c_max + 1.0, 15):
+    min_x  = df_daily[f'{X_ASSET_FIXED}_Norm'].min()
+    max_x  = df_daily[f'{X_ASSET_FIXED}_Norm'].max()
+    min_y  = df_daily[f'{selected_ticker}_Norm'].min()
+    max_y  = df_daily[f'{selected_ticker}_Norm'].max()
+    empirical_c = (df_daily[f'{selected_ticker}_Norm']
+                   / (df_daily[f'{X_ASSET_FIXED}_Norm'] ** guide_n))
+    for log_c in np.linspace(np.log10(empirical_c.min()) - 1.0,
+                              np.log10(empirical_c.max()) + 1.0, 15):
         c_val = 10 ** log_c
         fig.add_trace(go.Scatter(
             x=x_vals, y=c_val * (x_vals ** guide_n),
             mode='lines', line=dict(color='rgba(200,200,200,0.6)', width=1, dash='dot'),
-            showlegend=False, hoverinfo='skip'
-        ), row=current_row, col=1)
+            showlegend=False, hoverinfo='skip'), row=current_row, col=1)
     fig.add_trace(go.Scatter(
         x=sdf[f'{X_ASSET_FIXED}_Norm'],
         y=np.exp(np.log(sdf['Predicted']) - 1.5 * std_resid),
-        mode='lines', line=dict(width=0), showlegend=False, hoverinfo='skip'
-    ), row=current_row, col=1)
+        mode='lines', line=dict(width=0), showlegend=False, hoverinfo='skip'),
+        row=current_row, col=1)
     fig.add_trace(go.Scatter(
         x=sdf[f'{X_ASSET_FIXED}_Norm'],
         y=np.exp(np.log(sdf['Predicted']) + 1.5 * std_resid),
         mode='lines', line=dict(width=0),
         fill='tonexty', fillcolor='rgba(150,150,150,0.2)',
-        showlegend=False, hoverinfo='skip'
-    ), row=current_row, col=1)
+        showlegend=False, hoverinfo='skip'),
+        row=current_row, col=1)
     fig.add_trace(go.Scatter(
         x=sdf[f'{X_ASSET_FIXED}_Norm'], y=sdf['Predicted'],
-        mode='lines', line=dict(color='black', width=2), name='Predicted Trend'
-    ), row=current_row, col=1)
+        mode='lines', line=dict(color='black', width=2), name='Predicted Trend'),
+        row=current_row, col=1)
     color_array = np.linspace(0, 1, len(df_daily))
     fig.add_trace(go.Scatter(
         x=df_daily[f'{X_ASSET_FIXED}_Norm'], y=df_daily[f'{selected_ticker}_Norm'],
-        mode='markers', marker=dict(color=color_array, colorscale='Viridis', size=5, opacity=0.8),
-        name='Daily Data'
-    ), row=current_row, col=1)
+        mode='markers',
+        marker=dict(color=color_array, colorscale='Viridis', size=5, opacity=0.8),
+        name='Daily Data'),
+        row=current_row, col=1)
     last_x = df_daily[f'{X_ASSET_FIXED}_Norm'].iloc[-1]
     last_y = df_daily[f'{selected_ticker}_Norm'].iloc[-1]
     fig.add_trace(go.Scatter(
         x=[last_x], y=[last_y], mode='markers',
-        marker=dict(symbol='star', color='hotpink', size=16, line=dict(color='black', width=1)),
-        name='Current Position'
-    ), row=current_row, col=1)
+        marker=dict(symbol='star', color='hotpink', size=16,
+                    line=dict(color='black', width=1)),
+        name='Current'),
+        row=current_row, col=1)
     fig.update_xaxes(type="log", title_text="", showgrid=False,
                      range=[np.log10(min_x * 0.98), np.log10(max_x * 1.02)],
                      row=current_row, col=1)
-    # y축 제목 제거 (공간 확보)
     fig.update_yaxes(type="log", title_text="", showgrid=False,
                      range=[np.log10(min_y * 0.90), np.log10(max_y * 1.10)],
                      row=current_row, col=1)
+
+    # ── Beta 주석 (첫 번째 그래프 왼쪽 위) ──
+    fig.add_annotation(
+        x=0.02, y=0.97, xref='x domain', yref='y domain',
+        text=f"β = {beta:.2f}",
+        showarrow=False,
+        font=dict(size=11, color='#333333'),
+        bgcolor='rgba(255,255,255,0.80)',
+        bordercolor='#cccccc', borderwidth=1,
+        xanchor='left', yanchor='top',
+        row=current_row, col=1)
     current_row += 1
 
     # ── [2] Spacer ──
@@ -542,31 +531,34 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     fig.update_yaxes(visible=False, row=current_row, col=1)
     current_row += 1
 
-    # ── 뷰 기간 기준 재정규화 ──
+    # ── 뷰 기간 재정규화 ──
     view_start = df_daily.index[-1] - pd.DateOffset(months=view_months)
-    view_df = df_daily[df_daily.index >= view_start]
-    base_spy = view_df[f'{X_ASSET_FIXED}_Norm'].iloc[0] if not view_df.empty else 1.0
-    base_tkr = view_df[f'{selected_ticker}_Norm'].iloc[0] if not view_df.empty else 1.0
-    df_daily['Plot_Norm_SPY'] = df_daily[f'{X_ASSET_FIXED}_Norm'] / base_spy
+    view_df    = df_daily[df_daily.index >= view_start]
+    base_spy   = view_df[f'{X_ASSET_FIXED}_Norm'].iloc[0] if not view_df.empty else 1.0
+    base_tkr   = view_df[f'{selected_ticker}_Norm'].iloc[0] if not view_df.empty else 1.0
+    df_daily['Plot_Norm_SPY']    = df_daily[f'{X_ASSET_FIXED}_Norm'] / base_spy
     df_daily['Plot_Norm_Ticker'] = df_daily[f'{selected_ticker}_Norm'] / base_tkr
 
     # ── [3] Price ──
-    fig.add_trace(go.Scatter(
-        x=df_daily.index, y=df_daily['Plot_Norm_SPY'],
-        mode='lines', line=dict(color='gray', width=1.5), name=X_ASSET_FIXED
-    ), row=current_row, col=1)
-    fig.add_trace(go.Scatter(
-        x=df_daily.index, y=df_daily['Plot_Norm_Ticker'],
-        mode='lines', line=dict(color='black', width=1.5), name=selected_ticker
-    ), row=current_row, col=1)
-    min_price = df_daily.loc[df_daily.index >= view_start, ['Plot_Norm_SPY', 'Plot_Norm_Ticker']].min().min()
-    max_price = df_daily.loc[df_daily.index >= view_start, ['Plot_Norm_SPY', 'Plot_Norm_Ticker']].max().max()
+    fig.add_trace(go.Scatter(x=df_daily.index, y=df_daily['Plot_Norm_SPY'],
+                              mode='lines', line=dict(color='gray', width=1.5),
+                              name=X_ASSET_FIXED),
+                  row=current_row, col=1)
+    fig.add_trace(go.Scatter(x=df_daily.index, y=df_daily['Plot_Norm_Ticker'],
+                              mode='lines', line=dict(color='black', width=1.5),
+                              name=selected_ticker),
+                  row=current_row, col=1)
+    min_price = (df_daily.loc[df_daily.index >= view_start,
+                               ['Plot_Norm_SPY', 'Plot_Norm_Ticker']].min().min())
+    max_price = (df_daily.loc[df_daily.index >= view_start,
+                               ['Plot_Norm_SPY', 'Plot_Norm_Ticker']].max().max())
     price_baseline = min_price * 0.95
     add_filled_blocks(fig, df_daily, 'Plot_Norm_Ticker',
-                      df_daily['Win_Prob'] >= 70, 'rgba(255,0,0,0.3)', current_row, 1, price_baseline)
+                      df_daily['Win_Prob'] >= 70,
+                      'rgba(220,38,38,0.25)', current_row, 1, price_baseline)
     add_filled_blocks(fig, df_daily, 'Plot_Norm_Ticker',
-                      df_daily['Win_Prob'] <= 30, 'rgba(0,0,255,0.3)', current_row, 1, price_baseline)
-    # y축 제목 제거
+                      df_daily['Win_Prob'] <= 30,
+                      'rgba(29,78,216,0.25)', current_row, 1, price_baseline)
     fig.update_yaxes(type="log", title_text="",
                      range=[np.log10(price_baseline), np.log10(max_price * 1.05)],
                      row=current_row, col=1)
@@ -575,51 +567,54 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
 
     # ── [4] Win Prob ──
     fig.add_trace(go.Scatter(x=df_daily.index, y=df_daily['Win_Prob'],
-                             line=dict(color='black', width=1.5), name='Win Prob'),
+                              line=dict(color='black', width=1.5), name='Win Prob'),
                   row=current_row, col=1)
     fig.add_hline(y=50, line_dash="dash", line_color="gray", row=current_row, col=1)
     add_filled_blocks(fig, df_daily, 'Win_Prob',
-                      df_daily['Win_Prob'] >= 50, 'rgba(255,0,0,0.3)', current_row, 1, 50)
+                      df_daily['Win_Prob'] >= 50,
+                      'rgba(220,38,38,0.25)', current_row, 1, 50)
     add_filled_blocks(fig, df_daily, 'Win_Prob',
-                      df_daily['Win_Prob'] < 50, 'rgba(0,0,255,0.3)', current_row, 1, 50)
-    # y축 제목 제거
+                      df_daily['Win_Prob'] < 50,
+                      'rgba(29,78,216,0.25)', current_row, 1, 50)
     fig.update_yaxes(range=[0, 100], title_text="", row=current_row, col=1)
     fig.update_xaxes(matches=time_x_axis, row=current_row, col=1)
     current_row += 1
 
     # ── [5] Expected Return ──
     fig.add_trace(go.Scatter(x=df_daily.index, y=df_daily['Expected_Return'],
-                             line=dict(color='black', width=1.5), name='EV'),
+                              line=dict(color='black', width=1.5), name='EV'),
                   row=current_row, col=1)
     fig.add_hline(y=0, line_dash="dash", line_color="gray", row=current_row, col=1)
     add_filled_blocks(fig, df_daily, 'Expected_Return',
-                      df_daily['Expected_Return'] >= 0, 'rgba(255,0,0,0.3)', current_row, 1, 0)
+                      df_daily['Expected_Return'] >= 0,
+                      'rgba(220,38,38,0.25)', current_row, 1, 0)
     add_filled_blocks(fig, df_daily, 'Expected_Return',
-                      df_daily['Expected_Return'] < 0, 'rgba(0,0,255,0.3)', current_row, 1, 0)
-    # y축 제목 제거
+                      df_daily['Expected_Return'] < 0,
+                      'rgba(29,78,216,0.25)', current_row, 1, 0)
     fig.update_yaxes(title_text="", row=current_row, col=1)
     fig.update_xaxes(matches=time_x_axis, row=current_row, col=1)
     current_row += 1
 
     # ── [6][7] 보조 지표 ──
     if show_indicators:
-        macd_colors = np.where(df_daily['MACD_Hist'] >= 0, 'rgba(0,128,0,0.5)', 'rgba(255,0,0,0.5)')
+        macd_colors = np.where(df_daily['MACD_Hist'] >= 0,
+                               'rgba(0,128,0,0.5)', 'rgba(255,0,0,0.5)')
         fig.add_trace(go.Bar(x=df_daily.index, y=df_daily['MACD_Hist'],
-                             marker_color=macd_colors, name='MACD Hist'),
+                              marker_color=macd_colors, name='MACD Hist'),
                       row=current_row, col=1)
         fig.add_trace(go.Scatter(x=df_daily.index, y=df_daily['MACD'],
-                                 line=dict(color='blue', width=1), name='MACD'),
+                                  line=dict(color='blue', width=1), name='MACD'),
                       row=current_row, col=1)
         fig.add_trace(go.Scatter(x=df_daily.index, y=df_daily['MACD_Signal'],
-                                 line=dict(color='orange', width=1), name='Signal'),
+                                  line=dict(color='orange', width=1), name='Signal'),
                       row=current_row, col=1)
         fig.update_yaxes(title_text="", row=current_row, col=1)
         fig.update_xaxes(matches=time_x_axis, row=current_row, col=1)
         current_row += 1
         fig.add_trace(go.Scatter(x=df_daily.index, y=df_daily['RSI'],
-                                 line=dict(color='purple', width=1.5), name='RSI'),
+                                  line=dict(color='purple', width=1.5), name='RSI'),
                       row=current_row, col=1)
-        fig.add_hline(y=70, line_dash="dash", line_color="red", row=current_row, col=1)
+        fig.add_hline(y=70, line_dash="dash", line_color="red",  row=current_row, col=1)
         fig.add_hline(y=30, line_dash="dash", line_color="blue", row=current_row, col=1)
         fig.update_yaxes(range=[0, 100], title_text="", row=current_row, col=1)
         fig.update_xaxes(matches=time_x_axis, row=current_row, col=1)
@@ -628,28 +623,25 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     trade_history = st.session_state.trade_history
     if selected_ticker in trade_history:
         for trade in trade_history[selected_ticker]:
-            t_date = pd.to_datetime(trade['date'])
-            t_type = trade['type']
-            marker_color = 'red' if t_type == 'buy' else 'blue'
+            t_date        = pd.to_datetime(trade['date'])
+            t_type        = trade['type']
+            marker_color  = '#dc2626' if t_type == 'buy' else '#1d4ed8'
             marker_symbol = 'triangle-up' if t_type == 'buy' else 'triangle-down'
-            if t_date in df_daily.index:
-                d_date = t_date
-            else:
-                idx = df_daily.index.get_indexer([t_date], method='nearest')[0]
-                d_date = df_daily.index[idx]
+            idx    = df_daily.index.get_indexer([t_date], method='nearest')[0]
+            d_date = df_daily.index[idx]
             fig.add_trace(go.Scatter(
                 x=[df_daily.loc[d_date, f'{X_ASSET_FIXED}_Norm']],
                 y=[df_daily.loc[d_date, f'{selected_ticker}_Norm']],
                 mode='markers',
                 marker=dict(symbol=marker_symbol, size=10, color=marker_color,
                             line=dict(width=1, color='black')),
-                name=f"{t_type.upper()} ({t_date.date()})"
-            ), row=1, col=1)
+                name=f"{t_type.upper()} ({t_date.date()})"),
+                row=1, col=1)
             for r in range(3, total_rows + 1):
                 fig.add_vline(x=t_date, line_dash="solid", line_width=0.8,
                               line_color=marker_color, opacity=0.5, row=r, col=1)
 
-    # ── 축 스타일 정리 ──
+    # ── 축 스타일 ──
     fig.update_xaxes(showline=True, linewidth=1, linecolor='black', mirror=True)
     fig.update_yaxes(showline=True, linewidth=1, linecolor='black', mirror=True)
     fig.update_xaxes(visible=False, row=2, col=1)
@@ -657,63 +649,46 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     for r in range(3, total_rows):
         fig.update_xaxes(showticklabels=False, tickformat="%y/%m/%d", row=r, col=1)
     fig.update_xaxes(showticklabels=True, tickformat="%y/%m/%d", row=total_rows, col=1)
-
     fig.update_layout(
-        height=total_h,
-        showlegend=False,
-        hovermode='x unified',
-        dragmode='pan',
-        margin=dict(l=2, r=18, t=4, b=20),
-        paper_bgcolor='white',
-        plot_bgcolor='white',
-    )
+        height=total_h, showlegend=False, hovermode='x unified',
+        dragmode='pan', margin=dict(l=2, r=18, t=4, b=20),
+        paper_bgcolor='white', plot_bgcolor='white')
     fig.update_xaxes(range=[view_start, df_daily.index[-1]], row=3, col=1)
 
-    st.plotly_chart(
-        fig,
-        use_container_width=True,
-        config={
-            'scrollZoom': True,
-            'displayModeBar': False,
-            'doubleClick': 'reset',
-            'responsive': True,       # 반응형: 창 크기 변경 시 자동 리사이즈
-        }
-    )
+    st.plotly_chart(fig, use_container_width=True,
+                    config={'scrollZoom': True, 'displayModeBar': False,
+                            'doubleClick': 'reset', 'responsive': True})
 
 # ====================================================
-# 10. 메인 진입점
+# 11. 메인
 # ====================================================
 def main():
     init_session_state()
 
+    # ── 자동 새로고침 트리거 감지 ──────────────────────
+    # JS가 ?_ar=1 을 붙여 리로드 → 캐시 전체 클리어 → 새 데이터로 재분석
+    if st.query_params.get('_ar') == '1':
+        st.query_params.clear()
+        st.cache_data.clear()
+
     default_start = "2021-01-01"
-    default_train_end = "2026-03"
 
-    # ── 데이터 로드 & 전체 신호 사전 계산 ──
-    with st.spinner("데이터 로드 중... (최초 실행 시 수십 초 소요될 수 있습니다)"):
+    # ── 데이터 로드 ──
+    with st.spinner("데이터 로드 중..."):
         df_close = fetch_all_data(TARGET_TICKERS, default_start)
-        all_signals = compute_all_signals(df_close, default_train_end)
 
-    # 로드 완료 → 다음 rerun에서 제목에 쓸 날짜 캐싱
     if not df_close.empty:
         st.session_state.last_data_date = df_close.index[-1].strftime('%Y-%m-%d')
 
-    for t, emoji in all_signals.items():
-        st.session_state.ticker_signals.setdefault(t, emoji)
-
-    # 버튼 순서: TARGET_TICKERS 원래 순서 고정 (신호에 따라 바꾸지 않음)
-    display_tickers = TARGET_TICKERS
+    # ── 종목 선택 상태 ──
     DIRECT_INPUT_LABEL = "직접 입력"
-    all_options = display_tickers + [DIRECT_INPUT_LABEL]
-
+    all_options = TARGET_TICKERS + [DIRECT_INPUT_LABEL]
     if st.session_state.selected_option not in all_options:
         st.session_state.selected_option = all_options[0]
-
     selected_option = st.session_state.selected_option
 
-    # ── 선택 종목 결정 ──
     if selected_option == DIRECT_INPUT_LABEL:
-        custom_raw = st.session_state.get('custom_ticker_input', '').strip().upper()
+        custom_raw      = st.session_state.get('custom_ticker_input', '').strip().upper()
         selected_ticker = custom_raw if custom_raw else None
     else:
         selected_ticker = selected_option
@@ -728,159 +703,173 @@ def main():
             selected_ticker = None
 
     # ── 사이드바 ──
-    cfg = render_sidebar(df_close, selected_ticker or TARGET_TICKERS[0])
-    train_end_date = pd.to_datetime(cfg['train_end']) + pd.offsets.MonthEnd(0)
+    cfg = render_sidebar(selected_ticker or TARGET_TICKERS[0])
 
-    # ── 분석 ──
-    df_daily = None
-    beta = win_prob = expected_return = avg_cycle = std_resid = None
+    # view_months 변경 → settings.json 에 저장
+    if cfg['view_months'] != st.session_state.view_months:
+        st.session_state.view_months = cfg['view_months']
+        settings = load_settings()
+        settings['view_months'] = cfg['view_months']
+        save_settings(settings)
 
-    if selected_ticker and f'{selected_ticker}_Close' in df_close.columns:
+    # refresh_mins 변경 반영
+    st.session_state.refresh_mins = cfg['refresh_mins']
+
+    # ── 전체 종목 일괄 분석 (캐시 히트 시 즉시) ──
+    with st.spinner("전체 종목 분석 중... (최초 실행 시 수십 초 소요)"):
+        all_analyses = compute_all_analyses(
+            df_close, cfg['train_end'],
+            st.session_state.get('model_type', 'linear'))
+
+    # 버튼 색상용 신호 갱신
+    for ticker, result in all_analyses.items():
+        if result and result[0] is not None:
+            _, _, wp, er, _, _ = result
+            st.session_state.ticker_signals[ticker] = get_signal(wp, er)
+        else:
+            st.session_state.ticker_signals.setdefault(ticker, 'H')
+
+    # ── 선택 종목 분석 결과 추출 ──
+    df_daily = beta = win_prob = expected_return = avg_cycle = std_resid = None
+
+    if selected_ticker and selected_ticker in TARGET_TICKERS:
+        result = all_analyses.get(selected_ticker)
+        if result and result[0] is not None:
+            df_daily, beta, win_prob, expected_return, avg_cycle, std_resid = result
+            st.session_state.ticker_signals[selected_ticker] = get_signal(win_prob, expected_return)
+
+    elif selected_ticker and f'{selected_ticker}_Close' in df_close.columns:
+        # 커스텀 티커: 온디맨드 분석
+        train_end_date = pd.to_datetime(cfg['train_end']) + pd.offsets.MonthEnd(0)
+        price_series   = df_close[f'{selected_ticker}_Close'].dropna()
+        cycle          = get_optimal_cycle(price_series, find_available_cycles(price_series))
         with st.spinner(f"{display_name(selected_ticker)} 분석 중..."):
-            df_x = df_close[[f'{X_ASSET_FIXED}_Close']]
-            df_y = df_close[[f'{selected_ticker}_Close']]
-            df_daily, beta, win_prob, expected_return, avg_cycle, std_resid = process_asset_data(
-                df_x, df_y, X_ASSET_FIXED, selected_ticker,
-                cfg['selected_cycle'], train_end_date,
-                st.session_state.get('model_type', 'linear')
-            )
-        if df_daily is not None:
-            st.session_state.ticker_signals[selected_ticker] = get_action_emoji(win_prob, expected_return)
+            result = process_asset_data(
+                df_close[[f'{X_ASSET_FIXED}_Close']],
+                df_close[[f'{selected_ticker}_Close']],
+                X_ASSET_FIXED, selected_ticker,
+                cycle, train_end_date,
+                st.session_state.get('model_type', 'linear'))
+        if result[0] is not None:
+            df_daily, beta, win_prob, expected_return, avg_cycle, std_resid = result
+            st.session_state.ticker_signals[selected_ticker] = get_signal(win_prob, expected_return)
 
-    # ════════════════════════════════════════════════
-    #  CSS: 전역 레이아웃 + 버튼 색상
-    # ════════════════════════════════════════════════
+    # ════════════════════════════════════════
+    #  CSS: 레이아웃 + 버튼 색상
+    # ════════════════════════════════════════
     btn_css_parts = []
-    for ticker in display_tickers:
-        emoji = st.session_state.ticker_signals.get(ticker, '⚪')
-        bg, fg = SIGNAL_STYLE.get(emoji, ('#7f8c8d', '#fff'))
-        k = f"ticker_btn_{safe_key(ticker)}"
+    for ticker in TARGET_TICKERS:
+        sig    = st.session_state.ticker_signals.get(ticker, 'H')
+        bg, fg = SIGNAL_STYLE.get(sig, ('#9ca3af', '#fff'))
+        k      = f"ticker_btn_{safe_key(ticker)}"
         is_sel = (selected_option == ticker)
-        sel_extra = (
-            f"box-shadow:0 0 0 2px #fff,0 0 0 4px {bg}!important;"
-            f"transform:scale(1.03);"
-        ) if is_sel else ""
+        sel_extra = (f"box-shadow:0 0 0 2px #fff,0 0 0 4px {bg}!important;"
+                     "transform:scale(1.03);") if is_sel else ""
         btn_css_parts.append(f"""
         div.st-key-{k} button {{
-            background:{bg}!important;
-            border-color:{bg}!important;
-            color:{fg}!important;
-            font-weight:700!important;
-            height:1.4rem!important;
-            font-size:0.68rem!important;
-            padding:0!important;
-            line-height:1!important;
-            min-height:0!important;
-            border-radius:3px!important;
+            background:{bg}!important; border-color:{bg}!important;
+            color:{fg}!important; font-weight:700!important;
+            height:1.4rem!important; font-size:0.68rem!important;
+            padding:0!important; line-height:1!important;
+            min-height:0!important; border-radius:3px!important;
             {sel_extra}
         }}
-        div.st-key-{k} button:hover {{
-            opacity:0.82!important;
-        }}""")
-
-    # 직접 입력 버튼
+        div.st-key-{k} button:hover {{ opacity:0.82!important; }}""")
     di_sel = (selected_option == DIRECT_INPUT_LABEL)
     btn_css_parts.append(f"""
     div.st-key-ticker_btn_direct button {{
-        height:1.1rem!important;
-        font-size:0.55rem!important;
-        padding:0!important;
-        min-height:0!important;
-        border-radius:3px!important;
+        height:1.1rem!important; font-size:0.55rem!important;
+        padding:0!important; min-height:0!important; border-radius:3px!important;
         {'border:2px solid #1565C0!important;font-weight:700!important;' if di_sel else ''}
     }}""")
 
     global_css = f"""
     <style>
-    /* Streamlit 기본 상단 여백 최소화 */
     .block-container {{
-        padding-top: 0.35rem !important;
-        padding-bottom: 0.5rem !important;
+        padding-top: 0.35rem !important; padding-bottom: 0.5rem !important;
         max-width: 100% !important;
     }}
-    /* 두 컬럼 항상 가로 배치 (모바일 포함) - 메인 영역만 */
     section[data-testid="stMain"] div[data-testid="stHorizontalBlock"] {{
-        flex-wrap: nowrap !important;
-        gap: 5px !important;
+        flex-wrap: nowrap !important; gap: 5px !important;
         align-items: flex-start !important;
     }}
-    /* 버튼 컬럼: 좁게 고정, 패딩 제거 - 메인 영역만 */
     section[data-testid="stMain"] div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"]:first-child {{
-        flex: 0 0 62px !important;
-        min-width: 62px !important;
-        max-width: 62px !important;
-        padding: 0 !important;
+        flex: 0 0 62px !important; min-width: 62px !important;
+        max-width: 62px !important; padding: 0 !important;
     }}
-    /* 그래프 컬럼: 남은 공간 최대한 사용, 잘림 방지 - 메인 영역만 */
     section[data-testid="stMain"] div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"]:last-child {{
-        flex: 1 1 0 !important;
-        min-width: 0 !important;
+        flex: 1 1 0 !important; min-width: 0 !important;
         overflow: visible !important;
-        padding-left: 2px !important;
-        padding-right: 2px !important;
+        padding-left: 2px !important; padding-right: 2px !important;
     }}
-    /* 버튼 컬럼 내 세로 간격 제거 (버튼끼리 붙임) - 메인 영역만 */
     section[data-testid="stMain"] div[data-testid="stColumn"]:first-child div[data-testid="stVerticalBlock"] > div {{
-        margin-bottom: 1px !important;
-        padding: 0 !important;
+        margin-bottom: 1px !important; padding: 0 !important;
     }}
     section[data-testid="stMain"] div[data-testid="stColumn"]:first-child div[data-testid="stVerticalBlock"] {{
         gap: 0 !important;
     }}
-    /* 버튼 내부 p 태그 마진 제거 - 메인 영역만 */
     section[data-testid="stMain"] div[data-testid="stColumn"]:first-child button p {{
-        margin: 0 !important;
-        padding: 0 !important;
-        font-size: 0.65rem !important;
-        line-height: 1 !important;
+        margin: 0 !important; padding: 0 !important;
+        font-size: 0.65rem !important; line-height: 1 !important;
     }}
     {''.join(btn_css_parts)}
-    </style>
-    """
+    </style>"""
     st.markdown(global_css, unsafe_allow_html=True)
 
-    # ── 제목: CSS 주입 후 렌더링하여 항상 표시 ──
-    KST = datetime.timezone(datetime.timedelta(hours=9))
+    # ── 제목 ──
+    KST        = datetime.timezone(datetime.timedelta(hours=9))
     queried_at = datetime.datetime.now(KST).strftime('%Y-%m-%d %H:%M')
-    cached_date = st.session_state.get('last_data_date', '')
-    date_part = f"기준: {cached_date}&nbsp;·&nbsp;" if cached_date else ""
+    date_part  = (f"기준: {st.session_state.last_data_date}&nbsp;·&nbsp;"
+                  if st.session_state.last_data_date else "")
+    next_refresh = (datetime.datetime.now(KST)
+                    + datetime.timedelta(minutes=cfg['refresh_mins']))
     st.markdown(
         f"<div style='display:flex;align-items:center;gap:10px;"
         f"margin-bottom:3px;padding-bottom:3px;border-bottom:1px solid #ddd;'>"
         f"<b style='font-size:1.15rem;white-space:nowrap;color:#111;'>📊 퀀트 대시보드</b>"
         f"<span style='font-size:10px;color:#999;white-space:nowrap;'>"
         f"{date_part}조회: {queried_at}"
+        f"&nbsp;·&nbsp;다음 갱신: {next_refresh.strftime('%H:%M')}"
         f"</span></div>",
-        unsafe_allow_html=True
-    )
+        unsafe_allow_html=True)
 
-    # ── 컬러 범례 (한 줄, 컴팩트) ──
-    legend_parts = []
-    for color, label in LEGEND_ITEMS:
-        legend_parts.append(
-            f"<span style='display:inline-flex;align-items:center;gap:2px;white-space:nowrap;'>"
-            f"<span style='width:9px;height:9px;border-radius:2px;"
-            f"background:{color};display:inline-block;flex-shrink:0;'></span>"
-            f"{label}</span>"
-        )
+    # ── 자동 새로고침 JS ──────────────────────────────
+    # N분 후 ?_ar=1 로 리다이렉트 → Python 쪽에서 캐시 클리어
+    refresh_ms = cfg['refresh_mins'] * 60 * 1000
+    st.markdown(f"""
+    <script>
+    (function() {{
+        if (window._arTimer) clearTimeout(window._arTimer);
+        window._arTimer = setTimeout(function() {{
+            window.location.href =
+                window.location.pathname + '?_ar=1&t=' + Date.now();
+        }}, {refresh_ms});
+    }})();
+    </script>""", unsafe_allow_html=True)
+
+    # ── 범례 ──
+    legend_parts = [
+        f"<span style='display:inline-flex;align-items:center;gap:2px;white-space:nowrap;'>"
+        f"<span style='width:9px;height:9px;border-radius:2px;"
+        f"background:{color};display:inline-block;flex-shrink:0;'></span>{label}</span>"
+        for color, label in LEGEND_ITEMS]
     legend_html = (
         "<div style='display:flex;flex-wrap:wrap;gap:6px;align-items:center;"
         "font-size:10px;color:#555;margin-bottom:3px;'>"
-        + "&nbsp;".join(legend_parts) + "</div>"
-    )
+        + "&nbsp;".join(legend_parts) + "</div>")
 
-    # ── 요약 카드 HTML 조립 (summary card) ──
+    # ── 요약 카드 ──
     if selected_ticker and win_prob is not None and expected_return is not None:
-        emoji_now = get_action_emoji(win_prob, expected_return)
-        action_text = ACTION_LABELS.get(emoji_now, '관망')
-        bg_c, _ = SIGNAL_STYLE.get(emoji_now, ('#7f8c8d', '#fff'))
-        wp_color = "#c0392b" if win_prob >= 50.0 else "#2980b9"
-        ev_color = "#c0392b" if expected_return >= 0.0 else "#2980b9"
+        sig        = get_signal(win_prob, expected_return)
+        action_txt = ACTION_LABELS.get(sig, '관망')
+        bg_c, _    = SIGNAL_STYLE.get(sig, ('#9ca3af', '#fff'))
+        wp_color   = "#dc2626" if win_prob >= 50.0 else "#1d4ed8"
+        ev_color   = "#dc2626" if expected_return >= 0.0 else "#1d4ed8"
         summary_html = (
             f"<div style='display:flex;align-items:center;gap:8px;flex-wrap:wrap;"
             f"padding:4px 10px;border-radius:6px;border-left:4px solid {bg_c};"
-            f"background:{bg_c}12;margin-bottom:4px;'>"
-            f"<b style='font-size:23px;color:{bg_c};white-space:nowrap;'>{action_text}</b>"
+            f"background:{bg_c}18;margin-bottom:4px;'>"
+            f"<b style='font-size:23px;color:{bg_c};white-space:nowrap;'>{action_txt}</b>"
             f"<span style='width:1px;height:13px;background:#ddd;display:inline-block;'></span>"
             f"<span style='font-size:13px;color:#666;'>승률&nbsp;"
             f"<b style='color:{wp_color};'>{win_prob:.1f}%</b></span>"
@@ -888,58 +877,46 @@ def main():
             f"<b style='color:{ev_color};'>{expected_return:+.1f}%</b></span>"
             f"<span style='font-size:13px;color:#666;'>주기&nbsp;"
             f"<b style='color:#333;'>{avg_cycle}일</b></span>"
-            f"</div>"
-        )
+            f"</div>")
     else:
         summary_html = "<div style='margin-bottom:3px;'></div>"
 
     st.markdown(legend_html + summary_html, unsafe_allow_html=True)
 
-    # ════════════════════════════════════════════════
-    #  좌우 분할 레이아웃
-    # ════════════════════════════════════════════════
+    # ── 버튼 + 차트 레이아웃 ──
     btn_col, chart_col = st.columns([1, 4])
 
-    # ── 왼쪽: 종목 버튼 (단일 컬럼, 원래 순서 고정) ──
     with btn_col:
-        for ticker in display_tickers:
+        for ticker in TARGET_TICKERS:
             btn_key = f"ticker_btn_{safe_key(ticker)}"
             if st.button(display_name(ticker), key=btn_key, use_container_width=True):
-                st.session_state.selected_option = ticker
-                st.session_state.custom_ticker_input = ''
+                st.session_state.selected_option      = ticker
+                st.session_state.custom_ticker_input  = ''
                 st.rerun()
-
-        # 직접 입력 버튼
         if st.button(DIRECT_INPUT_LABEL, key="ticker_btn_direct", use_container_width=True):
             st.session_state.selected_option = DIRECT_INPUT_LABEL
             st.rerun()
-
-        # 직접 입력 텍스트 (선택 시 표시)
         if selected_option == DIRECT_INPUT_LABEL:
             custom_input = st.text_input(
                 "티커",
                 value=st.session_state.get('custom_ticker_input', ''),
-                placeholder="NVDA",
-                label_visibility="collapsed"
-            )
+                placeholder="NVDA", label_visibility="collapsed")
             new_val = custom_input.strip().upper()
             if new_val != st.session_state.get('custom_ticker_input', ''):
                 st.session_state.custom_ticker_input = new_val
                 st.rerun()
 
-    # ── 오른쪽: 그래프 ──
     with chart_col:
         if df_daily is not None:
-            render_chart(
-                df_daily, selected_ticker, beta, std_resid,
-                cfg['guide_n'], cfg['view_months'],
-                cfg['show_indicators'], avg_cycle
-            )
+            render_chart(df_daily, selected_ticker, beta, std_resid,
+                         cfg['guide_n'], cfg['view_months'],
+                         cfg['show_indicators'], avg_cycle)
         elif selected_option == DIRECT_INPUT_LABEL:
             if not st.session_state.get('custom_ticker_input', ''):
                 st.info("왼쪽에서 티커를 입력해 주세요. (예: NVDA, 000660)")
             else:
-                st.error(f"'{st.session_state.custom_ticker_input}' 데이터를 가져올 수 없습니다. 티커를 확인해 주세요.")
+                st.error(f"'{st.session_state.custom_ticker_input}'"
+                         " 데이터를 가져올 수 없습니다. 티커를 확인해 주세요.")
         elif selected_ticker:
             st.error("분석에 필요한 데이터가 부족합니다.")
 
