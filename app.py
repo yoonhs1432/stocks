@@ -455,7 +455,7 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     }
     </style>""", unsafe_allow_html=True)
 
-    PX = {'main': 140, 'spacer': 25, 'price': 100, 'zscore': 90, 'macd': 80, 'rsi': 80}
+    PX = {'main': 180, 'spacer': 25, 'price': 130, 'zscore': 130, 'macd': 80, 'rsi': 80}
     active_plots = ['main', 'spacer', 'price', 'zscore']
     if show_indicators:
         active_plots += ['macd', 'rsi']
@@ -517,7 +517,7 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
                      range=[np.log10(min_x * 0.98), np.log10(max_x * 1.02)],
                      row=current_row, col=1)
     fig.update_yaxes(type="log", title_text="", showgrid=False,
-                     range=[np.log10(min_y * 0.90), np.log10(max_y * 1.10)],
+                     range=[np.log10(min_y * 0.85), np.log10(max_y * 1.20)],
                      row=current_row, col=1)
 
     # ── Beta 주석 (첫 번째 그래프 왼쪽 위) ──
@@ -590,10 +590,9 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
                       df_daily['Z_Score'] >= 1.5,
                       'rgba(29,78,216,0.20)', current_row, 1, 1.5)
     z_view   = df_daily.loc[df_daily.index >= view_start, 'Z_Score'].dropna()
-    z_min    = z_view.min() if not z_view.empty else -3.0
-    z_max    = z_view.max() if not z_view.empty else  3.0
-    z_pad    = max((z_max - z_min) * 0.1, 0.3)
-    fig.update_yaxes(range=[z_min - z_pad, z_max + z_pad], title_text="",
+    z_lo     = min(-2.0, z_view.min() if not z_view.empty else -2.0)
+    z_hi     = max( 2.0, z_view.max() if not z_view.empty else  2.0)
+    fig.update_yaxes(range=[z_lo - 0.2, z_hi + 0.2], title_text="",
                      row=current_row, col=1)
     fig.update_xaxes(matches=time_x_axis, row=current_row, col=1)
     current_row += 1
