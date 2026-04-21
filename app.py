@@ -509,7 +509,7 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     last_y = df_daily[f'{selected_ticker}_Norm'].iloc[-1]
     fig.add_trace(go.Scatter(
         x=[last_x], y=[last_y], mode='markers',
-        marker=dict(symbol='star', color='hotpink', size=16,
+        marker=dict(symbol='star', color='hotpink', size=12,
                     line=dict(color='black', width=1)),
         name='Current'),
         row=current_row, col=1)
