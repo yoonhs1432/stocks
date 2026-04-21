@@ -527,16 +527,6 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
                      range=[np.log10(y_lo * 0.88), np.log10(y_hi * 1.18)],
                      row=current_row, col=1)
 
-    # ── Beta 주석 (첫 번째 그래프 왼쪽 위) ──
-    fig.add_annotation(
-        x=0.02, y=0.97, xref='x domain', yref='y domain',
-        text=f"β = {beta:.2f}",
-        showarrow=False,
-        font=dict(size=11, color='#333333'),
-        bgcolor='rgba(255,255,255,0.80)',
-        bordercolor='#cccccc', borderwidth=1,
-        xanchor='left', yanchor='top',
-        row=current_row, col=1)
     current_row += 1
 
     # ── [2] Spacer ──
@@ -880,8 +870,8 @@ def main():
             f"<span style='width:1px;height:13px;background:#ddd;display:inline-block;'></span>"
             f"<span style='font-size:13px;color:#666;'>Z-Score&nbsp;"
             f"<b style='color:{z_color};'>{cz:+.2f}</b></span>"
-            f"<span style='font-size:13px;color:#666;'>주기&nbsp;"
-            f"<b style='color:#333;'>{avg_cycle}일</b></span>"
+            f"<span style='font-size:13px;color:#666;'>β&nbsp;"
+            f"<b style='color:#333;'>{beta:.2f}</b></span>"
             f"</div>")
     else:
         summary_html = "<div style='margin-bottom:3px;'></div>"
