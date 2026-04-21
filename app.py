@@ -4,9 +4,7 @@ import pandas as pd
 import json
 import os
 import requests
-from sklearn.linear_model import LinearRegression, LogisticRegression, Ridge
-from sklearn.preprocessing import StandardScaler
-from sklearn.ensemble import GradientBoostingClassifier, GradientBoostingRegressor
+from sklearn.linear_model import LinearRegression
 import FinanceDataReader as fdr
 import streamlit as st
 import plotly.graph_objects as go
@@ -124,8 +122,6 @@ def init_session_state() -> None:
         st.session_state.ticker_signals = {}
     if 'selected_option' not in st.session_state:
         st.session_state.selected_option = TARGET_TICKERS[0]
-    if 'model_type' not in st.session_state:
-        st.session_state.model_type = 'linear'
     if 'custom_ticker_input' not in st.session_state:
         st.session_state.custom_ticker_input = ''
     if 'last_data_date' not in st.session_state:
@@ -242,85 +238,11 @@ def _compute_indicators(df: pd.DataFrame, y_name: str) -> tuple:
     std_resid         = log_resid.std()
     expanding_std     = log_resid.expanding(min_periods=30).std()
     df['Z_Score']     = log_resid / expanding_std.replace(0, np.nan)
-    df['Vol_21']      = close.pct_change().rolling(window=21, min_periods=10).std() * 100
-    spy_close         = df[f'{X_ASSET_FIXED}_Close']
-    df['SPY_Vol_21']  = spy_close.pct_change().rolling(window=21, min_periods=10).std() * 100
-    df['SPY_Mom_60']  = spy_close.pct_change(60) * 100
     return df, std_resid
-
-def _compute_targets(df: pd.DataFrame, y_name: str, cycle: int) -> pd.DataFrame:
-    """
-    Z-Score 회귀 기반 타겟 계산 (Direction B).
-
-    Target       : 향후 N일 평균 Z-Score 절댓값이 현재보다 작아질 것인가? (1=회귀, 0=발산)
-    Target_Return: 회귀 강도 = sign(-Z_now) × (Z_future_avg - Z_now)
-                   → 양수: 0을 향해 이동 예상 / 음수: 0에서 멀어질 예상
-    """
-    df = df.copy()
-    # 향후 cycle일 Z-Score 평균 (순방향 롤링)
-    z_shifted = df['Z_Score'].shift(-1)
-    df['Future_Z_Avg'] = z_shifted.iloc[::-1].rolling(window=cycle, min_periods=1).mean().iloc[::-1]
-
-    valid = ~(df['Future_Z_Avg'].isna() | df['Z_Score'].isna())
-
-    # 분류 타겟: 미래 Z가 0에 더 가까워지면 1
-    df['Target'] = np.where(
-        valid,
-        (np.abs(df['Future_Z_Avg']) < np.abs(df['Z_Score'])).astype(int),
-        np.nan)
-
-    # 회귀 강도: 양수 = 0 방향으로 이동, 음수 = 발산
-    df['Target_Return'] = np.where(
-        valid,
-        np.where(df['Z_Score'] == 0, 0.0,
-                 np.sign(-df['Z_Score']) * (df['Future_Z_Avg'] - df['Z_Score'])),
-        np.nan)
-    return df
-
-def _train_and_predict(df: pd.DataFrame, train_end_date,
-                       model_type: str = 'linear') -> tuple:
-    for col in ['Win_Prob', 'Expected_Return']:
-        df[col] = np.nan
-    features = ['Z_Score', 'Vol_21', 'SPY_Vol_21', 'SPY_Mom_60']
-    ml_df    = df[features + ['Target', 'Target_Return']].dropna()
-    train_df = ml_df.loc[:train_end_date]
-    win_prob = expected_return = None
-    if len(train_df) > 30:
-        X_tr  = train_df[features].values
-        y_clf = train_df['Target'].values
-        y_reg = train_df['Target_Return'].values
-        if model_type == 'linear':
-            scaler   = StandardScaler()
-            X_tr_fit = scaler.fit_transform(X_tr)
-            clf = LogisticRegression(class_weight='balanced').fit(X_tr_fit, y_clf)
-            reg = Ridge(alpha=1.0).fit(X_tr_fit, y_reg)
-        else:
-            scaler   = None
-            X_tr_fit = X_tr
-            clf = GradientBoostingClassifier(
-                n_estimators=400, max_depth=2, learning_rate=0.01,
-                subsample=0.7, min_samples_leaf=20, random_state=42
-            ).fit(X_tr_fit, y_clf)
-            reg = GradientBoostingRegressor(
-                n_estimators=400, max_depth=2, learning_rate=0.01,
-                subsample=0.7, min_samples_leaf=20, random_state=42
-            ).fit(X_tr_fit, y_reg)
-        valid_idx  = df.dropna(subset=features).index
-        feat_valid = df.loc[valid_idx, features].values
-        if len(feat_valid) > 0:
-            X_valid = scaler.transform(feat_valid) if scaler else feat_valid
-            probs   = clf.predict_proba(X_valid)
-            df.loc[valid_idx, 'Win_Prob']        = probs[:, 1] * 100
-            win_prob                             = probs[-1, 1] * 100
-            evs = reg.predict(X_valid)
-            df.loc[valid_idx, 'Expected_Return'] = evs
-            expected_return                      = evs[-1]
-    return df, win_prob, expected_return
 
 def process_asset_data(df_x: pd.DataFrame, df_y: pd.DataFrame,
                        x_name: str, y_name: str,
-                       cycle: int, train_end_date=None,
-                       model_type: str = 'linear') -> tuple:
+                       cycle: int) -> tuple:
     df = pd.merge(df_x, df_y, left_index=True, right_index=True).dropna().sort_index()
     if df.empty:
         return (None,) * 4
@@ -380,7 +302,6 @@ def add_filled_blocks(fig, df: pd.DataFrame, y_col: str, condition: pd.Series,
 def render_sidebar(selected_ticker: str) -> dict:
     with st.sidebar:
         st.markdown("### ⚙️ 분석 파라미터")
-        train_end    = st.text_input("학습 종료 (YYYY-MM)", "2026-03")
         view_months  = st.number_input("차트 조회 기간 (최근 N개월)",
                                        min_value=1, max_value=240,
                                        value=st.session_state.view_months, step=1)
@@ -391,17 +312,6 @@ def render_sidebar(selected_ticker: str) -> dict:
                                        value=st.session_state.refresh_mins, step=1)
         st.markdown("---")
         show_indicators = st.checkbox("MACD & RSI 표시", value=True)
-        st.markdown("---")
-        st.markdown("### 🤖 ML 모델")
-        model_options = ['linear', 'gbm']
-        model_type = st.radio(
-            "모델", options=model_options,
-            format_func=lambda x: '선형 모델 (기본)' if x == 'linear' else '그래디언트 부스팅',
-            index=model_options.index(st.session_state.get('model_type', 'linear')),
-            label_visibility="collapsed")
-        st.session_state.model_type = model_type
-        if model_type == 'gbm':
-            st.caption("⚠️ 분석 시간이 다소 길어질 수 있습니다.")
         st.markdown("---")
         st.markdown("### 📝 매매 기록 관리")
         _tok, _gid = _gist_cfg()
@@ -437,9 +347,8 @@ def render_sidebar(selected_ticker: str) -> dict:
         else:
             st.info("매매 기록이 없습니다.")
 
-    return {'train_end': train_end, 'view_months': int(view_months),
-            'guide_n': guide_n, 'show_indicators': show_indicators,
-            'model_type': model_type, 'refresh_mins': int(refresh_mins)}
+    return {'view_months': int(view_months), 'guide_n': guide_n,
+            'show_indicators': show_indicators, 'refresh_mins': int(refresh_mins)}
 
 # ====================================================
 # 10. 차트 렌더링
