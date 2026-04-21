@@ -455,7 +455,7 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     }
     </style>""", unsafe_allow_html=True)
 
-    PX = {'main': 150, 'spacer': 20, 'price': 120, 'zscore': 120, 'macd': 120, 'rsi': 120}
+    PX = {'main': 150, 'spacer': 20, 'price': 96, 'zscore': 96, 'macd': 96, 'rsi': 96}
     active_plots = ['main', 'spacer', 'price', 'zscore']
     if show_indicators:
         active_plots += ['macd', 'rsi']
