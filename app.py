@@ -516,8 +516,7 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     fig.update_xaxes(type="log", title_text="", showgrid=False,
                      range=[np.log10(min_x * 0.98), np.log10(max_x * 1.02)],
                      row=current_row, col=1)
-    fig.update_yaxes(type="log", title_text="", showgrid=False,
-                     range=[np.log10(min_y * 0.85), np.log10(max_y * 1.20)],
+    fig.update_yaxes(type="log", title_text="", showgrid=False, autorange=True,
                      row=current_row, col=1)
 
     # ── Beta 주석 (첫 번째 그래프 왼쪽 위) ──
