@@ -253,7 +253,9 @@ def _compute_indicators(df: pd.DataFrame, y_name: str) -> tuple:
     expanding_std     = log_resid.expanding(min_periods=30).std()
     df['Z_Score']     = log_resid / expanding_std.replace(0, np.nan)
     df['Vol_21']      = close.pct_change().rolling(window=21, min_periods=10).std() * 100
-    df['Mom_60']      = close.pct_change(60) * 100
+    spy_close         = df[f'{X_ASSET_FIXED}_Close']
+    df['SPY_Vol_21']  = spy_close.pct_change().rolling(window=21, min_periods=10).std() * 100
+    df['SPY_Mom_60']  = spy_close.pct_change(60) * 100
     return df, std_resid
 
 def _compute_targets(df: pd.DataFrame, y_name: str, cycle: int) -> pd.DataFrame:
@@ -289,7 +291,7 @@ def _train_and_predict(df: pd.DataFrame, train_end_date,
                        model_type: str = 'linear') -> tuple:
     for col in ['Win_Prob', 'Expected_Return']:
         df[col] = np.nan
-    features = ['Z_Score', 'RSI', 'Vol_21', 'Mom_60']
+    features = ['Z_Score', 'Vol_21', 'SPY_Vol_21', 'SPY_Mom_60']
     ml_df    = df[features + ['Target', 'Target_Return']].dropna()
     train_df = ml_df.loc[:train_end_date]
     win_prob = expected_return = None
