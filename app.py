@@ -513,10 +513,18 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
                     line=dict(color='black', width=1)),
         name='Current'),
         row=current_row, col=1)
+    # y범위: 실제 데이터 + 회귀밴드 기준 (가이드라인 제외)
+    band_upper = np.exp(np.log(sdf['Predicted'].values) + 1.5 * std_resid)
+    band_lower = np.exp(np.log(sdf['Predicted'].values) - 1.5 * std_resid)
+    y_all  = np.concatenate([df_daily[f'{selected_ticker}_Norm'].dropna().values,
+                              band_upper, band_lower])
+    y_lo   = np.nanmin(y_all)
+    y_hi   = np.nanmax(y_all)
     fig.update_xaxes(type="log", title_text="", showgrid=False,
                      range=[np.log10(min_x * 0.98), np.log10(max_x * 1.02)],
                      row=current_row, col=1)
-    fig.update_yaxes(type="log", title_text="", showgrid=False, autorange=True,
+    fig.update_yaxes(type="log", title_text="", showgrid=False,
+                     range=[np.log10(y_lo * 0.88), np.log10(y_hi * 1.18)],
                      row=current_row, col=1)
 
     # ── Beta 주석 (첫 번째 그래프 왼쪽 위) ──
@@ -652,7 +660,7 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     fig.update_xaxes(showticklabels=True, tickformat="%y/%m/%d", row=total_rows, col=1)
     fig.update_layout(
         height=total_h, showlegend=False, hovermode='x unified',
-        dragmode='pan', margin=dict(l=2, r=18, t=4, b=20),
+        dragmode='pan', margin=dict(l=2, r=18, t=12, b=20),
         paper_bgcolor='white', plot_bgcolor='white')
     fig.update_xaxes(range=[view_start, df_daily.index[-1]], row=3, col=1)
 
