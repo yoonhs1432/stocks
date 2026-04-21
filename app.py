@@ -390,7 +390,7 @@ def render_sidebar(selected_ticker: str) -> dict:
                                        min_value=1, max_value=120,
                                        value=st.session_state.refresh_mins, step=1)
         st.markdown("---")
-        show_indicators = st.checkbox("MACD & RSI 표시", value=False)
+        show_indicators = st.checkbox("MACD & RSI 표시", value=True)
         st.markdown("---")
         st.markdown("### 🤖 ML 모델")
         model_options = ['linear', 'gbm']
@@ -455,7 +455,7 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     }
     </style>""", unsafe_allow_html=True)
 
-    PX = {'main': 180, 'spacer': 25, 'price': 130, 'zscore': 130, 'macd': 80, 'rsi': 80}
+    PX = {'main': 150, 'spacer': 20, 'price': 120, 'zscore': 120, 'macd': 120, 'rsi': 120}
     active_plots = ['main', 'spacer', 'price', 'zscore']
     if show_indicators:
         active_plots += ['macd', 'rsi']
@@ -613,9 +613,15 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
         fig.add_trace(go.Scatter(x=df_daily.index, y=df_daily['RSI'],
                                   line=dict(color='purple', width=1.5), name='RSI'),
                       row=current_row, col=1)
-        fig.add_hline(y=70, line_dash="dash", line_color="red",  row=current_row, col=1)
-        fig.add_hline(y=30, line_dash="dash", line_color="blue", row=current_row, col=1)
-        fig.update_yaxes(range=[0, 100], title_text="", row=current_row, col=1)
+        fig.add_hline(y=70, line_dash="dash", line_color="red",  line_width=1.2,
+                      row=current_row, col=1)
+        fig.add_hline(y=30, line_dash="dash", line_color="blue", line_width=1.2,
+                      row=current_row, col=1)
+        rsi_view = df_daily.loc[df_daily.index >= view_start, 'RSI'].dropna()
+        rsi_lo   = min(20.0, rsi_view.min() if not rsi_view.empty else 20.0)
+        rsi_hi   = max(80.0, rsi_view.max() if not rsi_view.empty else 80.0)
+        fig.update_yaxes(range=[rsi_lo - 2, rsi_hi + 2], title_text="",
+                         row=current_row, col=1)
         fig.update_xaxes(matches=time_x_axis, row=current_row, col=1)
 
     # ── 매매 기록 마커 ──
