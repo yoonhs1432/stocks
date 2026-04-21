@@ -139,18 +139,22 @@ def init_session_state() -> None:
 # ====================================================
 # 3. 투자의견 (5단계)
 # ====================================================
-def get_signal(win_prob, expected_return) -> str:
-    """win_prob · expected_return → 5단계 신호 키 반환"""
+def get_signal(win_prob, expected_return, current_z: float = 0.0) -> str:
+    """
+    Z-Score 회귀 기반 5단계 신호 반환.
+
+    win_prob      : Z-Score가 0을 향해 회귀할 확률 (%)
+    expected_return: 회귀 강도 (Z-Score 단위, 양수 = 0을 향해 이동 예상)
+    current_z     : 현재 Z-Score (음수 = 밴드 아래 = 매수 방향,
+                                  양수 = 밴드 위  = 매도 방향)
+    """
     if win_prob is None or expected_return is None:
         return 'H'
-    if win_prob >= 60.0 and expected_return >= 8.0:
-        return 'FB'
-    if win_prob >= 54.0 and expected_return >= 3.0:
-        return 'B'
-    if win_prob <= 40.0 and expected_return <= -8.0:
-        return 'FS'
-    if win_prob <= 46.0 and expected_return <= -3.0:
-        return 'S'
+    # 강한 회귀 신호: 확률 높고 회귀 강도도 충분
+    if win_prob >= 60.0 and expected_return >= 0.4:
+        return 'FB' if current_z <= -0.3 else 'FS'
+    if win_prob >= 54.0 and expected_return >= 0.15:
+        return 'B'  if current_z <= -0.3 else 'S'
     return 'H'
 
 # ====================================================
@@ -253,15 +257,32 @@ def _compute_indicators(df: pd.DataFrame, y_name: str) -> tuple:
     return df, std_resid
 
 def _compute_targets(df: pd.DataFrame, y_name: str, cycle: int) -> pd.DataFrame:
+    """
+    Z-Score 회귀 기반 타겟 계산 (Direction B).
+
+    Target       : 향후 N일 평균 Z-Score 절댓값이 현재보다 작아질 것인가? (1=회귀, 0=발산)
+    Target_Return: 회귀 강도 = sign(-Z_now) × (Z_future_avg - Z_now)
+                   → 양수: 0을 향해 이동 예상 / 음수: 0에서 멀어질 예상
+    """
     df = df.copy()
-    shifted = df[f'{y_name}_Norm'].shift(-1)
-    df['Future_Avg_Price'] = shifted.iloc[::-1].rolling(window=cycle).mean().iloc[::-1]
+    # 향후 cycle일 Z-Score 평균 (순방향 롤링)
+    z_shifted = df['Z_Score'].shift(-1)
+    df['Future_Z_Avg'] = z_shifted.iloc[::-1].rolling(window=cycle, min_periods=1).mean().iloc[::-1]
+
+    valid = ~(df['Future_Z_Avg'].isna() | df['Z_Score'].isna())
+
+    # 분류 타겟: 미래 Z가 0에 더 가까워지면 1
     df['Target'] = np.where(
-        df['Future_Avg_Price'].isna(), np.nan,
-        (df['Future_Avg_Price'] > df[f'{y_name}_Norm']).astype(int))
+        valid,
+        (np.abs(df['Future_Z_Avg']) < np.abs(df['Z_Score'])).astype(int),
+        np.nan)
+
+    # 회귀 강도: 양수 = 0 방향으로 이동, 음수 = 발산
     df['Target_Return'] = np.where(
-        df['Future_Avg_Price'].isna(), np.nan,
-        (df['Future_Avg_Price'] / df[f'{y_name}_Norm'] - 1) * 100)
+        valid,
+        np.where(df['Z_Score'] == 0, 0.0,
+                 np.sign(-df['Z_Score']) * (df['Future_Z_Avg'] - df['Z_Score'])),
+        np.nan)
     return df
 
 def _train_and_predict(df: pd.DataFrame, train_end_date,
@@ -449,8 +470,8 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     </style>""", unsafe_allow_html=True)
 
     PX = {'main': 140, 'spacer': 25, 'price': 100, 'win_prob': 80, 'ev': 80,
-          'macd': 80, 'rsi': 80}
-    active_plots = ['main', 'spacer', 'price', 'win_prob', 'ev']
+          'zscore': 75, 'macd': 80, 'rsi': 80}
+    active_plots = ['main', 'spacer', 'price', 'win_prob', 'ev', 'zscore']
     if show_indicators:
         active_plots += ['macd', 'rsi']
     total_rows  = len(active_plots)
@@ -595,7 +616,29 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     fig.update_xaxes(matches=time_x_axis, row=current_row, col=1)
     current_row += 1
 
-    # ── [6][7] 보조 지표 ──
+    # ── [6] Z-Score ──
+    fig.add_trace(go.Scatter(x=df_daily.index, y=df_daily['Z_Score'],
+                              line=dict(color='black', width=1.5), name='Z-Score'),
+                  row=current_row, col=1)
+    fig.add_hline(y=1.5,  line_dash="dash", line_color="#1d4ed8",
+                  line_width=1.2, row=current_row, col=1)
+    fig.add_hline(y=-1.5, line_dash="dash", line_color="#dc2626",
+                  line_width=1.2, row=current_row, col=1)
+    fig.add_hline(y=0,    line_dash="dot",  line_color="gray",
+                  line_width=1.0, row=current_row, col=1)
+    # 매수 구간 (Z ≤ -1.5): 빨간 채움
+    add_filled_blocks(fig, df_daily, 'Z_Score',
+                      df_daily['Z_Score'] <= -1.5,
+                      'rgba(220,38,38,0.20)', current_row, 1, -1.5)
+    # 매도 구간 (Z ≥ +1.5): 파란 채움
+    add_filled_blocks(fig, df_daily, 'Z_Score',
+                      df_daily['Z_Score'] >= 1.5,
+                      'rgba(29,78,216,0.20)', current_row, 1, 1.5)
+    fig.update_yaxes(title_text="", row=current_row, col=1)
+    fig.update_xaxes(matches=time_x_axis, row=current_row, col=1)
+    current_row += 1
+
+    # ── [7][8] 보조 지표 ──
     if show_indicators:
         macd_colors = np.where(df_daily['MACD_Hist'] >= 0,
                                'rgba(0,128,0,0.5)', 'rgba(255,0,0,0.5)')
@@ -721,11 +764,12 @@ def main():
             df_close, cfg['train_end'],
             st.session_state.get('model_type', 'linear'))
 
-    # 버튼 색상용 신호 갱신
+    # 버튼 색상용 신호 갱신 (current_z 포함)
     for ticker, result in all_analyses.items():
         if result and result[0] is not None:
-            _, _, wp, er, _, _ = result
-            st.session_state.ticker_signals[ticker] = get_signal(wp, er)
+            df_t, _, wp, er, _, _ = result
+            cz = float(df_t['Z_Score'].iloc[-1]) if pd.notna(df_t['Z_Score'].iloc[-1]) else 0.0
+            st.session_state.ticker_signals[ticker] = get_signal(wp, er, cz)
         else:
             st.session_state.ticker_signals.setdefault(ticker, 'H')
 
@@ -736,7 +780,8 @@ def main():
         result = all_analyses.get(selected_ticker)
         if result and result[0] is not None:
             df_daily, beta, win_prob, expected_return, avg_cycle, std_resid = result
-            st.session_state.ticker_signals[selected_ticker] = get_signal(win_prob, expected_return)
+            cz = float(df_daily['Z_Score'].iloc[-1]) if pd.notna(df_daily['Z_Score'].iloc[-1]) else 0.0
+            st.session_state.ticker_signals[selected_ticker] = get_signal(win_prob, expected_return, cz)
 
     elif selected_ticker and f'{selected_ticker}_Close' in df_close.columns:
         # 커스텀 티커: 온디맨드 분석
@@ -752,7 +797,8 @@ def main():
                 st.session_state.get('model_type', 'linear'))
         if result[0] is not None:
             df_daily, beta, win_prob, expected_return, avg_cycle, std_resid = result
-            st.session_state.ticker_signals[selected_ticker] = get_signal(win_prob, expected_return)
+            cz = float(df_daily['Z_Score'].iloc[-1]) if pd.notna(df_daily['Z_Score'].iloc[-1]) else 0.0
+            st.session_state.ticker_signals[selected_ticker] = get_signal(win_prob, expected_return, cz)
 
     # ════════════════════════════════════════
     #  CSS: 레이아웃 + 버튼 색상
@@ -871,10 +917,10 @@ def main():
             f"background:{bg_c}18;margin-bottom:4px;'>"
             f"<b style='font-size:23px;color:{bg_c};white-space:nowrap;'>{action_txt}</b>"
             f"<span style='width:1px;height:13px;background:#ddd;display:inline-block;'></span>"
-            f"<span style='font-size:13px;color:#666;'>승률&nbsp;"
+            f"<span style='font-size:13px;color:#666;'>회귀확률&nbsp;"
             f"<b style='color:{wp_color};'>{win_prob:.1f}%</b></span>"
-            f"<span style='font-size:13px;color:#666;'>기대수익&nbsp;"
-            f"<b style='color:{ev_color};'>{expected_return:+.1f}%</b></span>"
+            f"<span style='font-size:13px;color:#666;'>회귀강도&nbsp;"
+            f"<b style='color:{ev_color};'>{expected_return:+.2f}</b></span>"
             f"<span style='font-size:13px;color:#666;'>주기&nbsp;"
             f"<b style='color:#333;'>{avg_cycle}일</b></span>"
             f"</div>")
