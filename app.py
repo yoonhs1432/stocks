@@ -523,7 +523,8 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     fig.update_xaxes(type="log", title_text="", showgrid=False,
                      range=[np.log10(min_x * 0.98), np.log10(max_x * 1.02)],
                      row=current_row, col=1)
-    fig.update_yaxes(type="log", title_text="", showgrid=False,
+    fig.update_yaxes(type="log", title_text=selected_ticker, showgrid=False,
+                     title_font=dict(size=10), title_standoff=4,
                      range=[np.log10(y_lo * 0.88), np.log10(y_hi * 1.18)],
                      row=current_row, col=1)
 
@@ -562,7 +563,8 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     add_filled_blocks(fig, df_daily, 'Plot_Norm_Ticker',
                       df_daily['Z_Score'] >= 1.5,
                       'rgba(29,78,216,0.25)', current_row, 1, price_baseline)
-    fig.update_yaxes(type="log", title_text="",
+    fig.update_yaxes(type="log", title_text="Price",
+                     title_font=dict(size=10), title_standoff=4,
                      range=[np.log10(price_baseline), np.log10(max_price * 1.05)],
                      row=current_row, col=1)
     time_x_axis = f'x{current_row}'
@@ -589,7 +591,8 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     z_view   = df_daily.loc[df_daily.index >= view_start, 'Z_Score'].dropna()
     z_lo     = min(-2.0, z_view.min() if not z_view.empty else -2.0)
     z_hi     = max( 2.0, z_view.max() if not z_view.empty else  2.0)
-    fig.update_yaxes(range=[z_lo - 0.2, z_hi + 0.2], title_text="",
+    fig.update_yaxes(range=[z_lo - 0.2, z_hi + 0.2], title_text="Z-Score",
+                     title_font=dict(size=10), title_standoff=4,
                      row=current_row, col=1)
     fig.update_xaxes(matches=time_x_axis, row=current_row, col=1)
     current_row += 1
@@ -607,7 +610,8 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
         fig.add_trace(go.Scatter(x=df_daily.index, y=df_daily['MACD_Signal'],
                                   line=dict(color='orange', width=1), name='Signal'),
                       row=current_row, col=1)
-        fig.update_yaxes(title_text="", row=current_row, col=1)
+        fig.update_yaxes(title_text="MACD", title_font=dict(size=10), title_standoff=4,
+                         row=current_row, col=1)
         fig.update_xaxes(matches=time_x_axis, row=current_row, col=1)
         current_row += 1
         fig.add_trace(go.Scatter(x=df_daily.index, y=df_daily['RSI'],
@@ -620,7 +624,8 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
         rsi_view = df_daily.loc[df_daily.index >= view_start, 'RSI'].dropna()
         rsi_lo   = min(20.0, rsi_view.min() if not rsi_view.empty else 20.0)
         rsi_hi   = max(80.0, rsi_view.max() if not rsi_view.empty else 80.0)
-        fig.update_yaxes(range=[rsi_lo - 2, rsi_hi + 2], title_text="",
+        fig.update_yaxes(range=[rsi_lo - 2, rsi_hi + 2], title_text="RSI",
+                         title_font=dict(size=10), title_standoff=4,
                          row=current_row, col=1)
         fig.update_xaxes(matches=time_x_axis, row=current_row, col=1)
 
