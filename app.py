@@ -687,7 +687,7 @@ def main():
             background:{bg}!important; border-color:{bg}!important;
             color:{fg}!important; font-weight:700!important;
             height:2.0rem!important; font-size:1.9rem!important;
-            padding:2!important; line-height:1!important;
+            padding:0!important; line-height:1!important;
             min-height:0!important; border-radius:1px!important;
             {sel_extra}
         }}
@@ -695,7 +695,7 @@ def main():
     di_sel = (selected_option == DIRECT_INPUT_LABEL)
     btn_css_parts.append(f"""
     div.st-key-ticker_btn_direct button {{
-        height:1.2rem!important; font-size:0.7rem!important;
+        height:1.8rem!important; font-size:1.7rem!important;
         padding:0!important; min-height:0!important; border-radius:3px!important;
         {'border:2px solid #1565C0!important;font-weight:700!important;' if di_sel else ''}
     }}""")
