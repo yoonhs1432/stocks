@@ -686,7 +686,7 @@ def main():
         div.st-key-{k} button {{
             background:{bg}!important; border-color:{bg}!important;
             color:{fg}!important; font-weight:700!important;
-            height:2.4rem!important; font-size:1.0rem!important;
+            height:2.4rem!important; font-size:0.8rem!important;
             padding:0!important; line-height:1!important;
             min-height:0!important; border-radius:1px!important;
             {sel_extra}
@@ -727,7 +727,7 @@ def main():
     }}
     section[data-testid="stMain"] div[data-testid="stColumn"]:first-child button p {{
         margin: 0 !important; padding: 0 !important;
-        font-size: 1.0rem !important; line-height: 1 !important;
+        font-size: 0.8rem !important; line-height: 1 !important;
     }}
     {''.join(btn_css_parts)}
     </style>"""
