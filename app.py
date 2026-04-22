@@ -604,7 +604,7 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     fig.update_xaxes(showticklabels=True, tickformat="%y/%m/%d", row=total_rows, col=1)
     fig.update_layout(
         height=total_h, showlegend=False, hovermode='x unified',
-        dragmode='pan', margin=dict(l=30, r=18, t=12, b=20),
+        dragmode='pan', margin=dict(l=100, r=18, t=12, b=20),
         paper_bgcolor='white', plot_bgcolor='white')
     fig.update_xaxes(range=[view_start, df_daily.index[-1]], row=3, col=1)
 
