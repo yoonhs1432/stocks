@@ -827,8 +827,9 @@ def main():
             f"<span style='font-size:13px;color:#666;'>Z-Score&nbsp;"
             f"<b style='color:{z_color};'>{cz:+.2f}</b></span>"
             f"<span style='font-size:13px;color:#666;'>β&nbsp;"
-            f"<b style='color:#333;'>{beta:.2f}</b>"
-            f"&nbsp;<span style='font-size:11px;color:#aaa;font-weight:400;'>{since_label}</span></span>"
+            f"<b style='color:#333;'>{beta:.2f}</b></span>"
+            f"<span style='font-size:13px;color:#666;'>기간&nbsp;"
+            f"<b style='color:#333;'>{since_label}</b></span>"
             f"</div>")
     else:
         summary_html = "<div style='margin-bottom:3px;'></div>"
