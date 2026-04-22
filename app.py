@@ -703,7 +703,7 @@ def main():
     global_css = f"""
     <style>
     .block-container {{
-        padding-top: 0.35rem !important; padding-bottom: 0.5rem !important;
+        padding-top: 3.5rem !important; padding-bottom: 0.5rem !important;
         max-width: 100% !important;
     }}
     section[data-testid="stMain"] div[data-testid="stHorizontalBlock"] {{
