@@ -435,14 +435,15 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     fig.update_yaxes(type="log", showgrid=False,
                      range=[np.log10(y_lo * 0.88), np.log10(y_hi * 1.18)],
                      row=current_row, col=1)
-    fig.add_annotation(x=0.01, y=0.98, xref='x domain', yref='y domain',
+    fig.add_annotation(x=0, y=1, xref='x domain', yref='y domain',
         text=f"<b>{display_name(selected_ticker)}</b>", showarrow=False,
         font=dict(size=11, color='black'), bgcolor='white',
-        bordercolor='black', borderwidth=1, borderpad=3,
+        bordercolor='black', borderwidth=1, borderpad=2,
         xanchor='left', yanchor='top', row=current_row, col=1)
     current_row += 1
 
     # ── [2] Spacer ──
+
     fig.update_xaxes(visible=False, row=current_row, col=1)
     fig.update_yaxes(visible=False, row=current_row, col=1)
     current_row += 1
@@ -478,7 +479,7 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     fig.update_yaxes(type="log",
                      range=[np.log10(price_baseline), np.log10(max_price * 1.05)],
                      row=current_row, col=1)
-    fig.add_annotation(x=0.01, y=0.98, xref='x domain', yref='y domain',
+    fig.add_annotation(x=0, y=1, xref='x domain', yref='y domain',
         text="<b>Price</b>", showarrow=False,
         font=dict(size=11, color='black'), bgcolor='white',
         bordercolor='black', borderwidth=1, borderpad=3,
@@ -508,7 +509,7 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     z_lo     = min(-2.0, z_view.min() if not z_view.empty else -2.0)
     z_hi     = max( 2.0, z_view.max() if not z_view.empty else  2.0)
     fig.update_yaxes(range=[z_lo - 0.2, z_hi + 0.2], row=current_row, col=1)
-    fig.add_annotation(x=0.01, y=0.98, xref='x domain', yref='y domain',
+    fig.add_annotation(x=0, y=1, xref='x domain', yref='y domain',
         text="<b>Z-Score</b>", showarrow=False,
         font=dict(size=11, color='black'), bgcolor='white',
         bordercolor='black', borderwidth=1, borderpad=3,
@@ -530,7 +531,7 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
                                   line=dict(color='orange', width=1), name='Signal'),
                       row=current_row, col=1)
         fig.update_yaxes(row=current_row, col=1)
-        fig.add_annotation(x=0.01, y=0.98, xref='x domain', yref='y domain',
+        fig.add_annotation(x=0, y=1, xref='x domain', yref='y domain',
             text="<b>MACD</b>", showarrow=False,
             font=dict(size=11, color='black'), bgcolor='white',
             bordercolor='black', borderwidth=1, borderpad=3,
@@ -548,7 +549,7 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
         rsi_lo   = min(20.0, rsi_view.min() if not rsi_view.empty else 20.0)
         rsi_hi   = max(80.0, rsi_view.max() if not rsi_view.empty else 80.0)
         fig.update_yaxes(range=[rsi_lo - 2, rsi_hi + 2], row=current_row, col=1)
-        fig.add_annotation(x=0.01, y=0.98, xref='x domain', yref='y domain',
+        fig.add_annotation(x=0, y=1, xref='x domain', yref='y domain',
             text="<b>RSI</b>", showarrow=False,
             font=dict(size=11, color='black'), bgcolor='white',
             bordercolor='black', borderwidth=1, borderpad=3,
