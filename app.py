@@ -339,15 +339,19 @@ def render_sidebar(selected_ticker: str) -> dict:
         history = st.session_state.trade_history
         if selected_ticker in history and history[selected_ticker]:
             for i, record in enumerate(history[selected_ticker]):
-                cols = st.columns([3, 2, 1])
-                cols[0].write(record['date'])
-                cols[1].write(record['type'].upper())
-                if cols[2].button("🗑️", key=f"del_{selected_ticker}_{i}"):
+                t      = record['type'].upper()
+                color  = '#dc2626' if t == 'BUY' else '#1d4ed8'
+                cols   = st.columns([6, 1])
+                cols[0].markdown(
+                    f"<span style='font-size:12px;'>{record['date']}&nbsp;"
+                    f"<b style='color:{color};'>{t}</b></span>",
+                    unsafe_allow_html=True)
+                if cols[1].button("✕", key=f"del_{selected_ticker}_{i}"):
                     st.session_state.trade_history[selected_ticker].pop(i)
                     save_trade_history(st.session_state.trade_history)
                     st.rerun()
         else:
-            st.info("매매 기록이 없습니다.")
+            st.caption("매매 기록이 없습니다.")
 
     return {'analysis_start': analysis_start.strip(), 'view_months': int(view_months),
             'guide_n': guide_n, 'refresh_mins': int(refresh_mins)}
