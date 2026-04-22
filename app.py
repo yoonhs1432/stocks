@@ -762,17 +762,17 @@ def main():
 
     # ── 자동 새로고침 JS ──────────────────────────────
     # N분 후 ?_ar=1 로 리다이렉트 → Python 쪽에서 캐시 클리어
-    refresh_ms = cfg['refresh_mins'] * 60 * 1000
-    st.markdown(f"""
-    <script>
-    (function() {{
-        if (window._arTimer) clearTimeout(window._arTimer);
-        window._arTimer = setTimeout(function() {{
-            window.location.href =
-                window.location.pathname + '?_ar=1&t=' + Date.now();
-        }}, {refresh_ms});
-    }})();
-    </script>""", unsafe_allow_html=True)
+    # refresh_ms = cfg['refresh_mins'] * 60 * 1000
+    # st.markdown(f"""
+    # <script>
+    # (function() {{
+    #     if (window._arTimer) clearTimeout(window._arTimer);
+    #     window._arTimer = setTimeout(function() {{
+    #         window.location.href =
+    #             window.location.pathname + '?_ar=1&t=' + Date.now();
+    #     }}, {refresh_ms});
+    # }})();
+    # </script>""", unsafe_allow_html=True)
 
     # ── 범례 ──
     legend_parts = [
