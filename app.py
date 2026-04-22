@@ -20,7 +20,9 @@ TARGET_TICKERS     = ['BTC-USD', 'BITU', 'ETH-USD', 'ETHT',
                       'SPYU', 'TQQQ', 'SOXL', 'FNGU',
                       'HIBL', 'TARK', 'QPUX', 'BNKU',
                       'GDXU', 'KORU', '005930','000660',
-                      'UPXI','RKLB','OKLO','AVAV']
+                      'UPXI','RKLX','OKLL','AVXX',
+                      'TEMT','IRE','CRCG','MSTU' 
+                     ]
 TICKER_DISPLAY_NAMES: dict = {
     'BTC-USD': 'BTC',
     'ETH-USD': 'ETH',
