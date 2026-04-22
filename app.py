@@ -808,11 +808,15 @@ def main():
 
     # ── 요약 카드 ──
     if selected_ticker and df_daily is not None:
-        cz         = float(df_daily['Z_Score'].iloc[-1]) if pd.notna(df_daily['Z_Score'].iloc[-1]) else 0.0
-        sig        = get_signal(cz)
-        action_txt = ACTION_LABELS.get(sig, '관망')
-        bg_c, _    = SIGNAL_STYLE.get(sig, ('#9ca3af', '#fff'))
-        z_color    = "#dc2626" if cz <= 0 else "#1d4ed8"
+        cz          = float(df_daily['Z_Score'].iloc[-1]) if pd.notna(df_daily['Z_Score'].iloc[-1]) else 0.0
+        sig         = get_signal(cz)
+        action_txt  = ACTION_LABELS.get(sig, '관망')
+        bg_c, _     = SIGNAL_STYLE.get(sig, ('#9ca3af', '#fff'))
+        z_color     = "#dc2626" if cz <= 0 else "#1d4ed8"
+        try:
+            since_label = pd.to_datetime(st.session_state.analysis_start).strftime("'%y/%m~")
+        except Exception:
+            since_label = st.session_state.analysis_start
         summary_html = (
             f"<div style='display:flex;align-items:center;gap:8px;flex-wrap:wrap;"
             f"padding:2px 10px;border-radius:6px;border-left:4px solid {bg_c};"
@@ -823,7 +827,8 @@ def main():
             f"<span style='font-size:13px;color:#666;'>Z-Score&nbsp;"
             f"<b style='color:{z_color};'>{cz:+.2f}</b></span>"
             f"<span style='font-size:13px;color:#666;'>β&nbsp;"
-            f"<b style='color:#333;'>{beta:.2f}</b></span>"
+            f"<b style='color:#333;'>{beta:.2f}</b>"
+            f"&nbsp;<span style='font-size:11px;color:#aaa;font-weight:400;'>{since_label}</span></span>"
             f"</div>")
     else:
         summary_html = "<div style='margin-bottom:3px;'></div>"
