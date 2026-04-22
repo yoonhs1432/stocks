@@ -312,7 +312,7 @@ def add_filled_blocks(fig, df: pd.DataFrame, y_col: str, condition: pd.Series,
 def render_sidebar(selected_ticker: str) -> dict:
     with st.sidebar:
         st.markdown("### ⚙️ 분석 파라미터")
-        analysis_start = st.text_input("분석 시작일 (YYYY-MM-DD)",
+        analysis_start = st.text_input("분석 시작일 (예시:2023-01-01)",
                                        value=st.session_state.analysis_start)
         view_months  = st.number_input("차트 조회 기간 (최근 N개월)",
                                        min_value=1, max_value=240,
