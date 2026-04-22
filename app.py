@@ -155,7 +155,7 @@ def get_signal(current_z: float = 0.0) -> str:
 # ====================================================
 # 4. 데이터 다운로드 (캐싱)
 # ====================================================
-# @st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner=False)
 def fetch_all_data(tickers: list, start_date_str: str) -> pd.DataFrame:
     df_list = []
     for ticker in [X_ASSET_FIXED] + list(tickers):
@@ -168,7 +168,7 @@ def fetch_all_data(tickers: list, start_date_str: str) -> pd.DataFrame:
             continue
     return pd.concat(df_list, axis=1).ffill() if df_list else pd.DataFrame()
 
-# @st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner=False)
 def fetch_single_ticker(ticker: str, start_date_str: str) -> pd.DataFrame:
     try:
         data = fdr.DataReader(ticker, start_date_str)
@@ -227,7 +227,7 @@ def process_asset_data(df_x: pd.DataFrame, df_y: pd.DataFrame,
 # 7. 전체 종목 일괄 분석 (캐싱)
 #    캐시 히트 시 종목 버튼 클릭 → 즉시 렌더링 (재분석 없음)
 # ====================================================
-# @st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner=False)
 def compute_all_analyses(df_close: pd.DataFrame) -> dict:
     """TARGET_TICKERS 전체를 한 번에 분석. 결과 캐싱으로 종목 전환을 즉각 처리."""
     results: dict = {}
@@ -584,9 +584,9 @@ def main():
 
     # ── 자동 새로고침 트리거 감지 ──────────────────────
     # JS가 ?_ar=1 을 붙여 리로드 → 캐시 전체 클리어 → 새 데이터로 재분석
-    # if st.query_params.get('_ar') == '1':
-    #     st.query_params.clear()
-    #     st.cache_data.clear()
+    if st.query_params.get('_ar') == '1':
+        st.query_params.clear()
+        st.cache_data.clear()
 
     # ── 종목 선택 상태 ──
     DIRECT_INPUT_LABEL = "직접 입력"
@@ -762,17 +762,17 @@ def main():
 
     # ── 자동 새로고침 JS ──────────────────────────────
     # N분 후 ?_ar=1 로 리다이렉트 → Python 쪽에서 캐시 클리어
-    # refresh_ms = cfg['refresh_mins'] * 60 * 1000
-    # st.markdown(f"""
-    # <script>
-    # (function() {{
-    #     if (window._arTimer) clearTimeout(window._arTimer);
-    #     window._arTimer = setTimeout(function() {{
-    #         window.location.href =
-    #             window.location.pathname + '?_ar=1&t=' + Date.now();
-    #     }}, {refresh_ms});
-    # }})();
-    # </script>""", unsafe_allow_html=True)
+    refresh_ms = cfg['refresh_mins'] * 60 * 1000
+    st.markdown(f"""
+    <script>
+    (function() {{
+        if (window._arTimer) clearTimeout(window._arTimer);
+        window._arTimer = setTimeout(function() {{
+            window.location.href =
+                window.location.pathname + '?_ar=1&t=' + Date.now();
+        }}, {refresh_ms});
+    }})();
+    </script>""", unsafe_allow_html=True)
 
     # ── 범례 ──
     legend_parts = [
