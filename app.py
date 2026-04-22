@@ -687,8 +687,8 @@ def main():
             background:{bg}!important; border-color:{bg}!important;
             color:{fg}!important; font-weight:700!important;
             height:2.0rem!important; font-size:1.9rem!important;
-            padding:0!important; line-height:1!important;
-            min-height:0!important; border-radius:3px!important;
+            padding:2!important; line-height:1!important;
+            min-height:0!important; border-radius:1px!important;
             {sel_extra}
         }}
         div.st-key-{k} button:hover {{ opacity:0.82!important; }}""")
