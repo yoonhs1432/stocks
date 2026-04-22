@@ -372,7 +372,7 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     total_h     = sum(PX[p] for p in active_plots)
     row_heights = [PX[p] / total_h for p in active_plots]
     fig         = make_subplots(rows=total_rows, cols=1,
-                                row_heights=row_heights, vertical_spacing=0.02)
+                                row_heights=row_heights, vertical_spacing=0.01)
     current_row = 1
 
     # ── [1] 로그-로그 산점도 ──
@@ -685,8 +685,8 @@ def main():
         btn_css_parts.append(f"""
         div.st-key-{k} button {{
             background:{bg}!important; border-color:{bg}!important;
-            color:{fg}!important; font-weight:700!important;
-            height:1.68rem!important; font-size:0.76rem!important;
+            color:#111!important; font-weight:500!important;
+            height:2.0rem!important; font-size:0.76rem!important;
             padding:0!important; line-height:1!important;
             min-height:0!important; border-radius:3px!important;
             {sel_extra}
@@ -727,7 +727,7 @@ def main():
     }}
     section[data-testid="stMain"] div[data-testid="stColumn"]:first-child button p {{
         margin: 0 !important; padding: 0 !important;
-        font-size: 0.73rem !important; line-height: 1 !important; font-weight: 700 !important;
+        font-size: 0.73rem !important; line-height: 1 !important; font-weight: 500 !important; color: #111 !important;
     }}
     {''.join(btn_css_parts)}
     </style>"""
