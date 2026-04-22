@@ -372,7 +372,7 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     total_h     = sum(PX[p] for p in active_plots)
     row_heights = [PX[p] / total_h for p in active_plots]
     fig         = make_subplots(rows=total_rows, cols=1,
-                                row_heights=row_heights, vertical_spacing=0.01)
+                                row_heights=row_heights, vertical_spacing=0.02)
     current_row = 1
 
     # ── [1] 로그-로그 산점도 ──
@@ -686,7 +686,7 @@ def main():
         div.st-key-{k} button {{
             background:{bg}!important; border-color:{bg}!important;
             color:#111!important; font-weight:500!important;
-            height:2.0rem!important; font-size:0.76rem!important;
+            height:1.9rem!important; font-size:0.76rem!important;
             padding:0!important; line-height:1!important;
             min-height:0!important; border-radius:3px!important;
             {sel_extra}
@@ -723,7 +723,7 @@ def main():
         margin-bottom: 1px !important; padding: 0 !important;
     }}
     section[data-testid="stMain"] div[data-testid="stColumn"]:first-child div[data-testid="stVerticalBlock"] {{
-        gap: 0 !important;
+        gap: 3px !important;
     }}
     section[data-testid="stMain"] div[data-testid="stColumn"]:first-child button p {{
         margin: 0 !important; padding: 0 !important;
@@ -742,7 +742,7 @@ def main():
                     + datetime.timedelta(minutes=cfg['refresh_mins']))
     st.markdown(
         f"<div style='display:flex;align-items:center;gap:10px;"
-        f"margin-bottom:3px;padding-bottom:3px;border-bottom:1px solid #ddd;'>"
+        f"margin-bottom:1px;padding-bottom:1px;'>"
         f"<b style='font-size:1.15rem;white-space:nowrap;color:#111;'>📊 퀀트 대시보드</b>"
         f"<span style='font-size:10px;color:#999;white-space:nowrap;'>"
         f"{date_part}조회: {queried_at}"
@@ -772,7 +772,7 @@ def main():
         for color, label in LEGEND_ITEMS]
     legend_html = (
         "<div style='display:flex;flex-wrap:wrap;gap:6px;align-items:center;"
-        "font-size:10px;color:#555;margin-bottom:3px;'>"
+        "font-size:10px;color:#555;margin-bottom:1px;'>"
         + "&nbsp;".join(legend_parts) + "</div>")
 
     # ── 요약 카드 ──
