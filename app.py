@@ -16,19 +16,12 @@ from plotly.subplots import make_subplots
 st.set_page_config(page_title="퀀트 트레이딩 대시보드", layout="wide")
 
 X_ASSET_FIXED      = 'SPY'
-TARGET_TICKERS     = ['BTC-USD', 'BITU', 'ETH-USD', 'ETHT',
-                      'SPYU', 'TQQQ', 'SOXL', 'FNGU',
-                      'HIBL', 'TARK', 'QPUX', 'BNKU',
-                      'GDXU', 'KORU', '005930','000660',
-                      'UPXI','RKLX','OKLL','AVXX',
-                      'TEMT','IRE','CRCG','MSTU' 
-                     ]
+TARGET_TICKERS     = ['SPYU', 'TQQQ', 'SOXL', 'FNGU', 'BTC-USD', 'BITU', 'ETH-USD', 'ETHT',
+                      'HIBL', 'TARK', 'QPUX', 'BNKU', 'GDXU', 'KORU', '005930', 'UPXI']
 TICKER_DISPLAY_NAMES: dict = {
     'BTC-USD': 'BTC',
     'ETH-USD': 'ETH',
-    '005930':  '삼전',
-    '000660':  '하닉',
-  
+    '005930':  '삼성전자',
 }
 DEFAULT_REFRESH_MINS = 10  # 기본 자동 새로고침 간격 (분)
 
@@ -484,21 +477,18 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     max_price = (df_daily.loc[df_daily.index >= view_start,
                                ['Plot_Norm_SPY', 'Plot_Norm_Ticker']].max().max())
     price_baseline = min_price * 0.95
-    # ── Z-Score 그라데이션 배경 (vrect 방식) ──
-    def _z_to_color(z: float) -> str:
-        if   z >=  1.5:  return 'rgba(29,78,216,0.30)'
-        elif z >=  0.75: return 'rgba(93,155,246,0.18)'
-        elif z >=  0.0:  return 'rgba(191,219,254,0.10)'
-        elif z >  -0.75: return 'rgba(254,202,202,0.10)'
-        elif z >  -1.5:  return 'rgba(248,113,113,0.18)'
-        else:            return 'rgba(220,38,38,0.30)'
-    _zdf = df_daily[['Z_Score']].copy()
-    _zdf['_band'] = _zdf['Z_Score'].apply(_z_to_color)
-    _zdf['_grp']  = (_zdf['_band'] != _zdf['_band'].shift()).cumsum()
-    for _, seg in _zdf.groupby('_grp'):
-        fig.add_vrect(x0=seg.index[0], x1=seg.index[-1],
-                      fillcolor=seg['_band'].iloc[0], opacity=1,
-                      line_width=0, row=current_row, col=1)
+    # ── Z-Score 그라데이션: 종목 선 아래만 채우기 ──
+    _BANDS = [
+        (df_daily['Z_Score'] >= 1.5,                                      'rgba(29,78,216,0.35)'),
+        ((df_daily['Z_Score'] >= 0.75) & (df_daily['Z_Score'] <  1.5),   'rgba(93,155,246,0.22)'),
+        ((df_daily['Z_Score'] >= 0.0)  & (df_daily['Z_Score'] <  0.75),  'rgba(191,219,254,0.12)'),
+        ((df_daily['Z_Score'] >  -0.75) & (df_daily['Z_Score'] < 0.0),   'rgba(254,202,202,0.12)'),
+        ((df_daily['Z_Score'] >  -1.5) & (df_daily['Z_Score'] <= -0.75), 'rgba(248,113,113,0.22)'),
+        (df_daily['Z_Score'] <= -1.5,                                     'rgba(220,38,38,0.35)'),
+    ]
+    for cond, color in _BANDS:
+        add_filled_blocks(fig, df_daily, 'Plot_Norm_Ticker',
+                          cond, color, current_row, 1, price_baseline)
     fig.update_yaxes(type="log",
                      range=[np.log10(price_baseline), np.log10(max_price * 1.05)],
                      row=current_row, col=1)
@@ -514,10 +504,10 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     fig.add_trace(go.Scatter(x=df_daily.index, y=df_daily['Z_Score'],
                               line=dict(color='black', width=1.5), name='Z-Score'),
                   row=current_row, col=1)
-    fig.add_hline(y=1.5,  line_dash="dash", line_color="#1d4ed8",
-                  line_width=1.2, row=current_row, col=1)
-    fig.add_hline(y=-1.5, line_dash="dash", line_color="#dc2626",
-                  line_width=1.2, row=current_row, col=1)
+    fig.add_hline(y=1.5,  line_dash="dash", line_color="blue",
+                  line_width=1.5, row=current_row, col=1)
+    fig.add_hline(y=-1.5, line_dash="dash", line_color="red",
+                  line_width=1.5, row=current_row, col=1)
     fig.add_hline(y=0,    line_dash="dot",  line_color="gray",
                   line_width=1.0, row=current_row, col=1)
     # 매수 구간 (Z ≤ -1.5): 빨간 채움
@@ -758,8 +748,8 @@ def main():
         align-items: flex-start !important;
     }}
     section[data-testid="stMain"] div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"]:first-child {{
-        flex: 0 0 130px !important; min-width: 130px !important;
-        max-width: 130px !important; padding: 0 !important;
+        flex: 0 0 87px !important; min-width: 87px !important;
+        max-width: 87px !important; padding: 0 !important;
     }}
     section[data-testid="stMain"] div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"]:last-child {{
         flex: 1 1 0 !important; min-width: 0 !important;
@@ -860,7 +850,7 @@ def main():
     st.markdown(legend_html + summary_html, unsafe_allow_html=True)
 
     # ── 버튼 + 차트 레이아웃 ──
-    btn_col, chart_col = st.columns([1.6, 4])
+    btn_col, chart_col = st.columns([1, 5])
 
     with btn_col:
         for i in range(0, len(TARGET_TICKERS), 2):
