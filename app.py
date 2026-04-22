@@ -21,7 +21,7 @@ TARGET_TICKERS     = ['BTC-USD', 'BITU', 'ETH-USD', 'ETHT',
                       'HIBL', 'TARK', 'QPUX', 'BNKU',
                       'GDXU', 'KORU', '005930','UPXI',
                       'RKLB','RKLX','OKLO','OKLL',
-                      'AVAV','AVXX','TEM','TEMT'
+                      'AVAV','AVXX','TEM','TEMT',
                       'IREN','IRE','CRCL','CRCG',
                       'MSTR','MSTU' 
                      ]
