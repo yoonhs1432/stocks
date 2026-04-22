@@ -435,7 +435,7 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     fig.update_yaxes(type="log", showgrid=False,
                      range=[np.log10(y_lo * 0.88), np.log10(y_hi * 1.18)],
                      row=current_row, col=1)
-    fig.add_annotation(x=-0.1, y=1, xref='x domain', yref='y domain',
+    fig.add_annotation(x=0, y=1, xref='x domain', yref='y domain',
         text=f"<b>{display_name(selected_ticker)}</b>", showarrow=False,
         font=dict(size=11, color='black'), bgcolor='white',
         bordercolor='black', borderwidth=1, borderpad=2,
