@@ -19,7 +19,6 @@ X_ASSET_FIXED      = 'SPY'
 TARGET_TICKERS     = ['SPYU', 'TQQQ', 'SOXL', 'FNGU',
                       'HIBL', 'TARK', 'QPUX', 'BNKU',
                       'GDXU', 'KORU', '005930','UPXI',
-                      '----','----',
                       'BTC-USD', 'BITU', 'ETH-USD', 'ETHT',
                       'RKLB','RKLX','OKLO','OKLL',
                       'AVAV','AVXX','TEM','TEMT',
