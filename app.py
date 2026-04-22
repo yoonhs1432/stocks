@@ -129,6 +129,8 @@ def init_session_state() -> None:
     # view_months: 설정 파일에서 복원
     if 'view_months' not in st.session_state:
         st.session_state.view_months = load_settings().get('view_months', 12)
+    if 'analysis_start' not in st.session_state:
+        st.session_state.analysis_start = load_settings().get('analysis_start', '2021-01-01')
     if 'refresh_mins' not in st.session_state:
         st.session_state.refresh_mins = DEFAULT_REFRESH_MINS
 
@@ -302,6 +304,8 @@ def add_filled_blocks(fig, df: pd.DataFrame, y_col: str, condition: pd.Series,
 def render_sidebar(selected_ticker: str) -> dict:
     with st.sidebar:
         st.markdown("### ⚙️ 분석 파라미터")
+        analysis_start = st.text_input("분석 시작일 (YYYY-MM-DD)",
+                                       value=st.session_state.analysis_start)
         view_months  = st.number_input("차트 조회 기간 (최근 N개월)",
                                        min_value=1, max_value=240,
                                        value=st.session_state.view_months, step=1)
@@ -310,8 +314,6 @@ def render_sidebar(selected_ticker: str) -> dict:
         refresh_mins = st.number_input("자동 새로고침 (분)",
                                        min_value=1, max_value=120,
                                        value=st.session_state.refresh_mins, step=1)
-        st.markdown("---")
-        show_indicators = st.checkbox("MACD & RSI 표시", value=True)
         st.markdown("---")
         st.markdown("### 📝 매매 기록 관리")
         _tok, _gid = _gist_cfg()
@@ -347,8 +349,8 @@ def render_sidebar(selected_ticker: str) -> dict:
         else:
             st.info("매매 기록이 없습니다.")
 
-    return {'view_months': int(view_months), 'guide_n': guide_n,
-            'show_indicators': show_indicators, 'refresh_mins': int(refresh_mins)}
+    return {'analysis_start': analysis_start.strip(), 'view_months': int(view_months),
+            'guide_n': guide_n, 'refresh_mins': int(refresh_mins)}
 
 # ====================================================
 # 10. 차트 렌더링
@@ -356,7 +358,8 @@ def render_sidebar(selected_ticker: str) -> dict:
 def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
                  beta: float, std_resid: float,
                  guide_n: int, view_months: int,
-                 show_indicators: bool, avg_cycle: int) -> None:
+                 avg_cycle: int) -> None:
+    show_indicators = True
     st.markdown("""
     <style>
     .js-plotly-plot, .js-plotly-plot .plotly, .js-plotly-plot svg {
@@ -608,15 +611,6 @@ def main():
         st.query_params.clear()
         st.cache_data.clear()
 
-    default_start = "2021-01-01"
-
-    # ── 데이터 로드 ──
-    with st.spinner("데이터 로드 중..."):
-        df_close = fetch_all_data(TARGET_TICKERS, default_start)
-
-    if not df_close.empty:
-        st.session_state.last_data_date = df_close.index[-1].strftime('%Y-%m-%d')
-
     # ── 종목 선택 상태 ──
     DIRECT_INPUT_LABEL = "직접 입력"
     all_options = TARGET_TICKERS + [DIRECT_INPUT_LABEL]
@@ -630,27 +624,42 @@ def main():
     else:
         selected_ticker = selected_option
 
+    # ── 사이드바 (analysis_start 포함) ──
+    cfg = render_sidebar(selected_ticker or TARGET_TICKERS[0])
+
+    # 설정 변경 → settings.json 저장
+    settings_changed = False
+    if cfg['analysis_start'] != st.session_state.analysis_start:
+        st.session_state.analysis_start = cfg['analysis_start']
+        settings_changed = True
+    if cfg['view_months'] != st.session_state.view_months:
+        st.session_state.view_months = cfg['view_months']
+        settings_changed = True
+    if settings_changed:
+        s = load_settings()
+        s['analysis_start'] = st.session_state.analysis_start
+        s['view_months']    = st.session_state.view_months
+        save_settings(s)
+
+    st.session_state.refresh_mins = cfg['refresh_mins']
+
+    analysis_start = st.session_state.analysis_start
+
+    # ── 데이터 로드 ──
+    with st.spinner("데이터 로드 중..."):
+        df_close = fetch_all_data(TARGET_TICKERS, analysis_start)
+
+    if not df_close.empty:
+        st.session_state.last_data_date = df_close.index[-1].strftime('%Y-%m-%d')
+
     # ── 커스텀 티커 fetch ──
     if selected_ticker and f'{selected_ticker}_Close' not in df_close.columns:
         with st.spinner(f"{selected_ticker} 데이터를 불러오는 중..."):
-            df_custom = fetch_single_ticker(selected_ticker, default_start)
+            df_custom = fetch_single_ticker(selected_ticker, analysis_start)
         if not df_custom.empty:
             df_close = pd.concat([df_close, df_custom], axis=1).ffill()
         else:
             selected_ticker = None
-
-    # ── 사이드바 ──
-    cfg = render_sidebar(selected_ticker or TARGET_TICKERS[0])
-
-    # view_months 변경 → settings.json 에 저장
-    if cfg['view_months'] != st.session_state.view_months:
-        st.session_state.view_months = cfg['view_months']
-        settings = load_settings()
-        settings['view_months'] = cfg['view_months']
-        save_settings(settings)
-
-    # refresh_mins 변경 반영
-    st.session_state.refresh_mins = cfg['refresh_mins']
 
     # ── 전체 종목 일괄 분석 (캐시 히트 시 즉시) ──
     with st.spinner("전체 종목 분석 중... (최초 실행 시 수십 초 소요)"):
@@ -843,8 +852,7 @@ def main():
     with chart_col:
         if df_daily is not None:
             render_chart(df_daily, selected_ticker, beta, std_resid,
-                         cfg['guide_n'], cfg['view_months'],
-                         cfg['show_indicators'], avg_cycle)
+                         cfg['guide_n'], cfg['view_months'], avg_cycle)
         elif selected_option == DIRECT_INPUT_LABEL:
             if not st.session_state.get('custom_ticker_input', ''):
                 st.info("왼쪽에서 티커를 입력해 주세요. (예: NVDA, 000660)")
