@@ -604,7 +604,7 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     fig.update_xaxes(showticklabels=True, tickformat="%y/%m/%d", row=total_rows, col=1)
     fig.update_layout(
         height=total_h, showlegend=False, hovermode='x unified',
-        dragmode='pan', margin=dict(l=100, r=18, t=12, b=20),
+        dragmode='pan', margin=dict(l=2, r=18, t=12, b=20),
         paper_bgcolor='white', plot_bgcolor='white')
     fig.update_xaxes(range=[view_start, df_daily.index[-1]], row=3, col=1)
 
@@ -751,8 +751,8 @@ def main():
         align-items: flex-start !important;
     }}
     section[data-testid="stMain"] div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"]:first-child {{
-        flex: 0 0 62px !important; min-width: 62px !important;
-        max-width: 62px !important; padding: 0 !important;
+        flex: 0 0 130px !important; min-width: 130px !important;
+        max-width: 130px !important; padding: 0 !important;
     }}
     section[data-testid="stMain"] div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"]:last-child {{
         flex: 1 1 0 !important; min-width: 0 !important;
@@ -764,6 +764,13 @@ def main():
     }}
     section[data-testid="stMain"] div[data-testid="stColumn"]:first-child div[data-testid="stVerticalBlock"] {{
         gap: 3px !important;
+    }}
+    section[data-testid="stMain"] div[data-testid="stColumn"]:first-child div[data-testid="stHorizontalBlock"] {{
+        gap: 3px !important;
+    }}
+    section[data-testid="stMain"] div[data-testid="stColumn"]:first-child div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"] {{
+        flex: 1 1 0 !important; min-width: 0 !important;
+        max-width: none !important; padding: 0 !important;
     }}
     section[data-testid="stMain"] div[data-testid="stColumn"]:first-child button p {{
         margin: 0 !important; padding: 0 !important;
