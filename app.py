@@ -588,8 +588,8 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
                 name=f"{t_type.upper()} ({t_date.date()})"),
                 row=1, col=1)
             for r in range(3, total_rows + 1):
-                fig.add_vline(x=t_date, line_dash="solid", line_width=0.8,
-                              line_color=marker_color, opacity=0.5, row=r, col=1)
+                fig.add_vline(x=t_date, line_dash="solid", line_width=1,
+                              line_color=marker_color, opacity=1, row=r, col=1)
 
     # ── 축 스타일 ──
     fig.update_xaxes(showline=True, linewidth=1, linecolor='black', mirror=True)
