@@ -16,12 +16,17 @@ from plotly.subplots import make_subplots
 st.set_page_config(page_title="퀀트 트레이딩 대시보드", layout="wide")
 
 X_ASSET_FIXED      = 'SPY'
-TARGET_TICKERS     = ['SPYU', 'TQQQ', 'SOXL', 'FNGU', 'BTC-USD', 'BITU', 'ETH-USD', 'ETHT',
-                      'HIBL', 'TARK', 'QPUX', 'BNKU', 'GDXU', 'KORU', '005930', 'UPXI']
+TARGET_TICKERS     = ['BTC-USD', 'BITU', 'ETH-USD', 'ETHT',
+                      'SPYU', 'TQQQ', 'SOXL', 'FNGU',
+                      'HIBL', 'TARK', 'QPUX', 'BNKU',
+                      'GDXU', 'KORU', '005930','000660',
+                      'UPXI','RKLB','OKLO','AVAV']
 TICKER_DISPLAY_NAMES: dict = {
     'BTC-USD': 'BTC',
     'ETH-USD': 'ETH',
-    '005930':  '삼성전자',
+    '005930':  '삼전',
+    '000660':  '하닉',
+  
 }
 DEFAULT_REFRESH_MINS = 10  # 기본 자동 새로고침 간격 (분)
 
