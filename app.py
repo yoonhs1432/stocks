@@ -584,9 +584,9 @@ def main():
 
     # ── 자동 새로고침 트리거 감지 ──────────────────────
     # JS가 ?_ar=1 을 붙여 리로드 → 캐시 전체 클리어 → 새 데이터로 재분석
-    if st.query_params.get('_ar') == '1':
-        st.query_params.clear()
-        st.cache_data.clear()
+    # if st.query_params.get('_ar') == '1':
+    #     st.query_params.clear()
+    #     st.cache_data.clear()
 
     # ── 종목 선택 상태 ──
     DIRECT_INPUT_LABEL = "직접 입력"
