@@ -695,7 +695,7 @@ def main():
     di_sel = (selected_option == DIRECT_INPUT_LABEL)
     btn_css_parts.append(f"""
     div.st-key-ticker_btn_direct button {{
-        height:1.1rem!important; font-size:0.55rem!important;
+        height:1.2rem!important; font-size:0.7rem!important;
         padding:0!important; min-height:0!important; border-radius:3px!important;
         {'border:2px solid #1565C0!important;font-weight:700!important;' if di_sel else ''}
     }}""")
