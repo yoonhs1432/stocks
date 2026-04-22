@@ -180,42 +180,6 @@ def fetch_single_ticker(ticker: str, start_date_str: str) -> pd.DataFrame:
     return pd.DataFrame()
 
 # ====================================================
-# 5. 주기 탐색
-#    min_w=35, max_w=90 → 35~90일 범위에서 탐색 (≈40일 주기 선호)
-# ====================================================
-@st.cache_data(show_spinner=False)
-def find_available_cycles(price_series: pd.Series,
-                          min_w: int = 35, max_w: int = 90, step: int = 5) -> list:
-    """극값 평균 간격 기반 사이클 후보 탐색 (35~90일)."""
-    price_series = price_series.dropna()
-    cycles: set[int] = set()
-    for w in range(min_w, max_w + 1, step):
-        roll_max = price_series.rolling(window=w, center=True, min_periods=3).max()
-        roll_min = price_series.rolling(window=w, center=True, min_periods=3).min()
-        is_extrema = (price_series == roll_max) | (price_series == roll_min)
-        extrema_indices = np.where(is_extrema)[0]
-        if len(extrema_indices) > 1:
-            avg_c = int(np.diff(extrema_indices).mean())
-            if min_w <= avg_c <= max_w:
-                cycles.add(avg_c)
-    return sorted(cycles) if cycles else [50]
-
-@st.cache_data(show_spinner=False)
-def get_optimal_cycle(price_series: pd.Series, cycles_list: list,
-                      min_autocorr: float = 0.10) -> int:
-    """자기상관계수 기반 최적 주기 선택. 유효 신호 없으면 50일 반환."""
-    if not cycles_list:
-        return 50
-    detrended = price_series - price_series.rolling(window=100, min_periods=1).mean()
-    best_cycle, best_score = 50, -np.inf
-    for c in cycles_list:
-        if len(detrended.dropna()) > c * 2:
-            score = detrended.autocorr(lag=c)
-            if pd.notna(score) and score > best_score:
-                best_score, best_cycle = score, c
-    return best_cycle if best_score >= min_autocorr else 50
-
-# ====================================================
 # 6. 데이터 처리
 # ====================================================
 def _compute_normalized(df: pd.DataFrame, x_name: str, y_name: str) -> tuple:
@@ -250,15 +214,14 @@ def _compute_indicators(df: pd.DataFrame, y_name: str) -> tuple:
     return df, std_resid
 
 def process_asset_data(df_x: pd.DataFrame, df_y: pd.DataFrame,
-                       x_name: str, y_name: str,
-                       cycle: int) -> tuple:
+                       x_name: str, y_name: str) -> tuple:
     df = pd.merge(df_x, df_y, left_index=True, right_index=True).dropna().sort_index()
     if df.empty:
         return (None,) * 4
     df, beta = _compute_normalized(df, x_name, y_name)
     df_daily = df.copy()
     df_daily, std_resid = _compute_indicators(df_daily, y_name)
-    return df_daily, beta, cycle, std_resid
+    return df_daily, beta, std_resid
 
 # ====================================================
 # 7. 전체 종목 일괄 분석 (캐싱)
@@ -276,11 +239,9 @@ def compute_all_analyses(df_close: pd.DataFrame) -> dict:
             continue
         try:
             price_series = df_close[col].dropna()
-            cycles_list  = find_available_cycles(price_series)
-            cycle        = get_optimal_cycle(price_series, cycles_list)
             df_y         = df_close[[col]]
             results[ticker] = process_asset_data(
-                df_x, df_y, X_ASSET_FIXED, ticker, cycle)
+                df_x, df_y, X_ASSET_FIXED, ticker)
         except Exception:
             results[ticker] = None
     return results
@@ -368,8 +329,7 @@ def render_sidebar(selected_ticker: str) -> dict:
 # ====================================================
 def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
                  beta: float, std_resid: float,
-                 guide_n: int, view_months: int,
-                 avg_cycle: int) -> None:
+                 guide_n: int, view_months: int) -> None:
     show_indicators = True
     st.markdown("""
     <style>
@@ -685,33 +645,32 @@ def main():
     # 버튼 색상용 신호 갱신
     for ticker, result in all_analyses.items():
         if result and result[0] is not None:
-            df_t, _, _, _ = result
+            df_t, _, _ = result
             cz = float(df_t['Z_Score'].iloc[-1]) if pd.notna(df_t['Z_Score'].iloc[-1]) else 0.0
             st.session_state.ticker_signals[ticker] = get_signal(cz)
         else:
             st.session_state.ticker_signals.setdefault(ticker, 'H')
 
     # ── 선택 종목 분석 결과 추출 ──
-    df_daily = beta = avg_cycle = std_resid = None
+    df_daily = beta = std_resid = None
 
     if selected_ticker and selected_ticker in TARGET_TICKERS:
         result = all_analyses.get(selected_ticker)
         if result and result[0] is not None:
-            df_daily, beta, avg_cycle, std_resid = result
+            df_daily, beta, std_resid = result
             cz = float(df_daily['Z_Score'].iloc[-1]) if pd.notna(df_daily['Z_Score'].iloc[-1]) else 0.0
             st.session_state.ticker_signals[selected_ticker] = get_signal(cz)
 
     elif selected_ticker and f'{selected_ticker}_Close' in df_close.columns:
         # 커스텀 티커: 온디맨드 분석
         price_series = df_close[f'{selected_ticker}_Close'].dropna()
-        cycle        = get_optimal_cycle(price_series, find_available_cycles(price_series))
         with st.spinner(f"{display_name(selected_ticker)} 분석 중..."):
             result = process_asset_data(
                 df_close[[f'{X_ASSET_FIXED}_Close']],
                 df_close[[f'{selected_ticker}_Close']],
-                X_ASSET_FIXED, selected_ticker, cycle)
+                X_ASSET_FIXED, selected_ticker)
         if result[0] is not None:
-            df_daily, beta, avg_cycle, std_resid = result
+            df_daily, beta, std_resid = result
             cz = float(df_daily['Z_Score'].iloc[-1]) if pd.notna(df_daily['Z_Score'].iloc[-1]) else 0.0
             st.session_state.ticker_signals[selected_ticker] = get_signal(cz)
 
@@ -884,7 +843,7 @@ def main():
     with chart_col:
         if df_daily is not None:
             render_chart(df_daily, selected_ticker, beta, std_resid,
-                         cfg['guide_n'], cfg['view_months'], avg_cycle)
+                         cfg['guide_n'], cfg['view_months'])
         elif selected_option == DIRECT_INPUT_LABEL:
             if not st.session_state.get('custom_ticker_input', ''):
                 st.info("왼쪽에서 티커를 입력해 주세요. (예: NVDA, 000660)")
