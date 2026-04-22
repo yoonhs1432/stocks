@@ -364,7 +364,7 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     }
     </style>""", unsafe_allow_html=True)
 
-    PX = {'main': 150, 'spacer': 20, 'price': 90, 'zscore': 90, 'macd': 90, 'rsi': 90}
+    PX = {'main': 150, 'spacer': 20, 'price': 96, 'zscore': 96, 'macd': 96, 'rsi': 96}
     active_plots = ['main', 'spacer', 'price', 'zscore']
     if show_indicators:
         active_plots += ['macd', 'rsi']
@@ -686,16 +686,16 @@ def main():
         div.st-key-{k} button {{
             background:{bg}!important; border-color:{bg}!important;
             color:{fg}!important; font-weight:700!important;
-            height:2.4rem!important; font-size:0.8rem!important;
+            height:1.4rem!important; font-size:0.68rem!important;
             padding:0!important; line-height:1!important;
-            min-height:0!important; border-radius:1px!important;
+            min-height:0!important; border-radius:3px!important;
             {sel_extra}
         }}
         div.st-key-{k} button:hover {{ opacity:0.82!important; }}""")
     di_sel = (selected_option == DIRECT_INPUT_LABEL)
     btn_css_parts.append(f"""
     div.st-key-ticker_btn_direct button {{
-        height:1.8rem!important; font-size:1.7rem!important;
+        height:1.1rem!important; font-size:0.55rem!important;
         padding:0!important; min-height:0!important; border-radius:3px!important;
         {'border:2px solid #1565C0!important;font-weight:700!important;' if di_sel else ''}
     }}""")
@@ -727,7 +727,7 @@ def main():
     }}
     section[data-testid="stMain"] div[data-testid="stColumn"]:first-child button p {{
         margin: 0 !important; padding: 0 !important;
-        font-size: 0.8rem !important; line-height: 1 !important;
+        font-size: 0.65rem !important; line-height: 1 !important; font-weight: 700 !important;
     }}
     {''.join(btn_css_parts)}
     </style>"""
@@ -788,9 +788,9 @@ def main():
             f"background:{bg_c}18;margin-bottom:4px;'>"
             f"<b style='font-size:23px;color:{bg_c};white-space:nowrap;'>{action_txt}</b>"
             f"<span style='width:1px;height:13px;background:#ddd;display:inline-block;'></span>"
-            f"<span style='font-size:17px;color:#666;'>Z-Score&nbsp;"
+            f"<span style='font-size:13px;color:#666;'>Z-Score&nbsp;"
             f"<b style='color:{z_color};'>{cz:+.2f}</b></span>"
-            f"<span style='font-size:17px;color:#666;'>β&nbsp;"
+            f"<span style='font-size:13px;color:#666;'>β&nbsp;"
             f"<b style='color:#333;'>{beta:.2f}</b></span>"
             f"</div>")
     else:
