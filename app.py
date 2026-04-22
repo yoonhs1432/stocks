@@ -783,10 +783,10 @@ def main():
         bg_c, _    = SIGNAL_STYLE.get(sig, ('#9ca3af', '#fff'))
         z_color    = "#dc2626" if cz <= 0 else "#1d4ed8"
         summary_html = (
-            f"<div style='display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap;"
-            f"padding:4px 10px;border-radius:6px;border-left:4px solid {bg_c};"
-            f"background:{bg_c}18;margin-bottom:4px;'>"
-            f"<b style='font-size:23px;color:{bg_c};white-space:nowrap;'>{action_txt}</b>"
+            f"<div style='display:flex;align-items:center;gap:8px;flex-wrap:wrap;"
+            f"padding:2px 10px;border-radius:6px;border-left:4px solid {bg_c};"
+            f"background:{bg_c}18;margin-bottom:2px;'>"
+            f"<b style='font-size:18px;color:{bg_c};white-space:nowrap;'>{action_txt}</b>"
             f"<span style='font-size:14px;color:{bg_c};font-weight:700;white-space:nowrap;'>{display_name(selected_ticker)}</span>"
             f"<span style='width:1px;height:13px;background:#ddd;display:inline-block;'></span>"
             f"<span style='font-size:13px;color:#666;'>Z-Score&nbsp;"
