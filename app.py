@@ -477,12 +477,21 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     max_price = (df_daily.loc[df_daily.index >= view_start,
                                ['Plot_Norm_SPY', 'Plot_Norm_Ticker']].max().max())
     price_baseline = min_price * 0.95
-    add_filled_blocks(fig, df_daily, 'Plot_Norm_Ticker',
-                      df_daily['Z_Score'] <= -1.5,
-                      'rgba(220,38,38,0.25)', current_row, 1, price_baseline)
-    add_filled_blocks(fig, df_daily, 'Plot_Norm_Ticker',
-                      df_daily['Z_Score'] >= 1.5,
-                      'rgba(29,78,216,0.25)', current_row, 1, price_baseline)
+    # ── Z-Score 그라데이션 배경 (vrect 방식) ──
+    def _z_to_color(z: float) -> str:
+        if   z >=  1.5:  return 'rgba(29,78,216,0.30)'
+        elif z >=  0.75: return 'rgba(93,155,246,0.18)'
+        elif z >=  0.0:  return 'rgba(191,219,254,0.10)'
+        elif z >  -0.75: return 'rgba(254,202,202,0.10)'
+        elif z >  -1.5:  return 'rgba(248,113,113,0.18)'
+        else:            return 'rgba(220,38,38,0.30)'
+    _zdf = df_daily[['Z_Score']].copy()
+    _zdf['_band'] = _zdf['Z_Score'].apply(_z_to_color)
+    _zdf['_grp']  = (_zdf['_band'] != _zdf['_band'].shift()).cumsum()
+    for _, seg in _zdf.groupby('_grp'):
+        fig.add_vrect(x0=seg.index[0], x1=seg.index[-1],
+                      fillcolor=seg['_band'].iloc[0], opacity=1,
+                      line_width=0, row=current_row, col=1)
     fig.update_yaxes(type="log",
                      range=[np.log10(price_baseline), np.log10(max_price * 1.05)],
                      row=current_row, col=1)
@@ -837,15 +846,17 @@ def main():
     st.markdown(legend_html + summary_html, unsafe_allow_html=True)
 
     # ── 버튼 + 차트 레이아웃 ──
-    btn_col, chart_col = st.columns([1, 4])
+    btn_col, chart_col = st.columns([1.6, 4])
 
     with btn_col:
-        for ticker in TARGET_TICKERS:
-            btn_key = f"ticker_btn_{safe_key(ticker)}"
-            if st.button(display_name(ticker), key=btn_key, use_container_width=True):
-                st.session_state.selected_option      = ticker
-                st.session_state.custom_ticker_input  = ''
-                st.rerun()
+        for i in range(0, len(TARGET_TICKERS), 2):
+            c1, c2 = st.columns(2, gap="small")
+            for col_widget, ticker in zip([c1, c2], TARGET_TICKERS[i:i+2]):
+                btn_key = f"ticker_btn_{safe_key(ticker)}"
+                if col_widget.button(display_name(ticker), key=btn_key, use_container_width=True):
+                    st.session_state.selected_option     = ticker
+                    st.session_state.custom_ticker_input = ''
+                    st.rerun()
         if st.button(DIRECT_INPUT_LABEL, key="ticker_btn_direct", use_container_width=True):
             st.session_state.selected_option = DIRECT_INPUT_LABEL
             st.rerun()
