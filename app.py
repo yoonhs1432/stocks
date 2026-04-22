@@ -686,7 +686,7 @@ def main():
         div.st-key-{k} button {{
             background:{bg}!important; border-color:{bg}!important;
             color:{fg}!important; font-weight:700!important;
-            height:1.4rem!important; font-size:0.68rem!important;
+            height:2.0rem!important; font-size:0.68rem!important;
             padding:0!important; line-height:1!important;
             min-height:0!important; border-radius:3px!important;
             {sel_extra}
@@ -788,9 +788,9 @@ def main():
             f"background:{bg_c}18;margin-bottom:4px;'>"
             f"<b style='font-size:23px;color:{bg_c};white-space:nowrap;'>{action_txt}</b>"
             f"<span style='width:1px;height:13px;background:#ddd;display:inline-block;'></span>"
-            f"<span style='font-size:13px;color:#666;'>Z-Score&nbsp;"
+            f"<span style='font-size:17px;color:#666;'>Z-Score&nbsp;"
             f"<b style='color:{z_color};'>{cz:+.2f}</b></span>"
-            f"<span style='font-size:13px;color:#666;'>β&nbsp;"
+            f"<span style='font-size:17px;color:#666;'>β&nbsp;"
             f"<b style='color:#333;'>{beta:.2f}</b></span>"
             f"</div>")
     else:
