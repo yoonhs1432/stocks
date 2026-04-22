@@ -686,7 +686,7 @@ def main():
         div.st-key-{k} button {{
             background:{bg}!important; border-color:{bg}!important;
             color:{fg}!important; font-weight:700!important;
-            height:2.0rem!important; font-size:0.68rem!important;
+            height:2.0rem!important; font-size:1.5rem!important;
             padding:0!important; line-height:1!important;
             min-height:0!important; border-radius:3px!important;
             {sel_extra}
