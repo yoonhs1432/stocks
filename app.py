@@ -155,7 +155,7 @@ def get_signal(current_z: float = 0.0) -> str:
 # ====================================================
 # 4. 데이터 다운로드 (캐싱)
 # ====================================================
-# @st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner=False)
 def fetch_all_data(tickers: list, start_date_str: str) -> pd.DataFrame:
     df_list = []
     for ticker in [X_ASSET_FIXED] + list(tickers):
@@ -227,7 +227,7 @@ def process_asset_data(df_x: pd.DataFrame, df_y: pd.DataFrame,
 # 7. 전체 종목 일괄 분석 (캐싱)
 #    캐시 히트 시 종목 버튼 클릭 → 즉시 렌더링 (재분석 없음)
 # ====================================================
-# @st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner=False)
 def compute_all_analyses(df_close: pd.DataFrame) -> dict:
     """TARGET_TICKERS 전체를 한 번에 분석. 결과 캐싱으로 종목 전환을 즉각 처리."""
     results: dict = {}
