@@ -32,21 +32,24 @@ TICKER_DISPLAY_NAMES: dict = {
 }
 DEFAULT_REFRESH_MINS = 10  # 기본 자동 새로고침 간격 (분)
 
-# ── 9단계 투자의견 (한국 증시 관례: 상승=빨강, 하락=파랑) ──
+# ── 5단계 투자의견 (한국 증시 관례: 상승=빨강, 하락=파랑) ──
 SIGNAL_STYLE: dict = {
-    'FB': ('#7f1d1d', '#ffffff'),   # 풀매수
-    'SB': ('#b91c1c', '#ffffff'),   # 강매수
-    'B':  ('#dc2626', '#ffffff'),   # 매수
-    'LB': ('#fca5a5', '#1a1a1a'),   # 약매수
+    'FB': ('#dc2626', '#ffffff'),   # 풀매수
+    'B':  ('#fca5a5', '#1a1a1a'),   # 매수
     'H':  ('#9ca3af', '#ffffff'),   # 관망
-    'LS': ('#bfdbfe', '#1a1a1a'),   # 약매도
-    'S':  ('#60a5fa', '#ffffff'),   # 매도
-    'SS': ('#2563eb', '#ffffff'),   # 강매도
-    'FS': ('#1e3a8a', '#ffffff'),   # 풀매도
+    'S':  ('#93c5fd', '#1a1a1a'),   # 매도
+    'FS': ('#1d4ed8', '#ffffff'),   # 풀매도
 }
 ACTION_LABELS: dict = {
-    'FB': '풀 매수', 'SB': '강매수', 'B': '매수', 'LB': '약매수',
-    'H': '관망', 'LS': '약매도', 'S': '매도', 'SS': '강매도', 'FS': '풀 매도',
+    'FB': '풀 매수', 'B': '매수', 'H': '관망', 'S': '매도', 'FS': '풀 매도',
+}
+
+BUTTON_TEXT_STYLE: dict = {
+    'FB': '#f8fafc',
+    'B':  '#111827',
+    'H':  '#111827',
+    'S':  '#111827',
+    'FS': '#f8fafc',
 }
 def display_name(ticker: str) -> str:
     return TICKER_DISPLAY_NAMES.get(ticker, ticker)
@@ -144,19 +147,19 @@ def init_session_state() -> None:
         st.session_state.refresh_requested_ticker = None
 
 # ====================================================
-# 3. 투자의견 (9단계)
+# 3. 투자의견 (5단계)
 # ====================================================
 def get_signal(current_z: float = 0.0) -> str:
-    """Z-Score 기반 9단계 신호 반환."""
-    if current_z > 2.0:   return 'FS'
-    if current_z > 1.5:   return 'SS'
-    if current_z > 1.0:   return 'S'
-    if current_z > 0.5:   return 'LS'
-    if current_z >= -0.5: return 'H'
-    if current_z > -1.0:  return 'LB'
-    if current_z > -1.5:  return 'B'
-    if current_z > -2.0:  return 'SB'
-    return 'FB'
+    """Z-Score 기반 5단계 신호 반환."""
+    if current_z >= 1.5:
+        return 'FS'
+    if current_z >= 0.5:
+        return 'S'
+    if current_z <= -1.5:
+        return 'FB'
+    if current_z <= -0.5:
+        return 'B'
+    return 'H'
 
 def get_z_text_color(current_z: float) -> str:
     """Z-Score 숫자 전용 색상. 음수=빨강, 중립=회색, 양수=파랑."""
@@ -174,23 +177,23 @@ def get_price_fill_color(current_z: float) -> str:
     """가격 패널 면적 채움용 RGBA 색상."""
     if pd.isna(current_z):
         return 'rgba(0,0,0,0)'
-    if current_z <= -2.0:
-        return 'rgba(127,29,29,0.36)'
     if current_z <= -1.5:
-        return 'rgba(185,28,28,0.32)'
-    if current_z <= -1.0:
-        return 'rgba(220,38,38,0.26)'
+        return 'rgba(220,38,38,0.35)'
     if current_z <= -0.5:
-        return 'rgba(252,165,165,0.20)'
-    if current_z <= 0.5:
+        return 'rgba(252,165,165,0.22)'
+    if current_z < 0.5:
         return 'rgba(156,163,175,0.12)'
-    if current_z <= 1.0:
-        return 'rgba(191,219,254,0.18)'
-    if current_z <= 1.5:
-        return 'rgba(96,165,250,0.24)'
-    if current_z <= 2.0:
-        return 'rgba(37,99,235,0.30)'
-    return 'rgba(30,58,138,0.36)'
+    if current_z < 1.5:
+        return 'rgba(147,197,253,0.22)'
+    return 'rgba(29,78,216,0.35)'
+
+def get_time_grid_dtick_ms(start: pd.Timestamp, end: pd.Timestamp, target_grids: int = 8) -> int:
+    """조회 기간에 맞춰 비슷한 개수의 수직 grid가 보이도록 dtick(ms)을 고른다."""
+    span_days = max((end - start).days, 1)
+    target_days = span_days / max(target_grids, 1)
+    candidate_days = [3, 5, 7, 10, 14, 21, 30, 45, 60, 90, 120, 180]
+    best_days = min(candidate_days, key=lambda days: abs(days - target_days))
+    return int(best_days * 24 * 60 * 60 * 1000)
 
 # ====================================================
 # 4. 데이터 다운로드 (캐싱)
@@ -482,11 +485,6 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     fig.update_yaxes(type="log", showgrid=False,
                      range=[np.log10(y_lo * 0.88), np.log10(y_hi * 1.18)],
                      row=current_row, col=1)
-    fig.add_annotation(x=0, y=1, xref='x domain', yref='y domain',
-        text=f"<b>{display_name(selected_ticker)}</b>", showarrow=False,
-        font=dict(size=11, color='black'), bgcolor='white',
-        bordercolor='black', borderwidth=1, borderpad=2,
-        xanchor='left', yanchor='top', row=current_row, col=1)
     current_row += 1
 
     # ── [2] Spacer ──
@@ -498,6 +496,7 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     # ── 뷰 기간 재정규화 ──
     view_start = df_daily.index[-1] - pd.DateOffset(months=view_months)
     view_df    = df_daily[df_daily.index >= view_start]
+    grid_dtick_ms = get_time_grid_dtick_ms(view_start, df_daily.index[-1], target_grids=8)
     base_spy   = view_df[f'{X_ASSET_FIXED}_Norm'].iloc[0] if not view_df.empty else 1.0
     base_tkr   = view_df[f'{selected_ticker}_Norm'].iloc[0] if not view_df.empty else 1.0
     df_daily['Plot_Norm_SPY']    = df_daily[f'{X_ASSET_FIXED}_Norm'] / base_spy
@@ -517,18 +516,13 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     max_price = (df_daily.loc[df_daily.index >= view_start,
                                ['Plot_Norm_SPY', 'Plot_Norm_Ticker']].max().max())
     price_baseline = min_price * 0.95
-    # ── Z-Score 9단계 기준 면적 채움: 날짜 사이 구간별로만 채워 경계 틈 제거 ──
+    # ── Z-Score 5단계 기준 면적 채움 ──
     df_daily['Price_Fill_Color'] = df_daily['Z_Score'].apply(get_price_fill_color)
     add_segmented_fill(fig, df_daily, 'Plot_Norm_Ticker', 'Price_Fill_Color',
                        current_row, 1, price_baseline)
     fig.update_yaxes(type="log",
                      range=[np.log10(price_baseline), np.log10(max_price * 1.05)],
                      row=current_row, col=1)
-    fig.add_annotation(x=0, y=1, xref='x domain', yref='y domain',
-        text="<b>Price</b>", showarrow=False,
-        font=dict(size=11, color='black'), bgcolor='white',
-        bordercolor='black', borderwidth=1, borderpad=3,
-        xanchor='left', yanchor='top', row=current_row, col=1)
     time_x_axis = f'x{current_row}'
     current_row += 1
 
@@ -536,12 +530,24 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     fig.add_trace(go.Scatter(x=df_daily.index, y=df_daily['Z_Score'],
                               line=dict(color='black', width=1.5), name='Z-Score'),
                   row=current_row, col=1)
-    fig.add_hline(y=1.5,  line_dash="dash", line_color="blue",
-                  line_width=1.5, row=current_row, col=1)
-    fig.add_hline(y=-1.5, line_dash="dash", line_color="red",
-                  line_width=1.5, row=current_row, col=1)
-    fig.add_hline(y=0,    line_dash="dot",  line_color="gray",
-                  line_width=1.0, row=current_row, col=1)
+    fig.add_hline(y=1.5,  line_dash="solid", line_color="blue",
+                  line_width=0.8, row=current_row, col=1)
+    fig.add_hline(y=-1.5, line_dash="solid", line_color="red",
+                  line_width=0.8, row=current_row, col=1)
+    fig.add_hline(y=0,    line_dash="solid", line_color="gray",
+                  line_width=0.6, row=current_row, col=1)
+    fig.add_annotation(
+        x=0, y=1.3, xref='x domain', yref='y',
+        text="σ = +1.5", showarrow=False,
+        font=dict(size=10, color='blue'),
+        xanchor='left', yanchor='bottom',
+        row=current_row, col=1)
+    fig.add_annotation(
+        x=0, y=-1.3, xref='x domain', yref='y',
+        text="σ = -1.5", showarrow=False,
+        font=dict(size=10, color='red'),
+        xanchor='left', yanchor='top',
+        row=current_row, col=1)
     # 매수 구간 (Z ≤ -1.5): 빨간 채움
     add_filled_blocks(fig, df_daily, 'Z_Score',
                       df_daily['Z_Score'] <= -1.5,
@@ -554,11 +560,6 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     z_lo     = min(-2.0, z_view.min() if not z_view.empty else -2.0)
     z_hi     = max( 2.0, z_view.max() if not z_view.empty else  2.0)
     fig.update_yaxes(range=[z_lo - 0.2, z_hi + 0.2], row=current_row, col=1)
-    fig.add_annotation(x=0, y=1, xref='x domain', yref='y domain',
-        text="<b>Z-Score</b>", showarrow=False,
-        font=dict(size=11, color='black'), bgcolor='white',
-        bordercolor='black', borderwidth=1, borderpad=3,
-        xanchor='left', yanchor='top', row=current_row, col=1)
     fig.update_xaxes(matches=time_x_axis, row=current_row, col=1)
     current_row += 1
 
@@ -576,29 +577,31 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
                                   line=dict(color='orange', width=1), name='Signal'),
                       row=current_row, col=1)
         fig.update_yaxes(row=current_row, col=1)
-        fig.add_annotation(x=0, y=1, xref='x domain', yref='y domain',
-            text="<b>MACD</b>", showarrow=False,
-            font=dict(size=11, color='black'), bgcolor='white',
-            bordercolor='black', borderwidth=1, borderpad=3,
-            xanchor='left', yanchor='top', row=current_row, col=1)
         fig.update_xaxes(matches=time_x_axis, row=current_row, col=1)
         current_row += 1
         fig.add_trace(go.Scatter(x=df_daily.index, y=df_daily['RSI'],
-                                  line=dict(color='purple', width=1.5), name='RSI'),
+                                  line=dict(color='black', width=1.5), name='RSI'),
                       row=current_row, col=1)
-        fig.add_hline(y=70, line_dash="dash", line_color="red",  line_width=1.2,
+        fig.add_hline(y=70, line_dash="solid", line_color="blue",  line_width=0.8,
                       row=current_row, col=1)
-        fig.add_hline(y=30, line_dash="dash", line_color="blue", line_width=1.2,
+        fig.add_hline(y=30, line_dash="solid", line_color="red", line_width=0.8,
                       row=current_row, col=1)
+        fig.add_annotation(
+            x=0, y=68, xref='x domain', yref='y',
+            text="RSI 70", showarrow=False,
+            font=dict(size=10, color='blue'),
+            xanchor='left', yanchor='bottom',
+            row=current_row, col=1)
+        fig.add_annotation(
+            x=0, y=32, xref='x domain', yref='y',
+            text="RSI 30", showarrow=False,
+            font=dict(size=10, color='red'),
+            xanchor='left', yanchor='top',
+            row=current_row, col=1)
         rsi_view = df_daily.loc[df_daily.index >= view_start, 'RSI'].dropna()
         rsi_lo   = min(20.0, rsi_view.min() if not rsi_view.empty else 20.0)
         rsi_hi   = max(80.0, rsi_view.max() if not rsi_view.empty else 80.0)
         fig.update_yaxes(range=[rsi_lo - 2, rsi_hi + 2], row=current_row, col=1)
-        fig.add_annotation(x=0, y=1, xref='x domain', yref='y domain',
-            text="<b>RSI</b>", showarrow=False,
-            font=dict(size=11, color='black'), bgcolor='white',
-            bordercolor='black', borderwidth=1, borderpad=3,
-            xanchor='left', yanchor='top', row=current_row, col=1)
         fig.update_xaxes(matches=time_x_axis, row=current_row, col=1)
 
     # ── 매매 기록 마커 ──
@@ -628,9 +631,23 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     fig.update_yaxes(showline=True, linewidth=1, linecolor='black', mirror=True)
     fig.update_xaxes(visible=False, row=2, col=1)
     fig.update_yaxes(visible=False, row=2, col=1)
+    for r in range(3, total_rows + 1):
+        fig.update_xaxes(
+            showgrid=True,
+            gridcolor='rgba(156,163,175,0.28)',
+            gridwidth=0.6,
+            griddash='dot',
+            dtick=grid_dtick_ms,
+            row=r, col=1)
+        fig.update_yaxes(
+            showgrid=False,
+            gridcolor='rgba(156,163,175,0.18)',
+            gridwidth=0.6,
+            griddash='dot',
+            row=r, col=1)
     for r in range(3, total_rows):
-        fig.update_xaxes(showticklabels=False, tickformat="%y/%m/%d", row=r, col=1)
-    fig.update_xaxes(showticklabels=True, tickformat="%y/%m/%d", row=total_rows, col=1)
+        fig.update_xaxes(showticklabels=False, tickformat="%m/%d", row=r, col=1)
+    fig.update_xaxes(showticklabels=True, tickformat="%m/%d", row=total_rows, col=1)
     fig.update_layout(
         height=total_h, showlegend=False, hovermode='x unified',
         dragmode='pan', margin=dict(l=2, r=18, t=10, b=20),
@@ -781,7 +798,7 @@ def main():
     for ticker in TARGET_TICKERS:
         sig    = st.session_state.ticker_signals.get(ticker, 'H')
         bg, _  = SIGNAL_STYLE.get(sig, ('#9ca3af', '#fff'))
-        fg     = '#ffffff' if sig == 'FS' else '#1a1a1a'
+        fg     = BUTTON_TEXT_STYLE.get(sig, '#111827')
         k      = f"ticker_btn_{safe_key(ticker)}"
         is_sel = (selected_option == ticker)
         sel_extra = (f"box-shadow:0 0 0 2px #fff,0 0 0 4px {bg}!important;"
