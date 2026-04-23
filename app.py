@@ -628,14 +628,7 @@ def main():
 
     if not df_close.empty:
         st.session_state.last_data_date = df_close.index[-1].strftime('%Y-%m-%d')
-        st.session_state.ticker_changes = {}
-        if len(df_close) >= 2:
-            for t in TARGET_TICKERS:
-                col = f'{t}_Close'
-                if col in df_close.columns:
-                    last_p = df_close[col].iloc[-1]
-                    prev_p = df_close[col].iloc[-2]
-                    st.session_state.ticker_changes[t] = ((last_p - prev_p) / prev_p) * 100
+
     # ── 커스텀 티커 fetch ──
     if selected_ticker and f'{selected_ticker}_Close' not in df_close.columns:
         with st.spinner(f"{selected_ticker} 데이터를 불러오는 중..."):
@@ -695,14 +688,10 @@ def main():
         btn_css_parts.append(f"""
         div.st-key-{k} button {{
             background:{bg}!important; border-color:{bg}!important;
-            color:#111!important; font-weight:600!important;
-            height: 2.6rem !important;  /* ⬅️ 1.9rem에서 2.6rem으로 높이 확장 */
-            font-size:0.76rem!important;
-            padding-top: 0.3rem !important; /* ⬅️ 티커 이름을 위쪽으로 밀착 */
-            align-items: flex-start !important; /* ⬅️ 상단 정렬 */
-            line-height:1!important;
+            color:#111!important; font-weight:500!important;
+            height:1.9rem!important; font-size:0.76rem!important;
+            padding:0!important; line-height:1!important;
             min-height:0!important; border-radius:3px!important;
-            margin-bottom: 0px !important;
             {sel_extra}
         }}
         div.st-key-{k} button:hover {{ opacity:0.82!important; }}""")
@@ -716,24 +705,6 @@ def main():
 
     global_css = f"""
     <style>
-    font-size: 0.65rem !important;
-        font-weight: 700 !important;
-        text-align: center !important;
-        margin-top: -3px !important;
-        margin-bottom: 6px !important;
-        font-family: sans-serif;
-    }}
-    .ticker-change-text {
-        font-size: 0.65rem !important;
-        font-weight: 700 !important;
-        text-align: center !important;
-        margin-top: -1.4rem !important; /* ⬅️ 버튼 안쪽으로 텍스트를 강제 수용 */
-        margin-bottom: 0.4rem !important;
-        pointer-events: none !important; /* ⬅️ 텍스트 위를 클릭해도 뒤쪽 버튼이 눌리게 함 */
-        position: relative;
-        z-index: 10;
-        text-shadow: 0px 0px 2px rgba(255,255,255,0.7); /* 배경색 상관없이 잘 보이도록 얇은 흰색 테두리 효과 */
-    }
     .block-container {{
         padding-top: 3.5rem !important; padding-bottom: 0.5rem !important;
         max-width: 100% !important;
@@ -852,22 +823,10 @@ def main():
             c1, c2 = st.columns(2, gap="small")
             for col_widget, ticker in zip([c1, c2], TARGET_TICKERS[i:i+2]):
                 btn_key = f"ticker_btn_{safe_key(ticker)}"
-              
-                with col_widget:
-                    if st.button(display_name(ticker), key=btn_key, use_container_width=True):
-                        st.session_state.selected_option     = ticker
-                        st.session_state.custom_ticker_input = ''
-                        st.rerun()
-                    change_val = st.session_state.get('ticker_changes', {}).get(ticker, 0.0)
-                    change_color = "#dc2626" if change_val > 0 else ("#1d4ed8" if change_val < 0 else "#666")
-                    sign = "+" if change_val > 0 else ""
-                    
-                    st.markdown(f"""
-                        <div class="ticker-change-text" style="color:{change_color};">
-                            {sign}{change_val:.2f}%
-                        </div>
-                    """, unsafe_allow_html=True)
-                  
+                if col_widget.button(display_name(ticker), key=btn_key, use_container_width=True):
+                    st.session_state.selected_option     = ticker
+                    st.session_state.custom_ticker_input = ''
+                    st.rerun()
         if st.button(DIRECT_INPUT_LABEL, key="ticker_btn_direct", use_container_width=True):
             st.session_state.selected_option = DIRECT_INPUT_LABEL
             st.rerun()
