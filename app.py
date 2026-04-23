@@ -695,10 +695,14 @@ def main():
         btn_css_parts.append(f"""
         div.st-key-{k} button {{
             background:{bg}!important; border-color:{bg}!important;
-            color:#111!important; font-weight:500!important;
-            height:1.9rem!important; font-size:0.76rem!important;
-            padding:0!important; line-height:1!important;
+            color:#111!important; font-weight:600!important;
+            height: 2.6rem !important;  /* ⬅️ 1.9rem에서 2.6rem으로 높이 확장 */
+            font-size:0.76rem!important;
+            padding-top: 0.3rem !important; /* ⬅️ 티커 이름을 위쪽으로 밀착 */
+            align-items: flex-start !important; /* ⬅️ 상단 정렬 */
+            line-height:1!important;
             min-height:0!important; border-radius:3px!important;
+            margin-bottom: 0px !important;
             {sel_extra}
         }}
         div.st-key-{k} button:hover {{ opacity:0.82!important; }}""")
@@ -719,6 +723,17 @@ def main():
         margin-bottom: 6px !important;
         font-family: sans-serif;
     }}
+    .ticker-change-text {
+        font-size: 0.65rem !important;
+        font-weight: 700 !important;
+        text-align: center !important;
+        margin-top: -1.4rem !important; /* ⬅️ 버튼 안쪽으로 텍스트를 강제 수용 */
+        margin-bottom: 0.4rem !important;
+        pointer-events: none !important; /* ⬅️ 텍스트 위를 클릭해도 뒤쪽 버튼이 눌리게 함 */
+        position: relative;
+        z-index: 10;
+        text-shadow: 0px 0px 2px rgba(255,255,255,0.7); /* 배경색 상관없이 잘 보이도록 얇은 흰색 테두리 효과 */
+    }
     .block-container {{
         padding-top: 3.5rem !important; padding-bottom: 0.5rem !important;
         max-width: 100% !important;
