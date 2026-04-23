@@ -629,13 +629,13 @@ def main():
     if not df_close.empty:
         st.session_state.last_data_date = df_close.index[-1].strftime('%Y-%m-%d')
         st.session_state.ticker_changes = {}
-          if len(df_close) >= 2:
-              for t in TARGET_TICKERS:
-                  col = f'{t}_Close'
-                  if col in df_close.columns:
-                      last_p = df_close[col].iloc[-1]
-                      prev_p = df_close[col].iloc[-2]
-                      st.session_state.ticker_changes[t] = ((last_p - prev_p) / prev_p) * 100
+        if len(df_close) >= 2:
+            for t in TARGET_TICKERS:
+                col = f'{t}_Close'
+                if col in df_close.columns:
+                    last_p = df_close[col].iloc[-1]
+                    prev_p = df_close[col].iloc[-2]
+                    st.session_state.ticker_changes[t] = ((last_p - prev_p) / prev_p) * 100
     # ── 커스텀 티커 fetch ──
     if selected_ticker and f'{selected_ticker}_Close' not in df_close.columns:
         with st.spinner(f"{selected_ticker} 데이터를 불러오는 중..."):
