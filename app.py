@@ -712,6 +712,13 @@ def main():
 
     global_css = f"""
     <style>
+    font-size: 0.65rem !important;
+        font-weight: 700 !important;
+        text-align: center !important;
+        margin-top: -3px !important;
+        margin-bottom: 6px !important;
+        font-family: sans-serif;
+    }}
     .block-container {{
         padding-top: 3.5rem !important; padding-bottom: 0.5rem !important;
         max-width: 100% !important;
@@ -830,10 +837,22 @@ def main():
             c1, c2 = st.columns(2, gap="small")
             for col_widget, ticker in zip([c1, c2], TARGET_TICKERS[i:i+2]):
                 btn_key = f"ticker_btn_{safe_key(ticker)}"
-                if col_widget.button(display_name(ticker), key=btn_key, use_container_width=True):
-                    st.session_state.selected_option     = ticker
-                    st.session_state.custom_ticker_input = ''
-                    st.rerun()
+              
+                with col_widget:
+                    if st.button(display_name(ticker), key=btn_key, use_container_width=True):
+                        st.session_state.selected_option     = ticker
+                        st.session_state.custom_ticker_input = ''
+                        st.rerun()
+                    change_val = st.session_state.get('ticker_changes', {}).get(ticker, 0.0)
+                    change_color = "#dc2626" if change_val > 0 else ("#1d4ed8" if change_val < 0 else "#666")
+                    sign = "+" if change_val > 0 else ""
+                    
+                    st.markdown(f"""
+                        <div class="ticker-change-text" style="color:{change_color};">
+                            {sign}{change_val:.2f}%
+                        </div>
+                    """, unsafe_allow_html=True)
+                  
         if st.button(DIRECT_INPUT_LABEL, key="ticker_btn_direct", use_container_width=True):
             st.session_state.selected_option = DIRECT_INPUT_LABEL
             st.rerun()
