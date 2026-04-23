@@ -140,11 +140,9 @@ def init_session_state() -> None:
     if 'view_months' not in st.session_state:
         st.session_state.view_months = load_settings().get('view_months', 12)
     if 'analysis_start' not in st.session_state:
-        st.session_state.analysis_start = load_settings().get('analysis_start', '2021-01-01')
+        st.session_state.analysis_start = load_settings().get('analysis_start', '2023-01-01')
     if 'refresh_mins' not in st.session_state:
         st.session_state.refresh_mins = DEFAULT_REFRESH_MINS
-    if 'refresh_requested_ticker' not in st.session_state:
-        st.session_state.refresh_requested_ticker = None
 
 # ====================================================
 # 3. 투자의견 (5단계)
@@ -219,10 +217,6 @@ def fetch_all_data(tickers: list, start_date_str: str) -> pd.DataFrame:
 
 @st.cache_data(show_spinner=False)
 def fetch_single_ticker(ticker: str, start_date_str: str) -> pd.DataFrame:
-    return _download_ticker_data(ticker, start_date_str)
-
-def fetch_single_ticker_fresh(ticker: str, start_date_str: str) -> pd.DataFrame:
-    """캐시를 거치지 않고 서버에서 최신 데이터를 다시 조회한다."""
     return _download_ticker_data(ticker, start_date_str)
 
 def merge_price_data(df_close: pd.DataFrame, df_new: pd.DataFrame, ticker: str) -> pd.DataFrame:
@@ -720,20 +714,6 @@ def main():
         else:
             selected_ticker = None
 
-    refresh_ticker = st.session_state.get('refresh_requested_ticker')
-    refreshed_selected = False
-    if refresh_ticker and selected_ticker == refresh_ticker:
-        tickers_to_refresh = [selected_ticker]
-        if selected_ticker != X_ASSET_FIXED:
-            tickers_to_refresh.insert(0, X_ASSET_FIXED)
-        with st.spinner(f"{display_name(selected_ticker)} 최신 데이터를 다시 불러오는 중..."):
-            for ticker in tickers_to_refresh:
-                df_fresh = fetch_single_ticker_fresh(ticker, analysis_start)
-                if not df_fresh.empty:
-                    df_close = merge_price_data(df_close, df_fresh, ticker)
-                    refreshed_selected = True
-        st.session_state.refresh_requested_ticker = None
-
     if not df_close.empty:
         st.session_state.last_data_date = df_close.index[-1].strftime('%Y-%m-%d')
 
@@ -764,15 +744,7 @@ def main():
     df_daily = beta = std_resid = None
 
     if selected_ticker and selected_ticker in TARGET_TICKERS:
-        result = None
-        if refreshed_selected and f'{selected_ticker}_Close' in df_close.columns:
-            with st.spinner(f"{display_name(selected_ticker)} 재분석 중..."):
-                result = process_asset_data(
-                    df_close[[f'{X_ASSET_FIXED}_Close']],
-                    df_close[[f'{selected_ticker}_Close']],
-                    X_ASSET_FIXED, selected_ticker)
-        else:
-            result = all_analyses.get(selected_ticker)
+        result = all_analyses.get(selected_ticker)
         if result and result[0] is not None:
             df_daily, beta, std_resid = result
             cz = float(df_daily['Z_Score'].iloc[-1]) if pd.notna(df_daily['Z_Score'].iloc[-1]) else 0.0
@@ -952,7 +924,6 @@ def main():
     refresh_col, summary_col = st.columns([2, 12])
     with refresh_col:
         if st.button("refresh", key="full_refresh_btn", use_container_width=True):
-            st.session_state.refresh_requested_ticker = None
             st.cache_data.clear()
             st.rerun()
     with summary_col:
@@ -971,11 +942,9 @@ def main():
                 if col_widget.button(btn_label, key=btn_key, use_container_width=True):
                     st.session_state.selected_option     = ticker
                     st.session_state.custom_ticker_input = ''
-                    st.session_state.refresh_requested_ticker = ticker
                     st.rerun()
         if st.button(DIRECT_INPUT_LABEL, key="ticker_btn_direct", use_container_width=True):
             st.session_state.selected_option = DIRECT_INPUT_LABEL
-            st.session_state.refresh_requested_ticker = None
             st.rerun()
         if selected_option == DIRECT_INPUT_LABEL:
             custom_input = st.text_input(
@@ -985,7 +954,6 @@ def main():
             new_val = custom_input.strip().upper()
             if new_val != st.session_state.get('custom_ticker_input', ''):
                 st.session_state.custom_ticker_input = new_val
-                st.session_state.refresh_requested_ticker = None
                 st.rerun()
 
     with chart_col:
