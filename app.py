@@ -19,10 +19,10 @@ X_ASSET_FIXED      = 'SPY'
 TARGET_TICKERS     = ['SPYU', 'SOXL','TQQQ' , 'FNGU',
                       'HIBL', 'TARK', 'QPUX', 'BNKU',
                       'GDXU', 'KORU', '005930','UPXI',
-                      'BTC-USD', 'BITU', 'ETH-USD', 'ETHT',
-                      'RKLB','RKLX','OKLO','OKLL',
-                      'AVAV','AVXX','TEM','TEMT',
-                      'IREN','IRE','CRCL','CRCA',
+                      'BTC-USD', 'ETH-USD',
+                     'RKLB','OKLO',
+                      'AVAV','TEM',
+                      'IREN','CRCL',
                      ]
 TICKER_DISPLAY_NAMES: dict = {
     'BTC-USD': 'BTC',
