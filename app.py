@@ -58,11 +58,13 @@ def safe_key(ticker: str) -> str:
     return ticker.replace('-', '_').replace('.', '_').replace('/', '_')
 
 # ====================================================
-# 2. 설정 · 매매 기록 영속화
+# 2. 설정 · 매매 기록 · 메모 영속화
 # ====================================================
-TRADE_FILE    = 'trade_history.json'
-SETTINGS_FILE = 'settings.json'
-GIST_FILENAME = 'quant_trade_history.json'
+TRADE_FILE      = 'trade_history.json'
+MEMO_FILE       = 'memo_history.json'
+SETTINGS_FILE   = 'settings.json'
+GIST_FILENAME   = 'quant_trade_history.json'
+MEMO_GIST_FILENAME = 'quant_memo_history.json'
 
 def load_settings() -> dict:
     if os.path.exists(SETTINGS_FILE):
@@ -80,10 +82,7 @@ def save_settings(settings: dict) -> None:
     except Exception:
         pass
 
-# ── GitHub Gist (클라우드 매매 기록 동기화) ──────────
-# Streamlit Cloud: .streamlit/secrets.toml 에 추가
-#   GITHUB_TOKEN = "ghp_xxxxxxxxxxxx"
-#   GIST_ID      = "abc123def456..."
+# ── GitHub Gist (클라우드 동기화) ──────────────────
 def _gist_cfg() -> tuple[str, str]:
     try:
         token   = st.secrets.get("GITHUB_TOKEN", "") or os.environ.get("GITHUB_TOKEN", "")
@@ -95,6 +94,7 @@ def _gist_cfg() -> tuple[str, str]:
 def _gist_headers(token: str) -> dict:
     return {"Authorization": f"token {token}", "Accept": "application/vnd.github+json"}
 
+# ── 매매 기록 ──────────────────────────────────────
 def load_trade_history() -> dict:
     token, gist_id = _gist_cfg()
     if token and gist_id:
@@ -125,9 +125,43 @@ def save_trade_history(history: dict) -> None:
         except Exception:
             pass
 
+# ── 메모 기록 ──────────────────────────────────────
+def load_memo_history() -> dict:
+    """종목별 메모 로드. 구조: {ticker: [{'date': '2024-01-01', 'text': '...'}]}"""
+    token, gist_id = _gist_cfg()
+    if token and gist_id:
+        try:
+            resp = requests.get(f"https://api.github.com/gists/{gist_id}",
+                                headers=_gist_headers(token), timeout=6)
+            if resp.ok:
+                files = resp.json().get("files", {})
+                if MEMO_GIST_FILENAME in files:
+                    return json.loads(files[MEMO_GIST_FILENAME]["content"])
+        except Exception:
+            pass
+    if os.path.exists(MEMO_FILE):
+        with open(MEMO_FILE, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    return {}
+
+def save_memo_history(memo: dict) -> None:
+    with open(MEMO_FILE, 'w', encoding='utf-8') as f:
+        json.dump(memo, f, indent=4, ensure_ascii=False)
+    token, gist_id = _gist_cfg()
+    if token and gist_id:
+        try:
+            payload = {"files": {MEMO_GIST_FILENAME: {
+                "content": json.dumps(memo, indent=4, ensure_ascii=False)}}}
+            requests.patch(f"https://api.github.com/gists/{gist_id}",
+                           headers=_gist_headers(token), json=payload, timeout=6)
+        except Exception:
+            pass
+
 def init_session_state() -> None:
     if 'trade_history' not in st.session_state:
         st.session_state.trade_history = load_trade_history()
+    if 'memo_history' not in st.session_state:
+        st.session_state.memo_history = load_memo_history()
     if 'ticker_signals' not in st.session_state:
         st.session_state.ticker_signals = {}
     if 'selected_option' not in st.session_state:
@@ -136,7 +170,6 @@ def init_session_state() -> None:
         st.session_state.custom_ticker_input = ''
     if 'last_data_date' not in st.session_state:
         st.session_state.last_data_date = ''
-    # view_months: 설정 파일에서 복원
     if 'view_months' not in st.session_state:
         st.session_state.view_months = load_settings().get('view_months', 12)
     if 'analysis_start' not in st.session_state:
@@ -148,7 +181,6 @@ def init_session_state() -> None:
 # 3. 투자의견 (5단계)
 # ====================================================
 def get_signal(current_z: float = 0.0) -> str:
-    """Z-Score 기반 5단계 신호 반환."""
     if current_z >= 1.5:
         return 'FS'
     if current_z >= 0.5:
@@ -160,7 +192,6 @@ def get_signal(current_z: float = 0.0) -> str:
     return 'H'
 
 def get_z_text_color(current_z: float) -> str:
-    """Z-Score 숫자 전용 색상. 음수=빨강, 중립=회색, 양수=파랑."""
     if current_z <= -1.5:
         return '#991b1b'
     if current_z <= -0.5:
@@ -172,7 +203,6 @@ def get_z_text_color(current_z: float) -> str:
     return '#1d4ed8'
 
 def get_price_fill_color(current_z: float) -> str:
-    """가격 패널 면적 채움용 RGBA 색상."""
     if pd.isna(current_z):
         return 'rgba(0,0,0,0)'
     if current_z <= -1.5:
@@ -186,7 +216,6 @@ def get_price_fill_color(current_z: float) -> str:
     return 'rgba(29,78,216,0.35)'
 
 def get_time_grid_dtick_ms(start: pd.Timestamp, end: pd.Timestamp, target_grids: int = 8) -> int:
-    """조회 기간에 맞춰 비슷한 개수의 수직 grid가 보이도록 dtick(ms)을 고른다."""
     span_days = max((end - start).days, 1)
     target_days = span_days / max(target_grids, 1)
     candidate_days = [3, 5, 7, 10, 14, 21, 30, 45, 60, 90, 120, 180]
@@ -273,11 +302,9 @@ def process_asset_data(df_x: pd.DataFrame, df_y: pd.DataFrame,
 
 # ====================================================
 # 7. 전체 종목 일괄 분석 (캐싱)
-#    캐시 히트 시 종목 버튼 클릭 → 즉시 렌더링 (재분석 없음)
 # ====================================================
 @st.cache_data(show_spinner=False)
 def compute_all_analyses(df_close: pd.DataFrame) -> dict:
-    """TARGET_TICKERS 전체를 한 번에 분석. 결과 캐싱으로 종목 전환을 즉각 처리."""
     results: dict = {}
     df_x = df_close[[f'{X_ASSET_FIXED}_Close']]
     for ticker in TARGET_TICKERS:
@@ -316,7 +343,6 @@ def add_filled_blocks(fig, df: pd.DataFrame, y_col: str, condition: pd.Series,
 
 def add_segmented_fill(fig, df: pd.DataFrame, y_col: str, color_col: str,
                        row: int, col: int, baseline_y: float) -> None:
-    """인접한 두 날짜 사이를 한 구간씩 채워 경계 흰 틈/중첩을 방지한다."""
     for i in range(1, len(df)):
         y0 = df[y_col].iloc[i - 1]
         y1 = df[y_col].iloc[i]
@@ -466,7 +492,6 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
                     line=dict(color='black', width=1)),
         name='Current'),
         row=current_row, col=1)
-    # y범위: 실제 데이터 + 회귀밴드 기준 (가이드라인 제외)
     band_upper = np.exp(np.log(sdf['Predicted'].values) + 1.5 * std_resid)
     band_lower = np.exp(np.log(sdf['Predicted'].values) - 1.5 * std_resid)
     y_all  = np.concatenate([df_daily[f'{selected_ticker}_Norm'].dropna().values,
@@ -482,7 +507,6 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     current_row += 1
 
     # ── [2] Spacer ──
-
     fig.update_xaxes(visible=False, row=current_row, col=1)
     fig.update_yaxes(visible=False, row=current_row, col=1)
     current_row += 1
@@ -510,7 +534,6 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     max_price = (df_daily.loc[df_daily.index >= view_start,
                                ['Plot_Norm_SPY', 'Plot_Norm_Ticker']].max().max())
     price_baseline = min_price * 0.95
-    # ── Z-Score 5단계 기준 면적 채움 ──
     df_daily['Price_Fill_Color'] = df_daily['Z_Score'].apply(get_price_fill_color)
     add_segmented_fill(fig, df_daily, 'Plot_Norm_Ticker', 'Price_Fill_Color',
                        current_row, 1, price_baseline)
@@ -542,11 +565,9 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
         font=dict(size=10, color='red'),
         xanchor='left', yanchor='top',
         row=current_row, col=1)
-    # 매수 구간 (Z ≤ -1.5): 빨간 채움
     add_filled_blocks(fig, df_daily, 'Z_Score',
                       df_daily['Z_Score'] <= -1.5,
                       'rgba(220,38,38,0.20)', current_row, 1, -1.5)
-    # 매도 구간 (Z ≥ +1.5): 파란 채움
     add_filled_blocks(fig, df_daily, 'Z_Score',
                       df_daily['Z_Score'] >= 1.5,
                       'rgba(29,78,216,0.20)', current_row, 1, 1.5)
@@ -653,13 +674,132 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
                             'doubleClick': 'reset', 'responsive': True})
 
 # ====================================================
+# 10-B. 메모 렌더링 (차트 바로 아래)
+# ====================================================
+def render_memo_section(selected_ticker: str) -> None:
+    """선택 종목의 메모 입력창 + 날짜순 목록을 렌더링한다."""
+    memo_history = st.session_state.memo_history
+    ticker_memos = memo_history.get(selected_ticker, [])
+
+    # ── CSS: 메모 영역 스타일 ──────────────────────
+    st.markdown("""
+    <style>
+    .memo-section-title {
+        font-size: 0.82rem;
+        font-weight: 700;
+        color: #374151;
+        margin: 6px 0 4px 0;
+        letter-spacing: 0.02em;
+    }
+    .memo-item {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        padding: 5px 8px;
+        border-radius: 5px;
+        background: #f9fafb;
+        border-left: 3px solid #d1d5db;
+        margin-bottom: 4px;
+    }
+    .memo-date {
+        font-size: 0.72rem;
+        color: #6b7280;
+        white-space: nowrap;
+        padding-top: 1px;
+        min-width: 68px;
+    }
+    .memo-text {
+        font-size: 0.80rem;
+        color: #111827;
+        line-height: 1.45;
+        flex: 1;
+        word-break: break-all;
+    }
+    .memo-empty {
+        font-size: 0.76rem;
+        color: #9ca3af;
+        padding: 4px 0;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+    st.markdown(f"<div class='memo-section-title'>📝 {display_name(selected_ticker)} 메모</div>",
+                unsafe_allow_html=True)
+
+    # ── 입력창 ────────────────────────────────────
+    KST = datetime.timezone(datetime.timedelta(hours=9))
+    today_str = datetime.datetime.now(KST).strftime('%Y-%m-%d')
+
+    input_cols = st.columns([2, 7, 1])
+    with input_cols[0]:
+        memo_date = st.text_input(
+            "날짜",
+            value=today_str,
+            key=f"memo_date_{safe_key(selected_ticker)}",
+            label_visibility="collapsed",
+            placeholder="YYYY-MM-DD"
+        )
+    with input_cols[1]:
+        memo_text = st.text_input(
+            "메모 내용",
+            value="",
+            key=f"memo_text_{safe_key(selected_ticker)}",
+            label_visibility="collapsed",
+            placeholder="메모를 입력하세요..."
+        )
+    with input_cols[2]:
+        save_clicked = st.button("저장", key=f"memo_save_{safe_key(selected_ticker)}",
+                                 use_container_width=True)
+
+    if save_clicked:
+        text = memo_text.strip()
+        date = memo_date.strip()
+        if text and date:
+            memo_history.setdefault(selected_ticker, []).append(
+                {'date': date, 'text': text}
+            )
+            # 날짜 내림차순 정렬 유지
+            memo_history[selected_ticker].sort(key=lambda x: x['date'], reverse=True)
+            st.session_state.memo_history = memo_history
+            save_memo_history(memo_history)
+            st.rerun()
+        else:
+            st.warning("날짜와 메모 내용을 모두 입력해 주세요.")
+
+    # ── 메모 목록 (날짜 내림차순) ─────────────────
+    ticker_memos = memo_history.get(selected_ticker, [])
+    sorted_memos = sorted(ticker_memos, key=lambda x: x['date'], reverse=True)
+
+    if not sorted_memos:
+        st.markdown("<div class='memo-empty'>아직 메모가 없습니다.</div>",
+                    unsafe_allow_html=True)
+    else:
+        for i, memo in enumerate(sorted_memos):
+            # 원본 인덱스 (삭제 시 필요)
+            orig_idx = ticker_memos.index(memo)
+            row_cols = st.columns([9, 1])
+            with row_cols[0]:
+                st.markdown(
+                    f"<div class='memo-item'>"
+                    f"<span class='memo-date'>{memo['date']}</span>"
+                    f"<span class='memo-text'>{memo['text']}</span>"
+                    f"</div>",
+                    unsafe_allow_html=True
+                )
+            with row_cols[1]:
+                if st.button("✕", key=f"memo_del_{safe_key(selected_ticker)}_{i}",
+                             use_container_width=True):
+                    st.session_state.memo_history[selected_ticker].pop(orig_idx)
+                    save_memo_history(st.session_state.memo_history)
+                    st.rerun()
+
+# ====================================================
 # 11. 메인
 # ====================================================
 def main():
     init_session_state()
 
-    # ── 자동 새로고침 트리거 감지 ──────────────────────
-    # JS가 ?_ar=1 을 붙여 리로드 → 캐시 전체 클리어 → 새 데이터로 재분석
+    # ── 자동 새로고침 트리거 감지 ──
     if st.query_params.get('_ar') == '1':
         st.query_params.clear()
         st.cache_data.clear()
@@ -677,10 +817,9 @@ def main():
     else:
         selected_ticker = selected_option
 
-    # ── 사이드바 (analysis_start 포함) ──
+    # ── 사이드바 ──
     cfg = render_sidebar(selected_ticker or TARGET_TICKERS[0])
 
-    # 설정 변경 → settings.json 저장
     settings_changed = False
     if cfg['analysis_start'] != st.session_state.analysis_start:
         st.session_state.analysis_start = cfg['analysis_start']
@@ -695,7 +834,6 @@ def main():
         save_settings(s)
 
     st.session_state.refresh_mins = cfg['refresh_mins']
-
     analysis_start = st.session_state.analysis_start
 
     # ── 데이터 로드 ──
@@ -727,11 +865,10 @@ def main():
         else:
             pct_changes[ticker] = 0.0
 
-    # ── 전체 종목 일괄 분석 (캐시 히트 시 즉시) ──
+    # ── 전체 종목 일괄 분석 ──
     with st.spinner("전체 종목 분석 중... (최초 실행 시 수십 초 소요)"):
         all_analyses = compute_all_analyses(df_close)
 
-    # 버튼 색상용 신호 갱신
     for ticker, result in all_analyses.items():
         if result and result[0] is not None:
             df_t, _, _ = result
@@ -751,8 +888,6 @@ def main():
             st.session_state.ticker_signals[selected_ticker] = get_signal(cz)
 
     elif selected_ticker and f'{selected_ticker}_Close' in df_close.columns:
-        # 커스텀 티커: 온디맨드 분석
-        price_series = df_close[f'{selected_ticker}_Close'].dropna()
         with st.spinner(f"{display_name(selected_ticker)} 분석 중..."):
             result = process_asset_data(
                 df_close[[f'{X_ASSET_FIXED}_Close']],
@@ -818,6 +953,13 @@ def main():
     div.st-key-full_refresh_btn button:hover {
         border-color:#94a3b8!important;
         background:#eef2f7!important;
+    }
+    /* 메모 저장 버튼 */
+    button[kind="secondary"][data-testid*="memo_save"] {
+        height: 2.1rem !important;
+        min-height: 0 !important;
+        font-size: 0.76rem !important;
+        padding: 0 !important;
     }""")
 
     global_css = f"""
@@ -885,8 +1027,7 @@ def main():
         f"</span></div>",
         unsafe_allow_html=True)
 
-    # ── 자동 새로고침 JS ──────────────────────────────
-    # N분 후 ?_ar=1 로 리다이렉트 → Python 쪽에서 캐시 클리어
+    # ── 자동 새로고침 JS ──
     refresh_ms = cfg['refresh_mins'] * 60 * 1000
     st.markdown(f"""
     <script>
@@ -929,7 +1070,7 @@ def main():
     with summary_col:
         st.markdown(summary_html, unsafe_allow_html=True)
 
-    # ── 버튼 + 차트 레이아웃 ──
+    # ── 버튼 + 차트 + 메모 레이아웃 ──
     btn_col, chart_col = st.columns([1, 5])
 
     with btn_col:
@@ -960,6 +1101,9 @@ def main():
         if df_daily is not None:
             render_chart(df_daily, selected_ticker, beta, std_resid,
                          cfg['guide_n'], cfg['view_months'])
+            # ── 메모 섹션 (차트 바로 아래) ──────────
+            render_memo_section(selected_ticker)
+
         elif selected_option == DIRECT_INPUT_LABEL:
             if not st.session_state.get('custom_ticker_input', ''):
                 st.info("왼쪽에서 티커를 입력해 주세요. (예: NVDA, 000660)")
