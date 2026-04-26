@@ -362,36 +362,12 @@ def render_sidebar(selected_ticker: str) -> dict:
             st.rerun()
 
         st.markdown("**🗑️ 기존 기록 삭제**")
-        # 사이드바 소형 버튼 CSS
-        st.markdown("""
-        <style>
-        section[data-testid="stSidebar"] button[kind="secondary"] {
-            height: 1.6rem !important;
-            min-height: 0 !important;
-            padding: 0 6px !important;
-            font-size: 0.72rem !important;
-            line-height: 1 !important;
-            border-radius: 3px !important;
-        }
-        section[data-testid="stSidebar"] div[data-testid="stHorizontalBlock"] {
-            align-items: center !important;
-            gap: 4px !important;
-        }
-        </style>""", unsafe_allow_html=True)
-
         history = st.session_state.trade_history
         if selected_ticker in history and history[selected_ticker]:
             for i, record in enumerate(history[selected_ticker]):
-                t     = record['type'].upper()
-                color = '#dc2626' if t == 'BUY' else '#1d4ed8'
-                cols  = st.columns([7, 1])
-                cols[0].markdown(
-                    f"<span style='font-size:11px;line-height:1.6rem;display:inline-flex;"
-                    f"align-items:center;'>{record['date']}&nbsp;"
-                    f"<b style='color:{color};'>{t}</b></span>",
-                    unsafe_allow_html=True)
-                if cols[1].button("✕", key=f"del_{selected_ticker}_{i}",
-                                  use_container_width=True):
+                t        = record['type'].upper()
+                btn_label = f"✕  {record['date']}  {t}"
+                if st.button(btn_label, key=f"del_{selected_ticker}_{i}"):
                     st.session_state.trade_history[selected_ticker].pop(i)
                     save_trade_history(st.session_state.trade_history)
                     st.rerun()
@@ -426,19 +402,14 @@ def render_sidebar(selected_ticker: str) -> dict:
         ticker_memos = mh.get(selected_ticker, [])
         if ticker_memos:
             for i, memo in enumerate(ticker_memos):
-                cols = st.columns([6, 1, 1])
-                cols[0].markdown(
-                    f"<span style='font-size:11px;line-height:1.6rem;display:inline-flex;"
-                    f"align-items:center;color:#374151;'>"
-                    f"<b>{memo['date']}</b>&nbsp;{memo['text'][:14]}"
-                    f"{'…' if len(memo['text']) > 14 else ''}</span>",
-                    unsafe_allow_html=True)
-                if cols[1].button("✏️", key=f"memo_edit_btn_{safe_key(selected_ticker)}_{i}",
-                                  use_container_width=True):
+                preview = f"{memo['date']} {memo['text'][:12]}{'…' if len(memo['text']) > 12 else ''}"
+                c1, c2 = st.columns(2)
+                if c1.button(f"✏️ {preview}", key=f"memo_edit_btn_{safe_key(selected_ticker)}_{i}",
+                             use_container_width=True):
                     st.session_state.memo_editing_idx = i
                     st.rerun()
-                if cols[2].button("✕", key=f"memo_del_{safe_key(selected_ticker)}_{i}",
-                                  use_container_width=True):
+                if c2.button(f"✕ {preview}", key=f"memo_del_{safe_key(selected_ticker)}_{i}",
+                             use_container_width=True):
                     st.session_state.memo_history[selected_ticker].pop(i)
                     if st.session_state.memo_editing_idx == i:
                         st.session_state.memo_editing_idx = None
