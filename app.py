@@ -379,12 +379,11 @@ def render_sidebar(selected_ticker: str) -> dict:
                                        min_value=1, max_value=120,
                                        value=st.session_state.refresh_mins, step=1)
         st.markdown("---")
+        st.markdown("### 📝 매매 기록 관리")
         _tok, _gid = _gist_cfg()
         st.caption(f"☁️ Gist 연동됨 (`{_gid[:8]}...`)" if (_tok and _gid)
                    else "💾 로컬 저장 (Gist 미설정)")
 
-        # ── 매매 기록 ──────────────────────────────
-        st.markdown("### 📈 매매 기록")
         st.markdown("**➕ 새로운 기록 추가**")
         ticker_options = (TARGET_TICKERS if selected_ticker in TARGET_TICKERS
                           else [selected_ticker] + TARGET_TICKERS)
@@ -392,13 +391,14 @@ def render_sidebar(selected_ticker: str) -> dict:
                                 index=ticker_options.index(selected_ticker))
         t_date   = st.date_input("날짜", datetime.date.today())
         t_type   = st.radio("종류", ['buy', 'sell'], horizontal=True)
-        if st.button("기록 저장", key="trade_save_btn"):
+        if st.button("기록 저장"):
             st.session_state.trade_history.setdefault(t_ticker, []).append(
                 {'date': t_date.strftime("%Y-%m-%d"), 'type': t_type})
             save_trade_history(st.session_state.trade_history)
             st.success("저장 완료!")
             st.rerun()
 
+        st.markdown("---")
         st.markdown("**🗑️ 기존 기록 삭제**")
         history = st.session_state.trade_history
         if selected_ticker in history and history[selected_ticker]:
@@ -416,52 +416,6 @@ def render_sidebar(selected_ticker: str) -> dict:
                     st.rerun()
         else:
             st.caption("매매 기록이 없습니다.")
-
-        # ── 메모 관리 ──────────────────────────────
-        st.markdown("---")
-        st.markdown("### 📝 메모 관리")
-        st.caption(f"현재 종목: **{display_name(selected_ticker)}**")
-
-        KST = datetime.timezone(datetime.timedelta(hours=9))
-        today_str = datetime.datetime.now(KST).strftime('%Y-%m-%d')
-
-        memo_date = st.text_input("날짜", value=today_str, key="sb_memo_date",
-                                  placeholder="YYYY-MM-DD")
-        memo_text = st.text_area("메모 내용", value="", key="sb_memo_text",
-                                 placeholder="메모를 입력하세요...", height=80)
-        if st.button("메모 저장", key="memo_save_btn"):
-            text = memo_text.strip()
-            date = memo_date.strip()
-            if text and date:
-                memo_history = st.session_state.memo_history
-                memo_history.setdefault(selected_ticker, []).append(
-                    {'date': date, 'text': text})
-                memo_history[selected_ticker].sort(
-                    key=lambda x: x['date'], reverse=True)
-                st.session_state.memo_history = memo_history
-                save_memo_history(memo_history)
-                st.success("메모 저장 완료!")
-                st.rerun()
-            else:
-                st.warning("날짜와 내용을 모두 입력해 주세요.")
-
-        st.markdown("**🗑️ 메모 삭제**")
-        memo_history = st.session_state.memo_history
-        ticker_memos = memo_history.get(selected_ticker, [])
-        if ticker_memos:
-            for i, memo in enumerate(ticker_memos):
-                mcols = st.columns([6, 1])
-                mcols[0].markdown(
-                    f"<span style='font-size:11px;color:#374151;'>"
-                    f"<b>{memo['date']}</b>&nbsp;{memo['text'][:20]}"
-                    f"{'…' if len(memo['text']) > 20 else ''}</span>",
-                    unsafe_allow_html=True)
-                if mcols[1].button("✕", key=f"memo_del_sb_{safe_key(selected_ticker)}_{i}"):
-                    st.session_state.memo_history[selected_ticker].pop(i)
-                    save_memo_history(st.session_state.memo_history)
-                    st.rerun()
-        else:
-            st.caption("메모가 없습니다.")
 
     return {'analysis_start': analysis_start.strip(), 'view_months': int(view_months),
             'guide_n': guide_n, 'refresh_mins': int(refresh_mins)}
@@ -720,37 +674,124 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
                             'doubleClick': 'reset', 'responsive': True})
 
 # ====================================================
-# 10-B. 메모 렌더링 (차트 바로 아래 — 목록만 표시)
+# 10-B. 메모 렌더링 (차트 바로 아래)
 # ====================================================
 def render_memo_section(selected_ticker: str) -> None:
-    """선택 종목의 메모 목록을 compact하게 표시한다. 입력/삭제는 사이드바에서."""
+    """선택 종목의 메모 입력창 + 날짜순 목록을 렌더링한다."""
     memo_history = st.session_state.memo_history
+    ticker_memos = memo_history.get(selected_ticker, [])
+
+    # ── CSS: 메모 영역 스타일 ──────────────────────
+    st.markdown("""
+    <style>
+    .memo-section-title {
+        font-size: 0.82rem;
+        font-weight: 700;
+        color: #374151;
+        margin: 6px 0 4px 0;
+        letter-spacing: 0.02em;
+    }
+    .memo-item {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        padding: 5px 8px;
+        border-radius: 5px;
+        background: #f9fafb;
+        border-left: 3px solid #d1d5db;
+        margin-bottom: 4px;
+    }
+    .memo-date {
+        font-size: 0.72rem;
+        color: #6b7280;
+        white-space: nowrap;
+        padding-top: 1px;
+        min-width: 68px;
+    }
+    .memo-text {
+        font-size: 0.80rem;
+        color: #111827;
+        line-height: 1.45;
+        flex: 1;
+        word-break: break-all;
+    }
+    .memo-empty {
+        font-size: 0.76rem;
+        color: #9ca3af;
+        padding: 4px 0;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+    st.markdown(f"<div class='memo-section-title'>📝 {display_name(selected_ticker)} 메모</div>",
+                unsafe_allow_html=True)
+
+    # ── 입력창 ────────────────────────────────────
+    KST = datetime.timezone(datetime.timedelta(hours=9))
+    today_str = datetime.datetime.now(KST).strftime('%Y-%m-%d')
+
+    input_cols = st.columns([2, 7, 1])
+    with input_cols[0]:
+        memo_date = st.text_input(
+            "날짜",
+            value=today_str,
+            key=f"memo_date_{safe_key(selected_ticker)}",
+            label_visibility="collapsed",
+            placeholder="YYYY-MM-DD"
+        )
+    with input_cols[1]:
+        memo_text = st.text_input(
+            "메모 내용",
+            value="",
+            key=f"memo_text_{safe_key(selected_ticker)}",
+            label_visibility="collapsed",
+            placeholder="메모를 입력하세요..."
+        )
+    with input_cols[2]:
+        save_clicked = st.button("저장", key=f"memo_save_{safe_key(selected_ticker)}",
+                                 use_container_width=True)
+
+    if save_clicked:
+        text = memo_text.strip()
+        date = memo_date.strip()
+        if text and date:
+            memo_history.setdefault(selected_ticker, []).append(
+                {'date': date, 'text': text}
+            )
+            # 날짜 내림차순 정렬 유지
+            memo_history[selected_ticker].sort(key=lambda x: x['date'], reverse=True)
+            st.session_state.memo_history = memo_history
+            save_memo_history(memo_history)
+            st.rerun()
+        else:
+            st.warning("날짜와 메모 내용을 모두 입력해 주세요.")
+
+    # ── 메모 목록 (날짜 내림차순) ─────────────────
     ticker_memos = memo_history.get(selected_ticker, [])
     sorted_memos = sorted(ticker_memos, key=lambda x: x['date'], reverse=True)
 
     if not sorted_memos:
-        return  # 메모 없으면 공간 차지 안 함
-
-    rows_html = ""
-    for memo in sorted_memos:
-        rows_html += (
-            f"<tr>"
-            f"<td style='color:#6b7280;font-size:0.72rem;white-space:nowrap;"
-            f"padding:3px 10px 3px 6px;vertical-align:top;'>{memo['date']}</td>"
-            f"<td style='color:#111827;font-size:0.78rem;line-height:1.5;"
-            f"padding:3px 4px;word-break:break-all;'>{memo['text']}</td>"
-            f"</tr>"
-        )
-
-    st.markdown(
-        f"<div style='margin-top:6px;border-top:1px solid #e5e7eb;padding-top:5px;'>"
-        f"<span style='font-size:0.75rem;font-weight:700;color:#6b7280;'>"
-        f"📝 {display_name(selected_ticker)} 메모</span>"
-        f"<table style='width:100%;border-collapse:collapse;margin-top:3px;'>"
-        f"{rows_html}"
-        f"</table></div>",
-        unsafe_allow_html=True
-    )
+        st.markdown("<div class='memo-empty'>아직 메모가 없습니다.</div>",
+                    unsafe_allow_html=True)
+    else:
+        for i, memo in enumerate(sorted_memos):
+            # 원본 인덱스 (삭제 시 필요)
+            orig_idx = ticker_memos.index(memo)
+            row_cols = st.columns([9, 1])
+            with row_cols[0]:
+                st.markdown(
+                    f"<div class='memo-item'>"
+                    f"<span class='memo-date'>{memo['date']}</span>"
+                    f"<span class='memo-text'>{memo['text']}</span>"
+                    f"</div>",
+                    unsafe_allow_html=True
+                )
+            with row_cols[1]:
+                if st.button("✕", key=f"memo_del_{safe_key(selected_ticker)}_{i}",
+                             use_container_width=True):
+                    st.session_state.memo_history[selected_ticker].pop(orig_idx)
+                    save_memo_history(st.session_state.memo_history)
+                    st.rerun()
 
 # ====================================================
 # 11. 메인
@@ -1029,7 +1070,7 @@ def main():
     with summary_col:
         st.markdown(summary_html, unsafe_allow_html=True)
 
-    # ── 버튼 + 차트 레이아웃 ──
+    # ── 버튼 + 차트 + 메모 레이아웃 ──
     btn_col, chart_col = st.columns([1, 5])
 
     with btn_col:
@@ -1060,7 +1101,7 @@ def main():
         if df_daily is not None:
             render_chart(df_daily, selected_ticker, beta, std_resid,
                          cfg['guide_n'], cfg['view_months'])
-            # ── 메모 (차트 바로 아래) ──
+            # ── 메모 섹션 (차트 바로 아래) ──────────
             render_memo_section(selected_ticker)
 
         elif selected_option == DIRECT_INPUT_LABEL:
@@ -1071,9 +1112,6 @@ def main():
                          " 데이터를 가져올 수 없습니다. 티커를 확인해 주세요.")
         elif selected_ticker:
             st.error("분석에 필요한 데이터가 부족합니다.")
-
-    # ── 하단 여백 (Manage app 버튼에 가리지 않도록) ──
-    st.markdown("<div style='height:80px;'></div>", unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
