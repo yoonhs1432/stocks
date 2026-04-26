@@ -895,6 +895,16 @@ def main():
         else:
             st.session_state.ticker_signals.setdefault(ticker, 'H')
 
+    # RSI 값 추출 (버튼 표시용)
+    ticker_rsi = {}
+    for ticker, result in all_analyses.items():
+        if result and result[0] is not None:
+            df_t, _, _ = result
+            rsi_val = df_t['RSI'].iloc[-1] if pd.notna(df_t['RSI'].iloc[-1]) else None
+            ticker_rsi[ticker] = rsi_val
+        else:
+            ticker_rsi[ticker] = None
+
     df_daily = beta = std_resid = None
 
     if selected_ticker and selected_ticker in TARGET_TICKERS:
@@ -928,12 +938,13 @@ def main():
         div.st-key-{k} button {{
             background:{bg}!important; border-color:{bg}!important;
             color:{fg}!important; font-weight:500!important;
-            height:1.9rem!important; font-size:0.76rem!important;
-            padding:0!important; line-height:1!important;
+            height:1.7rem!important; font-size:0.73rem!important;
+            padding:0 4px!important; line-height:1!important;
             min-height:0!important; border-radius:3px!important;
+            width:100%!important; text-align:left!important;
             {sel_extra}
         }}
-        div.st-key-{k} button p     {{ color:{fg}!important; }}
+        div.st-key-{k} button p     {{ color:{fg}!important; text-align:left!important; }}
         div.st-key-{k} button strong {{ color:{fg}!important; font-weight:700!important; }}
         div.st-key-{k} button span   {{ color:{fg}!important; }}
         div.st-key-{k} button:hover  {{ opacity:0.82!important; }}""")
@@ -966,8 +977,8 @@ def main():
         flex-wrap:nowrap!important; gap:5px!important; align-items:flex-start!important;
     }}
     section[data-testid="stMain"] div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"]:first-child {{
-        flex:0 0 87px!important; min-width:87px!important;
-        max-width:87px!important; padding:0!important;
+        flex:0 0 120px!important; min-width:120px!important;
+        max-width:120px!important; padding:0!important;
     }}
     section[data-testid="stMain"] div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"]:last-child {{
         flex:1 1 0!important; min-width:0!important;
@@ -979,12 +990,6 @@ def main():
     }}
     section[data-testid="stMain"] div[data-testid="stColumn"]:first-child div[data-testid="stVerticalBlock"] {{
         gap:1px!important;
-    }}
-    section[data-testid="stMain"] div[data-testid="stColumn"]:first-child div[data-testid="stHorizontalBlock"] {{
-        gap:5px!important;
-    }}
-    section[data-testid="stMain"] div[data-testid="stColumn"]:first-child div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"] {{
-        flex:1 1 0!important; min-width:0!important; max-width:none!important; padding:0!important;
     }}
     section[data-testid="stMain"] div[data-testid="stColumn"]:first-child button p {{
         margin:0!important; padding:0!important;
@@ -1015,19 +1020,20 @@ def main():
         unsafe_allow_html=True)
 
     # ── 버튼 + 차트 (2열) ──
-    btn_col, chart_col = st.columns([1, 5])
+    btn_col, chart_col = st.columns([1, 4])
 
     with btn_col:
-        for i in range(0, len(TARGET_TICKERS), 2):
-            c1, c2 = st.columns(2, gap="small")
-            for col_widget, ticker in zip([c1, c2], TARGET_TICKERS[i:i+2]):
-                btn_key   = f"ticker_btn_{safe_key(ticker)}"
-                pct       = pct_changes.get(ticker, 0)
-                btn_label = f"**{display_name(ticker)}**\n{pct:+.1f}%"
-                if col_widget.button(btn_label, key=btn_key, use_container_width=True):
-                    st.session_state.selected_option     = ticker
-                    st.session_state.custom_ticker_input = ''
-                    st.rerun()
+        for ticker in TARGET_TICKERS:
+            btn_key = f"ticker_btn_{safe_key(ticker)}"
+            pct     = pct_changes.get(ticker, 0)
+            rsi_val = ticker_rsi.get(ticker)
+            rsi_str = f"{rsi_val:.0f}" if rsi_val is not None else "--"
+            pct_str = f"{pct:+.1f}%"
+            btn_label = f"**{display_name(ticker)}**   {pct_str}   {rsi_str}"
+            if st.button(btn_label, key=btn_key, use_container_width=True):
+                st.session_state.selected_option     = ticker
+                st.session_state.custom_ticker_input = ''
+                st.rerun()
         if st.button(DIRECT_INPUT_LABEL, key="ticker_btn_direct", use_container_width=True):
             st.session_state.selected_option = DIRECT_INPUT_LABEL
             st.rerun()
