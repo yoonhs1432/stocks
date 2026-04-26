@@ -547,11 +547,11 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     fig.update_yaxes(type="log",
                      range=[np.log10(price_baseline), np.log10(max_price * 1.05)],
                      row=current_row, col=1)
-    # [3] 라벨: 종목 현재 가격
+    # [3] 라벨: 현재 가격만
     last_price = df_daily[f'{selected_ticker}_Close'].iloc[-1]
     fig.add_annotation(
         x=0, y=1, xref='x domain', yref='y domain',
-        text=f"<b>{display_name(selected_ticker)}  ${last_price:,.2f}</b>",
+        text=f"<b>${last_price:,.2f}</b>",
         showarrow=False, font=dict(size=14, color='black'),
         xanchor='left', yanchor='top',
         bgcolor='white', bordercolor='black', borderwidth=1, borderpad=4,
@@ -576,12 +576,6 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
         xanchor='left', yanchor='top',
         bgcolor='white', bordercolor='black', borderwidth=1, borderpad=4,
         row=current_row, col=1)
-    fig.add_annotation(x=0, y=1.3, xref='x domain', yref='y', text="σ = +1.5",
-                       showarrow=False, font=dict(size=10, color='blue'),
-                       xanchor='left', yanchor='bottom', row=current_row, col=1)
-    fig.add_annotation(x=0, y=-1.3, xref='x domain', yref='y', text="σ = -1.5",
-                       showarrow=False, font=dict(size=10, color='red'),
-                       xanchor='left', yanchor='top', row=current_row, col=1)
     add_filled_blocks(fig, df_daily, 'Z_Score', df_daily['Z_Score'] <= -1.5,
                       'rgba(220,38,38,0.20)', current_row, 1, -1.5)
     add_filled_blocks(fig, df_daily, 'Z_Score', df_daily['Z_Score'] >= 1.5,
@@ -624,12 +618,6 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
         xanchor='left', yanchor='top',
         bgcolor='white', bordercolor='black', borderwidth=1, borderpad=4,
         row=current_row, col=1)
-    fig.add_annotation(x=0, y=68, xref='x domain', yref='y', text="RSI 70",
-                       showarrow=False, font=dict(size=10, color='blue'),
-                       xanchor='left', yanchor='bottom', row=current_row, col=1)
-    fig.add_annotation(x=0, y=32, xref='x domain', yref='y', text="RSI 30",
-                       showarrow=False, font=dict(size=10, color='red'),
-                       xanchor='left', yanchor='top', row=current_row, col=1)
     rsi_view = df_daily.loc[df_daily.index >= view_start, 'RSI'].dropna()
     rsi_lo   = min(20.0, rsi_view.min() if not rsi_view.empty else 20.0)
     rsi_hi   = max(80.0, rsi_view.max() if not rsi_view.empty else 80.0)
