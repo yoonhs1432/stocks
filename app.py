@@ -168,6 +168,10 @@ def init_session_state() -> None:
         st.session_state.view_months = load_settings().get('view_months', 6)
     if 'analysis_start' not in st.session_state:
         st.session_state.analysis_start = load_settings().get('analysis_start', '25-01')
+    if 'memo_editing_idx' not in st.session_state:
+        st.session_state.memo_editing_idx = None  # 현재 수정 중인 메모 인덱스
+    if 'memo_input_key' not in st.session_state:
+        st.session_state.memo_input_key = 0  # 저장 후 입력창 초기화용
 
 # ====================================================
 # 3. 투자의견
@@ -381,7 +385,8 @@ def render_sidebar(selected_ticker: str) -> dict:
         st.caption(f"현재 종목: **{display_name(selected_ticker)}**")
 
         memo_date = st.date_input("날짜 ", datetime.date.today(), key="sb_memo_date")
-        memo_text = st.text_area("메모 내용", value="", key="sb_memo_text",
+        memo_text = st.text_area("메모 내용", value="",
+                                 key=f"sb_memo_text_{st.session_state.memo_input_key}",
                                  placeholder="메모를 입력하세요...", height=80)
         if st.button("메모 저장", key="memo_save_btn"):
             text = memo_text.strip()
@@ -392,26 +397,67 @@ def render_sidebar(selected_ticker: str) -> dict:
                 mh[selected_ticker].sort(key=lambda x: x['date'], reverse=True)
                 st.session_state.memo_history = mh
                 save_memo_history(mh)
-                st.success("메모 저장 완료!")
+                st.session_state.memo_input_key += 1  # key 변경 → 입력창 초기화
                 st.rerun()
             else:
                 st.warning("메모 내용을 입력해 주세요.")
 
-        st.markdown("**🗑️ 메모 삭제**")
+        st.markdown("**📋 메모 목록**")
         mh           = st.session_state.memo_history
         ticker_memos = mh.get(selected_ticker, [])
         if ticker_memos:
             for i, memo in enumerate(ticker_memos):
-                mcols = st.columns([6, 1])
+                mcols = st.columns([5, 1, 1])
                 mcols[0].markdown(
                     f"<span style='font-size:11px;color:#374151;'>"
-                    f"<b>{memo['date']}</b>&nbsp;{memo['text'][:20]}"
-                    f"{'…' if len(memo['text']) > 20 else ''}</span>",
+                    f"<b>{memo['date']}</b>&nbsp;{memo['text'][:18]}"
+                    f"{'…' if len(memo['text']) > 18 else ''}</span>",
                     unsafe_allow_html=True)
-                if mcols[1].button("✕", key=f"memo_del_{safe_key(selected_ticker)}_{i}"):
+                # ✏️ 수정 버튼
+                if mcols[1].button("✏️", key=f"memo_edit_btn_{safe_key(selected_ticker)}_{i}"):
+                    st.session_state.memo_editing_idx = i
+                    st.rerun()
+                # ✕ 삭제 버튼
+                if mcols[2].button("✕", key=f"memo_del_{safe_key(selected_ticker)}_{i}"):
                     st.session_state.memo_history[selected_ticker].pop(i)
+                    if st.session_state.memo_editing_idx == i:
+                        st.session_state.memo_editing_idx = None
                     save_memo_history(st.session_state.memo_history)
                     st.rerun()
+
+                # 수정창: 해당 인덱스가 선택된 경우에만 표시
+                if st.session_state.memo_editing_idx == i:
+                    st.markdown("<div style='background:#f3f4f6;padding:6px;border-radius:6px;margin:2px 0 6px 0;'>", unsafe_allow_html=True)
+                    try:
+                        edit_date_default = datetime.date.fromisoformat(memo['date'])
+                    except Exception:
+                        edit_date_default = datetime.date.today()
+                    edit_date = st.date_input("날짜 수정", value=edit_date_default,
+                                              key=f"memo_edit_date_{safe_key(selected_ticker)}_{i}")
+                    edit_text = st.text_area("내용 수정", value=memo['text'],
+                                             key=f"memo_edit_text_{safe_key(selected_ticker)}_{i}",
+                                             height=70)
+                    ecols = st.columns(2)
+                    if ecols[0].button("💾 저장", key=f"memo_edit_save_{safe_key(selected_ticker)}_{i}",
+                                       use_container_width=True):
+                        new_text = edit_text.strip()
+                        if new_text:
+                            st.session_state.memo_history[selected_ticker][i] = {
+                                'date': edit_date.strftime("%Y-%m-%d"),
+                                'text': new_text
+                            }
+                            st.session_state.memo_history[selected_ticker].sort(
+                                key=lambda x: x['date'], reverse=True)
+                            save_memo_history(st.session_state.memo_history)
+                            st.session_state.memo_editing_idx = None
+                            st.rerun()
+                        else:
+                            st.warning("내용을 입력해 주세요.")
+                    if ecols[1].button("✖ 취소", key=f"memo_edit_cancel_{safe_key(selected_ticker)}_{i}",
+                                       use_container_width=True):
+                        st.session_state.memo_editing_idx = None
+                        st.rerun()
+                    st.markdown("</div>", unsafe_allow_html=True)
         else:
             st.caption("메모가 없습니다.")
 
