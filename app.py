@@ -870,6 +870,12 @@ def main():
     if not df_close.empty:
         st.session_state.last_data_date = df_close.index[-1].strftime('%Y-%m-%d')
 
+    # ── 마지막 거래일 기준으로 데이터 슬라이싱 ──
+    mkt = get_market_status()
+    last_trading_date = pd.Timestamp(mkt['last_trading_date'])
+    if not df_close.empty:
+        df_close = df_close[df_close.index <= last_trading_date]
+
     pct_changes = {}
     for ticker in TARGET_TICKERS:
         col = f'{ticker}_Close'
@@ -993,7 +999,6 @@ def main():
     # ── 제목 ──
     KST        = datetime.timezone(datetime.timedelta(hours=9))
     queried_at = datetime.datetime.now(KST).strftime('%Y-%m-%d %H:%M')
-    mkt        = get_market_status()
     # 장마감 시: 마지막 거래일 종가 기준 명시 / 장중: 실시간
     if mkt['is_open']:
         data_label = f"🟢 장중&nbsp;·&nbsp;조회: {queried_at}"
