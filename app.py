@@ -505,13 +505,13 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
                      range=[np.log10(np.nanmin(y_all) * 0.88),
                             np.log10(np.nanmax(y_all) * 1.18)],
                      row=current_row, col=1)
-    # [1] 라벨: beta
+    # [1] 라벨: β 값
     fig.add_annotation(
         x=0, y=1, xref='x domain', yref='y domain',
         text=f"<b>β = {beta:.2f}</b>",
-        showarrow=False, font=dict(size=11, color='black'),
+        showarrow=False, font=dict(size=14, color='black'),
         xanchor='left', yanchor='top',
-        bgcolor='rgba(255,255,255,0.7)', borderpad=2,
+        bgcolor='white', bordercolor='black', borderwidth=1, borderpad=4,
         row=current_row, col=1)
     current_row += 1
 
@@ -547,13 +547,14 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     fig.update_yaxes(type="log",
                      range=[np.log10(price_baseline), np.log10(max_price * 1.05)],
                      row=current_row, col=1)
-    # [3] 라벨: 종목 가격
+    # [3] 라벨: 종목 현재 가격
+    last_price = df_daily[f'{selected_ticker}_Close'].iloc[-1]
     fig.add_annotation(
         x=0, y=1, xref='x domain', yref='y domain',
-        text=f"<b>{display_name(selected_ticker)}</b>",
-        showarrow=False, font=dict(size=11, color='black'),
+        text=f"<b>{display_name(selected_ticker)}  ${last_price:,.2f}</b>",
+        showarrow=False, font=dict(size=14, color='black'),
         xanchor='left', yanchor='top',
-        bgcolor='rgba(255,255,255,0.7)', borderpad=2,
+        bgcolor='white', bordercolor='black', borderwidth=1, borderpad=4,
         row=current_row, col=1)
     time_x_axis = f'x{current_row}'
     current_row += 1
@@ -565,13 +566,15 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     fig.add_hline(y= 1.5, line_dash="solid", line_color="blue",  line_width=0.8, row=current_row, col=1)
     fig.add_hline(y=-1.5, line_dash="solid", line_color="red",   line_width=0.8, row=current_row, col=1)
     fig.add_hline(y=0,    line_dash="solid", line_color="gray",  line_width=0.6, row=current_row, col=1)
-    # [4] 라벨: Z-Score
+    # [4] 라벨: Z-Score 현재 값
+    cz_val = float(df_daily['Z_Score'].iloc[-1]) if pd.notna(df_daily['Z_Score'].iloc[-1]) else 0.0
+    cz_color = get_z_text_color(cz_val)
     fig.add_annotation(
         x=0, y=1, xref='x domain', yref='y domain',
-        text="<b>Z-Score</b>",
-        showarrow=False, font=dict(size=11, color='black'),
+        text=f"<b>Z  {cz_val:+.2f}</b>",
+        showarrow=False, font=dict(size=14, color=cz_color),
         xanchor='left', yanchor='top',
-        bgcolor='rgba(255,255,255,0.7)', borderpad=2,
+        bgcolor='white', bordercolor='black', borderwidth=1, borderpad=4,
         row=current_row, col=1)
     fig.add_annotation(x=0, y=1.3, xref='x domain', yref='y', text="σ = +1.5",
                        showarrow=False, font=dict(size=10, color='blue'),
@@ -611,13 +614,15 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
                   row=current_row, col=1)
     fig.add_hline(y=70, line_dash="solid", line_color="blue", line_width=0.8, row=current_row, col=1)
     fig.add_hline(y=30, line_dash="solid", line_color="red",  line_width=0.8, row=current_row, col=1)
-    # [6] 라벨: RSI
+    # [6] 라벨: RSI 현재 값
+    rsi_val = float(df_daily['RSI'].iloc[-1]) if pd.notna(df_daily['RSI'].iloc[-1]) else 50.0
+    rsi_color = '#1d4ed8' if rsi_val >= 70 else '#dc2626' if rsi_val <= 30 else 'black'
     fig.add_annotation(
         x=0, y=1, xref='x domain', yref='y domain',
-        text="<b>RSI</b>",
-        showarrow=False, font=dict(size=11, color='black'),
+        text=f"<b>RSI  {rsi_val:.1f}</b>",
+        showarrow=False, font=dict(size=14, color=rsi_color),
         xanchor='left', yanchor='top',
-        bgcolor='rgba(255,255,255,0.7)', borderpad=2,
+        bgcolor='white', bordercolor='black', borderwidth=1, borderpad=4,
         row=current_row, col=1)
     fig.add_annotation(x=0, y=68, xref='x domain', yref='y', text="RSI 70",
                        showarrow=False, font=dict(size=10, color='blue'),
