@@ -549,8 +549,8 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     }
     </style>""", unsafe_allow_html=True)
 
-    PX = {'main': 150, 'spacer': 20, 'price': 91, 'zscore': 91, 'macd': 91, 'rsi': 91}
-    active_plots = ['main', 'spacer', 'price', 'zscore', 'macd', 'rsi']
+    PX = {'main': 150, 'spacer': 20, 'price': 137, 'zscore': 137, 'rsi': 137}
+    active_plots = ['main', 'spacer', 'price', 'zscore', 'rsi']
     total_rows   = len(active_plots)
     total_h      = sum(PX[p] for p in active_plots)
     row_heights  = [PX[p] / total_h for p in active_plots]
@@ -696,22 +696,7 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     fig.update_xaxes(matches=time_x_axis, row=current_row, col=1)
     current_row += 1
 
-    # ── [5] MACD ──
-    macd_colors = np.where(df_daily['MACD_Hist'] >= 0,
-                           'rgba(0,128,0,0.5)', 'rgba(255,0,0,0.5)')
-    fig.add_trace(go.Bar(x=df_daily.index, y=df_daily['MACD_Hist'],
-                          marker_color=macd_colors, name='MACD Hist'),
-                  row=current_row, col=1)
-    fig.add_trace(go.Scatter(x=df_daily.index, y=df_daily['MACD'],
-                              line=dict(color='blue', width=1), name='MACD'),
-                  row=current_row, col=1)
-    fig.add_trace(go.Scatter(x=df_daily.index, y=df_daily['MACD_Signal'],
-                              line=dict(color='orange', width=1), name='Signal'),
-                  row=current_row, col=1)
-    fig.update_xaxes(matches=time_x_axis, row=current_row, col=1)
-    current_row += 1
-
-    # ── [6] RSI ──
+    # ── [5] RSI ──
     rsi_hist_colors = np.where(df_daily['RSI_Hist'] >= 0,
                                'rgba(0,128,0,0.5)', 'rgba(255,0,0,0.5)')
     fig.add_trace(go.Bar(x=df_daily.index, y=df_daily['RSI_Hist'],
