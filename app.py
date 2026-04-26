@@ -977,8 +977,8 @@ def main():
         flex-wrap:nowrap!important; gap:5px!important; align-items:flex-start!important;
     }}
     section[data-testid="stMain"] div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"]:first-child {{
-        flex:0 0 80px!important; min-width:80px!important;
-        max-width:80px!important; padding:0!important;
+        flex:0 0 100px!important; min-width:100px!important;
+        max-width:100px!important; padding:0!important;
     }}
     section[data-testid="stMain"] div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"]:last-child {{
         flex:1 1 0!important; min-width:0!important;
