@@ -176,6 +176,81 @@ def init_session_state() -> None:
 # ====================================================
 # 3. 투자의견
 # ====================================================
+
+# ── 미국 주요 공휴일 (ET 기준, 고정일만 — 변동 공휴일은 근사값) ──
+def _us_holidays(year: int) -> set:
+    """주요 NYSE 공휴일 날짜 집합 반환 (완전하지 않으나 주요일 포함)."""
+    from datetime import date
+    holidays = {
+        date(year, 1, 1),   # New Year's Day
+        date(year, 7, 4),   # Independence Day
+        date(year, 12, 25), # Christmas
+    }
+    # MLK Day: 1월 3번째 월요일
+    import calendar
+    def nth_weekday(year, month, weekday, n):
+        count = 0
+        for day in range(1, 32):
+            try:
+                d = date(year, month, day)
+            except ValueError:
+                break
+            if d.weekday() == weekday:
+                count += 1
+                if count == n:
+                    return d
+    holidays.add(nth_weekday(year, 1, 0, 3))   # MLK Day
+    holidays.add(nth_weekday(year, 2, 0, 3))   # Presidents Day
+    holidays.add(nth_weekday(year, 9, 0, 1))   # Labor Day
+    holidays.add(nth_weekday(year, 11, 3, 4))  # Thanksgiving
+    # Good Friday: 부활절 전 금요일 (근사 계산)
+    # Memorial Day: 5월 마지막 월요일
+    for day in range(31, 24, -1):
+        try:
+            d = date(year, 5, day)
+            if d.weekday() == 0:
+                holidays.add(d)
+                break
+        except ValueError:
+            pass
+    return holidays
+
+def get_market_status() -> dict:
+    """현재 미장 상태 반환.
+    Returns:
+        is_open (bool): 현재 장이 열려 있는지
+        status_label (str): 표시용 문자열 ex) '🟢 장중' / '🔴 장마감 (전일 종가 기준)'
+        last_trading_label (str): '기준: YYYY-MM-DD (종가)' 형태
+    """
+    ET = datetime.timezone(datetime.timedelta(hours=-4))  # EDT (여름 기준, EST는 -5)
+    now_et = datetime.datetime.now(ET)
+    today  = now_et.date()
+
+    is_weekend = today.weekday() >= 5  # 토=5, 일=6
+    is_holiday = today in _us_holidays(today.year)
+    market_open  = now_et.replace(hour=9,  minute=30, second=0, microsecond=0)
+    market_close = now_et.replace(hour=16, minute=0,  second=0, microsecond=0)
+    in_trading_hours = (market_open <= now_et <= market_close)
+
+    is_open = (not is_weekend) and (not is_holiday) and in_trading_hours
+
+    # 마지막 거래일 계산 (오늘 or 이전 영업일)
+    last_day = today
+    if is_weekend or is_holiday or (not in_trading_hours and now_et < market_open):
+        # 장 시작 전이거나 비거래일 → 이전 거래일
+        last_day = today - datetime.timedelta(days=1)
+        while last_day.weekday() >= 5 or last_day in _us_holidays(last_day.year):
+            last_day -= datetime.timedelta(days=1)
+
+    last_trading_label = f"기준: {last_day.strftime('%Y-%m-%d')} 종가"
+    if is_open:
+        status_label = "🟢 장중"
+    else:
+        status_label = "🔴 장마감"
+
+    return {'is_open': is_open, 'status_label': status_label,
+            'last_trading_label': last_trading_label, 'last_trading_date': last_day}
+
 def get_signal(current_z: float = 0.0) -> str:
     if current_z >= 1.5:  return 'FS'
     if current_z >= 0.5:  return 'S'
@@ -918,14 +993,19 @@ def main():
     # ── 제목 ──
     KST        = datetime.timezone(datetime.timedelta(hours=9))
     queried_at = datetime.datetime.now(KST).strftime('%Y-%m-%d %H:%M')
-    date_part  = (f"기준: {st.session_state.last_data_date}&nbsp;·&nbsp;"
-                  if st.session_state.last_data_date else "")
+    mkt        = get_market_status()
+    # 장마감 시: 마지막 거래일 종가 기준 명시 / 장중: 실시간
+    if mkt['is_open']:
+        data_label = f"🟢 장중&nbsp;·&nbsp;조회: {queried_at}"
+    else:
+        data_label = f"🔴 장마감&nbsp;·&nbsp;{mkt['last_trading_label']}&nbsp;·&nbsp;조회: {queried_at}"
+
     st.markdown(
         f"<div style='display:flex;align-items:center;gap:10px;"
         f"margin-bottom:1px;padding-bottom:1px;'>"
         f"<b style='font-size:1.15rem;white-space:nowrap;color:#111;'>📊 퀀트 대시보드</b>"
         f"<span style='font-size:10px;color:#999;white-space:nowrap;'>"
-        f"{date_part}조회: {queried_at}"
+        f"{data_label}"
         f"</span></div>",
         unsafe_allow_html=True)
 
