@@ -362,17 +362,36 @@ def render_sidebar(selected_ticker: str) -> dict:
             st.rerun()
 
         st.markdown("**🗑️ 기존 기록 삭제**")
+        # 사이드바 소형 버튼 CSS
+        st.markdown("""
+        <style>
+        section[data-testid="stSidebar"] button[kind="secondary"] {
+            height: 1.6rem !important;
+            min-height: 0 !important;
+            padding: 0 6px !important;
+            font-size: 0.72rem !important;
+            line-height: 1 !important;
+            border-radius: 3px !important;
+        }
+        section[data-testid="stSidebar"] div[data-testid="stHorizontalBlock"] {
+            align-items: center !important;
+            gap: 4px !important;
+        }
+        </style>""", unsafe_allow_html=True)
+
         history = st.session_state.trade_history
         if selected_ticker in history and history[selected_ticker]:
             for i, record in enumerate(history[selected_ticker]):
                 t     = record['type'].upper()
                 color = '#dc2626' if t == 'BUY' else '#1d4ed8'
-                cols  = st.columns([6, 1])
+                cols  = st.columns([7, 1])
                 cols[0].markdown(
-                    f"<span style='font-size:12px;'>{record['date']}&nbsp;"
+                    f"<span style='font-size:11px;line-height:1.6rem;display:inline-flex;"
+                    f"align-items:center;'>{record['date']}&nbsp;"
                     f"<b style='color:{color};'>{t}</b></span>",
                     unsafe_allow_html=True)
-                if cols[1].button("✕", key=f"del_{selected_ticker}_{i}"):
+                if cols[1].button("✕", key=f"del_{selected_ticker}_{i}",
+                                  use_container_width=True):
                     st.session_state.trade_history[selected_ticker].pop(i)
                     save_trade_history(st.session_state.trade_history)
                     st.rerun()
@@ -397,7 +416,7 @@ def render_sidebar(selected_ticker: str) -> dict:
                 mh[selected_ticker].sort(key=lambda x: x['date'], reverse=True)
                 st.session_state.memo_history = mh
                 save_memo_history(mh)
-                st.session_state.memo_input_key += 1  # key 변경 → 입력창 초기화
+                st.session_state.memo_input_key += 1
                 st.rerun()
             else:
                 st.warning("메모 내용을 입력해 주세요.")
@@ -407,27 +426,30 @@ def render_sidebar(selected_ticker: str) -> dict:
         ticker_memos = mh.get(selected_ticker, [])
         if ticker_memos:
             for i, memo in enumerate(ticker_memos):
-                mcols = st.columns([5, 1, 1])
-                mcols[0].markdown(
-                    f"<span style='font-size:11px;color:#374151;'>"
-                    f"<b>{memo['date']}</b>&nbsp;{memo['text'][:18]}"
-                    f"{'…' if len(memo['text']) > 18 else ''}</span>",
+                cols = st.columns([6, 1, 1])
+                cols[0].markdown(
+                    f"<span style='font-size:11px;line-height:1.6rem;display:inline-flex;"
+                    f"align-items:center;color:#374151;'>"
+                    f"<b>{memo['date']}</b>&nbsp;{memo['text'][:14]}"
+                    f"{'…' if len(memo['text']) > 14 else ''}</span>",
                     unsafe_allow_html=True)
-                # ✏️ 수정 버튼
-                if mcols[1].button("✏️", key=f"memo_edit_btn_{safe_key(selected_ticker)}_{i}"):
+                if cols[1].button("✏️", key=f"memo_edit_btn_{safe_key(selected_ticker)}_{i}",
+                                  use_container_width=True):
                     st.session_state.memo_editing_idx = i
                     st.rerun()
-                # ✕ 삭제 버튼
-                if mcols[2].button("✕", key=f"memo_del_{safe_key(selected_ticker)}_{i}"):
+                if cols[2].button("✕", key=f"memo_del_{safe_key(selected_ticker)}_{i}",
+                                  use_container_width=True):
                     st.session_state.memo_history[selected_ticker].pop(i)
                     if st.session_state.memo_editing_idx == i:
                         st.session_state.memo_editing_idx = None
                     save_memo_history(st.session_state.memo_history)
                     st.rerun()
 
-                # 수정창: 해당 인덱스가 선택된 경우에만 표시
+                # 수정창
                 if st.session_state.memo_editing_idx == i:
-                    st.markdown("<div style='background:#f3f4f6;padding:6px;border-radius:6px;margin:2px 0 6px 0;'>", unsafe_allow_html=True)
+                    st.markdown("<div style='background:#f3f4f6;padding:6px;"
+                                "border-radius:6px;margin:2px 0 6px 0;'>",
+                                unsafe_allow_html=True)
                     try:
                         edit_date_default = datetime.date.fromisoformat(memo['date'])
                     except Exception:
@@ -438,7 +460,8 @@ def render_sidebar(selected_ticker: str) -> dict:
                                              key=f"memo_edit_text_{safe_key(selected_ticker)}_{i}",
                                              height=70)
                     ecols = st.columns(2)
-                    if ecols[0].button("💾 저장", key=f"memo_edit_save_{safe_key(selected_ticker)}_{i}",
+                    if ecols[0].button("💾 저장",
+                                       key=f"memo_edit_save_{safe_key(selected_ticker)}_{i}",
                                        use_container_width=True):
                         new_text = edit_text.strip()
                         if new_text:
@@ -453,7 +476,8 @@ def render_sidebar(selected_ticker: str) -> dict:
                             st.rerun()
                         else:
                             st.warning("내용을 입력해 주세요.")
-                    if ecols[1].button("✖ 취소", key=f"memo_edit_cancel_{safe_key(selected_ticker)}_{i}",
+                    if ecols[1].button("✖ 취소",
+                                       key=f"memo_edit_cancel_{safe_key(selected_ticker)}_{i}",
                                        use_container_width=True):
                         st.session_state.memo_editing_idx = None
                         st.rerun()
