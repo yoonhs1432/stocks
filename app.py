@@ -293,6 +293,18 @@ def _download_ticker_data(ticker: str, start_date_str: str) -> pd.DataFrame:
         pass
     return pd.DataFrame()
 
+def _filter_trading_days(df: pd.DataFrame) -> pd.DataFrame:
+    """SPY 기준 실제 거래일만 남긴다 (주말·공휴일 ffill 행 제거)."""
+    spy_col = f'{X_ASSET_FIXED}_Close'
+    if spy_col not in df.columns or df.empty:
+        return df
+    # SPY가 실제로 거래된 날 = 전일 대비 값이 바뀐 날 + 첫 날
+    spy = df[spy_col]
+    traded = (spy != spy.shift(1)) | (spy.index == spy.index[0])
+    # 주말 제거도 병행 (weekday 0~4 = 월~금)
+    is_weekday = pd.Series(df.index.weekday < 5, index=df.index)
+    return df[traded & is_weekday]
+
 @st.cache_data(show_spinner=False)
 def fetch_all_data(tickers: list, start_date_str: str) -> pd.DataFrame:
     df_list = []
@@ -300,7 +312,10 @@ def fetch_all_data(tickers: list, start_date_str: str) -> pd.DataFrame:
         data = _download_ticker_data(ticker, start_date_str)
         if not data.empty:
             df_list.append(data)
-    return pd.concat(df_list, axis=1).ffill() if df_list else pd.DataFrame()
+    if not df_list:
+        return pd.DataFrame()
+    df = pd.concat(df_list, axis=1).ffill()
+    return _filter_trading_days(df)
 
 @st.cache_data(show_spinner=False)
 def fetch_single_ticker(ticker: str, start_date_str: str) -> pd.DataFrame:
@@ -352,7 +367,7 @@ def process_asset_data(df_x: pd.DataFrame, df_y: pd.DataFrame,
     return df, beta, std_resid
 
 @st.cache_data(show_spinner=False)
-def compute_all_analyses(df_close: pd.DataFrame, _version: int = 2) -> dict:
+def compute_all_analyses(df_close: pd.DataFrame, _version: int = 3) -> dict:
     results: dict = {}
     df_x = df_close[[f'{X_ASSET_FIXED}_Close']]
     for ticker in TARGET_TICKERS:
@@ -880,7 +895,7 @@ def main():
             pct_changes[ticker] = 0.0
 
     with st.spinner("전체 종목 분석 중... (최초 실행 시 수십 초 소요)"):
-        all_analyses = compute_all_analyses(df_close, _version=2)
+        all_analyses = compute_all_analyses(df_close, _version=3)
 
     for ticker, result in all_analyses.items():
         if result and result[0] is not None:
