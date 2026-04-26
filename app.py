@@ -30,7 +30,6 @@ TICKER_DISPLAY_NAMES: dict = {
     '005930':  '삼전',
     '000660':  '하닉',
 }
-DEFAULT_REFRESH_MINS = 10
 
 SIGNAL_STYLE: dict = {
     'FB': ('#dc2626', '#ffffff'),
@@ -166,11 +165,9 @@ def init_session_state() -> None:
     if 'last_data_date' not in st.session_state:
         st.session_state.last_data_date = ''
     if 'view_months' not in st.session_state:
-        st.session_state.view_months = load_settings().get('view_months', 12)
+        st.session_state.view_months = load_settings().get('view_months', 6)
     if 'analysis_start' not in st.session_state:
-        st.session_state.analysis_start = load_settings().get('analysis_start', '2023-01-01')
-    if 'refresh_mins' not in st.session_state:
-        st.session_state.refresh_mins = DEFAULT_REFRESH_MINS
+        st.session_state.analysis_start = load_settings().get('analysis_start', '25-01')
 
 # ====================================================
 # 3. 투자의견
@@ -331,16 +328,14 @@ def add_segmented_fill(fig, df, y_col, color_col, row, col, baseline_y):
 def render_sidebar(selected_ticker: str) -> dict:
     with st.sidebar:
         st.markdown("### ⚙️ 분석 파라미터")
-        analysis_start = st.text_input("분석 시작일 (예시:2023-01-01)",
-                                       value=st.session_state.analysis_start)
+        analysis_start = st.text_input("분석 시작일 (YY-MM)",
+                                       value=st.session_state.analysis_start,
+                                       placeholder="25-01")
         view_months  = st.number_input("차트 조회 기간 (최근 N개월)",
                                        min_value=1, max_value=240,
                                        value=st.session_state.view_months, step=1)
         guide_n      = st.number_input("가이드라인 기울기 (n)",
                                        min_value=1, max_value=20, value=4, step=1)
-        refresh_mins = st.number_input("자동 새로고침 (분)",
-                                       min_value=1, max_value=120,
-                                       value=st.session_state.refresh_mins, step=1)
 
         st.markdown("---")
         _tok, _gid = _gist_cfg()
@@ -385,26 +380,22 @@ def render_sidebar(selected_ticker: str) -> dict:
         st.markdown("### 📝 메모 관리")
         st.caption(f"현재 종목: **{display_name(selected_ticker)}**")
 
-        KST       = datetime.timezone(datetime.timedelta(hours=9))
-        today_str = datetime.datetime.now(KST).strftime('%Y-%m-%d')
-
-        memo_date = st.text_input("날짜 ", value=today_str, key="sb_memo_date",
-                                  placeholder="YYYY-MM-DD")
+        memo_date = st.date_input("날짜 ", datetime.date.today(), key="sb_memo_date")
         memo_text = st.text_area("메모 내용", value="", key="sb_memo_text",
                                  placeholder="메모를 입력하세요...", height=80)
         if st.button("메모 저장", key="memo_save_btn"):
             text = memo_text.strip()
-            date = memo_date.strip()
-            if text and date:
+            if text:
+                date_str = memo_date.strftime("%Y-%m-%d")
                 mh = st.session_state.memo_history
-                mh.setdefault(selected_ticker, []).append({'date': date, 'text': text})
+                mh.setdefault(selected_ticker, []).append({'date': date_str, 'text': text})
                 mh[selected_ticker].sort(key=lambda x: x['date'], reverse=True)
                 st.session_state.memo_history = mh
                 save_memo_history(mh)
                 st.success("메모 저장 완료!")
                 st.rerun()
             else:
-                st.warning("날짜와 내용을 모두 입력해 주세요.")
+                st.warning("메모 내용을 입력해 주세요.")
 
         st.markdown("**🗑️ 메모 삭제**")
         mh           = st.session_state.memo_history
@@ -425,7 +416,7 @@ def render_sidebar(selected_ticker: str) -> dict:
             st.caption("메모가 없습니다.")
 
     return {'analysis_start': analysis_start.strip(), 'view_months': int(view_months),
-            'guide_n': guide_n, 'refresh_mins': int(refresh_mins)}
+            'guide_n': guide_n}
 
 # ====================================================
 # 8. 차트 렌더링
@@ -505,6 +496,14 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
                      range=[np.log10(np.nanmin(y_all) * 0.88),
                             np.log10(np.nanmax(y_all) * 1.18)],
                      row=current_row, col=1)
+    # [1] 라벨: β 값
+    fig.add_annotation(
+        x=0, y=1, xref='x domain', yref='y domain',
+        text=f"<b>β = {beta:.2f}</b>",
+        showarrow=False, font=dict(size=14, color='black'),
+        xanchor='left', yanchor='top',
+        bgcolor='white', bordercolor='black', borderwidth=1, borderpad=4,
+        row=current_row, col=1)
     current_row += 1
 
     # ── [2] Spacer ──
@@ -539,6 +538,15 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     fig.update_yaxes(type="log",
                      range=[np.log10(price_baseline), np.log10(max_price * 1.05)],
                      row=current_row, col=1)
+    # [3] 라벨: 현재 가격만
+    last_price = df_daily[f'{selected_ticker}_Close'].iloc[-1]
+    fig.add_annotation(
+        x=0, y=1, xref='x domain', yref='y domain',
+        text=f"<b>${last_price:,.2f}</b>",
+        showarrow=False, font=dict(size=14, color='black'),
+        xanchor='left', yanchor='top',
+        bgcolor='white', bordercolor='black', borderwidth=1, borderpad=4,
+        row=current_row, col=1)
     time_x_axis = f'x{current_row}'
     current_row += 1
 
@@ -549,12 +557,16 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     fig.add_hline(y= 1.5, line_dash="solid", line_color="blue",  line_width=0.8, row=current_row, col=1)
     fig.add_hline(y=-1.5, line_dash="solid", line_color="red",   line_width=0.8, row=current_row, col=1)
     fig.add_hline(y=0,    line_dash="solid", line_color="gray",  line_width=0.6, row=current_row, col=1)
-    fig.add_annotation(x=0, y=1.3, xref='x domain', yref='y', text="σ = +1.5",
-                       showarrow=False, font=dict(size=10, color='blue'),
-                       xanchor='left', yanchor='bottom', row=current_row, col=1)
-    fig.add_annotation(x=0, y=-1.3, xref='x domain', yref='y', text="σ = -1.5",
-                       showarrow=False, font=dict(size=10, color='red'),
-                       xanchor='left', yanchor='top', row=current_row, col=1)
+    # [4] 라벨: Z-Score 현재 값
+    cz_val = float(df_daily['Z_Score'].iloc[-1]) if pd.notna(df_daily['Z_Score'].iloc[-1]) else 0.0
+    cz_color = get_z_text_color(cz_val)
+    fig.add_annotation(
+        x=0, y=1, xref='x domain', yref='y domain',
+        text=f"<b>Z  {cz_val:+.2f}</b>",
+        showarrow=False, font=dict(size=14, color=cz_color),
+        xanchor='left', yanchor='top',
+        bgcolor='white', bordercolor='black', borderwidth=1, borderpad=4,
+        row=current_row, col=1)
     add_filled_blocks(fig, df_daily, 'Z_Score', df_daily['Z_Score'] <= -1.5,
                       'rgba(220,38,38,0.20)', current_row, 1, -1.5)
     add_filled_blocks(fig, df_daily, 'Z_Score', df_daily['Z_Score'] >= 1.5,
@@ -587,12 +599,16 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
                   row=current_row, col=1)
     fig.add_hline(y=70, line_dash="solid", line_color="blue", line_width=0.8, row=current_row, col=1)
     fig.add_hline(y=30, line_dash="solid", line_color="red",  line_width=0.8, row=current_row, col=1)
-    fig.add_annotation(x=0, y=68, xref='x domain', yref='y', text="RSI 70",
-                       showarrow=False, font=dict(size=10, color='blue'),
-                       xanchor='left', yanchor='bottom', row=current_row, col=1)
-    fig.add_annotation(x=0, y=32, xref='x domain', yref='y', text="RSI 30",
-                       showarrow=False, font=dict(size=10, color='red'),
-                       xanchor='left', yanchor='top', row=current_row, col=1)
+    # [6] 라벨: RSI 현재 값
+    rsi_val = float(df_daily['RSI'].iloc[-1]) if pd.notna(df_daily['RSI'].iloc[-1]) else 50.0
+    rsi_color = '#1d4ed8' if rsi_val >= 70 else '#dc2626' if rsi_val <= 30 else 'black'
+    fig.add_annotation(
+        x=0, y=1, xref='x domain', yref='y domain',
+        text=f"<b>RSI  {rsi_val:.1f}</b>",
+        showarrow=False, font=dict(size=14, color=rsi_color),
+        xanchor='left', yanchor='top',
+        bgcolor='white', bordercolor='black', borderwidth=1, borderpad=4,
+        row=current_row, col=1)
     rsi_view = df_daily.loc[df_daily.index >= view_start, 'RSI'].dropna()
     rsi_lo   = min(20.0, rsi_view.min() if not rsi_view.empty else 20.0)
     rsi_hi   = max(80.0, rsi_view.max() if not rsi_view.empty else 80.0)
@@ -682,10 +698,6 @@ def render_memo_section(selected_ticker: str) -> None:
 def main():
     init_session_state()
 
-    if st.query_params.get('_ar') == '1':
-        st.query_params.clear()
-        st.cache_data.clear()
-
     DIRECT_INPUT_LABEL = "직접 입력"
     all_options = TARGET_TICKERS + [DIRECT_INPUT_LABEL]
     if st.session_state.selected_option not in all_options:
@@ -713,8 +725,17 @@ def main():
         s['view_months']    = st.session_state.view_months
         save_settings(s)
 
-    st.session_state.refresh_mins = cfg['refresh_mins']
-    analysis_start = st.session_state.analysis_start
+    # YY-MM → YYYY-MM-01 변환
+    raw_start = st.session_state.analysis_start.strip()
+    try:
+        parsed = datetime.datetime.strptime(raw_start, '%y-%m')
+        analysis_start = parsed.strftime('%Y-%m-01')
+    except ValueError:
+        try:
+            datetime.datetime.strptime(raw_start, '%Y-%m-%d')
+            analysis_start = raw_start  # 기존 전체 날짜 형식도 허용
+        except ValueError:
+            analysis_start = '2025-01-01'
 
     with st.spinner("데이터 로드 중..."):
         df_close = fetch_all_data(TARGET_TICKERS, analysis_start)
@@ -858,58 +879,14 @@ def main():
     queried_at = datetime.datetime.now(KST).strftime('%Y-%m-%d %H:%M')
     date_part  = (f"기준: {st.session_state.last_data_date}&nbsp;·&nbsp;"
                   if st.session_state.last_data_date else "")
-    next_refresh = datetime.datetime.now(KST) + datetime.timedelta(minutes=cfg['refresh_mins'])
     st.markdown(
         f"<div style='display:flex;align-items:center;gap:10px;"
         f"margin-bottom:1px;padding-bottom:1px;'>"
         f"<b style='font-size:1.15rem;white-space:nowrap;color:#111;'>📊 퀀트 대시보드</b>"
         f"<span style='font-size:10px;color:#999;white-space:nowrap;'>"
-        f"{date_part}조회: {queried_at}&nbsp;·&nbsp;다음 갱신: {next_refresh.strftime('%H:%M')}"
+        f"{date_part}조회: {queried_at}"
         f"</span></div>",
         unsafe_allow_html=True)
-
-    # ── 자동 새로고침 JS ──
-    refresh_ms = cfg['refresh_mins'] * 60 * 1000
-    st.markdown(f"""
-    <script>
-    (function() {{
-        if (window._arTimer) clearTimeout(window._arTimer);
-        window._arTimer = setTimeout(function() {{
-            window.location.href = window.location.pathname + '?_ar=1&t=' + Date.now();
-        }}, {refresh_ms});
-    }})();
-    </script>""", unsafe_allow_html=True)
-
-    # ── 요약 카드 ──
-    if selected_ticker and df_daily is not None:
-        cz         = float(df_daily['Z_Score'].iloc[-1]) if pd.notna(df_daily['Z_Score'].iloc[-1]) else 0.0
-        sig        = get_signal(cz)
-        action_txt = ACTION_LABELS.get(sig, '관망')
-        bg_c, _    = SIGNAL_STYLE.get(sig, ('#9ca3af', '#fff'))
-        z_color    = get_z_text_color(cz)
-        summary_html = (
-            f"<div style='display:flex;align-items:center;gap:8px;flex-wrap:wrap;"
-            f"padding:2px 10px;border-radius:6px;border-left:4px solid {bg_c};"
-            f"background:{bg_c}18;margin-bottom:2px;'>"
-            f"<b style='font-size:18px;color:{bg_c};white-space:nowrap;'>{action_txt}</b>"
-            f"<span style='font-size:14px;color:{bg_c};font-weight:700;white-space:nowrap;'>"
-            f"{display_name(selected_ticker)}</span>"
-            f"<span style='width:1px;height:13px;background:#ddd;display:inline-block;'></span>"
-            f"<span style='font-size:13px;color:#666;'>Z-Score&nbsp;"
-            f"<b style='color:{z_color};'>{cz:+.2f}</b></span>"
-            f"<span style='font-size:13px;color:#666;'>β&nbsp;"
-            f"<b style='color:#333;'>{beta:.2f}</b></span>"
-            f"</div>")
-    else:
-        summary_html = "<div style='margin-bottom:3px;'></div>"
-
-    refresh_col, summary_col = st.columns([2, 12])
-    with refresh_col:
-        if st.button("refresh", key="full_refresh_btn", use_container_width=True):
-            st.cache_data.clear()
-            st.rerun()
-    with summary_col:
-        st.markdown(summary_html, unsafe_allow_html=True)
 
     # ── 버튼 + 차트 (2열) ──
     btn_col, chart_col = st.columns([1, 5])
@@ -936,6 +913,10 @@ def main():
             if new_val != st.session_state.get('custom_ticker_input', ''):
                 st.session_state.custom_ticker_input = new_val
                 st.rerun()
+        # ── refresh 버튼 (직접입력 아래) ──
+        if st.button("🔄 refresh", key="full_refresh_btn", use_container_width=True):
+            st.cache_data.clear()
+            st.rerun()
 
     with chart_col:
         if df_daily is not None:
