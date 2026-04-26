@@ -1029,10 +1029,6 @@ def main():
     with summary_col:
         st.markdown(summary_html, unsafe_allow_html=True)
 
-    # ── 메모 (요약 카드 바로 아래) ──
-    if selected_ticker:
-        render_memo_section(selected_ticker)
-
     # ── 버튼 + 차트 레이아웃 ──
     btn_col, chart_col = st.columns([1, 5])
 
@@ -1064,6 +1060,8 @@ def main():
         if df_daily is not None:
             render_chart(df_daily, selected_ticker, beta, std_resid,
                          cfg['guide_n'], cfg['view_months'])
+            # ── 메모 (차트 바로 아래) ──
+            render_memo_section(selected_ticker)
 
         elif selected_option == DIRECT_INPUT_LABEL:
             if not st.session_state.get('custom_ticker_input', ''):
@@ -1073,6 +1071,9 @@ def main():
                          " 데이터를 가져올 수 없습니다. 티커를 확인해 주세요.")
         elif selected_ticker:
             st.error("분석에 필요한 데이터가 부족합니다.")
+
+    # ── 하단 여백 (Manage app 버튼에 가리지 않도록) ──
+    st.markdown("<div style='height:80px;'></div>", unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
