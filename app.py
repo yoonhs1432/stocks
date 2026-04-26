@@ -329,6 +329,8 @@ def _compute_indicators(df: pd.DataFrame, y_name: str) -> tuple:
     gain  = delta.where(delta > 0, 0).ewm(alpha=1/14, adjust=False).mean()
     loss  = (-delta.where(delta < 0, 0)).ewm(alpha=1/14, adjust=False).mean()
     df['RSI']         = 100 - (100 / (1 + gain / loss))
+    df['RSI_Signal']  = df['RSI'].ewm(span=9, adjust=False).mean()
+    df['RSI_Hist']    = df['RSI'] - df['RSI_Signal']
     ema12             = close.ewm(span=12, adjust=False).mean()
     ema26             = close.ewm(span=26, adjust=False).mean()
     df['MACD']        = ema12 - ema26
@@ -710,8 +712,16 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     current_row += 1
 
     # ── [6] RSI ──
+    rsi_hist_colors = np.where(df_daily['RSI_Hist'] >= 0,
+                               'rgba(0,128,0,0.5)', 'rgba(255,0,0,0.5)')
+    fig.add_trace(go.Bar(x=df_daily.index, y=df_daily['RSI_Hist'],
+                          marker_color=rsi_hist_colors, name='RSI Hist'),
+                  row=current_row, col=1)
     fig.add_trace(go.Scatter(x=df_daily.index, y=df_daily['RSI'],
                               line=dict(color='black', width=1.5), name='RSI'),
+                  row=current_row, col=1)
+    fig.add_trace(go.Scatter(x=df_daily.index, y=df_daily['RSI_Signal'],
+                              line=dict(color='orange', width=1), name='RSI Signal'),
                   row=current_row, col=1)
     fig.add_hline(y=70, line_dash="solid", line_color="blue", line_width=0.8, row=current_row, col=1)
     fig.add_hline(y=30, line_dash="solid", line_color="red",  line_width=0.8, row=current_row, col=1)
