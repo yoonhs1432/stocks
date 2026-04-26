@@ -938,8 +938,8 @@ def main():
         div.st-key-{k} button {{
             background:{bg}!important; border-color:{bg}!important;
             color:{fg}!important; font-weight:500!important;
-            height:1.7rem!important; font-size:0.73rem!important;
-            padding:0 4px!important; line-height:1!important;
+            height:1.7rem!important; font-size:0.62rem!important;
+            padding:0 2px!important; line-height:1!important;
             min-height:0!important; border-radius:3px!important;
             width:100%!important; text-align:left!important;
             {sel_extra}
@@ -977,8 +977,8 @@ def main():
         flex-wrap:nowrap!important; gap:5px!important; align-items:flex-start!important;
     }}
     section[data-testid="stMain"] div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"]:first-child {{
-        flex:0 0 120px!important; min-width:120px!important;
-        max-width:120px!important; padding:0!important;
+        flex:0 0 80px!important; min-width:80px!important;
+        max-width:80px!important; padding:0!important;
     }}
     section[data-testid="stMain"] div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"]:last-child {{
         flex:1 1 0!important; min-width:0!important;
@@ -1020,7 +1020,7 @@ def main():
         unsafe_allow_html=True)
 
     # ── 버튼 + 차트 (2열) ──
-    btn_col, chart_col = st.columns([1, 4])
+    btn_col, chart_col = st.columns([1, 6])
 
     with btn_col:
         for ticker in TARGET_TICKERS:
