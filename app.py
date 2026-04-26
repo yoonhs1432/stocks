@@ -16,34 +16,32 @@ from plotly.subplots import make_subplots
 st.set_page_config(page_title="퀀트 트레이딩 대시보드", layout="wide")
 
 X_ASSET_FIXED      = 'SPY'
-TARGET_TICKERS     = ['SPYU', 'SOXL','TQQQ' , 'FNGU',
+TARGET_TICKERS     = ['SPYU', 'SOXL', 'TQQQ', 'FNGU',
                       'HIBL', 'TARK', 'QPUX', 'BNKU',
-                      'GDXU', 'KORU', '005930','UPXI',
+                      'GDXU', 'KORU', '005930', 'UPXI',
                       'BTC-USD', 'ETH-USD',
-                     'RKLB','OKLO',
-                      'AVAV','TEM',
-                      'IREN','CRCL',
-                     ]
+                      'RKLB', 'OKLO',
+                      'AVAV', 'TEM',
+                      'IREN', 'CRCL',
+                      ]
 TICKER_DISPLAY_NAMES: dict = {
     'BTC-USD': 'BTC',
     'ETH-USD': 'ETH',
     '005930':  '삼전',
     '000660':  '하닉',
 }
-DEFAULT_REFRESH_MINS = 10  # 기본 자동 새로고침 간격 (분)
+DEFAULT_REFRESH_MINS = 10
 
-# ── 5단계 투자의견 (한국 증시 관례: 상승=빨강, 하락=파랑) ──
 SIGNAL_STYLE: dict = {
-    'FB': ('#dc2626', '#ffffff'),   # 풀매수
-    'B':  ('#fca5a5', '#1a1a1a'),   # 매수
-    'H':  ('#9ca3af', '#ffffff'),   # 관망
-    'S':  ('#93c5fd', '#1a1a1a'),   # 매도
-    'FS': ('#1d4ed8', '#ffffff'),   # 풀매도
+    'FB': ('#dc2626', '#ffffff'),
+    'B':  ('#fca5a5', '#1a1a1a'),
+    'H':  ('#9ca3af', '#ffffff'),
+    'S':  ('#93c5fd', '#1a1a1a'),
+    'FS': ('#1d4ed8', '#ffffff'),
 }
 ACTION_LABELS: dict = {
     'FB': '풀 매수', 'B': '매수', 'H': '관망', 'S': '매도', 'FS': '풀 매도',
 }
-
 BUTTON_TEXT_STYLE: dict = {
     'FB': '#f8fafc',
     'B':  '#111827',
@@ -51,6 +49,7 @@ BUTTON_TEXT_STYLE: dict = {
     'S':  '#111827',
     'FS': '#f8fafc',
 }
+
 def display_name(ticker: str) -> str:
     return TICKER_DISPLAY_NAMES.get(ticker, ticker)
 
@@ -58,12 +57,12 @@ def safe_key(ticker: str) -> str:
     return ticker.replace('-', '_').replace('.', '_').replace('/', '_')
 
 # ====================================================
-# 2. 설정 · 매매 기록 · 메모 영속화
+# 2. 영속화 (매매기록 + 메모)
 # ====================================================
-TRADE_FILE      = 'trade_history.json'
-MEMO_FILE       = 'memo_history.json'
-SETTINGS_FILE   = 'settings.json'
-GIST_FILENAME   = 'quant_trade_history.json'
+TRADE_FILE         = 'trade_history.json'
+MEMO_FILE          = 'memo_history.json'
+SETTINGS_FILE      = 'settings.json'
+GIST_FILENAME      = 'quant_trade_history.json'
 MEMO_GIST_FILENAME = 'quant_memo_history.json'
 
 def load_settings() -> dict:
@@ -82,7 +81,6 @@ def save_settings(settings: dict) -> None:
     except Exception:
         pass
 
-# ── GitHub Gist (클라우드 동기화) ──────────────────
 def _gist_cfg() -> tuple[str, str]:
     try:
         token   = st.secrets.get("GITHUB_TOKEN", "") or os.environ.get("GITHUB_TOKEN", "")
@@ -94,7 +92,6 @@ def _gist_cfg() -> tuple[str, str]:
 def _gist_headers(token: str) -> dict:
     return {"Authorization": f"token {token}", "Accept": "application/vnd.github+json"}
 
-# ── 매매 기록 ──────────────────────────────────────
 def load_trade_history() -> dict:
     token, gist_id = _gist_cfg()
     if token and gist_id:
@@ -125,9 +122,7 @@ def save_trade_history(history: dict) -> None:
         except Exception:
             pass
 
-# ── 메모 기록 ──────────────────────────────────────
 def load_memo_history() -> dict:
-    """종목별 메모 로드. 구조: {ticker: [{'date': '2024-01-01', 'text': '...'}]}"""
     token, gist_id = _gist_cfg()
     if token and gist_id:
         try:
@@ -178,52 +173,39 @@ def init_session_state() -> None:
         st.session_state.refresh_mins = DEFAULT_REFRESH_MINS
 
 # ====================================================
-# 3. 투자의견 (5단계)
+# 3. 투자의견
 # ====================================================
 def get_signal(current_z: float = 0.0) -> str:
-    if current_z >= 1.5:
-        return 'FS'
-    if current_z >= 0.5:
-        return 'S'
-    if current_z <= -1.5:
-        return 'FB'
-    if current_z <= -0.5:
-        return 'B'
+    if current_z >= 1.5:  return 'FS'
+    if current_z >= 0.5:  return 'S'
+    if current_z <= -1.5: return 'FB'
+    if current_z <= -0.5: return 'B'
     return 'H'
 
 def get_z_text_color(current_z: float) -> str:
-    if current_z <= -1.5:
-        return '#991b1b'
-    if current_z <= -0.5:
-        return '#dc2626'
-    if current_z < 0.5:
-        return '#6b7280'
-    if current_z < 1.5:
-        return '#2563eb'
+    if current_z <= -1.5: return '#991b1b'
+    if current_z <= -0.5: return '#dc2626'
+    if current_z <   0.5: return '#6b7280'
+    if current_z <   1.5: return '#2563eb'
     return '#1d4ed8'
 
 def get_price_fill_color(current_z: float) -> str:
-    if pd.isna(current_z):
-        return 'rgba(0,0,0,0)'
-    if current_z <= -1.5:
-        return 'rgba(220,38,38,0.35)'
-    if current_z <= -0.5:
-        return 'rgba(252,165,165,0.22)'
-    if current_z < 0.5:
-        return 'rgba(156,163,175,0.12)'
-    if current_z < 1.5:
-        return 'rgba(147,197,253,0.22)'
+    if pd.isna(current_z):   return 'rgba(0,0,0,0)'
+    if current_z <= -1.5:    return 'rgba(220,38,38,0.35)'
+    if current_z <= -0.5:    return 'rgba(252,165,165,0.22)'
+    if current_z <   0.5:    return 'rgba(156,163,175,0.12)'
+    if current_z <   1.5:    return 'rgba(147,197,253,0.22)'
     return 'rgba(29,78,216,0.35)'
 
 def get_time_grid_dtick_ms(start: pd.Timestamp, end: pd.Timestamp, target_grids: int = 8) -> int:
-    span_days = max((end - start).days, 1)
-    target_days = span_days / max(target_grids, 1)
-    candidate_days = [3, 5, 7, 10, 14, 21, 30, 45, 60, 90, 120, 180]
-    best_days = min(candidate_days, key=lambda days: abs(days - target_days))
+    span_days    = max((end - start).days, 1)
+    target_days  = span_days / max(target_grids, 1)
+    candidates   = [3, 5, 7, 10, 14, 21, 30, 45, 60, 90, 120, 180]
+    best_days    = min(candidates, key=lambda d: abs(d - target_days))
     return int(best_days * 24 * 60 * 60 * 1000)
 
 # ====================================================
-# 4. 데이터 다운로드 (캐싱)
+# 4. 데이터 다운로드
 # ====================================================
 def _download_ticker_data(ticker: str, start_date_str: str) -> pd.DataFrame:
     try:
@@ -248,16 +230,8 @@ def fetch_all_data(tickers: list, start_date_str: str) -> pd.DataFrame:
 def fetch_single_ticker(ticker: str, start_date_str: str) -> pd.DataFrame:
     return _download_ticker_data(ticker, start_date_str)
 
-def merge_price_data(df_close: pd.DataFrame, df_new: pd.DataFrame, ticker: str) -> pd.DataFrame:
-    if df_new.empty:
-        return df_close
-    col = f'{ticker}_Close'
-    base_df = df_close.drop(columns=[col], errors='ignore')
-    merged = pd.concat([base_df, df_new], axis=1).sort_index().ffill()
-    return merged
-
 # ====================================================
-# 6. 데이터 처리
+# 5. 데이터 처리
 # ====================================================
 def _compute_normalized(df: pd.DataFrame, x_name: str, y_name: str) -> tuple:
     df = df.copy()
@@ -295,14 +269,10 @@ def process_asset_data(df_x: pd.DataFrame, df_y: pd.DataFrame,
     df = pd.merge(df_x, df_y, left_index=True, right_index=True).dropna().sort_index()
     if df.empty:
         return (None,) * 4
-    df, beta = _compute_normalized(df, x_name, y_name)
-    df_daily = df.copy()
-    df_daily, std_resid = _compute_indicators(df_daily, y_name)
-    return df_daily, beta, std_resid
+    df, beta     = _compute_normalized(df, x_name, y_name)
+    df, std_resid = _compute_indicators(df, y_name)
+    return df, beta, std_resid
 
-# ====================================================
-# 7. 전체 종목 일괄 분석 (캐싱)
-# ====================================================
 @st.cache_data(show_spinner=False)
 def compute_all_analyses(df_close: pd.DataFrame) -> dict:
     results: dict = {}
@@ -313,19 +283,16 @@ def compute_all_analyses(df_close: pd.DataFrame) -> dict:
             results[ticker] = None
             continue
         try:
-            price_series = df_close[col].dropna()
-            df_y         = df_close[[col]]
             results[ticker] = process_asset_data(
-                df_x, df_y, X_ASSET_FIXED, ticker)
+                df_x, df_close[[col]], X_ASSET_FIXED, ticker)
         except Exception:
             results[ticker] = None
     return results
 
 # ====================================================
-# 8. 차트 헬퍼
+# 6. 차트 헬퍼
 # ====================================================
-def add_filled_blocks(fig, df: pd.DataFrame, y_col: str, condition: pd.Series,
-                      color: str, row: int, col: int, baseline_y: float) -> None:
+def add_filled_blocks(fig, df, y_col, condition, color, row, col, baseline_y):
     valid_data = df[condition]
     if valid_data.empty:
         return
@@ -341,29 +308,25 @@ def add_filled_blocks(fig, df: pd.DataFrame, y_col: str, condition: pd.Series,
             fill='tonexty', fillcolor=color,
             showlegend=False, hoverinfo='skip'), row=row, col=col)
 
-def add_segmented_fill(fig, df: pd.DataFrame, y_col: str, color_col: str,
-                       row: int, col: int, baseline_y: float) -> None:
+def add_segmented_fill(fig, df, y_col, color_col, row, col, baseline_y):
     for i in range(1, len(df)):
         y0 = df[y_col].iloc[i - 1]
         y1 = df[y_col].iloc[i]
         fill_color = df[color_col].iloc[i]
         if pd.isna(y0) or pd.isna(y1) or not fill_color or fill_color == 'rgba(0,0,0,0)':
             continue
-        x0 = df.index[i - 1]
-        x1 = df.index[i]
         fig.add_trace(go.Scatter(
-            x=[x0, x0, x1, x1],
+            x=[df.index[i-1], df.index[i-1], df.index[i], df.index[i]],
             y=[baseline_y, y0, y1, baseline_y],
-            mode='lines',
-            line=dict(width=0, color='rgba(0,0,0,0)'),
-            fill='toself',
-            fillcolor=fill_color,
-            showlegend=False,
-            hoverinfo='skip',
-        ), row=row, col=col)
+            mode='lines', line=dict(width=0, color='rgba(0,0,0,0)'),
+            fill='toself', fillcolor=fill_color,
+            showlegend=False, hoverinfo='skip'), row=row, col=col)
 
 # ====================================================
-# 9. 사이드바
+# 7. 사이드바
+#    - 분석 파라미터
+#    - 매매 기록 저장/삭제
+#    - 메모 저장/삭제   ← 추가
 # ====================================================
 def render_sidebar(selected_ticker: str) -> dict:
     with st.sidebar:
@@ -378,34 +341,34 @@ def render_sidebar(selected_ticker: str) -> dict:
         refresh_mins = st.number_input("자동 새로고침 (분)",
                                        min_value=1, max_value=120,
                                        value=st.session_state.refresh_mins, step=1)
+
         st.markdown("---")
-        st.markdown("### 📝 매매 기록 관리")
         _tok, _gid = _gist_cfg()
         st.caption(f"☁️ Gist 연동됨 (`{_gid[:8]}...`)" if (_tok and _gid)
                    else "💾 로컬 저장 (Gist 미설정)")
 
-        st.markdown("**➕ 새로운 기록 추가**")
+        # ── 매매 기록 ──────────────────────────────
+        st.markdown("### 📈 매매 기록")
         ticker_options = (TARGET_TICKERS if selected_ticker in TARGET_TICKERS
                           else [selected_ticker] + TARGET_TICKERS)
         t_ticker = st.selectbox("종목", ticker_options,
                                 index=ticker_options.index(selected_ticker))
         t_date   = st.date_input("날짜", datetime.date.today())
         t_type   = st.radio("종류", ['buy', 'sell'], horizontal=True)
-        if st.button("기록 저장"):
+        if st.button("기록 저장", key="trade_save_btn"):
             st.session_state.trade_history.setdefault(t_ticker, []).append(
                 {'date': t_date.strftime("%Y-%m-%d"), 'type': t_type})
             save_trade_history(st.session_state.trade_history)
             st.success("저장 완료!")
             st.rerun()
 
-        st.markdown("---")
         st.markdown("**🗑️ 기존 기록 삭제**")
         history = st.session_state.trade_history
         if selected_ticker in history and history[selected_ticker]:
             for i, record in enumerate(history[selected_ticker]):
-                t      = record['type'].upper()
-                color  = '#dc2626' if t == 'BUY' else '#1d4ed8'
-                cols   = st.columns([6, 1])
+                t     = record['type'].upper()
+                color = '#dc2626' if t == 'BUY' else '#1d4ed8'
+                cols  = st.columns([6, 1])
                 cols[0].markdown(
                     f"<span style='font-size:12px;'>{record['date']}&nbsp;"
                     f"<b style='color:{color};'>{t}</b></span>",
@@ -417,16 +380,59 @@ def render_sidebar(selected_ticker: str) -> dict:
         else:
             st.caption("매매 기록이 없습니다.")
 
+        # ── 메모 관리 ──────────────────────────────
+        st.markdown("---")
+        st.markdown("### 📝 메모 관리")
+        st.caption(f"현재 종목: **{display_name(selected_ticker)}**")
+
+        KST       = datetime.timezone(datetime.timedelta(hours=9))
+        today_str = datetime.datetime.now(KST).strftime('%Y-%m-%d')
+
+        memo_date = st.text_input("날짜 ", value=today_str, key="sb_memo_date",
+                                  placeholder="YYYY-MM-DD")
+        memo_text = st.text_area("메모 내용", value="", key="sb_memo_text",
+                                 placeholder="메모를 입력하세요...", height=80)
+        if st.button("메모 저장", key="memo_save_btn"):
+            text = memo_text.strip()
+            date = memo_date.strip()
+            if text and date:
+                mh = st.session_state.memo_history
+                mh.setdefault(selected_ticker, []).append({'date': date, 'text': text})
+                mh[selected_ticker].sort(key=lambda x: x['date'], reverse=True)
+                st.session_state.memo_history = mh
+                save_memo_history(mh)
+                st.success("메모 저장 완료!")
+                st.rerun()
+            else:
+                st.warning("날짜와 내용을 모두 입력해 주세요.")
+
+        st.markdown("**🗑️ 메모 삭제**")
+        mh           = st.session_state.memo_history
+        ticker_memos = mh.get(selected_ticker, [])
+        if ticker_memos:
+            for i, memo in enumerate(ticker_memos):
+                mcols = st.columns([6, 1])
+                mcols[0].markdown(
+                    f"<span style='font-size:11px;color:#374151;'>"
+                    f"<b>{memo['date']}</b>&nbsp;{memo['text'][:20]}"
+                    f"{'…' if len(memo['text']) > 20 else ''}</span>",
+                    unsafe_allow_html=True)
+                if mcols[1].button("✕", key=f"memo_del_{safe_key(selected_ticker)}_{i}"):
+                    st.session_state.memo_history[selected_ticker].pop(i)
+                    save_memo_history(st.session_state.memo_history)
+                    st.rerun()
+        else:
+            st.caption("메모가 없습니다.")
+
     return {'analysis_start': analysis_start.strip(), 'view_months': int(view_months),
             'guide_n': guide_n, 'refresh_mins': int(refresh_mins)}
 
 # ====================================================
-# 10. 차트 렌더링
+# 8. 차트 렌더링
 # ====================================================
 def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
                  beta: float, std_resid: float,
                  guide_n: int, view_months: int) -> None:
-    show_indicators = True
     st.markdown("""
     <style>
     .js-plotly-plot, .js-plotly-plot .plotly, .js-plotly-plot svg {
@@ -435,23 +441,19 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     </style>""", unsafe_allow_html=True)
 
     PX = {'main': 150, 'spacer': 20, 'price': 91, 'zscore': 91, 'macd': 91, 'rsi': 91}
-    active_plots = ['main', 'spacer', 'price', 'zscore']
-    if show_indicators:
-        active_plots += ['macd', 'rsi']
-    total_rows  = len(active_plots)
-    total_h     = sum(PX[p] for p in active_plots)
-    row_heights = [PX[p] / total_h for p in active_plots]
-    fig         = make_subplots(rows=total_rows, cols=1,
-                                row_heights=row_heights, vertical_spacing=0.02)
-    current_row = 1
+    active_plots = ['main', 'spacer', 'price', 'zscore', 'macd', 'rsi']
+    total_rows   = len(active_plots)
+    total_h      = sum(PX[p] for p in active_plots)
+    row_heights  = [PX[p] / total_h for p in active_plots]
+    fig          = make_subplots(rows=total_rows, cols=1,
+                                 row_heights=row_heights, vertical_spacing=0.02)
+    current_row  = 1
 
     # ── [1] 로그-로그 산점도 ──
-    sdf    = df_daily.sort_values(f'{X_ASSET_FIXED}_Norm')
+    sdf   = df_daily.sort_values(f'{X_ASSET_FIXED}_Norm')
     x_vals = sdf[f'{X_ASSET_FIXED}_Norm']
     min_x  = df_daily[f'{X_ASSET_FIXED}_Norm'].min()
     max_x  = df_daily[f'{X_ASSET_FIXED}_Norm'].max()
-    min_y  = df_daily[f'{selected_ticker}_Norm'].min()
-    max_y  = df_daily[f'{selected_ticker}_Norm'].max()
     empirical_c = (df_daily[f'{selected_ticker}_Norm']
                    / (df_daily[f'{X_ASSET_FIXED}_Norm'] ** guide_n))
     for log_c in np.linspace(np.log10(empirical_c.min()) - 1.0,
@@ -494,15 +496,14 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
         row=current_row, col=1)
     band_upper = np.exp(np.log(sdf['Predicted'].values) + 1.5 * std_resid)
     band_lower = np.exp(np.log(sdf['Predicted'].values) - 1.5 * std_resid)
-    y_all  = np.concatenate([df_daily[f'{selected_ticker}_Norm'].dropna().values,
-                              band_upper, band_lower])
-    y_lo   = np.nanmin(y_all)
-    y_hi   = np.nanmax(y_all)
-    fig.update_xaxes(type="log", title_text="", showgrid=False,
+    y_all = np.concatenate([df_daily[f'{selected_ticker}_Norm'].dropna().values,
+                             band_upper, band_lower])
+    fig.update_xaxes(type="log", showgrid=False,
                      range=[np.log10(min_x * 0.98), np.log10(max_x * 1.02)],
                      row=current_row, col=1)
     fig.update_yaxes(type="log", showgrid=False,
-                     range=[np.log10(y_lo * 0.88), np.log10(y_hi * 1.18)],
+                     range=[np.log10(np.nanmin(y_all) * 0.88),
+                            np.log10(np.nanmax(y_all) * 1.18)],
                      row=current_row, col=1)
     current_row += 1
 
@@ -512,27 +513,25 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     current_row += 1
 
     # ── 뷰 기간 재정규화 ──
-    view_start = df_daily.index[-1] - pd.DateOffset(months=view_months)
-    view_df    = df_daily[df_daily.index >= view_start]
+    view_start    = df_daily.index[-1] - pd.DateOffset(months=view_months)
+    view_df       = df_daily[df_daily.index >= view_start]
     grid_dtick_ms = get_time_grid_dtick_ms(view_start, df_daily.index[-1], target_grids=8)
-    base_spy   = view_df[f'{X_ASSET_FIXED}_Norm'].iloc[0] if not view_df.empty else 1.0
-    base_tkr   = view_df[f'{selected_ticker}_Norm'].iloc[0] if not view_df.empty else 1.0
+    base_spy      = view_df[f'{X_ASSET_FIXED}_Norm'].iloc[0] if not view_df.empty else 1.0
+    base_tkr      = view_df[f'{selected_ticker}_Norm'].iloc[0] if not view_df.empty else 1.0
     df_daily['Plot_Norm_SPY']    = df_daily[f'{X_ASSET_FIXED}_Norm'] / base_spy
     df_daily['Plot_Norm_Ticker'] = df_daily[f'{selected_ticker}_Norm'] / base_tkr
 
     # ── [3] Price ──
     fig.add_trace(go.Scatter(x=df_daily.index, y=df_daily['Plot_Norm_SPY'],
                               mode='lines', line=dict(color='gray', width=1.5),
-                              name=X_ASSET_FIXED),
-                  row=current_row, col=1)
+                              name=X_ASSET_FIXED), row=current_row, col=1)
     fig.add_trace(go.Scatter(x=df_daily.index, y=df_daily['Plot_Norm_Ticker'],
                               mode='lines', line=dict(color='black', width=1.5),
-                              name=selected_ticker),
-                  row=current_row, col=1)
-    min_price = (df_daily.loc[df_daily.index >= view_start,
-                               ['Plot_Norm_SPY', 'Plot_Norm_Ticker']].min().min())
-    max_price = (df_daily.loc[df_daily.index >= view_start,
-                               ['Plot_Norm_SPY', 'Plot_Norm_Ticker']].max().max())
+                              name=selected_ticker), row=current_row, col=1)
+    min_price      = df_daily.loc[df_daily.index >= view_start,
+                                   ['Plot_Norm_SPY', 'Plot_Norm_Ticker']].min().min()
+    max_price      = df_daily.loc[df_daily.index >= view_start,
+                                   ['Plot_Norm_SPY', 'Plot_Norm_Ticker']].max().max()
     price_baseline = min_price * 0.95
     df_daily['Price_Fill_Color'] = df_daily['Z_Score'].apply(get_price_fill_color)
     add_segmented_fill(fig, df_daily, 'Plot_Norm_Ticker', 'Price_Fill_Color',
@@ -547,77 +546,58 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     fig.add_trace(go.Scatter(x=df_daily.index, y=df_daily['Z_Score'],
                               line=dict(color='black', width=1.5), name='Z-Score'),
                   row=current_row, col=1)
-    fig.add_hline(y=1.5,  line_dash="solid", line_color="blue",
-                  line_width=0.8, row=current_row, col=1)
-    fig.add_hline(y=-1.5, line_dash="solid", line_color="red",
-                  line_width=0.8, row=current_row, col=1)
-    fig.add_hline(y=0,    line_dash="solid", line_color="gray",
-                  line_width=0.6, row=current_row, col=1)
-    fig.add_annotation(
-        x=0, y=1.3, xref='x domain', yref='y',
-        text="σ = +1.5", showarrow=False,
-        font=dict(size=10, color='blue'),
-        xanchor='left', yanchor='bottom',
-        row=current_row, col=1)
-    fig.add_annotation(
-        x=0, y=-1.3, xref='x domain', yref='y',
-        text="σ = -1.5", showarrow=False,
-        font=dict(size=10, color='red'),
-        xanchor='left', yanchor='top',
-        row=current_row, col=1)
-    add_filled_blocks(fig, df_daily, 'Z_Score',
-                      df_daily['Z_Score'] <= -1.5,
+    fig.add_hline(y= 1.5, line_dash="solid", line_color="blue",  line_width=0.8, row=current_row, col=1)
+    fig.add_hline(y=-1.5, line_dash="solid", line_color="red",   line_width=0.8, row=current_row, col=1)
+    fig.add_hline(y=0,    line_dash="solid", line_color="gray",  line_width=0.6, row=current_row, col=1)
+    fig.add_annotation(x=0, y=1.3, xref='x domain', yref='y', text="σ = +1.5",
+                       showarrow=False, font=dict(size=10, color='blue'),
+                       xanchor='left', yanchor='bottom', row=current_row, col=1)
+    fig.add_annotation(x=0, y=-1.3, xref='x domain', yref='y', text="σ = -1.5",
+                       showarrow=False, font=dict(size=10, color='red'),
+                       xanchor='left', yanchor='top', row=current_row, col=1)
+    add_filled_blocks(fig, df_daily, 'Z_Score', df_daily['Z_Score'] <= -1.5,
                       'rgba(220,38,38,0.20)', current_row, 1, -1.5)
-    add_filled_blocks(fig, df_daily, 'Z_Score',
-                      df_daily['Z_Score'] >= 1.5,
+    add_filled_blocks(fig, df_daily, 'Z_Score', df_daily['Z_Score'] >= 1.5,
                       'rgba(29,78,216,0.20)', current_row, 1, 1.5)
-    z_view   = df_daily.loc[df_daily.index >= view_start, 'Z_Score'].dropna()
-    z_lo     = min(-2.0, z_view.min() if not z_view.empty else -2.0)
-    z_hi     = max( 2.0, z_view.max() if not z_view.empty else  2.0)
+    z_view = df_daily.loc[df_daily.index >= view_start, 'Z_Score'].dropna()
+    z_lo   = min(-2.0, z_view.min() if not z_view.empty else -2.0)
+    z_hi   = max( 2.0, z_view.max() if not z_view.empty else  2.0)
     fig.update_yaxes(range=[z_lo - 0.2, z_hi + 0.2], row=current_row, col=1)
     fig.update_xaxes(matches=time_x_axis, row=current_row, col=1)
     current_row += 1
 
-    # ── [5][6] 보조 지표 ──
-    if show_indicators:
-        macd_colors = np.where(df_daily['MACD_Hist'] >= 0,
-                               'rgba(0,128,0,0.5)', 'rgba(255,0,0,0.5)')
-        fig.add_trace(go.Bar(x=df_daily.index, y=df_daily['MACD_Hist'],
-                              marker_color=macd_colors, name='MACD Hist'),
-                      row=current_row, col=1)
-        fig.add_trace(go.Scatter(x=df_daily.index, y=df_daily['MACD'],
-                                  line=dict(color='blue', width=1), name='MACD'),
-                      row=current_row, col=1)
-        fig.add_trace(go.Scatter(x=df_daily.index, y=df_daily['MACD_Signal'],
-                                  line=dict(color='orange', width=1), name='Signal'),
-                      row=current_row, col=1)
-        fig.update_yaxes(row=current_row, col=1)
-        fig.update_xaxes(matches=time_x_axis, row=current_row, col=1)
-        current_row += 1
-        fig.add_trace(go.Scatter(x=df_daily.index, y=df_daily['RSI'],
-                                  line=dict(color='black', width=1.5), name='RSI'),
-                      row=current_row, col=1)
-        fig.add_hline(y=70, line_dash="solid", line_color="blue",  line_width=0.8,
-                      row=current_row, col=1)
-        fig.add_hline(y=30, line_dash="solid", line_color="red", line_width=0.8,
-                      row=current_row, col=1)
-        fig.add_annotation(
-            x=0, y=68, xref='x domain', yref='y',
-            text="RSI 70", showarrow=False,
-            font=dict(size=10, color='blue'),
-            xanchor='left', yanchor='bottom',
-            row=current_row, col=1)
-        fig.add_annotation(
-            x=0, y=32, xref='x domain', yref='y',
-            text="RSI 30", showarrow=False,
-            font=dict(size=10, color='red'),
-            xanchor='left', yanchor='top',
-            row=current_row, col=1)
-        rsi_view = df_daily.loc[df_daily.index >= view_start, 'RSI'].dropna()
-        rsi_lo   = min(20.0, rsi_view.min() if not rsi_view.empty else 20.0)
-        rsi_hi   = max(80.0, rsi_view.max() if not rsi_view.empty else 80.0)
-        fig.update_yaxes(range=[rsi_lo - 2, rsi_hi + 2], row=current_row, col=1)
-        fig.update_xaxes(matches=time_x_axis, row=current_row, col=1)
+    # ── [5] MACD ──
+    macd_colors = np.where(df_daily['MACD_Hist'] >= 0,
+                           'rgba(0,128,0,0.5)', 'rgba(255,0,0,0.5)')
+    fig.add_trace(go.Bar(x=df_daily.index, y=df_daily['MACD_Hist'],
+                          marker_color=macd_colors, name='MACD Hist'),
+                  row=current_row, col=1)
+    fig.add_trace(go.Scatter(x=df_daily.index, y=df_daily['MACD'],
+                              line=dict(color='blue', width=1), name='MACD'),
+                  row=current_row, col=1)
+    fig.add_trace(go.Scatter(x=df_daily.index, y=df_daily['MACD_Signal'],
+                              line=dict(color='orange', width=1), name='Signal'),
+                  row=current_row, col=1)
+    fig.update_xaxes(matches=time_x_axis, row=current_row, col=1)
+    current_row += 1
+
+    # ── [6] RSI ──
+    fig.add_trace(go.Scatter(x=df_daily.index, y=df_daily['RSI'],
+                              line=dict(color='black', width=1.5), name='RSI'),
+                  row=current_row, col=1)
+    fig.add_hline(y=70, line_dash="solid", line_color="blue", line_width=0.8, row=current_row, col=1)
+    fig.add_hline(y=30, line_dash="solid", line_color="red",  line_width=0.8, row=current_row, col=1)
+    fig.add_annotation(x=0, y=68, xref='x domain', yref='y', text="RSI 70",
+                       showarrow=False, font=dict(size=10, color='blue'),
+                       xanchor='left', yanchor='bottom', row=current_row, col=1)
+    fig.add_annotation(x=0, y=32, xref='x domain', yref='y', text="RSI 30",
+                       showarrow=False, font=dict(size=10, color='red'),
+                       xanchor='left', yanchor='top', row=current_row, col=1)
+    rsi_view = df_daily.loc[df_daily.index >= view_start, 'RSI'].dropna()
+    rsi_lo   = min(20.0, rsi_view.min() if not rsi_view.empty else 20.0)
+    rsi_hi   = max(80.0, rsi_view.max() if not rsi_view.empty else 80.0)
+    fig.update_yaxes(range=[rsi_lo - 2, rsi_hi + 2], row=current_row, col=1)
+    fig.update_xaxes(matches=time_x_axis, row=current_row, col=1)
 
     # ── 매매 기록 마커 ──
     trade_history = st.session_state.trade_history
@@ -647,19 +627,10 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     fig.update_xaxes(visible=False, row=2, col=1)
     fig.update_yaxes(visible=False, row=2, col=1)
     for r in range(3, total_rows + 1):
-        fig.update_xaxes(
-            showgrid=True,
-            gridcolor='rgba(156,163,175,0.28)',
-            gridwidth=0.6,
-            griddash='dot',
-            dtick=grid_dtick_ms,
-            row=r, col=1)
-        fig.update_yaxes(
-            showgrid=False,
-            gridcolor='rgba(156,163,175,0.18)',
-            gridwidth=0.6,
-            griddash='dot',
-            row=r, col=1)
+        fig.update_xaxes(showgrid=True, gridcolor='rgba(156,163,175,0.28)',
+                         gridwidth=0.6, griddash='dot', dtick=grid_dtick_ms,
+                         row=r, col=1)
+        fig.update_yaxes(showgrid=False, row=r, col=1)
     for r in range(3, total_rows):
         fig.update_xaxes(showticklabels=False, tickformat="%m/%d", row=r, col=1)
     fig.update_xaxes(showticklabels=True, tickformat="%m/%d", row=total_rows, col=1)
@@ -674,137 +645,47 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
                             'doubleClick': 'reset', 'responsive': True})
 
 # ====================================================
-# 10-B. 메모 렌더링 (차트 바로 아래)
+# 9. 메모 표시 (목록만 — 전체 너비)
 # ====================================================
 def render_memo_section(selected_ticker: str) -> None:
-    """선택 종목의 메모 입력창 + 날짜순 목록을 렌더링한다."""
-    memo_history = st.session_state.memo_history
-    ticker_memos = memo_history.get(selected_ticker, [])
-
-    # ── CSS: 메모 영역 스타일 ──────────────────────
-    st.markdown("""
-    <style>
-    .memo-section-title {
-        font-size: 0.82rem;
-        font-weight: 700;
-        color: #374151;
-        margin: 6px 0 4px 0;
-        letter-spacing: 0.02em;
-    }
-    .memo-item {
-        display: flex;
-        align-items: flex-start;
-        gap: 8px;
-        padding: 5px 8px;
-        border-radius: 5px;
-        background: #f9fafb;
-        border-left: 3px solid #d1d5db;
-        margin-bottom: 4px;
-    }
-    .memo-date {
-        font-size: 0.72rem;
-        color: #6b7280;
-        white-space: nowrap;
-        padding-top: 1px;
-        min-width: 68px;
-    }
-    .memo-text {
-        font-size: 0.80rem;
-        color: #111827;
-        line-height: 1.45;
-        flex: 1;
-        word-break: break-all;
-    }
-    .memo-empty {
-        font-size: 0.76rem;
-        color: #9ca3af;
-        padding: 4px 0;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
-    st.markdown(f"<div class='memo-section-title'>📝 {display_name(selected_ticker)} 메모</div>",
-                unsafe_allow_html=True)
-
-    # ── 입력창 ────────────────────────────────────
-    KST = datetime.timezone(datetime.timedelta(hours=9))
-    today_str = datetime.datetime.now(KST).strftime('%Y-%m-%d')
-
-    input_cols = st.columns([2, 7, 1])
-    with input_cols[0]:
-        memo_date = st.text_input(
-            "날짜",
-            value=today_str,
-            key=f"memo_date_{safe_key(selected_ticker)}",
-            label_visibility="collapsed",
-            placeholder="YYYY-MM-DD"
-        )
-    with input_cols[1]:
-        memo_text = st.text_input(
-            "메모 내용",
-            value="",
-            key=f"memo_text_{safe_key(selected_ticker)}",
-            label_visibility="collapsed",
-            placeholder="메모를 입력하세요..."
-        )
-    with input_cols[2]:
-        save_clicked = st.button("저장", key=f"memo_save_{safe_key(selected_ticker)}",
-                                 use_container_width=True)
-
-    if save_clicked:
-        text = memo_text.strip()
-        date = memo_date.strip()
-        if text and date:
-            memo_history.setdefault(selected_ticker, []).append(
-                {'date': date, 'text': text}
-            )
-            # 날짜 내림차순 정렬 유지
-            memo_history[selected_ticker].sort(key=lambda x: x['date'], reverse=True)
-            st.session_state.memo_history = memo_history
-            save_memo_history(memo_history)
-            st.rerun()
-        else:
-            st.warning("날짜와 메모 내용을 모두 입력해 주세요.")
-
-    # ── 메모 목록 (날짜 내림차순) ─────────────────
-    ticker_memos = memo_history.get(selected_ticker, [])
+    mh           = st.session_state.memo_history
+    ticker_memos = mh.get(selected_ticker, [])
     sorted_memos = sorted(ticker_memos, key=lambda x: x['date'], reverse=True)
 
     if not sorted_memos:
-        st.markdown("<div class='memo-empty'>아직 메모가 없습니다.</div>",
-                    unsafe_allow_html=True)
-    else:
-        for i, memo in enumerate(sorted_memos):
-            # 원본 인덱스 (삭제 시 필요)
-            orig_idx = ticker_memos.index(memo)
-            row_cols = st.columns([9, 1])
-            with row_cols[0]:
-                st.markdown(
-                    f"<div class='memo-item'>"
-                    f"<span class='memo-date'>{memo['date']}</span>"
-                    f"<span class='memo-text'>{memo['text']}</span>"
-                    f"</div>",
-                    unsafe_allow_html=True
-                )
-            with row_cols[1]:
-                if st.button("✕", key=f"memo_del_{safe_key(selected_ticker)}_{i}",
-                             use_container_width=True):
-                    st.session_state.memo_history[selected_ticker].pop(orig_idx)
-                    save_memo_history(st.session_state.memo_history)
-                    st.rerun()
+        return  # 메모 없으면 공간 차지 안 함
+
+    rows_html = ""
+    for memo in sorted_memos:
+        rows_html += (
+            f"<tr>"
+            f"<td style='color:#6b7280;font-size:0.72rem;white-space:nowrap;"
+            f"padding:4px 12px 4px 6px;vertical-align:top;'>{memo['date']}</td>"
+            f"<td style='color:#111827;font-size:0.78rem;line-height:1.5;"
+            f"padding:4px 4px;'>{memo['text']}</td>"
+            f"</tr>"
+        )
+
+    st.markdown(
+        f"<div style='margin-top:8px;border-top:1px solid #e5e7eb;padding-top:6px;'>"
+        f"<span style='font-size:0.75rem;font-weight:700;color:#6b7280;'>"
+        f"📝 {display_name(selected_ticker)} 메모</span>"
+        f"<table style='width:100%;border-collapse:collapse;margin-top:4px;'>"
+        f"{rows_html}"
+        f"</table></div>",
+        unsafe_allow_html=True
+    )
 
 # ====================================================
-# 11. 메인
+# 10. 메인
 # ====================================================
 def main():
     init_session_state()
 
-    # ── 자동 새로고침 트리거 감지 ──
     if st.query_params.get('_ar') == '1':
         st.query_params.clear()
         st.cache_data.clear()
 
-    # ── 종목 선택 상태 ──
     DIRECT_INPUT_LABEL = "직접 입력"
     all_options = TARGET_TICKERS + [DIRECT_INPUT_LABEL]
     if st.session_state.selected_option not in all_options:
@@ -817,7 +698,6 @@ def main():
     else:
         selected_ticker = selected_option
 
-    # ── 사이드바 ──
     cfg = render_sidebar(selected_ticker or TARGET_TICKERS[0])
 
     settings_changed = False
@@ -836,14 +716,12 @@ def main():
     st.session_state.refresh_mins = cfg['refresh_mins']
     analysis_start = st.session_state.analysis_start
 
-    # ── 데이터 로드 ──
     with st.spinner("데이터 로드 중..."):
         df_close = fetch_all_data(TARGET_TICKERS, analysis_start)
 
     if not df_close.empty:
         st.session_state.last_data_date = df_close.index[-1].strftime('%Y-%m-%d')
 
-    # ── 커스텀 티커 fetch ──
     if selected_ticker and f'{selected_ticker}_Close' not in df_close.columns:
         with st.spinner(f"{selected_ticker} 데이터를 불러오는 중..."):
             df_custom = fetch_single_ticker(selected_ticker, analysis_start)
@@ -855,17 +733,14 @@ def main():
     if not df_close.empty:
         st.session_state.last_data_date = df_close.index[-1].strftime('%Y-%m-%d')
 
-    # ── 변동폭 계산 ──
     pct_changes = {}
     for ticker in TARGET_TICKERS:
         col = f'{ticker}_Close'
         if col in df_close.columns and len(df_close) > 1:
-            pct = df_close[col].pct_change().iloc[-1] * 100
-            pct_changes[ticker] = pct
+            pct_changes[ticker] = df_close[col].pct_change().iloc[-1] * 100
         else:
             pct_changes[ticker] = 0.0
 
-    # ── 전체 종목 일괄 분석 ──
     with st.spinner("전체 종목 분석 중... (최초 실행 시 수십 초 소요)"):
         all_analyses = compute_all_analyses(df_close)
 
@@ -877,7 +752,6 @@ def main():
         else:
             st.session_state.ticker_signals.setdefault(ticker, 'H')
 
-    # ── 선택 종목 분석 결과 추출 ──
     df_daily = beta = std_resid = None
 
     if selected_ticker and selected_ticker in TARGET_TICKERS:
@@ -886,7 +760,6 @@ def main():
             df_daily, beta, std_resid = result
             cz = float(df_daily['Z_Score'].iloc[-1]) if pd.notna(df_daily['Z_Score'].iloc[-1]) else 0.0
             st.session_state.ticker_signals[selected_ticker] = get_signal(cz)
-
     elif selected_ticker and f'{selected_ticker}_Close' in df_close.columns:
         with st.spinner(f"{display_name(selected_ticker)} 분석 중..."):
             result = process_asset_data(
@@ -898,15 +771,13 @@ def main():
             cz = float(df_daily['Z_Score'].iloc[-1]) if pd.notna(df_daily['Z_Score'].iloc[-1]) else 0.0
             st.session_state.ticker_signals[selected_ticker] = get_signal(cz)
 
-    # ════════════════════════════════════════
-    #  CSS: 레이아웃 + 버튼 색상
-    # ════════════════════════════════════════
+    # ── CSS ──
     btn_css_parts = []
     for ticker in TARGET_TICKERS:
-        sig    = st.session_state.ticker_signals.get(ticker, 'H')
-        bg, _  = SIGNAL_STYLE.get(sig, ('#9ca3af', '#fff'))
-        fg     = BUTTON_TEXT_STYLE.get(sig, '#111827')
-        k      = f"ticker_btn_{safe_key(ticker)}"
+        sig   = st.session_state.ticker_signals.get(ticker, 'H')
+        bg, _ = SIGNAL_STYLE.get(sig, ('#9ca3af', '#fff'))
+        fg    = BUTTON_TEXT_STYLE.get(sig, '#111827')
+        k     = f"ticker_btn_{safe_key(ticker)}"
         is_sel = (selected_option == ticker)
         sel_extra = (f"box-shadow:0 0 0 2px #fff,0 0 0 4px {bg}!important;"
                      "transform:scale(1.03);") if is_sel else ""
@@ -919,17 +790,10 @@ def main():
             min-height:0!important; border-radius:3px!important;
             {sel_extra}
         }}
-        div.st-key-{k} button p {{
-            color:{fg}!important;
-        }}
-        div.st-key-{k} button strong {{
-            color:{fg}!important;
-            font-weight:700!important;
-        }}
-        div.st-key-{k} button span {{
-            color:{fg}!important;
-        }}
-        div.st-key-{k} button:hover {{ opacity:0.82!important; }}""")
+        div.st-key-{k} button p     {{ color:{fg}!important; }}
+        div.st-key-{k} button strong {{ color:{fg}!important; font-weight:700!important; }}
+        div.st-key-{k} button span   {{ color:{fg}!important; }}
+        div.st-key-{k} button:hover  {{ opacity:0.82!important; }}""")
     di_sel = (selected_option == DIRECT_INPUT_LABEL)
     btn_css_parts.append(f"""
     div.st-key-ticker_btn_direct button {{
@@ -939,91 +803,68 @@ def main():
     }}""")
     btn_css_parts.append("""
     div.st-key-full_refresh_btn button {
-        height:1.1rem!important;
-        min-height:0!important;
-        border-radius:3px!important;
-        font-size:0.55rem!important;
-        font-weight:700!important;
-        padding:0!important;
-        border:1px solid #cbd5e1!important;
-        background:#f8fafc!important;
-        color:#0f172a!important;
-        line-height:1!important;
+        height:1.1rem!important; min-height:0!important;
+        border-radius:3px!important; font-size:0.55rem!important;
+        font-weight:700!important; padding:0!important;
+        border:1px solid #cbd5e1!important; background:#f8fafc!important;
+        color:#0f172a!important; line-height:1!important;
     }
     div.st-key-full_refresh_btn button:hover {
-        border-color:#94a3b8!important;
-        background:#eef2f7!important;
-    }
-    /* 메모 저장 버튼 */
-    button[kind="secondary"][data-testid*="memo_save"] {
-        height: 2.1rem !important;
-        min-height: 0 !important;
-        font-size: 0.76rem !important;
-        padding: 0 !important;
+        border-color:#94a3b8!important; background:#eef2f7!important;
     }""")
 
-    global_css = f"""
+    st.markdown(f"""
     <style>
     .block-container {{
-        padding-top: 3.5rem !important; padding-bottom: 0.5rem !important;
-        max-width: 100% !important;
+        padding-top:3.5rem!important; padding-bottom:0.5rem!important;
+        max-width:100%!important;
     }}
     section[data-testid="stMain"] div[data-testid="stHorizontalBlock"] {{
-        flex-wrap: nowrap !important; gap: 5px !important;
-        align-items: flex-start !important;
+        flex-wrap:nowrap!important; gap:5px!important; align-items:flex-start!important;
     }}
     section[data-testid="stMain"] div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"]:first-child {{
-        flex: 0 0 87px !important; min-width: 87px !important;
-        max-width: 87px !important; padding: 0 !important;
+        flex:0 0 87px!important; min-width:87px!important;
+        max-width:87px!important; padding:0!important;
     }}
     section[data-testid="stMain"] div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"]:last-child {{
-        flex: 1 1 0 !important; min-width: 0 !important;
-        overflow: visible !important;
-        padding-left: 2px !important; padding-right: 2px !important;
+        flex:1 1 0!important; min-width:0!important;
+        overflow:visible!important;
+        padding-left:2px!important; padding-right:2px!important;
     }}
     section[data-testid="stMain"] div[data-testid="stColumn"]:first-child div[data-testid="stVerticalBlock"] > div {{
-        margin-bottom: 0px !important; padding: 0 !important;
+        margin-bottom:0px!important; padding:0!important;
     }}
     section[data-testid="stMain"] div[data-testid="stColumn"]:first-child div[data-testid="stVerticalBlock"] {{
-        gap: 1px !important;
+        gap:1px!important;
     }}
     section[data-testid="stMain"] div[data-testid="stColumn"]:first-child div[data-testid="stHorizontalBlock"] {{
-        gap: 5px !important;
+        gap:5px!important;
     }}
     section[data-testid="stMain"] div[data-testid="stColumn"]:first-child div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"] {{
-        flex: 1 1 0 !important; min-width: 0 !important;
-        max-width: none !important; padding: 0 !important;
+        flex:1 1 0!important; min-width:0!important; max-width:none!important; padding:0!important;
     }}
     section[data-testid="stMain"] div[data-testid="stColumn"]:first-child button p {{
-        margin: 0 !important; padding: 0 !important;
-        font-size: 0.73rem !important; line-height: 1 !important; font-weight: 500 !important;
-        white-space: pre !important;
+        margin:0!important; padding:0!important;
+        font-size:0.73rem!important; line-height:1!important;
+        font-weight:500!important; white-space:pre!important;
     }}
-    section[data-testid="stMain"] div[data-testid="stColumn"]:first-child button span {{
-        color: inherit !important;
-    }}
-    section[data-testid="stMain"] div[data-testid="stColumn"]:first-child button strong {{
-        color: inherit !important;
-        font-weight: 700 !important;
-    }}
+    section[data-testid="stMain"] div[data-testid="stColumn"]:first-child button span   {{ color:inherit!important; }}
+    section[data-testid="stMain"] div[data-testid="stColumn"]:first-child button strong {{ color:inherit!important; font-weight:700!important; }}
     {''.join(btn_css_parts)}
-    </style>"""
-    st.markdown(global_css, unsafe_allow_html=True)
+    </style>""", unsafe_allow_html=True)
 
     # ── 제목 ──
     KST        = datetime.timezone(datetime.timedelta(hours=9))
     queried_at = datetime.datetime.now(KST).strftime('%Y-%m-%d %H:%M')
     date_part  = (f"기준: {st.session_state.last_data_date}&nbsp;·&nbsp;"
                   if st.session_state.last_data_date else "")
-    next_refresh = (datetime.datetime.now(KST)
-                    + datetime.timedelta(minutes=cfg['refresh_mins']))
+    next_refresh = datetime.datetime.now(KST) + datetime.timedelta(minutes=cfg['refresh_mins'])
     st.markdown(
         f"<div style='display:flex;align-items:center;gap:10px;"
         f"margin-bottom:1px;padding-bottom:1px;'>"
         f"<b style='font-size:1.15rem;white-space:nowrap;color:#111;'>📊 퀀트 대시보드</b>"
         f"<span style='font-size:10px;color:#999;white-space:nowrap;'>"
-        f"{date_part}조회: {queried_at}"
-        f"&nbsp;·&nbsp;다음 갱신: {next_refresh.strftime('%H:%M')}"
+        f"{date_part}조회: {queried_at}&nbsp;·&nbsp;다음 갱신: {next_refresh.strftime('%H:%M')}"
         f"</span></div>",
         unsafe_allow_html=True)
 
@@ -1034,25 +875,25 @@ def main():
     (function() {{
         if (window._arTimer) clearTimeout(window._arTimer);
         window._arTimer = setTimeout(function() {{
-            window.location.href =
-                window.location.pathname + '?_ar=1&t=' + Date.now();
+            window.location.href = window.location.pathname + '?_ar=1&t=' + Date.now();
         }}, {refresh_ms});
     }})();
     </script>""", unsafe_allow_html=True)
 
     # ── 요약 카드 ──
     if selected_ticker and df_daily is not None:
-        cz          = float(df_daily['Z_Score'].iloc[-1]) if pd.notna(df_daily['Z_Score'].iloc[-1]) else 0.0
-        sig         = get_signal(cz)
-        action_txt  = ACTION_LABELS.get(sig, '관망')
-        bg_c, _     = SIGNAL_STYLE.get(sig, ('#9ca3af', '#fff'))
-        z_color     = get_z_text_color(cz)
+        cz         = float(df_daily['Z_Score'].iloc[-1]) if pd.notna(df_daily['Z_Score'].iloc[-1]) else 0.0
+        sig        = get_signal(cz)
+        action_txt = ACTION_LABELS.get(sig, '관망')
+        bg_c, _    = SIGNAL_STYLE.get(sig, ('#9ca3af', '#fff'))
+        z_color    = get_z_text_color(cz)
         summary_html = (
             f"<div style='display:flex;align-items:center;gap:8px;flex-wrap:wrap;"
             f"padding:2px 10px;border-radius:6px;border-left:4px solid {bg_c};"
             f"background:{bg_c}18;margin-bottom:2px;'>"
             f"<b style='font-size:18px;color:{bg_c};white-space:nowrap;'>{action_txt}</b>"
-            f"<span style='font-size:14px;color:{bg_c};font-weight:700;white-space:nowrap;'>{display_name(selected_ticker)}</span>"
+            f"<span style='font-size:14px;color:{bg_c};font-weight:700;white-space:nowrap;'>"
+            f"{display_name(selected_ticker)}</span>"
             f"<span style='width:1px;height:13px;background:#ddd;display:inline-block;'></span>"
             f"<span style='font-size:13px;color:#666;'>Z-Score&nbsp;"
             f"<b style='color:{z_color};'>{cz:+.2f}</b></span>"
@@ -1070,15 +911,15 @@ def main():
     with summary_col:
         st.markdown(summary_html, unsafe_allow_html=True)
 
-    # ── 버튼 + 차트 + 메모 레이아웃 ──
+    # ── 버튼 + 차트 (2열) ──
     btn_col, chart_col = st.columns([1, 5])
 
     with btn_col:
         for i in range(0, len(TARGET_TICKERS), 2):
             c1, c2 = st.columns(2, gap="small")
             for col_widget, ticker in zip([c1, c2], TARGET_TICKERS[i:i+2]):
-                btn_key = f"ticker_btn_{safe_key(ticker)}"
-                pct = pct_changes.get(ticker, 0)
+                btn_key   = f"ticker_btn_{safe_key(ticker)}"
+                pct       = pct_changes.get(ticker, 0)
                 btn_label = f"**{display_name(ticker)}**\n{pct:+.1f}%"
                 if col_widget.button(btn_label, key=btn_key, use_container_width=True):
                     st.session_state.selected_option     = ticker
@@ -1089,8 +930,7 @@ def main():
             st.rerun()
         if selected_option == DIRECT_INPUT_LABEL:
             custom_input = st.text_input(
-                "티커",
-                value=st.session_state.get('custom_ticker_input', ''),
+                "티커", value=st.session_state.get('custom_ticker_input', ''),
                 placeholder="NVDA", label_visibility="collapsed")
             new_val = custom_input.strip().upper()
             if new_val != st.session_state.get('custom_ticker_input', ''):
@@ -1101,9 +941,6 @@ def main():
         if df_daily is not None:
             render_chart(df_daily, selected_ticker, beta, std_resid,
                          cfg['guide_n'], cfg['view_months'])
-            # ── 메모 섹션 (차트 바로 아래) ──────────
-            render_memo_section(selected_ticker)
-
         elif selected_option == DIRECT_INPUT_LABEL:
             if not st.session_state.get('custom_ticker_input', ''):
                 st.info("왼쪽에서 티커를 입력해 주세요. (예: NVDA, 000660)")
@@ -1112,6 +949,14 @@ def main():
                          " 데이터를 가져올 수 없습니다. 티커를 확인해 주세요.")
         elif selected_ticker:
             st.error("분석에 필요한 데이터가 부족합니다.")
+
+    # ── 메모 목록 (전체 너비 — 2열 밖) ──
+    if selected_ticker:
+        render_memo_section(selected_ticker)
+
+    # ── 하단 여백 (Manage app 버튼에 가리지 않도록) ──
+    st.markdown("<div style='height:80px;'></div>", unsafe_allow_html=True)
+
 
 if __name__ == "__main__":
     main()
