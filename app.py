@@ -505,14 +505,6 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
                      range=[np.log10(np.nanmin(y_all) * 0.88),
                             np.log10(np.nanmax(y_all) * 1.18)],
                      row=current_row, col=1)
-    # [1] 라벨: β 값
-    fig.add_annotation(
-        x=0, y=1, xref='x domain', yref='y domain',
-        text=f"<b>β = {beta:.2f}</b>",
-        showarrow=False, font=dict(size=14, color='black'),
-        xanchor='left', yanchor='top',
-        bgcolor='white', bordercolor='black', borderwidth=1, borderpad=4,
-        row=current_row, col=1)
     current_row += 1
 
     # ── [2] Spacer ──
@@ -547,15 +539,6 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     fig.update_yaxes(type="log",
                      range=[np.log10(price_baseline), np.log10(max_price * 1.05)],
                      row=current_row, col=1)
-    # [3] 라벨: 현재 가격만
-    last_price = df_daily[f'{selected_ticker}_Close'].iloc[-1]
-    fig.add_annotation(
-        x=0, y=1, xref='x domain', yref='y domain',
-        text=f"<b>${last_price:,.2f}</b>",
-        showarrow=False, font=dict(size=14, color='black'),
-        xanchor='left', yanchor='top',
-        bgcolor='white', bordercolor='black', borderwidth=1, borderpad=4,
-        row=current_row, col=1)
     time_x_axis = f'x{current_row}'
     current_row += 1
 
@@ -566,16 +549,12 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     fig.add_hline(y= 1.5, line_dash="solid", line_color="blue",  line_width=0.8, row=current_row, col=1)
     fig.add_hline(y=-1.5, line_dash="solid", line_color="red",   line_width=0.8, row=current_row, col=1)
     fig.add_hline(y=0,    line_dash="solid", line_color="gray",  line_width=0.6, row=current_row, col=1)
-    # [4] 라벨: Z-Score 현재 값
-    cz_val = float(df_daily['Z_Score'].iloc[-1]) if pd.notna(df_daily['Z_Score'].iloc[-1]) else 0.0
-    cz_color = get_z_text_color(cz_val)
-    fig.add_annotation(
-        x=0, y=1, xref='x domain', yref='y domain',
-        text=f"<b>Z  {cz_val:+.2f}</b>",
-        showarrow=False, font=dict(size=14, color=cz_color),
-        xanchor='left', yanchor='top',
-        bgcolor='white', bordercolor='black', borderwidth=1, borderpad=4,
-        row=current_row, col=1)
+    fig.add_annotation(x=0, y=1.3, xref='x domain', yref='y', text="σ = +1.5",
+                       showarrow=False, font=dict(size=10, color='blue'),
+                       xanchor='left', yanchor='bottom', row=current_row, col=1)
+    fig.add_annotation(x=0, y=-1.3, xref='x domain', yref='y', text="σ = -1.5",
+                       showarrow=False, font=dict(size=10, color='red'),
+                       xanchor='left', yanchor='top', row=current_row, col=1)
     add_filled_blocks(fig, df_daily, 'Z_Score', df_daily['Z_Score'] <= -1.5,
                       'rgba(220,38,38,0.20)', current_row, 1, -1.5)
     add_filled_blocks(fig, df_daily, 'Z_Score', df_daily['Z_Score'] >= 1.5,
@@ -608,16 +587,12 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
                   row=current_row, col=1)
     fig.add_hline(y=70, line_dash="solid", line_color="blue", line_width=0.8, row=current_row, col=1)
     fig.add_hline(y=30, line_dash="solid", line_color="red",  line_width=0.8, row=current_row, col=1)
-    # [6] 라벨: RSI 현재 값
-    rsi_val = float(df_daily['RSI'].iloc[-1]) if pd.notna(df_daily['RSI'].iloc[-1]) else 50.0
-    rsi_color = '#1d4ed8' if rsi_val >= 70 else '#dc2626' if rsi_val <= 30 else 'black'
-    fig.add_annotation(
-        x=0, y=1, xref='x domain', yref='y domain',
-        text=f"<b>RSI  {rsi_val:.1f}</b>",
-        showarrow=False, font=dict(size=14, color=rsi_color),
-        xanchor='left', yanchor='top',
-        bgcolor='white', bordercolor='black', borderwidth=1, borderpad=4,
-        row=current_row, col=1)
+    fig.add_annotation(x=0, y=68, xref='x domain', yref='y', text="RSI 70",
+                       showarrow=False, font=dict(size=10, color='blue'),
+                       xanchor='left', yanchor='bottom', row=current_row, col=1)
+    fig.add_annotation(x=0, y=32, xref='x domain', yref='y', text="RSI 30",
+                       showarrow=False, font=dict(size=10, color='red'),
+                       xanchor='left', yanchor='top', row=current_row, col=1)
     rsi_view = df_daily.loc[df_daily.index >= view_start, 'RSI'].dropna()
     rsi_lo   = min(20.0, rsi_view.min() if not rsi_view.empty else 20.0)
     rsi_hi   = max(80.0, rsi_view.max() if not rsi_view.empty else 80.0)
@@ -905,6 +880,37 @@ def main():
     }})();
     </script>""", unsafe_allow_html=True)
 
+    # ── 요약 카드 ──
+    if selected_ticker and df_daily is not None:
+        cz         = float(df_daily['Z_Score'].iloc[-1]) if pd.notna(df_daily['Z_Score'].iloc[-1]) else 0.0
+        sig        = get_signal(cz)
+        action_txt = ACTION_LABELS.get(sig, '관망')
+        bg_c, _    = SIGNAL_STYLE.get(sig, ('#9ca3af', '#fff'))
+        z_color    = get_z_text_color(cz)
+        summary_html = (
+            f"<div style='display:flex;align-items:center;gap:8px;flex-wrap:wrap;"
+            f"padding:2px 10px;border-radius:6px;border-left:4px solid {bg_c};"
+            f"background:{bg_c}18;margin-bottom:2px;'>"
+            f"<b style='font-size:18px;color:{bg_c};white-space:nowrap;'>{action_txt}</b>"
+            f"<span style='font-size:14px;color:{bg_c};font-weight:700;white-space:nowrap;'>"
+            f"{display_name(selected_ticker)}</span>"
+            f"<span style='width:1px;height:13px;background:#ddd;display:inline-block;'></span>"
+            f"<span style='font-size:13px;color:#666;'>Z-Score&nbsp;"
+            f"<b style='color:{z_color};'>{cz:+.2f}</b></span>"
+            f"<span style='font-size:13px;color:#666;'>β&nbsp;"
+            f"<b style='color:#333;'>{beta:.2f}</b></span>"
+            f"</div>")
+    else:
+        summary_html = "<div style='margin-bottom:3px;'></div>"
+
+    refresh_col, summary_col = st.columns([2, 12])
+    with refresh_col:
+        if st.button("refresh", key="full_refresh_btn", use_container_width=True):
+            st.cache_data.clear()
+            st.rerun()
+    with summary_col:
+        st.markdown(summary_html, unsafe_allow_html=True)
+
     # ── 버튼 + 차트 (2열) ──
     btn_col, chart_col = st.columns([1, 5])
 
@@ -930,10 +936,6 @@ def main():
             if new_val != st.session_state.get('custom_ticker_input', ''):
                 st.session_state.custom_ticker_input = new_val
                 st.rerun()
-        # ── refresh 버튼 (직접입력 아래) ──
-        if st.button("🔄 refresh", key="full_refresh_btn", use_container_width=True):
-            st.cache_data.clear()
-            st.rerun()
 
     with chart_col:
         if df_daily is not None:
