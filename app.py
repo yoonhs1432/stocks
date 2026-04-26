@@ -352,7 +352,7 @@ def process_asset_data(df_x: pd.DataFrame, df_y: pd.DataFrame,
     return df, beta, std_resid
 
 @st.cache_data(show_spinner=False)
-def compute_all_analyses(df_close: pd.DataFrame) -> dict:
+def compute_all_analyses(df_close: pd.DataFrame, _version: int = 2) -> dict:
     results: dict = {}
     df_x = df_close[[f'{X_ASSET_FIXED}_Close']]
     for ticker in TARGET_TICKERS:
@@ -895,7 +895,7 @@ def main():
             pct_changes[ticker] = 0.0
 
     with st.spinner("전체 종목 분석 중... (최초 실행 시 수십 초 소요)"):
-        all_analyses = compute_all_analyses(df_close)
+        all_analyses = compute_all_analyses(df_close, _version=2)
 
     for ticker, result in all_analyses.items():
         if result and result[0] is not None:
