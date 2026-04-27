@@ -169,9 +169,11 @@ def init_session_state() -> None:
     if 'analysis_start' not in st.session_state:
         st.session_state.analysis_start = load_settings().get('analysis_start', '25-01')
     if 'memo_editing_idx' not in st.session_state:
-        st.session_state.memo_editing_idx = None  # 현재 수정 중인 메모 인덱스
+        st.session_state.memo_editing_idx = None
     if 'memo_input_key' not in st.session_state:
-        st.session_state.memo_input_key = 0  # 저장 후 입력창 초기화용
+        st.session_state.memo_input_key = 0
+    if 'candle_type' not in st.session_state:
+        st.session_state.candle_type = '일봉'
 
 # ====================================================
 # 3. 투자의견
@@ -367,7 +369,7 @@ def process_asset_data(df_x: pd.DataFrame, df_y: pd.DataFrame,
     return df, beta, std_resid
 
 @st.cache_data(show_spinner=False)
-def compute_all_analyses(df_close: pd.DataFrame, _version: int = 3) -> dict:
+def compute_all_analyses(df_close: pd.DataFrame, _version: int = 3, candle_type: str = '일봉') -> dict:
     results: dict = {}
     df_x = df_close[[f'{X_ASSET_FIXED}_Close']]
     for ticker in TARGET_TICKERS:
@@ -424,6 +426,8 @@ def add_segmented_fill(fig, df, y_col, color_col, row, col, baseline_y):
 def render_sidebar(selected_ticker: str) -> dict:
     with st.sidebar:
         st.markdown("### ⚙️ 분석 파라미터")
+        candle_type = st.radio("봉 기준", ['일봉', '주봉'], horizontal=True,
+                               index=0 if st.session_state.candle_type == '일봉' else 1)
         analysis_start = st.text_input("분석 시작일 (YY-MM)",
                                        value=st.session_state.analysis_start,
                                        placeholder="25-01")
@@ -549,7 +553,7 @@ def render_sidebar(selected_ticker: str) -> dict:
             st.caption("메모가 없습니다.")
 
     return {'analysis_start': analysis_start.strip(), 'view_months': int(view_months),
-            'guide_n': guide_n}
+            'guide_n': guide_n, 'candle_type': candle_type}
 
 # ====================================================
 # 8. 차트 렌더링
@@ -901,6 +905,13 @@ def main():
     if not df_close.empty:
         df_close = df_close[df_close.index <= last_trading_date]
 
+    # ── 일봉/주봉 전환 ──
+    candle_type = cfg.get('candle_type', '일봉')
+    st.session_state.candle_type = candle_type
+    if candle_type == '주봉' and not df_close.empty:
+        df_close = df_close.resample('W-FRI').last().dropna(how='all')
+
+    # 상승률: 일봉 기준 마지막 vs 전일 (주봉이면 주간 변화율)
     pct_changes = {}
     for ticker in TARGET_TICKERS:
         col = f'{ticker}_Close'
@@ -910,7 +921,7 @@ def main():
             pct_changes[ticker] = 0.0
 
     with st.spinner("전체 종목 분석 중... (최초 실행 시 수십 초 소요)"):
-        all_analyses = compute_all_analyses(df_close, _version=3)
+        all_analyses = compute_all_analyses(df_close, _version=3, candle_type=candle_type)
 
     for ticker, result in all_analyses.items():
         if result and result[0] is not None:
