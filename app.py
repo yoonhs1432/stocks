@@ -750,16 +750,7 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
         mode='lines', line=dict(color='black', width=1.5),
         name=selected_ticker,
         customdata=hover_data,
-        hoverinfo='skip',
-        hovertemplate=(
-            "<b>%{x|%Y-%m-%d}</b><br>"
-            f"{display_name(selected_ticker)}: $%{{customdata[4]:,.1f}}"
-            "  (%{customdata[0]:+.1f}%)<br>"
-            "Z: %{customdata[1]:+.1f}<br>"
-            "MACD: %{customdata[2]:+.1f}<br>"
-            "RSI: %{customdata[3]:.1f}"
-            "<extra></extra>"
-        )),
+        hoverinfo='none'),
         row=current_row, col=1)
     min_price      = df_daily.loc[df_daily.index >= view_start,
                                    ['Plot_Norm_SPY', 'Plot_Norm_Ticker']].min().min()
@@ -937,6 +928,9 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     for r in range(3, total_rows):
         fig.update_xaxes(showticklabels=False, tickformat="%m/%d", row=r, col=1)
     fig.update_xaxes(showticklabels=True, tickformat="%m/%d", row=total_rows, col=1)
+    # 모든 trace hover 완전 비활성화
+    fig.update_traces(hoverinfo='none', hovertemplate=None)
+
     fig.update_layout(
         height=total_h, showlegend=False, hovermode=False,
         dragmode='pan', margin=dict(l=2, r=18, t=10, b=20),
