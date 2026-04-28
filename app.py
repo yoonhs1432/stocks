@@ -253,16 +253,15 @@ def get_market_status() -> dict:
     return {'is_open': is_open, 'status_label': status_label,
             'last_trading_label': last_trading_label, 'last_trading_date': last_day}
 
-def get_signal_combined(cz: float, macd: float, macd_signal: float,
-                        rsi: float) -> str:
-    """Z-Score / MACD vs Signal / RSI 3지표 합산 → 5단계 신호."""
+def get_signal_combined(cz: float, macd_hist_z: float, rsi: float) -> str:
+    """Z-Score / MACD Hist Z-Score / RSI 3지표 합산 → 5단계 신호."""
     score = 0
     # Z-Score
     if cz <= -1.0:   score += 1
     elif cz >= 1.0:  score -= 1
-    # MACD vs Signal (낮을 때 매수, 높을 때 매도)
-    if macd < macd_signal:   score += 1
-    elif macd > macd_signal: score -= 1
+    # MACD Hist Z-Score (낮을 때 매수, 높을 때 매도)
+    if macd_hist_z <= -1.0:   score += 1
+    elif macd_hist_z >= 1.0:  score -= 1
     # RSI
     if rsi <= 40:   score += 1
     elif rsi >= 60: score -= 1
@@ -382,6 +381,10 @@ def _compute_indicators(df: pd.DataFrame, y_name: str) -> tuple:
     df['MACD']        = ema12 - ema26
     df['MACD_Signal'] = df['MACD'].ewm(span=9, adjust=False).mean()
     df['MACD_Hist']   = df['MACD'] - df['MACD_Signal']
+    # MACD Histogram Z-Score (expanding, min 30봉)
+    expanding_macd_std  = df['MACD_Hist'].expanding(min_periods=30).std()
+    expanding_macd_mean = df['MACD_Hist'].expanding(min_periods=30).mean()
+    df['MACD_Hist_Z']   = (df['MACD_Hist'] - expanding_macd_mean) / expanding_macd_std.replace(0, np.nan)
     log_resid         = np.log(df[f'{y_name}_Norm']) - np.log(df['Predicted'])
     std_resid         = log_resid.std()
     expanding_std     = log_resid.expanding(min_periods=30).std()
@@ -398,7 +401,7 @@ def process_asset_data(df_x: pd.DataFrame, df_y: pd.DataFrame,
     return df, beta, std_resid
 
 @st.cache_data(show_spinner=False)
-def compute_all_analyses(df_close: pd.DataFrame, _version: int = 3, candle_type: str = '일봉') -> dict:
+def compute_all_analyses(df_close: pd.DataFrame, _version: int = 4, candle_type: str = '일봉') -> dict:
     results: dict = {}
     df_x = df_close[[f'{X_ASSET_FIXED}_Close']]
     for ticker in TARGET_TICKERS:
@@ -700,15 +703,14 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     price_baseline = min_price * 0.95
     # 3지표 합산 점수로 fill 색상 계산
     def _row_score(row):
-        cz   = row['Z_Score']   if pd.notna(row['Z_Score'])   else 0.0
-        macd = row['MACD']      if pd.notna(row['MACD'])      else 0.0
-        msig = row['MACD_Signal'] if pd.notna(row['MACD_Signal']) else 0.0
-        rsi  = row['RSI']       if pd.notna(row['RSI'])       else 50.0
+        cz  = row['Z_Score']    if pd.notna(row['Z_Score'])    else 0.0
+        mhz = row['MACD_Hist_Z'] if pd.notna(row['MACD_Hist_Z']) else 0.0
+        rsi = row['RSI']        if pd.notna(row['RSI'])        else 50.0
         s = 0
         if cz <= -1.0:    s += 1
         elif cz >= 1.0:   s -= 1
-        if macd < msig:   s += 1
-        elif macd > msig: s -= 1
+        if mhz <= -1.0:   s += 1
+        elif mhz >= 1.0:  s -= 1
         if rsi <= 40:     s += 1
         elif rsi >= 60:   s -= 1
         return s
@@ -965,16 +967,15 @@ def main():
             pct_changes[ticker] = 0.0
 
     with st.spinner("전체 종목 분석 중... (최초 실행 시 수십 초 소요)"):
-        all_analyses = compute_all_analyses(df_close, _version=3, candle_type=candle_type)
+        all_analyses = compute_all_analyses(df_close, _version=4, candle_type=candle_type)
 
     for ticker, result in all_analyses.items():
         if result and result[0] is not None:
             df_t, _, _ = result
-            cz   = float(df_t['Z_Score'].iloc[-1])  if pd.notna(df_t['Z_Score'].iloc[-1])  else 0.0
-            macd = float(df_t['MACD'].iloc[-1])      if pd.notna(df_t['MACD'].iloc[-1])      else 0.0
-            msig = float(df_t['MACD_Signal'].iloc[-1]) if pd.notna(df_t['MACD_Signal'].iloc[-1]) else 0.0
-            rsi  = float(df_t['RSI'].iloc[-1])       if pd.notna(df_t['RSI'].iloc[-1])       else 50.0
-            st.session_state.ticker_signals[ticker] = get_signal_combined(cz, macd, msig, rsi)
+            cz        = float(df_t['Z_Score'].iloc[-1])     if pd.notna(df_t['Z_Score'].iloc[-1])     else 0.0
+            mhz       = float(df_t['MACD_Hist_Z'].iloc[-1]) if pd.notna(df_t['MACD_Hist_Z'].iloc[-1]) else 0.0
+            rsi       = float(df_t['RSI'].iloc[-1])          if pd.notna(df_t['RSI'].iloc[-1])          else 50.0
+            st.session_state.ticker_signals[ticker] = get_signal_combined(cz, mhz, rsi)
         else:
             st.session_state.ticker_signals.setdefault(ticker, 'H')
 
@@ -994,11 +995,10 @@ def main():
         result = all_analyses.get(selected_ticker)
         if result and result[0] is not None:
             df_daily, beta, std_resid = result
-            cz   = float(df_daily['Z_Score'].iloc[-1])    if pd.notna(df_daily['Z_Score'].iloc[-1])    else 0.0
-            macd = float(df_daily['MACD'].iloc[-1])        if pd.notna(df_daily['MACD'].iloc[-1])        else 0.0
-            msig = float(df_daily['MACD_Signal'].iloc[-1]) if pd.notna(df_daily['MACD_Signal'].iloc[-1]) else 0.0
-            rsi  = float(df_daily['RSI'].iloc[-1])         if pd.notna(df_daily['RSI'].iloc[-1])         else 50.0
-            st.session_state.ticker_signals[selected_ticker] = get_signal_combined(cz, macd, msig, rsi)
+            cz  = float(df_daily['Z_Score'].iloc[-1])     if pd.notna(df_daily['Z_Score'].iloc[-1])     else 0.0
+            mhz = float(df_daily['MACD_Hist_Z'].iloc[-1]) if pd.notna(df_daily['MACD_Hist_Z'].iloc[-1]) else 0.0
+            rsi = float(df_daily['RSI'].iloc[-1])          if pd.notna(df_daily['RSI'].iloc[-1])          else 50.0
+            st.session_state.ticker_signals[selected_ticker] = get_signal_combined(cz, mhz, rsi)
     elif selected_ticker and f'{selected_ticker}_Close' in df_close.columns:
         with st.spinner(f"{display_name(selected_ticker)} 분석 중..."):
             result = process_asset_data(
@@ -1007,11 +1007,10 @@ def main():
                 X_ASSET_FIXED, selected_ticker)
         if result[0] is not None:
             df_daily, beta, std_resid = result
-            cz   = float(df_daily['Z_Score'].iloc[-1])    if pd.notna(df_daily['Z_Score'].iloc[-1])    else 0.0
-            macd = float(df_daily['MACD'].iloc[-1])        if pd.notna(df_daily['MACD'].iloc[-1])        else 0.0
-            msig = float(df_daily['MACD_Signal'].iloc[-1]) if pd.notna(df_daily['MACD_Signal'].iloc[-1]) else 0.0
-            rsi  = float(df_daily['RSI'].iloc[-1])         if pd.notna(df_daily['RSI'].iloc[-1])         else 50.0
-            st.session_state.ticker_signals[selected_ticker] = get_signal_combined(cz, macd, msig, rsi)
+            cz  = float(df_daily['Z_Score'].iloc[-1])     if pd.notna(df_daily['Z_Score'].iloc[-1])     else 0.0
+            mhz = float(df_daily['MACD_Hist_Z'].iloc[-1]) if pd.notna(df_daily['MACD_Hist_Z'].iloc[-1]) else 0.0
+            rsi = float(df_daily['RSI'].iloc[-1])          if pd.notna(df_daily['RSI'].iloc[-1])          else 50.0
+            st.session_state.ticker_signals[selected_ticker] = get_signal_combined(cz, mhz, rsi)
 
     # ── CSS ──
     btn_css_parts = []
