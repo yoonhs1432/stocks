@@ -618,7 +618,7 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     }
     </style>""", unsafe_allow_html=True)
 
-    PX = {'main': 150, 'spacer': 20, 'price': 91, 'zscore': 91, 'macd': 91, 'rsi': 91}
+    PX = {'main': 150, 'spacer': 20, 'price': 100, 'zscore': 100, 'macd': 100, 'rsi': 100}
     active_plots = ['main', 'spacer', 'price', 'zscore', 'macd', 'rsi']
     total_rows   = len(active_plots)
     total_h      = sum(PX[p] for p in active_plots)
@@ -1108,8 +1108,8 @@ def main():
         flex-wrap:nowrap!important; gap:5px!important; align-items:flex-start!important;
     }}
     section[data-testid="stMain"] div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"]:first-child {{
-        flex:0 0 100px!important; min-width:100px!important;
-        max-width:100px!important; padding:0!important;
+        flex:0 0 80px!important; min-width:80px!important;
+        max-width:80px!important; padding:0!important;
     }}
     section[data-testid="stMain"] div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"]:last-child {{
         flex:1 1 0!important; min-width:0!important;
