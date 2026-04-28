@@ -734,8 +734,14 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     current_row += 1
 
     # ── [4] Z-Score ──
-    z_colors = np.where(df_daily['Z_Score'] >= 0,
-                        'rgba(29,78,216,0.5)', 'rgba(220,38,38,0.5)')
+    z_colors = np.where(
+        df_daily['Z_Score'] >= 1.5,  'rgba(29,78,216,0.85)',   # 진파랑 (기준 초과)
+        np.where(
+        df_daily['Z_Score'] >= 0,    'rgba(147,197,253,0.6)',  # 연파랑
+        np.where(
+        df_daily['Z_Score'] <= -1.5, 'rgba(185,28,28,0.85)',   # 진빨강 (기준 초과)
+                                      'rgba(252,165,165,0.6)'   # 연빨강
+    )))
     fig.add_trace(go.Bar(x=df_daily.index, y=df_daily['Z_Score'],
                           marker_color=z_colors, name='Z-Score'),
                   row=current_row, col=1)
@@ -759,15 +765,21 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     current_row += 1
 
     # ── [5] MACD ──
-    macd_colors = np.where(df_daily['MACD_Hist_Z'] >= 0,
-                           'rgba(0,128,0,0.5)', 'rgba(255,0,0,0.5)')
+    # +일때 파랑, -일때 빨강 / 기준선 넘으면 더 진하게
+    macd_colors = np.where(
+        df_daily['MACD_Hist_Z'] >= 1.0,  'rgba(29,78,216,0.85)',   # 진파랑 (기준 초과)
+        np.where(
+        df_daily['MACD_Hist_Z'] >= 0,    'rgba(147,197,253,0.6)',  # 연파랑
+        np.where(
+        df_daily['MACD_Hist_Z'] <= -1.0, 'rgba(185,28,28,0.85)',   # 진빨강 (기준 초과)
+                                          'rgba(252,165,165,0.6)'   # 연빨강
+    )))
     fig.add_trace(go.Bar(x=df_daily.index, y=df_daily['MACD_Hist_Z'],
                           marker_color=macd_colors, name='MACD Hist Z'),
                   row=current_row, col=1)
     fig.add_hline(y= 1.0, line_dash="solid", line_color="blue", line_width=0.8, row=current_row, col=1)
     fig.add_hline(y=-1.0, line_dash="solid", line_color="red",  line_width=0.8, row=current_row, col=1)
     fig.add_hline(y= 0.0, line_dash="solid", line_color="gray", line_width=0.6, row=current_row, col=1)
-    # [5] 라벨: MACD Hist Z 현재 값
     mhz_val   = float(df_daily['MACD_Hist_Z'].iloc[-1]) if pd.notna(df_daily['MACD_Hist_Z'].iloc[-1]) else 0.0
     mhz_color = '#dc2626' if mhz_val <= -1.0 else '#1d4ed8' if mhz_val >= 1.0 else 'black'
     fig.add_annotation(
@@ -781,17 +793,21 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     current_row += 1
 
     # ── [6] RSI ──
-    rsi_hist_colors = np.where(df_daily['RSI_Hist'] >= 0,
-                               'rgba(0,128,0,0.5)', 'rgba(255,0,0,0.5)')
-    fig.add_trace(go.Bar(x=df_daily.index, y=df_daily['RSI_Hist'],
-                          marker_color=rsi_hist_colors, name='RSI Hist'),
-                  row=current_row, col=1)
-    fig.add_trace(go.Scatter(x=df_daily.index, y=df_daily['RSI'],
-                              line=dict(color='black', width=1.5), name='RSI'),
+    # 50 기준 파랑/빨강, 70/30 넘으면 더 진하게
+    rsi_colors = np.where(
+        df_daily['RSI'] >= 70,  'rgba(29,78,216,0.85)',   # 진파랑 (70 초과)
+        np.where(
+        df_daily['RSI'] >= 50,  'rgba(147,197,253,0.6)',  # 연파랑
+        np.where(
+        df_daily['RSI'] <= 30,  'rgba(185,28,28,0.85)',   # 진빨강 (30 미만)
+                                'rgba(252,165,165,0.6)'   # 연빨강
+    )))
+    fig.add_trace(go.Bar(x=df_daily.index, y=df_daily['RSI'],
+                          marker_color=rsi_colors, name='RSI'),
                   row=current_row, col=1)
     fig.add_hline(y=70, line_dash="solid", line_color="blue", line_width=0.8, row=current_row, col=1)
+    fig.add_hline(y=50, line_dash="solid", line_color="gray", line_width=0.6, row=current_row, col=1)
     fig.add_hline(y=30, line_dash="solid", line_color="red",  line_width=0.8, row=current_row, col=1)
-    # [6] 라벨: RSI 현재 값
     rsi_val   = float(df_daily['RSI'].iloc[-1]) if pd.notna(df_daily['RSI'].iloc[-1]) else 50.0
     rsi_color = '#1d4ed8' if rsi_val >= 70 else '#dc2626' if rsi_val <= 30 else 'black'
     fig.add_annotation(
