@@ -32,21 +32,27 @@ TICKER_DISPLAY_NAMES: dict = {
 }
 
 SIGNAL_STYLE: dict = {
-    'FB': ('#dc2626', '#ffffff'),
-    'B':  ('#fca5a5', '#1a1a1a'),
-    'H':  ('#9ca3af', '#ffffff'),
-    'S':  ('#93c5fd', '#1a1a1a'),
-    'FS': ('#1d4ed8', '#ffffff'),
+    'FB2': ('#7f1d1d', '#ffffff'),   # 강한 매수 (+5~+6)
+    'FB':  ('#dc2626', '#ffffff'),   # 매수      (+3~+4)
+    'B':   ('#fca5a5', '#1a1a1a'),   # 약한 매수 (+1~+2)
+    'H':   ('#9ca3af', '#ffffff'),   # 중립      (0)
+    'S':   ('#93c5fd', '#1a1a1a'),   # 약한 매도 (-1~-2)
+    'FS':  ('#2563eb', '#ffffff'),   # 매도      (-3~-4)
+    'FS2': ('#1e3a8a', '#ffffff'),   # 강한 매도 (-5~-6)
 }
 ACTION_LABELS: dict = {
-    'FB': '풀 매수', 'B': '매수', 'H': '관망', 'S': '매도', 'FS': '풀 매도',
+    'FB2': '강한 매수', 'FB': '매수', 'B': '약한 매수',
+    'H':   '관망',
+    'S':   '약한 매도', 'FS': '매도', 'FS2': '강한 매도',
 }
 BUTTON_TEXT_STYLE: dict = {
-    'FB': '#f8fafc',
-    'B':  '#111827',
-    'H':  '#111827',
-    'S':  '#111827',
-    'FS': '#f8fafc',
+    'FB2': '#f8fafc',
+    'FB':  '#f8fafc',
+    'B':   '#111827',
+    'H':   '#111827',
+    'S':   '#111827',
+    'FS':  '#f8fafc',
+    'FS2': '#f8fafc',
 }
 
 def display_name(ticker: str) -> str:
@@ -254,22 +260,32 @@ def get_market_status() -> dict:
             'last_trading_label': last_trading_label, 'last_trading_date': last_day}
 
 def get_signal_combined(cz: float, macd_hist_z: float, rsi: float) -> str:
-    """Z-Score / MACD Hist Z-Score / RSI 3지표 합산 → 5단계 신호."""
+    """Z-Score / MACD Hist Z / RSI 3지표 → 7단계 신호.
+    각 지표: 기준선 초과 ±2, 0 초과/미만 ±1. 총점 -6 ~ +6.
+    """
     score = 0
-    # Z-Score
-    if cz <= -1.0:   score += 1
-    elif cz >= 1.0:  score -= 1
-    # MACD Hist Z-Score (낮을 때 매수, 높을 때 매도)
-    if macd_hist_z <= -1.0:   score += 1
-    elif macd_hist_z >= 1.0:  score -= 1
-    # RSI
-    if rsi <= 40:   score += 1
-    elif rsi >= 60: score -= 1
+    # Z-Score (기준선 ±1.5)
+    if   cz <= -1.5: score += 2
+    elif cz <  0:    score += 1
+    elif cz >= 1.5:  score -= 2
+    elif cz >  0:    score -= 1
+    # MACD Hist Z (기준선 ±1.0, 낮을 때 매수)
+    if   macd_hist_z <= -1.0: score += 2
+    elif macd_hist_z <  0:    score += 1
+    elif macd_hist_z >= 1.0:  score -= 2
+    elif macd_hist_z >  0:    score -= 1
+    # RSI (기준선 70/30, 50 기준 방향, 낮을 때 매수)
+    if   rsi <= 30:  score += 2
+    elif rsi <  50:  score += 1
+    elif rsi >= 70:  score -= 2
+    elif rsi >= 50:  score -= 1
 
-    if score >= 3:    return 'FB'
-    if score >= 1:    return 'B'
-    if score <= -3:   return 'FS'
-    if score <= -1:   return 'S'
+    if   score >= 5:  return 'FB2'
+    elif score >= 3:  return 'FB'
+    elif score >= 1:  return 'B'
+    elif score <= -5: return 'FS2'
+    elif score <= -3: return 'FS'
+    elif score <= -1: return 'S'
     return 'H'
 
 def get_signal(current_z: float = 0.0) -> str:
@@ -296,12 +312,14 @@ def get_price_fill_color(current_z: float) -> str:
     return 'rgba(29,78,216,0.35)'
 
 def get_price_fill_color_combined(score: int) -> str:
-    """3지표 합산 점수 기반 Price 패널 fill 색상."""
-    if score >= 3:    return 'rgba(220,38,38,0.35)'   # FB 진빨강
-    if score >= 1:    return 'rgba(252,165,165,0.22)' # B  연빨강
-    if score <= -3:   return 'rgba(29,78,216,0.35)'   # FS 진파랑
-    if score <= -1:   return 'rgba(147,197,253,0.22)' # S  연파랑
-    return 'rgba(156,163,175,0.12)'                   # H  회색
+    """3지표 합산 점수 기반 Price 패널 fill 색상 (7단계)."""
+    if score >= 5:    return 'rgba(127,29,29,0.40)'    # FB2 진빨강
+    if score >= 3:    return 'rgba(220,38,38,0.30)'    # FB  빨강
+    if score >= 1:    return 'rgba(252,165,165,0.20)'  # B   연빨강
+    if score <= -5:   return 'rgba(30,58,138,0.40)'    # FS2 진파랑
+    if score <= -3:   return 'rgba(37,99,235,0.30)'    # FS  파랑
+    if score <= -1:   return 'rgba(147,197,253,0.20)'  # S   연파랑
+    return 'rgba(156,163,175,0.10)'                    # H   회색
 
 def get_time_grid_dtick_ms(start: pd.Timestamp, end: pd.Timestamp, target_grids: int = 8) -> int:
     span_days    = max((end - start).days, 1)
@@ -401,7 +419,7 @@ def process_asset_data(df_x: pd.DataFrame, df_y: pd.DataFrame,
     return df, beta, std_resid
 
 @st.cache_data(show_spinner=False)
-def compute_all_analyses(df_close: pd.DataFrame, _version: int = 4, candle_type: str = '일봉') -> dict:
+def compute_all_analyses(df_close: pd.DataFrame, _version: int = 5, candle_type: str = '일봉') -> dict:
     results: dict = {}
     df_x = df_close[[f'{X_ASSET_FIXED}_Close']]
     for ticker in TARGET_TICKERS:
@@ -703,16 +721,22 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     price_baseline = min_price * 0.95
     # 3지표 합산 점수로 fill 색상 계산
     def _row_score(row):
-        cz  = row['Z_Score']    if pd.notna(row['Z_Score'])    else 0.0
+        cz  = row['Z_Score']     if pd.notna(row['Z_Score'])     else 0.0
         mhz = row['MACD_Hist_Z'] if pd.notna(row['MACD_Hist_Z']) else 0.0
-        rsi = row['RSI']        if pd.notna(row['RSI'])        else 50.0
+        rsi = row['RSI']         if pd.notna(row['RSI'])         else 50.0
         s = 0
-        if cz <= -1.0:    s += 1
-        elif cz >= 1.0:   s -= 1
-        if mhz <= -1.0:   s += 1
-        elif mhz >= 1.0:  s -= 1
-        if rsi <= 40:     s += 1
-        elif rsi >= 60:   s -= 1
+        if   cz <= -1.5: s += 2
+        elif cz <  0:    s += 1
+        elif cz >= 1.5:  s -= 2
+        elif cz >  0:    s -= 1
+        if   mhz <= -1.0: s += 2
+        elif mhz <  0:    s += 1
+        elif mhz >= 1.0:  s -= 2
+        elif mhz >  0:    s -= 1
+        if   rsi <= 30:  s += 2
+        elif rsi <  50:  s += 1
+        elif rsi >= 70:  s -= 2
+        elif rsi >= 50:  s -= 1
         return s
     df_daily['Combined_Score']    = df_daily.apply(_row_score, axis=1)
     df_daily['Price_Fill_Color']  = df_daily['Combined_Score'].apply(get_price_fill_color_combined)
@@ -986,7 +1010,7 @@ def main():
             pct_changes[ticker] = 0.0
 
     with st.spinner("전체 종목 분석 중... (최초 실행 시 수십 초 소요)"):
-        all_analyses = compute_all_analyses(df_close, _version=4, candle_type=candle_type)
+        all_analyses = compute_all_analyses(df_close, _version=5, candle_type=candle_type)
 
     for ticker, result in all_analyses.items():
         if result and result[0] is not None:
@@ -1134,9 +1158,8 @@ def main():
             btn_key = f"ticker_btn_{safe_key(ticker)}"
             pct     = pct_changes.get(ticker, 0)
             rsi_val = ticker_rsi.get(ticker)
-            rsi_str = f"{rsi_val:.0f}" if rsi_val is not None else "--"
             pct_str = f"{pct:+.1f}%"
-            btn_label = f"**{display_name(ticker)}**   {pct_str}   {rsi_str}"
+            btn_label = f"**{display_name(ticker)}**   {pct_str}"
             if st.button(btn_label, key=btn_key, use_container_width=True):
                 st.session_state.selected_option     = ticker
                 st.session_state.custom_ticker_input = ''
