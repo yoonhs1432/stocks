@@ -731,26 +731,15 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     df_daily['Plot_Norm_Ticker'] = df_daily[f'{selected_ticker}_Norm'] / base_tkr
 
     # ── [3] Price ──
-    # hover용 customdata 준비: 상승률, Z, MACD Z, RSI
-    pct_col   = df_daily[f'{selected_ticker}_Close'].pct_change() * 100
-    hover_data = np.column_stack([
-        pct_col.fillna(0).values,
-        df_daily['Z_Score'].fillna(0).values,
-        df_daily['MACD_Hist_Z'].fillna(0).values,
-        df_daily['RSI'].fillna(50).values,
-        df_daily[f'{selected_ticker}_Close'].values,
-    ])
     fig.add_trace(go.Scatter(
         x=df_daily.index, y=df_daily['Plot_Norm_SPY'],
         mode='lines', line=dict(color='gray', width=1.5),
-        name=X_ASSET_FIXED, hoverinfo='skip'),
+        name=X_ASSET_FIXED),
         row=current_row, col=1)
     fig.add_trace(go.Scatter(
         x=df_daily.index, y=df_daily['Plot_Norm_Ticker'],
         mode='lines', line=dict(color='black', width=1.5),
-        name=selected_ticker,
-        customdata=hover_data,
-        hoverinfo='none'),
+        name=selected_ticker),
         row=current_row, col=1)
     min_price      = df_daily.loc[df_daily.index >= view_start,
                                    ['Plot_Norm_SPY', 'Plot_Norm_Ticker']].min().min()
@@ -929,7 +918,7 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
         fig.update_xaxes(showticklabels=False, tickformat="%m/%d", row=r, col=1)
     fig.update_xaxes(showticklabels=True, tickformat="%m/%d", row=total_rows, col=1)
 
-    # hover 완전 비활성 - hoverinfo='skip'은 on_select도 막으므로 spike만 끔
+    fig.update_traces(hoverinfo='skip')
     fig.update_layout(
         height=total_h, showlegend=False, hovermode=False,
         dragmode='pan', margin=dict(l=2, r=18, t=10, b=20),
@@ -937,71 +926,10 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     for r in range(3, total_rows + 1):
         fig.update_xaxes(range=[view_start, last_date], row=r, col=1)
 
-    sel = st.plotly_chart(fig, use_container_width=True,
-                          on_select='rerun',
-                          config={'scrollZoom': True, 'displayModeBar': False,
-                                  'doubleClick': 'reset', 'responsive': True,
-                                  'showTips': False})
-
-    # ── 클릭 정보 박스 (항상 표시) ──
-    clicked_info = None
-    if sel and sel.selection and sel.selection.get('points'):
-        pt = sel.selection['points'][0]
-        cd = pt.get('customdata')
-        if cd is not None and len(cd) >= 5:
-            clicked_info = {
-                'date':  pt.get('x', ''),
-                'price': cd[4],
-                'pct':   cd[0],
-                'z':     cd[1],
-                'macd':  cd[2],
-                'rsi':   cd[3],
-            }
-
-    if clicked_info:
-        d = clicked_info
-        sig_score = 0
-        cz = d['z']; mhz = d['macd']; rsi = d['rsi']
-        if cz <= -1.5:   sig_score += 2
-        elif cz < 0:     sig_score += 1
-        elif cz >= 1.5:  sig_score -= 2
-        elif cz > 0:     sig_score -= 1
-        if mhz <= -1.0:  sig_score += 2
-        elif mhz < 0:    sig_score += 1
-        elif mhz >= 1.0: sig_score -= 2
-        elif mhz > 0:    sig_score -= 1
-        if rsi <= 30:    sig_score += 2
-        elif rsi < 50:   sig_score += 1
-        elif rsi >= 70:  sig_score -= 2
-        elif rsi >= 50:  sig_score -= 1
-        sig   = ('FB2' if sig_score >= 5 else 'FB' if sig_score >= 3 else
-                 'B'   if sig_score >= 1 else 'FS2' if sig_score <= -5 else
-                 'FS'  if sig_score <= -3 else 'S'  if sig_score <= -1 else 'H')
-        bg, _ = SIGNAL_STYLE.get(sig, ('#9ca3af', '#fff'))
-        label = ACTION_LABELS.get(sig, '관망')
-        pc    = '#dc2626' if d['pct'] > 0 else '#1d4ed8' if d['pct'] < 0 else '#6b7280'
-        inner = (
-            f"<b style='color:#555;font-size:0.78rem;'>{d['date']}</b>&emsp;"
-            f"<b style='color:{bg};'>{label}</b>&emsp;"
-            f"<span style='color:#333;'>${d['price']:,.1f}&nbsp;"
-            f"<b style='color:{pc};'>({d['pct']:+.1f}%)</b></span>&emsp;"
-            f"Z&nbsp;<b>{d['z']:+.1f}</b>&emsp;"
-            f"MACD&nbsp;<b>{d['macd']:+.1f}</b>&emsp;"
-            f"RSI&nbsp;<b>{d['rsi']:.1f}</b>"
-        )
-        border_color = bg
-    else:
-        inner        = "<span style='color:#bbb;'>그래프를 클릭하면 해당 날짜의 지표값이 표시됩니다</span>"
-        border_color = '#e5e7eb'
-
-    st.markdown(
-        f"<div style='min-height:2rem;padding:5px 12px;border-radius:6px;"
-        f"border:1px solid {border_color};background:#f9fafb;"
-        f"display:flex;align-items:center;flex-wrap:wrap;gap:4px;"
-        f"font-size:0.82rem;color:#333;margin:3px 0;'>"
-        f"{inner}</div>",
-        unsafe_allow_html=True
-    )
+    st.plotly_chart(fig, use_container_width=True,
+                    config={'scrollZoom': True, 'displayModeBar': False,
+                            'doubleClick': 'reset', 'responsive': True,
+                            'showTips': False})
 
 # ====================================================
 # 9. 메모 표시 (목록만 — 전체 너비)
