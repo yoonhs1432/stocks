@@ -658,7 +658,8 @@ def render_sidebar(selected_ticker: str) -> dict:
 def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
                  beta: float, std_resid: float,
                  guide_n: int, view_months: int,
-                 df_ohlc: pd.DataFrame = None) -> None:
+                 df_ohlc: pd.DataFrame = None,
+                 df_daily_raw: pd.DataFrame = None) -> None:
     st.markdown("""
     <style>
     .js-plotly-plot, .js-plotly-plot .plotly, .js-plotly-plot svg {
@@ -675,13 +676,14 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
                                  row_heights=row_heights, vertical_spacing=0.02)
     current_row  = 1
 
-    # ── [1] 로그-로그 산점도 ──
-    sdf   = df_daily.sort_values(f'{X_ASSET_FIXED}_Norm')
+    # ── [1] 로그-로그 산점도 (항상 일봉 기준) ──
+    sc_df  = df_daily_raw if (df_daily_raw is not None and not df_daily_raw.empty) else df_daily
+    sdf    = sc_df.sort_values(f'{X_ASSET_FIXED}_Norm')
     x_vals = sdf[f'{X_ASSET_FIXED}_Norm']
-    min_x  = df_daily[f'{X_ASSET_FIXED}_Norm'].min()
-    max_x  = df_daily[f'{X_ASSET_FIXED}_Norm'].max()
-    empirical_c = (df_daily[f'{selected_ticker}_Norm']
-                   / (df_daily[f'{X_ASSET_FIXED}_Norm'] ** guide_n))
+    min_x  = sc_df[f'{X_ASSET_FIXED}_Norm'].min()
+    max_x  = sc_df[f'{X_ASSET_FIXED}_Norm'].max()
+    empirical_c = (sc_df[f'{selected_ticker}_Norm']
+                   / (sc_df[f'{X_ASSET_FIXED}_Norm'] ** guide_n))
     for log_c in np.linspace(np.log10(empirical_c.min()) - 1.0,
                               np.log10(empirical_c.max()) + 1.0, 15):
         c_val = 10 ** log_c
@@ -705,15 +707,15 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
         x=sdf[f'{X_ASSET_FIXED}_Norm'], y=sdf['Predicted'],
         mode='lines', line=dict(color='black', width=2), name='Predicted Trend'),
         row=current_row, col=1)
-    color_array = np.linspace(0, 1, len(df_daily))
+    color_array = np.linspace(0, 1, len(sc_df))
     fig.add_trace(go.Scatter(
-        x=df_daily[f'{X_ASSET_FIXED}_Norm'], y=df_daily[f'{selected_ticker}_Norm'],
+        x=sc_df[f'{X_ASSET_FIXED}_Norm'], y=sc_df[f'{selected_ticker}_Norm'],
         mode='markers',
         marker=dict(color=color_array, colorscale='Viridis', size=5, opacity=0.8),
         name='Daily Data'),
         row=current_row, col=1)
-    last_x = df_daily[f'{X_ASSET_FIXED}_Norm'].iloc[-1]
-    last_y = df_daily[f'{selected_ticker}_Norm'].iloc[-1]
+    last_x = sc_df[f'{X_ASSET_FIXED}_Norm'].iloc[-1]
+    last_y = sc_df[f'{selected_ticker}_Norm'].iloc[-1]
     fig.add_trace(go.Scatter(
         x=[last_x], y=[last_y], mode='markers',
         marker=dict(symbol='star', color='hotpink', size=12,
@@ -722,7 +724,7 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
         row=current_row, col=1)
     band_upper = np.exp(np.log(sdf['Predicted'].values) + 1.5 * std_resid)
     band_lower = np.exp(np.log(sdf['Predicted'].values) - 1.5 * std_resid)
-    y_all = np.concatenate([df_daily[f'{selected_ticker}_Norm'].dropna().values,
+    y_all = np.concatenate([sc_df[f'{selected_ticker}_Norm'].dropna().values,
                              band_upper, band_lower])
     fig.update_xaxes(type="log", showgrid=False,
                      range=[np.log10(min_x * 0.98), np.log10(max_x * 1.02)],
@@ -1295,8 +1297,21 @@ def main():
             # OHLC 캔들 데이터 fetch
             with st.spinner("캔들 데이터 로드 중..."):
                 df_ohlc = fetch_ohlc(selected_ticker, analysis_start, candle_type)
+            # 산점도용 일봉 데이터 (주봉 선택 시에도 항상 일봉)
+            df_daily_raw = None
+            if candle_type == '주봉':
+                df_raw = fetch_all_data(TARGET_TICKERS, analysis_start, '일봉')
+                if not df_raw.empty:
+                    df_raw = df_raw[df_raw.index <= last_trading_date]
+                    df_x_raw = df_raw[[f'{X_ASSET_FIXED}_Close']]
+                    col_raw  = f'{selected_ticker}_Close'
+                    if col_raw in df_raw.columns:
+                        result_raw = process_asset_data(
+                            df_x_raw, df_raw[[col_raw]], X_ASSET_FIXED, selected_ticker)
+                        if result_raw[0] is not None:
+                            df_daily_raw = result_raw[0]
             render_chart(df_daily, selected_ticker, beta, std_resid,
-                         cfg['guide_n'], cfg['view_months'], df_ohlc)
+                         cfg['guide_n'], cfg['view_months'], df_ohlc, df_daily_raw)
         elif selected_option == DIRECT_INPUT_LABEL:
             if not st.session_state.get('custom_ticker_input', ''):
                 st.info("왼쪽에서 티커를 입력해 주세요. (예: NVDA, 000660)")
