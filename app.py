@@ -341,6 +341,40 @@ def _download_ticker_data(ticker: str, start_date_str: str) -> pd.DataFrame:
         pass
     return pd.DataFrame()
 
+@st.cache_data(show_spinner=False)
+def fetch_ohlc(ticker: str, start_date_str: str, candle_type: str = '일봉') -> pd.DataFrame:
+    """선택 종목의 OHLC 데이터 fetch (캔들 차트용)."""
+    try:
+        data = fdr.DataReader(ticker, start_date_str)
+        if data.empty:
+            return pd.DataFrame()
+        data = data[~data.index.duplicated(keep='last')].sort_index()
+        cols = [c for c in ['Open', 'High', 'Low', 'Close'] if c in data.columns]
+        if len(cols) < 4:
+            return pd.DataFrame()
+        df = data[cols].copy()
+        # 거래일 필터 (주말 제거)
+        df = df[df.index.weekday < 5]
+        if candle_type == '주봉':
+            df_w = df.resample('W-FRI').agg(
+                {'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last'}
+            ).dropna(how='all')
+            last_daily = df.index[-1]
+            if not df_w.empty and last_daily > df_w.index[-1]:
+                week_slice = df[df.index > df_w.index[-1]]
+                if not week_slice.empty:
+                    row = pd.DataFrame([{
+                        'Open':  week_slice['Open'].iloc[0],
+                        'High':  week_slice['High'].max(),
+                        'Low':   week_slice['Low'].min(),
+                        'Close': week_slice['Close'].iloc[-1],
+                    }], index=[last_daily])
+                    df_w = pd.concat([df_w, row])
+            df = df_w
+        return df
+    except Exception:
+        return pd.DataFrame()
+
 def _filter_trading_days(df: pd.DataFrame) -> pd.DataFrame:
     """SPY 기준 실제 거래일만 남긴다 (주말·공휴일 ffill 행 제거)."""
     spy_col = f'{X_ASSET_FIXED}_Close'
@@ -623,7 +657,8 @@ def render_sidebar(selected_ticker: str) -> dict:
 # ====================================================
 def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
                  beta: float, std_resid: float,
-                 guide_n: int, view_months: int) -> None:
+                 guide_n: int, view_months: int,
+                 df_ohlc: pd.DataFrame = None) -> None:
     st.markdown("""
     <style>
     .js-plotly-plot, .js-plotly-plot .plotly, .js-plotly-plot svg {
@@ -736,11 +771,36 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
         mode='lines', line=dict(color='gray', width=1.5),
         name=X_ASSET_FIXED),
         row=current_row, col=1)
-    fig.add_trace(go.Scatter(
-        x=df_daily.index, y=df_daily['Plot_Norm_Ticker'],
-        mode='lines', line=dict(color='black', width=1.5),
-        name=selected_ticker),
-        row=current_row, col=1)
+
+    # 캔들스틱 (OHLC 데이터 있을 때)
+    if df_ohlc is not None and not df_ohlc.empty:
+        # OHLC를 Plot_Norm_Ticker 스케일로 정규화
+        base_close = df_daily[f'{selected_ticker}_Close'].iloc[0]
+        base_tkr   = df_daily[f'{selected_ticker}_Norm'].iloc[0]
+        norm_factor = base_tkr / base_close if base_close != 0 else 1.0
+        # view_start 기준 재정규화
+        view_df  = df_daily[df_daily.index >= view_start]
+        base_norm = view_df[f'{selected_ticker}_Norm'].iloc[0] if not view_df.empty else 1.0
+        ohlc_norm = df_ohlc / base_close * (base_tkr / base_norm)
+        fig.add_trace(go.Candlestick(
+            x=df_ohlc.index,
+            open=ohlc_norm['Open'],
+            high=ohlc_norm['High'],
+            low=ohlc_norm['Low'],
+            close=ohlc_norm['Close'],
+            increasing=dict(line=dict(color='#dc2626', width=1),
+                            fillcolor='#dc2626'),
+            decreasing=dict(line=dict(color='#1d4ed8', width=1),
+                            fillcolor='#1d4ed8'),
+            showlegend=False,
+            hoverinfo='skip'),
+            row=current_row, col=1)
+    else:
+        fig.add_trace(go.Scatter(
+            x=df_daily.index, y=df_daily['Plot_Norm_Ticker'],
+            mode='lines', line=dict(color='black', width=1.5),
+            name=selected_ticker),
+            row=current_row, col=1)
     min_price      = df_daily.loc[df_daily.index >= view_start,
                                    ['Plot_Norm_SPY', 'Plot_Norm_Ticker']].min().min()
     max_price      = df_daily.loc[df_daily.index >= view_start,
@@ -1225,8 +1285,11 @@ def main():
 
     with chart_col:
         if df_daily is not None:
+            # OHLC 캔들 데이터 fetch
+            with st.spinner("캔들 데이터 로드 중..."):
+                df_ohlc = fetch_ohlc(selected_ticker, analysis_start, candle_type)
             render_chart(df_daily, selected_ticker, beta, std_resid,
-                         cfg['guide_n'], cfg['view_months'])
+                         cfg['guide_n'], cfg['view_months'], df_ohlc)
         elif selected_option == DIRECT_INPUT_LABEL:
             if not st.session_state.get('custom_ticker_input', ''):
                 st.info("왼쪽에서 티커를 입력해 주세요. (예: NVDA, 000660)")
