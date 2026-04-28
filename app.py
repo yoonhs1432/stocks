@@ -831,7 +831,7 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     add_segmented_fill(fig, df_daily, 'Plot_Norm_Ticker', 'Price_Fill_Color',
                        current_row, 1, price_baseline)
     fig.update_yaxes(type="log",
-                     range=[np.log10(price_baseline), np.log10(max_price * 1.05)],
+                     autorange=True, fixedrange=False,
                      row=current_row, col=1)
     # [3] 라벨: 현재 가격만
     last_price = df_daily[f'{selected_ticker}_Close'].iloc[-1]
