@@ -836,7 +836,7 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
                        current_row, 1, p_lo)
     fig.update_yaxes(type="log",
                      range=[np.log10(max(p_lo, 1e-6)), np.log10(max(p_hi, 1e-6))],
-                     autorange=False, fixedrange=False,
+                     autorange=False, fixedrange=True,
                      row=current_row, col=1)
     # [3] 라벨: 현재 가격만
     last_price = df_daily[f'{selected_ticker}_Close'].iloc[-1]
@@ -878,7 +878,7 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     z_view  = df_daily.loc[df_daily.index >= view_start, 'Z_Score'].dropna()
     z_abs   = max(1.5, abs(z_view).max() if not z_view.empty else 1.5)
     fig.update_yaxes(range=[-(z_abs + 0.3), z_abs + 0.3],
-                     autorange=False, fixedrange=False, row=current_row, col=1)
+                     autorange=False, fixedrange=True, row=current_row, col=1)
     
     current_row += 1
 
@@ -911,7 +911,7 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     mhz_view = df_daily.loc[df_daily.index >= view_start, 'MACD_Hist_Z'].dropna()
     mhz_abs  = max(1.0, abs(mhz_view).max() if not mhz_view.empty else 1.0)
     fig.update_yaxes(range=[-(mhz_abs + 0.3), mhz_abs + 0.3],
-                     autorange=False, fixedrange=False, row=current_row, col=1)
+                     autorange=False, fixedrange=True, row=current_row, col=1)
     current_row += 1
     # 50 기준으로 위/아래, 70/30 넘으면 더 진하게
     rsi_centered = df_daily['RSI'] - 50
@@ -943,7 +943,7 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     rsi_c_view = rsi_view - 50
     rsi_abs    = max(20.0, abs(rsi_c_view).max() if not rsi_c_view.empty else 20.0)
     fig.update_yaxes(range=[-(rsi_abs + 2), rsi_abs + 2],
-                     autorange=False, fixedrange=False, row=current_row, col=1)
+                     autorange=False, fixedrange=True, row=current_row, col=1)
     
 
     # ── 매매 기록 마커 ──
@@ -980,7 +980,7 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
                          matches=time_x_axis,
                          rangebreaks=[dict(bounds=['sat', 'mon'])],
                          row=r, col=1)
-        fig.update_yaxes(showgrid=False, autorange=True, fixedrange=False,
+        fig.update_yaxes(showgrid=False, autorange=False, fixedrange=True,
                          row=r, col=1)
     for r in range(3, total_rows):
         fig.update_xaxes(showticklabels=False, tickformat="%m/%d", row=r, col=1)
