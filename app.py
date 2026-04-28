@@ -793,21 +793,22 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     current_row += 1
 
     # ── [6] RSI ──
-    # 50 기준 파랑/빨강, 70/30 넘으면 더 진하게
+    # 50 기준으로 위/아래, 70/30 넘으면 더 진하게
+    rsi_centered = df_daily['RSI'] - 50
     rsi_colors = np.where(
-        df_daily['RSI'] >= 70,  'rgba(29,78,216,0.85)',   # 진파랑 (70 초과)
+        df_daily['RSI'] >= 70,  'rgba(29,78,216,0.85)',
         np.where(
-        df_daily['RSI'] >= 50,  'rgba(147,197,253,0.6)',  # 연파랑
+        df_daily['RSI'] >= 50,  'rgba(147,197,253,0.6)',
         np.where(
-        df_daily['RSI'] <= 30,  'rgba(185,28,28,0.85)',   # 진빨강 (30 미만)
-                                'rgba(252,165,165,0.6)'   # 연빨강
+        df_daily['RSI'] <= 30,  'rgba(185,28,28,0.85)',
+                                'rgba(252,165,165,0.6)'
     )))
-    fig.add_trace(go.Bar(x=df_daily.index, y=df_daily['RSI'],
+    fig.add_trace(go.Bar(x=df_daily.index, y=rsi_centered,
                           marker_color=rsi_colors, name='RSI'),
                   row=current_row, col=1)
-    fig.add_hline(y=70, line_dash="solid", line_color="blue", line_width=0.8, row=current_row, col=1)
-    fig.add_hline(y=50, line_dash="solid", line_color="gray", line_width=0.6, row=current_row, col=1)
-    fig.add_hline(y=30, line_dash="solid", line_color="red",  line_width=0.8, row=current_row, col=1)
+    fig.add_hline(y=20,  line_dash="solid", line_color="blue", line_width=0.8, row=current_row, col=1)
+    fig.add_hline(y=0,   line_dash="solid", line_color="gray", line_width=0.6, row=current_row, col=1)
+    fig.add_hline(y=-20, line_dash="solid", line_color="red",  line_width=0.8, row=current_row, col=1)
     rsi_val   = float(df_daily['RSI'].iloc[-1]) if pd.notna(df_daily['RSI'].iloc[-1]) else 50.0
     rsi_color = '#1d4ed8' if rsi_val >= 70 else '#dc2626' if rsi_val <= 30 else 'black'
     fig.add_annotation(
@@ -817,9 +818,10 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
         xanchor='left', yanchor='top',
         bgcolor='white', bordercolor='black', borderwidth=1, borderpad=2,
         row=current_row, col=1)
-    rsi_view = df_daily.loc[df_daily.index >= view_start, 'RSI'].dropna()
-    rsi_lo   = min(20.0, rsi_view.min() if not rsi_view.empty else 20.0)
-    rsi_hi   = max(80.0, rsi_view.max() if not rsi_view.empty else 80.0)
+    rsi_view    = df_daily.loc[df_daily.index >= view_start, 'RSI'].dropna()
+    rsi_c_view  = rsi_view - 50
+    rsi_lo      = min(-22.0, rsi_c_view.min() if not rsi_c_view.empty else -22.0)
+    rsi_hi      = max( 22.0, rsi_c_view.max() if not rsi_c_view.empty else  22.0)
     fig.update_yaxes(range=[rsi_lo - 2, rsi_hi + 2], row=current_row, col=1)
     fig.update_xaxes(matches=time_x_axis, row=current_row, col=1)
 
