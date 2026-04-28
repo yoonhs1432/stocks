@@ -808,7 +808,7 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     z_lo   = min(-2.0, z_view.min() if not z_view.empty else -2.0)
     z_hi   = max( 2.0, z_view.max() if not z_view.empty else  2.0)
     fig.update_yaxes(range=[z_lo - 0.2, z_hi + 0.2], row=current_row, col=1)
-    fig.update_xaxes(matches=time_x_axis, row=current_row, col=1)
+    
     current_row += 1
 
     # ── [5] MACD ──
@@ -836,7 +836,7 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
         xanchor='left', yanchor='top',
         bgcolor='white', bordercolor='black', borderwidth=1, borderpad=2,
         row=current_row, col=1)
-    fig.update_xaxes(matches=time_x_axis, row=current_row, col=1)
+    
     current_row += 1
 
     # ── [6] RSI ──
@@ -870,7 +870,7 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     rsi_lo      = min(-22.0, rsi_c_view.min() if not rsi_c_view.empty else -22.0)
     rsi_hi      = max( 22.0, rsi_c_view.max() if not rsi_c_view.empty else  22.0)
     fig.update_yaxes(range=[rsi_lo - 2, rsi_hi + 2], row=current_row, col=1)
-    fig.update_xaxes(matches=time_x_axis, row=current_row, col=1)
+    
 
     # ── 매매 기록 마커 ──
     trade_history = st.session_state.trade_history
@@ -902,6 +902,8 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     for r in range(3, total_rows + 1):
         fig.update_xaxes(showgrid=True, gridcolor='rgba(156,163,175,0.28)',
                          gridwidth=0.6, griddash='dot', dtick=grid_dtick_ms,
+                         matches=time_x_axis,
+                         rangebreaks=[dict(bounds=['sat', 'mon'])],  # 주말 제거
                          row=r, col=1)
         fig.update_yaxes(showgrid=False, row=r, col=1)
     for r in range(3, total_rows):
