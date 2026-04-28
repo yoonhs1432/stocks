@@ -911,9 +911,10 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
         fig.update_xaxes(showgrid=True, gridcolor='rgba(156,163,175,0.28)',
                          gridwidth=0.6, griddash='dot', dtick=grid_dtick_ms,
                          matches=time_x_axis,
-                         rangebreaks=[dict(bounds=['sat', 'mon'])],  # 주말 제거
+                         rangebreaks=[dict(bounds=['sat', 'mon'])],
                          row=r, col=1)
-        fig.update_yaxes(showgrid=False, row=r, col=1)
+        fig.update_yaxes(showgrid=False, autorange=True, fixedrange=False,
+                         row=r, col=1)
     for r in range(3, total_rows):
         fig.update_xaxes(showticklabels=False, tickformat="%m/%d", row=r, col=1)
     fig.update_xaxes(showticklabels=True, tickformat="%m/%d", row=total_rows, col=1)
@@ -922,7 +923,8 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     fig.update_layout(
         height=total_h, showlegend=False, hovermode=False,
         dragmode='pan', margin=dict(l=2, r=18, t=10, b=20),
-        paper_bgcolor='white', plot_bgcolor='white')
+        paper_bgcolor='white', plot_bgcolor='white',
+        uirevision='constant')  # pan 시 y축 autorange 유지
     for r in range(3, total_rows + 1):
         fig.update_xaxes(range=[view_start, last_date], row=r, col=1)
 
