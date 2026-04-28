@@ -795,6 +795,7 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
             showlegend=False,
             hoverinfo='skip'),
             row=current_row, col=1)
+        fig.update_layout(xaxis3_rangeslider_visible=False)
     else:
         fig.add_trace(go.Scatter(
             x=df_daily.index, y=df_daily['Plot_Norm_Ticker'],
