@@ -365,7 +365,17 @@ def fetch_all_data(tickers: list, start_date_str: str, candle_type: str = '일�
     df = pd.concat(df_list, axis=1).ffill()
     df = _filter_trading_days(df)
     if candle_type == '주봉':
-        df = df.resample('W-FRI').last().dropna(how='all')
+        # 금요일 기준 주봉 리샘플
+        df_weekly = df.resample('W-FRI').last().dropna(how='all')
+        # 이번 주 마지막 거래일이 금요일이 아닐 경우 별도 추가
+        last_daily = df.index[-1]
+        last_weekly = df_weekly.index[-1]
+        # 마지막 일봉이 마지막 주봉보다 이후라면 현재 주 데이터 추가
+        if last_daily > last_weekly:
+            current_week_row = df.iloc[[-1]].copy()
+            current_week_row.index = [last_daily]
+            df_weekly = pd.concat([df_weekly, current_week_row])
+        df = df_weekly
     return df
 
 @st.cache_data(show_spinner=False)
