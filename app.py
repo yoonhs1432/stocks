@@ -354,7 +354,7 @@ def _filter_trading_days(df: pd.DataFrame) -> pd.DataFrame:
     return df[traded & is_weekday]
 
 @st.cache_data(show_spinner=False)
-def fetch_all_data(tickers: list, start_date_str: str) -> pd.DataFrame:
+def fetch_all_data(tickers: list, start_date_str: str, candle_type: str = '일봉') -> pd.DataFrame:
     df_list = []
     for ticker in [X_ASSET_FIXED] + list(tickers):
         data = _download_ticker_data(ticker, start_date_str)
@@ -363,7 +363,10 @@ def fetch_all_data(tickers: list, start_date_str: str) -> pd.DataFrame:
     if not df_list:
         return pd.DataFrame()
     df = pd.concat(df_list, axis=1).ffill()
-    return _filter_trading_days(df)
+    df = _filter_trading_days(df)
+    if candle_type == '주봉':
+        df = df.resample('W-FRI').last().dropna(how='all')
+    return df
 
 @st.cache_data(show_spinner=False)
 def fetch_single_ticker(ticker: str, start_date_str: str) -> pd.DataFrame:
@@ -699,9 +702,19 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     current_row += 1
 
     # ── 뷰 기간 재정규화 ──
-    view_start    = df_daily.index[-1] - pd.DateOffset(months=view_months)
+    last_date  = df_daily.index[-1]
+    first_date = df_daily.index[0]
+    view_start = last_date - pd.DateOffset(months=view_months)
+    # 실제 데이터 범위 내로 클리핑
+    if view_start < first_date:
+        view_start = first_date
+    # view_start에 가장 가까운 실제 인덱스로 스냅
+    snap_idx   = df_daily.index.searchsorted(view_start)
+    snap_idx   = min(snap_idx, len(df_daily) - 1)
+    view_start = df_daily.index[snap_idx]
+
     view_df       = df_daily[df_daily.index >= view_start]
-    grid_dtick_ms = get_time_grid_dtick_ms(view_start, df_daily.index[-1], target_grids=8)
+    grid_dtick_ms = get_time_grid_dtick_ms(view_start, last_date, target_grids=8)
     base_spy      = view_df[f'{X_ASSET_FIXED}_Norm'].iloc[0] if not view_df.empty else 1.0
     base_tkr      = view_df[f'{selected_ticker}_Norm'].iloc[0] if not view_df.empty else 1.0
     df_daily['Plot_Norm_SPY']    = df_daily[f'{X_ASSET_FIXED}_Norm'] / base_spy
@@ -888,7 +901,9 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
         height=total_h, showlegend=False, hovermode='x unified',
         dragmode='pan', margin=dict(l=2, r=18, t=10, b=20),
         paper_bgcolor='white', plot_bgcolor='white')
-    fig.update_xaxes(range=[view_start, df_daily.index[-1]], row=3, col=1)
+    # 모든 시계열 패널에 명시적으로 x축 범위 설정
+    for r in range(3, total_rows + 1):
+        fig.update_xaxes(range=[view_start, last_date], row=r, col=1)
 
     st.plotly_chart(fig, use_container_width=True,
                     config={'scrollZoom': True, 'displayModeBar': False,
@@ -971,8 +986,12 @@ def main():
         except ValueError:
             analysis_start = '2025-01-01'
 
+    # ── 일봉/주봉 설정 ──
+    candle_type = cfg.get('candle_type', '일봉')
+    st.session_state.candle_type = candle_type
+
     with st.spinner("데이터 로드 중..."):
-        df_close = fetch_all_data(TARGET_TICKERS, analysis_start)
+        df_close = fetch_all_data(TARGET_TICKERS, analysis_start, candle_type)
 
     if not df_close.empty:
         st.session_state.last_data_date = df_close.index[-1].strftime('%Y-%m-%d')
@@ -981,6 +1000,8 @@ def main():
         with st.spinner(f"{selected_ticker} 데이터를 불러오는 중..."):
             df_custom = fetch_single_ticker(selected_ticker, analysis_start)
         if not df_custom.empty:
+            if candle_type == '주봉':
+                df_custom = df_custom.resample('W-FRI').last().dropna(how='all')
             df_close = pd.concat([df_close, df_custom], axis=1).ffill()
         else:
             selected_ticker = None
@@ -994,13 +1015,7 @@ def main():
     if not df_close.empty:
         df_close = df_close[df_close.index <= last_trading_date]
 
-    # ── 일봉/주봉 전환 ──
-    candle_type = cfg.get('candle_type', '일봉')
-    st.session_state.candle_type = candle_type
-    if candle_type == '주봉' and not df_close.empty:
-        df_close = df_close.resample('W-FRI').last().dropna(how='all')
-
-    # 상승률: 일봉 기준 마지막 vs 전일 (주봉이면 주간 변화율)
+    # 상승률
     pct_changes = {}
     for ticker in TARGET_TICKERS:
         col = f'{ticker}_Close'
