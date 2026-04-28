@@ -1011,7 +1011,11 @@ def main():
             df_custom = fetch_single_ticker(selected_ticker, analysis_start)
         if not df_custom.empty:
             if candle_type == '주봉':
-                df_custom = df_custom.resample('W-FRI').last().dropna(how='all')
+                df_weekly_c = df_custom.resample('W-FRI').last().dropna(how='all')
+                last_d = df_custom.index[-1]
+                if not df_weekly_c.empty and last_d > df_weekly_c.index[-1]:
+                    df_weekly_c = pd.concat([df_weekly_c, df_custom.iloc[[-1]]])
+                df_custom = df_weekly_c
             df_close = pd.concat([df_close, df_custom], axis=1).ffill()
         else:
             selected_ticker = None
@@ -1019,10 +1023,10 @@ def main():
     if not df_close.empty:
         st.session_state.last_data_date = df_close.index[-1].strftime('%Y-%m-%d')
 
-    # ── 마지막 거래일 기준으로 데이터 슬라이싱 ──
+    # ── 마지막 거래일 기준 슬라이싱 (일봉만 적용, 주봉은 fetch 단계에서 처리됨) ──
     mkt = get_market_status()
     last_trading_date = pd.Timestamp(mkt['last_trading_date'])
-    if not df_close.empty:
+    if not df_close.empty and candle_type == '일봉':
         df_close = df_close[df_close.index <= last_trading_date]
 
     # 상승률
