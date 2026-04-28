@@ -772,28 +772,22 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
         name=X_ASSET_FIXED),
         row=current_row, col=1)
 
-    # 캔들스틱 (OHLC 데이터 있을 때)
+    # 캔들스틱 or 라인
+    ohlc_norm = pd.DataFrame()
     if df_ohlc is not None and not df_ohlc.empty:
-        # OHLC를 Plot_Norm_Ticker 스케일로 정규화
         base_close = df_daily[f'{selected_ticker}_Close'].iloc[0]
         base_tkr   = df_daily[f'{selected_ticker}_Norm'].iloc[0]
-        norm_factor = base_tkr / base_close if base_close != 0 else 1.0
-        # view_start 기준 재정규화
-        view_df  = df_daily[df_daily.index >= view_start]
-        base_norm = view_df[f'{selected_ticker}_Norm'].iloc[0] if not view_df.empty else 1.0
-        ohlc_norm = df_ohlc / base_close * (base_tkr / base_norm)
+        view_df_   = df_daily[df_daily.index >= view_start]
+        base_norm  = view_df_[f'{selected_ticker}_Norm'].iloc[0] if not view_df_.empty else 1.0
+        scale      = base_tkr / base_norm / base_close if base_close != 0 else 1.0
+        ohlc_norm  = df_ohlc * scale
         fig.add_trace(go.Candlestick(
-            x=df_ohlc.index,
-            open=ohlc_norm['Open'],
-            high=ohlc_norm['High'],
-            low=ohlc_norm['Low'],
-            close=ohlc_norm['Close'],
-            increasing=dict(line=dict(color='#dc2626', width=1),
-                            fillcolor='#dc2626'),
-            decreasing=dict(line=dict(color='#1d4ed8', width=1),
-                            fillcolor='#1d4ed8'),
-            showlegend=False,
-            hoverinfo='skip'),
+            x=ohlc_norm.index,
+            open=ohlc_norm['Open'], high=ohlc_norm['High'],
+            low=ohlc_norm['Low'],   close=ohlc_norm['Close'],
+            increasing=dict(line=dict(color='#dc2626', width=1), fillcolor='#dc2626'),
+            decreasing=dict(line=dict(color='#1d4ed8', width=1), fillcolor='#1d4ed8'),
+            showlegend=False, hoverinfo='skip'),
             row=current_row, col=1)
         fig.update_layout(xaxis3_rangeslider_visible=False)
     else:
@@ -802,12 +796,8 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
             mode='lines', line=dict(color='black', width=1.5),
             name=selected_ticker),
             row=current_row, col=1)
-    min_price      = df_daily.loc[df_daily.index >= view_start,
-                                   ['Plot_Norm_SPY', 'Plot_Norm_Ticker']].min().min()
-    max_price      = df_daily.loc[df_daily.index >= view_start,
-                                   ['Plot_Norm_SPY', 'Plot_Norm_Ticker']].max().max()
-    price_baseline = min_price * 0.95
-    # 3지표 합산 점수로 fill 색상 계산
+
+    # fill 색상
     def _row_score(row):
         cz  = row['Z_Score']     if pd.notna(row['Z_Score'])     else 0.0
         mhz = row['MACD_Hist_Z'] if pd.notna(row['MACD_Hist_Z']) else 0.0
@@ -826,24 +816,26 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
         elif rsi >= 70:  s -= 2
         elif rsi >= 50:  s -= 1
         return s
-    df_daily['Combined_Score']    = df_daily.apply(_row_score, axis=1)
-    df_daily['Price_Fill_Color']  = df_daily['Combined_Score'].apply(get_price_fill_color_combined)
-    add_segmented_fill(fig, df_daily, 'Plot_Norm_Ticker', 'Price_Fill_Color',
-                       current_row, 1, price_baseline)
-    # Price y축: view 범위 데이터 기준, 로그 스케일
-    view_candle = ohlc_norm[ohlc_norm.index >= view_start] if (df_ohlc is not None and not df_ohlc.empty) else pd.DataFrame()
-    if not view_candle.empty:
-        p_lo = view_candle['Low'].min()
-        p_hi = view_candle['High'].max()
+    df_daily['Combined_Score']   = df_daily.apply(_row_score, axis=1)
+    df_daily['Price_Fill_Color'] = df_daily['Combined_Score'].apply(get_price_fill_color_combined)
+
+    # y축 범위: view 구간 데이터 기준
+    if not ohlc_norm.empty:
+        vc   = ohlc_norm[ohlc_norm.index >= view_start]
+        p_lo = vc['Low'].min()  if not vc.empty else df_daily.loc[df_daily.index >= view_start, 'Plot_Norm_Ticker'].min()
+        p_hi = vc['High'].max() if not vc.empty else df_daily.loc[df_daily.index >= view_start, 'Plot_Norm_Ticker'].max()
     else:
         p_lo = df_daily.loc[df_daily.index >= view_start, 'Plot_Norm_Ticker'].min()
         p_hi = df_daily.loc[df_daily.index >= view_start, 'Plot_Norm_Ticker'].max()
     spy_lo = df_daily.loc[df_daily.index >= view_start, 'Plot_Norm_SPY'].min()
     spy_hi = df_daily.loc[df_daily.index >= view_start, 'Plot_Norm_SPY'].max()
-    p_lo = min(p_lo, spy_lo) * 0.97
-    p_hi = max(p_hi, spy_hi) * 1.03
+    p_lo   = min(p_lo, spy_lo) * 0.97
+    p_hi   = max(p_hi, spy_hi) * 1.03
+
+    add_segmented_fill(fig, df_daily, 'Plot_Norm_Ticker', 'Price_Fill_Color',
+                       current_row, 1, p_lo)
     fig.update_yaxes(type="log",
-                     range=[np.log10(max(p_lo, 1e-6)), np.log10(p_hi)],
+                     range=[np.log10(max(p_lo, 1e-6)), np.log10(max(p_hi, 1e-6))],
                      autorange=False, fixedrange=False,
                      row=current_row, col=1)
     # [3] 라벨: 현재 가격만
