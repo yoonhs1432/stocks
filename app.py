@@ -731,12 +731,35 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     df_daily['Plot_Norm_Ticker'] = df_daily[f'{selected_ticker}_Norm'] / base_tkr
 
     # ── [3] Price ──
-    fig.add_trace(go.Scatter(x=df_daily.index, y=df_daily['Plot_Norm_SPY'],
-                              mode='lines', line=dict(color='gray', width=1.5),
-                              name=X_ASSET_FIXED), row=current_row, col=1)
-    fig.add_trace(go.Scatter(x=df_daily.index, y=df_daily['Plot_Norm_Ticker'],
-                              mode='lines', line=dict(color='black', width=1.5),
-                              name=selected_ticker), row=current_row, col=1)
+    # hover용 customdata 준비: 상승률, Z, MACD Z, RSI
+    pct_col   = df_daily[f'{selected_ticker}_Close'].pct_change() * 100
+    hover_data = np.column_stack([
+        pct_col.fillna(0).values,
+        df_daily['Z_Score'].fillna(0).values,
+        df_daily['MACD_Hist_Z'].fillna(0).values,
+        df_daily['RSI'].fillna(50).values,
+        df_daily[f'{selected_ticker}_Close'].values,
+    ])
+    fig.add_trace(go.Scatter(
+        x=df_daily.index, y=df_daily['Plot_Norm_SPY'],
+        mode='lines', line=dict(color='gray', width=1.5),
+        name=X_ASSET_FIXED, hoverinfo='skip'),
+        row=current_row, col=1)
+    fig.add_trace(go.Scatter(
+        x=df_daily.index, y=df_daily['Plot_Norm_Ticker'],
+        mode='lines', line=dict(color='black', width=1.5),
+        name=selected_ticker,
+        customdata=hover_data,
+        hovertemplate=(
+            "<b>%{x|%Y-%m-%d}</b><br>"
+            f"{display_name(selected_ticker)}: $%{{customdata[4]:,.2f}}"
+            "  (%{customdata[0]:+.1f}%)<br>"
+            "Z: %{customdata[1]:+.2f}<br>"
+            "MACD: %{customdata[2]:+.2f}<br>"
+            "RSI: %{customdata[3]:.1f}"
+            "<extra></extra>"
+        )),
+        row=current_row, col=1)
     min_price      = df_daily.loc[df_daily.index >= view_start,
                                    ['Plot_Norm_SPY', 'Plot_Norm_Ticker']].min().min()
     max_price      = df_daily.loc[df_daily.index >= view_start,
@@ -790,7 +813,8 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
                                       'rgba(252,165,165,0.6)'   # 연빨강
     )))
     fig.add_trace(go.Bar(x=df_daily.index, y=df_daily['Z_Score'],
-                          marker_color=z_colors, name='Z-Score'),
+                          marker_color=z_colors, name='Z-Score',
+                          hoverinfo='skip'),
                   row=current_row, col=1)
     fig.add_hline(y= 1.5, line_dash="solid", line_color="blue",  line_width=0.8, row=current_row, col=1)
     fig.add_hline(y=-1.5, line_dash="solid", line_color="red",   line_width=0.8, row=current_row, col=1)
@@ -822,7 +846,8 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
                                           'rgba(252,165,165,0.6)'   # 연빨강
     )))
     fig.add_trace(go.Bar(x=df_daily.index, y=df_daily['MACD_Hist_Z'],
-                          marker_color=macd_colors, name='MACD Hist Z'),
+                          marker_color=macd_colors, name='MACD Hist Z',
+                          hoverinfo='skip'),
                   row=current_row, col=1)
     fig.add_hline(y= 1.0, line_dash="solid", line_color="blue", line_width=0.8, row=current_row, col=1)
     fig.add_hline(y=-1.0, line_dash="solid", line_color="red",  line_width=0.8, row=current_row, col=1)
@@ -851,7 +876,8 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
                                 'rgba(252,165,165,0.6)'
     )))
     fig.add_trace(go.Bar(x=df_daily.index, y=rsi_centered,
-                          marker_color=rsi_colors, name='RSI'),
+                          marker_color=rsi_colors, name='RSI',
+                          hoverinfo='skip'),
                   row=current_row, col=1)
     fig.add_hline(y=20,  line_dash="solid", line_color="blue", line_width=0.8, row=current_row, col=1)
     fig.add_hline(y=0,   line_dash="solid", line_color="gray", line_width=0.6, row=current_row, col=1)
