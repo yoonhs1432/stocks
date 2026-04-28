@@ -928,8 +928,8 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     for r in range(3, total_rows):
         fig.update_xaxes(showticklabels=False, tickformat="%m/%d", row=r, col=1)
     fig.update_xaxes(showticklabels=True, tickformat="%m/%d", row=total_rows, col=1)
-    # 모든 trace hover 완전 비활성화
-    fig.update_traces(hoverinfo='none', hovertemplate=None)
+    # hover 비활성 (hovertemplate=None만, hoverinfo는 유지해야 on_select 작동)
+    fig.update_traces(hovertemplate=' ')  # 빈 template으로 내용만 숨김
 
     fig.update_layout(
         height=total_h, showlegend=False, hovermode=False,
