@@ -165,7 +165,7 @@ def init_session_state() -> None:
     if 'last_data_date' not in st.session_state:
         st.session_state.last_data_date = ''
     if 'view_months' not in st.session_state:
-        st.session_state.view_months = load_settings().get('view_months', 6)
+        st.session_state.view_months = load_settings().get('view_months', 12)
     if 'analysis_start' not in st.session_state:
         st.session_state.analysis_start = load_settings().get('analysis_start', '25-01')
     if 'memo_editing_idx' not in st.session_state:
@@ -173,7 +173,7 @@ def init_session_state() -> None:
     if 'memo_input_key' not in st.session_state:
         st.session_state.memo_input_key = 0
     if 'candle_type' not in st.session_state:
-        st.session_state.candle_type = '일봉'
+        st.session_state.candle_type = '주봉'
 
 # ====================================================
 # 3. 투자의견
@@ -459,7 +459,7 @@ def render_sidebar(selected_ticker: str) -> dict:
     with st.sidebar:
         st.markdown("### ⚙️ 분석 파라미터")
         candle_type = st.radio("봉 기준", ['일봉', '주봉'], horizontal=True,
-                               index=0 if st.session_state.candle_type == '일봉' else 1)
+                               index=1 if st.session_state.candle_type == '주봉' else 0)
         analysis_start = st.text_input("분석 시작일 (YY-MM)",
                                        value=st.session_state.analysis_start,
                                        placeholder="25-01")
@@ -762,17 +762,24 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     current_row += 1
 
     # ── [5] MACD ──
-    macd_colors = np.where(df_daily['MACD_Hist'] >= 0,
+    macd_colors = np.where(df_daily['MACD_Hist_Z'] >= 0,
                            'rgba(0,128,0,0.5)', 'rgba(255,0,0,0.5)')
-    fig.add_trace(go.Bar(x=df_daily.index, y=df_daily['MACD_Hist'],
-                          marker_color=macd_colors, name='MACD Hist'),
+    fig.add_trace(go.Bar(x=df_daily.index, y=df_daily['MACD_Hist_Z'],
+                          marker_color=macd_colors, name='MACD Hist Z'),
                   row=current_row, col=1)
-    fig.add_trace(go.Scatter(x=df_daily.index, y=df_daily['MACD'],
-                              line=dict(color='blue', width=1), name='MACD'),
-                  row=current_row, col=1)
-    fig.add_trace(go.Scatter(x=df_daily.index, y=df_daily['MACD_Signal'],
-                              line=dict(color='orange', width=1), name='Signal'),
-                  row=current_row, col=1)
+    fig.add_hline(y= 1.0, line_dash="solid", line_color="blue", line_width=0.8, row=current_row, col=1)
+    fig.add_hline(y=-1.0, line_dash="solid", line_color="red",  line_width=0.8, row=current_row, col=1)
+    fig.add_hline(y= 0.0, line_dash="solid", line_color="gray", line_width=0.6, row=current_row, col=1)
+    # [5] 라벨: MACD Hist Z 현재 값
+    mhz_val   = float(df_daily['MACD_Hist_Z'].iloc[-1]) if pd.notna(df_daily['MACD_Hist_Z'].iloc[-1]) else 0.0
+    mhz_color = '#dc2626' if mhz_val <= -1.0 else '#1d4ed8' if mhz_val >= 1.0 else 'black'
+    fig.add_annotation(
+        x=0, y=1, xref='x domain', yref='y domain',
+        text=f"<b>MACD Z  {mhz_val:+.2f}</b>",
+        showarrow=False, font=dict(size=14, color=mhz_color),
+        xanchor='left', yanchor='top',
+        bgcolor='white', bordercolor='black', borderwidth=1, borderpad=4,
+        row=current_row, col=1)
     fig.update_xaxes(matches=time_x_axis, row=current_row, col=1)
     current_row += 1
 
@@ -785,13 +792,10 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     fig.add_trace(go.Scatter(x=df_daily.index, y=df_daily['RSI'],
                               line=dict(color='black', width=1.5), name='RSI'),
                   row=current_row, col=1)
-    fig.add_trace(go.Scatter(x=df_daily.index, y=df_daily['RSI_Signal'],
-                              line=dict(color='orange', width=1), name='RSI Signal'),
-                  row=current_row, col=1)
     fig.add_hline(y=70, line_dash="solid", line_color="blue", line_width=0.8, row=current_row, col=1)
     fig.add_hline(y=30, line_dash="solid", line_color="red",  line_width=0.8, row=current_row, col=1)
     # [6] 라벨: RSI 현재 값
-    rsi_val = float(df_daily['RSI'].iloc[-1]) if pd.notna(df_daily['RSI'].iloc[-1]) else 50.0
+    rsi_val   = float(df_daily['RSI'].iloc[-1]) if pd.notna(df_daily['RSI'].iloc[-1]) else 50.0
     rsi_color = '#1d4ed8' if rsi_val >= 70 else '#dc2626' if rsi_val <= 30 else 'black'
     fig.add_annotation(
         x=0, y=1, xref='x domain', yref='y domain',
