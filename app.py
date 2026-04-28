@@ -669,9 +669,9 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     fig.add_annotation(
         x=0, y=1, xref='x domain', yref='y domain',
         text=f"<b>β = {beta:.2f}</b>",
-        showarrow=False, font=dict(size=14, color='black'),
+        showarrow=False, font=dict(size=11, color='black'),
         xanchor='left', yanchor='top',
-        bgcolor='white', bordercolor='black', borderwidth=1, borderpad=4,
+        bgcolor='white', bordercolor='black', borderwidth=1, borderpad=2,
         row=current_row, col=1)
     current_row += 1
 
@@ -726,34 +726,31 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     fig.add_annotation(
         x=0, y=1, xref='x domain', yref='y domain',
         text=f"<b>${last_price:,.2f}</b>",
-        showarrow=False, font=dict(size=14, color='black'),
+        showarrow=False, font=dict(size=11, color='black'),
         xanchor='left', yanchor='top',
-        bgcolor='white', bordercolor='black', borderwidth=1, borderpad=4,
+        bgcolor='white', bordercolor='black', borderwidth=1, borderpad=2,
         row=current_row, col=1)
     time_x_axis = f'x{current_row}'
     current_row += 1
 
     # ── [4] Z-Score ──
-    fig.add_trace(go.Scatter(x=df_daily.index, y=df_daily['Z_Score'],
-                              line=dict(color='black', width=1.5), name='Z-Score'),
+    z_colors = np.where(df_daily['Z_Score'] >= 0,
+                        'rgba(29,78,216,0.5)', 'rgba(220,38,38,0.5)')
+    fig.add_trace(go.Bar(x=df_daily.index, y=df_daily['Z_Score'],
+                          marker_color=z_colors, name='Z-Score'),
                   row=current_row, col=1)
     fig.add_hline(y= 1.5, line_dash="solid", line_color="blue",  line_width=0.8, row=current_row, col=1)
     fig.add_hline(y=-1.5, line_dash="solid", line_color="red",   line_width=0.8, row=current_row, col=1)
     fig.add_hline(y=0,    line_dash="solid", line_color="gray",  line_width=0.6, row=current_row, col=1)
-    # [4] 라벨: Z-Score 현재 값
+    # [4] 라벨: Z-Score 현재 값 (색상 없음)
     cz_val = float(df_daily['Z_Score'].iloc[-1]) if pd.notna(df_daily['Z_Score'].iloc[-1]) else 0.0
-    cz_color = get_z_text_color(cz_val)
     fig.add_annotation(
         x=0, y=1, xref='x domain', yref='y domain',
         text=f"<b>Z  {cz_val:+.2f}</b>",
-        showarrow=False, font=dict(size=14, color=cz_color),
+        showarrow=False, font=dict(size=11, color='black'),
         xanchor='left', yanchor='top',
-        bgcolor='white', bordercolor='black', borderwidth=1, borderpad=4,
+        bgcolor='white', bordercolor='black', borderwidth=1, borderpad=2,
         row=current_row, col=1)
-    add_filled_blocks(fig, df_daily, 'Z_Score', df_daily['Z_Score'] <= -1.5,
-                      'rgba(220,38,38,0.20)', current_row, 1, -1.5)
-    add_filled_blocks(fig, df_daily, 'Z_Score', df_daily['Z_Score'] >= 1.5,
-                      'rgba(29,78,216,0.20)', current_row, 1, 1.5)
     z_view = df_daily.loc[df_daily.index >= view_start, 'Z_Score'].dropna()
     z_lo   = min(-2.0, z_view.min() if not z_view.empty else -2.0)
     z_hi   = max( 2.0, z_view.max() if not z_view.empty else  2.0)
@@ -775,10 +772,10 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     mhz_color = '#dc2626' if mhz_val <= -1.0 else '#1d4ed8' if mhz_val >= 1.0 else 'black'
     fig.add_annotation(
         x=0, y=1, xref='x domain', yref='y domain',
-        text=f"<b>MACD Z  {mhz_val:+.2f}</b>",
-        showarrow=False, font=dict(size=14, color=mhz_color),
+        text=f"<b>MACD  {mhz_val:+.2f}</b>",
+        showarrow=False, font=dict(size=11, color=mhz_color),
         xanchor='left', yanchor='top',
-        bgcolor='white', bordercolor='black', borderwidth=1, borderpad=4,
+        bgcolor='white', bordercolor='black', borderwidth=1, borderpad=2,
         row=current_row, col=1)
     fig.update_xaxes(matches=time_x_axis, row=current_row, col=1)
     current_row += 1
@@ -800,9 +797,9 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     fig.add_annotation(
         x=0, y=1, xref='x domain', yref='y domain',
         text=f"<b>RSI  {rsi_val:.1f}</b>",
-        showarrow=False, font=dict(size=14, color=rsi_color),
+        showarrow=False, font=dict(size=11, color=rsi_color),
         xanchor='left', yanchor='top',
-        bgcolor='white', bordercolor='black', borderwidth=1, borderpad=4,
+        bgcolor='white', bordercolor='black', borderwidth=1, borderpad=2,
         row=current_row, col=1)
     rsi_view = df_daily.loc[df_daily.index >= view_start, 'RSI'].dropna()
     rsi_lo   = min(20.0, rsi_view.min() if not rsi_view.empty else 20.0)
