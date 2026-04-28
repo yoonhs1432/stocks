@@ -260,9 +260,9 @@ def get_signal_combined(cz: float, macd: float, macd_signal: float,
     # Z-Score
     if cz <= -1.0:   score += 1
     elif cz >= 1.0:  score -= 1
-    # MACD vs Signal
-    if macd > macd_signal:   score += 1
-    elif macd < macd_signal: score -= 1
+    # MACD vs Signal (낮을 때 매수, 높을 때 매도)
+    if macd < macd_signal:   score += 1
+    elif macd > macd_signal: score -= 1
     # RSI
     if rsi <= 40:   score += 1
     elif rsi >= 60: score -= 1
@@ -707,8 +707,8 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
         s = 0
         if cz <= -1.0:    s += 1
         elif cz >= 1.0:   s -= 1
-        if macd > msig:   s += 1
-        elif macd < msig: s -= 1
+        if macd < msig:   s += 1
+        elif macd > msig: s -= 1
         if rsi <= 40:     s += 1
         elif rsi >= 60:   s -= 1
         return s
