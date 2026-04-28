@@ -296,6 +296,14 @@ def get_price_fill_color(current_z: float) -> str:
     if current_z <   1.5:    return 'rgba(147,197,253,0.22)'
     return 'rgba(29,78,216,0.35)'
 
+def get_price_fill_color_combined(score: int) -> str:
+    """3지표 합산 점수 기반 Price 패널 fill 색상."""
+    if score >= 3:    return 'rgba(220,38,38,0.35)'   # FB 진빨강
+    if score >= 1:    return 'rgba(252,165,165,0.22)' # B  연빨강
+    if score <= -3:   return 'rgba(29,78,216,0.35)'   # FS 진파랑
+    if score <= -1:   return 'rgba(147,197,253,0.22)' # S  연파랑
+    return 'rgba(156,163,175,0.12)'                   # H  회색
+
 def get_time_grid_dtick_ms(start: pd.Timestamp, end: pd.Timestamp, target_grids: int = 8) -> int:
     span_days    = max((end - start).days, 1)
     target_days  = span_days / max(target_grids, 1)
@@ -690,7 +698,22 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     max_price      = df_daily.loc[df_daily.index >= view_start,
                                    ['Plot_Norm_SPY', 'Plot_Norm_Ticker']].max().max()
     price_baseline = min_price * 0.95
-    df_daily['Price_Fill_Color'] = df_daily['Z_Score'].apply(get_price_fill_color)
+    # 3지표 합산 점수로 fill 색상 계산
+    def _row_score(row):
+        cz   = row['Z_Score']   if pd.notna(row['Z_Score'])   else 0.0
+        macd = row['MACD']      if pd.notna(row['MACD'])      else 0.0
+        msig = row['MACD_Signal'] if pd.notna(row['MACD_Signal']) else 0.0
+        rsi  = row['RSI']       if pd.notna(row['RSI'])       else 50.0
+        s = 0
+        if cz <= -1.0:    s += 1
+        elif cz >= 1.0:   s -= 1
+        if macd > msig:   s += 1
+        elif macd < msig: s -= 1
+        if rsi <= 40:     s += 1
+        elif rsi >= 60:   s -= 1
+        return s
+    df_daily['Combined_Score']    = df_daily.apply(_row_score, axis=1)
+    df_daily['Price_Fill_Color']  = df_daily['Combined_Score'].apply(get_price_fill_color_combined)
     add_segmented_fill(fig, df_daily, 'Plot_Norm_Ticker', 'Price_Fill_Color',
                        current_row, 1, price_baseline)
     fig.update_yaxes(type="log",
