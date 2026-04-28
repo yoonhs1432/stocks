@@ -830,8 +830,21 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     df_daily['Price_Fill_Color']  = df_daily['Combined_Score'].apply(get_price_fill_color_combined)
     add_segmented_fill(fig, df_daily, 'Plot_Norm_Ticker', 'Price_Fill_Color',
                        current_row, 1, price_baseline)
+    # Price y축: view 범위 데이터 기준, 로그 스케일
+    view_candle = ohlc_norm[ohlc_norm.index >= view_start] if (df_ohlc is not None and not df_ohlc.empty) else pd.DataFrame()
+    if not view_candle.empty:
+        p_lo = view_candle['Low'].min()
+        p_hi = view_candle['High'].max()
+    else:
+        p_lo = df_daily.loc[df_daily.index >= view_start, 'Plot_Norm_Ticker'].min()
+        p_hi = df_daily.loc[df_daily.index >= view_start, 'Plot_Norm_Ticker'].max()
+    spy_lo = df_daily.loc[df_daily.index >= view_start, 'Plot_Norm_SPY'].min()
+    spy_hi = df_daily.loc[df_daily.index >= view_start, 'Plot_Norm_SPY'].max()
+    p_lo = min(p_lo, spy_lo) * 0.97
+    p_hi = max(p_hi, spy_hi) * 1.03
     fig.update_yaxes(type="log",
-                     autorange=True, fixedrange=False,
+                     range=[np.log10(max(p_lo, 1e-6)), np.log10(p_hi)],
+                     autorange=False, fixedrange=False,
                      row=current_row, col=1)
     # [3] 라벨: 현재 가격만
     last_price = df_daily[f'{selected_ticker}_Close'].iloc[-1]
@@ -870,10 +883,10 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
         xanchor='left', yanchor='top',
         bgcolor='white', bordercolor='black', borderwidth=1, borderpad=2,
         row=current_row, col=1)
-    z_view = df_daily.loc[df_daily.index >= view_start, 'Z_Score'].dropna()
-    z_lo   = min(-2.0, z_view.min() if not z_view.empty else -2.0)
-    z_hi   = max( 2.0, z_view.max() if not z_view.empty else  2.0)
-    fig.update_yaxes(range=[z_lo - 0.2, z_hi + 0.2], row=current_row, col=1)
+    z_view  = df_daily.loc[df_daily.index >= view_start, 'Z_Score'].dropna()
+    z_abs   = max(1.5, abs(z_view).max() if not z_view.empty else 1.5)
+    fig.update_yaxes(range=[-(z_abs + 0.3), z_abs + 0.3],
+                     autorange=False, fixedrange=False, row=current_row, col=1)
     
     current_row += 1
 
@@ -903,10 +916,11 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
         xanchor='left', yanchor='top',
         bgcolor='white', bordercolor='black', borderwidth=1, borderpad=2,
         row=current_row, col=1)
-    
+    mhz_view = df_daily.loc[df_daily.index >= view_start, 'MACD_Hist_Z'].dropna()
+    mhz_abs  = max(1.0, abs(mhz_view).max() if not mhz_view.empty else 1.0)
+    fig.update_yaxes(range=[-(mhz_abs + 0.3), mhz_abs + 0.3],
+                     autorange=False, fixedrange=False, row=current_row, col=1)
     current_row += 1
-
-    # ── [6] RSI ──
     # 50 기준으로 위/아래, 70/30 넘으면 더 진하게
     rsi_centered = df_daily['RSI'] - 50
     rsi_colors = np.where(
@@ -933,11 +947,11 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
         xanchor='left', yanchor='top',
         bgcolor='white', bordercolor='black', borderwidth=1, borderpad=2,
         row=current_row, col=1)
-    rsi_view    = df_daily.loc[df_daily.index >= view_start, 'RSI'].dropna()
-    rsi_c_view  = rsi_view - 50
-    rsi_lo      = min(-22.0, rsi_c_view.min() if not rsi_c_view.empty else -22.0)
-    rsi_hi      = max( 22.0, rsi_c_view.max() if not rsi_c_view.empty else  22.0)
-    fig.update_yaxes(range=[rsi_lo - 2, rsi_hi + 2], row=current_row, col=1)
+    rsi_view   = df_daily.loc[df_daily.index >= view_start, 'RSI'].dropna()
+    rsi_c_view = rsi_view - 50
+    rsi_abs    = max(20.0, abs(rsi_c_view).max() if not rsi_c_view.empty else 20.0)
+    fig.update_yaxes(range=[-(rsi_abs + 2), rsi_abs + 2],
+                     autorange=False, fixedrange=False, row=current_row, col=1)
     
 
     # ── 매매 기록 마커 ──
