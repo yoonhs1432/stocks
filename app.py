@@ -750,6 +750,7 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
         mode='lines', line=dict(color='black', width=1.5),
         name=selected_ticker,
         customdata=hover_data,
+        hoverinfo='skip',
         hovertemplate=(
             "<b>%{x|%Y-%m-%d}</b><br>"
             f"{display_name(selected_ticker)}: $%{{customdata[4]:,.1f}}"
@@ -914,7 +915,8 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
                 mode='markers',
                 marker=dict(symbol=marker_symbol, size=10, color=marker_color,
                             line=dict(width=1, color='black')),
-                name=f"{t_type.upper()} ({t_date.date()})"),
+                name=f"{t_type.upper()} ({t_date.date()})",
+                hoverinfo='skip'),
                 row=1, col=1)
             for r in range(3, total_rows + 1):
                 fig.add_vline(x=t_date, line_dash="solid", line_width=1,
