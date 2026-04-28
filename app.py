@@ -928,23 +928,27 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     for r in range(3, total_rows):
         fig.update_xaxes(showticklabels=False, tickformat="%m/%d", row=r, col=1)
     fig.update_xaxes(showticklabels=True, tickformat="%m/%d", row=total_rows, col=1)
-    # hover 비활성 (hovertemplate=None만, hoverinfo는 유지해야 on_select 작동)
-    fig.update_traces(hovertemplate=' ')  # 빈 template으로 내용만 숨김
 
+    # hover 완전 비활성 - hoverinfo='skip'은 on_select도 막으므로 spike만 끔
     fig.update_layout(
         height=total_h, showlegend=False, hovermode=False,
         dragmode='pan', margin=dict(l=2, r=18, t=10, b=20),
         paper_bgcolor='white', plot_bgcolor='white')
-    # 모든 시계열 패널에 명시적으로 x축 범위 설정
     for r in range(3, total_rows + 1):
-        fig.update_xaxes(range=[view_start, last_date], row=r, col=1)
+        fig.update_xaxes(range=[view_start, last_date],
+                         spikemode='across', spikedash='none',
+                         spikethickness=0, row=r, col=1)
+    # 산점도 spike도 끔
+    fig.update_xaxes(spikemode='across', spikedash='none',
+                     spikethickness=0, row=1, col=1)
 
     sel = st.plotly_chart(fig, use_container_width=True,
                           on_select='rerun',
                           config={'scrollZoom': True, 'displayModeBar': False,
-                                  'doubleClick': 'reset', 'responsive': True})
+                                  'doubleClick': 'reset', 'responsive': True,
+                                  'showTips': False})
 
-    # ── 클릭 시 선택 날짜 정보 표시 ──
+    # ── 클릭 정보 박스 (항상 표시) ──
     clicked_info = None
     if sel and sel.selection and sel.selection.get('points'):
         pt = sel.selection['points'][0]
@@ -960,41 +964,49 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
             }
 
     if clicked_info:
-        d   = clicked_info
+        d = clicked_info
         sig_score = 0
         cz = d['z']; mhz = d['macd']; rsi = d['rsi']
-        if cz <= -1.5: sig_score += 2
-        elif cz < 0:   sig_score += 1
-        elif cz >= 1.5: sig_score -= 2
-        elif cz > 0:   sig_score -= 1
-        if mhz <= -1.0: sig_score += 2
-        elif mhz < 0:   sig_score += 1
+        if cz <= -1.5:   sig_score += 2
+        elif cz < 0:     sig_score += 1
+        elif cz >= 1.5:  sig_score -= 2
+        elif cz > 0:     sig_score -= 1
+        if mhz <= -1.0:  sig_score += 2
+        elif mhz < 0:    sig_score += 1
         elif mhz >= 1.0: sig_score -= 2
-        elif mhz > 0:   sig_score -= 1
-        if rsi <= 30:   sig_score += 2
-        elif rsi < 50:  sig_score += 1
-        elif rsi >= 70: sig_score -= 2
-        elif rsi >= 50: sig_score -= 1
-        sig  = ('FB2' if sig_score >= 5 else 'FB' if sig_score >= 3 else
-                'B'   if sig_score >= 1 else 'FS2' if sig_score <= -5 else
-                'FS'  if sig_score <= -3 else 'S' if sig_score <= -1 else 'H')
+        elif mhz > 0:    sig_score -= 1
+        if rsi <= 30:    sig_score += 2
+        elif rsi < 50:   sig_score += 1
+        elif rsi >= 70:  sig_score -= 2
+        elif rsi >= 50:  sig_score -= 1
+        sig   = ('FB2' if sig_score >= 5 else 'FB' if sig_score >= 3 else
+                 'B'   if sig_score >= 1 else 'FS2' if sig_score <= -5 else
+                 'FS'  if sig_score <= -3 else 'S'  if sig_score <= -1 else 'H')
         bg, _ = SIGNAL_STYLE.get(sig, ('#9ca3af', '#fff'))
         label = ACTION_LABELS.get(sig, '관망')
-        pct_color = '#dc2626' if d['pct'] > 0 else '#1d4ed8' if d['pct'] < 0 else '#6b7280'
-        st.markdown(
-            f"<div style='display:flex;align-items:center;gap:12px;flex-wrap:wrap;"
-            f"padding:4px 10px;border-radius:6px;border-left:4px solid {bg};"
-            f"background:{bg}18;margin:4px 0;font-size:0.82rem;'>"
-            f"<b style='color:#555;'>{d['date']}</b>"
-            f"<b style='color:{bg};'>{label}</b>"
-            f"<span style='color:#333;'>${d['price']:,.1f}"
-            f"&nbsp;<b style='color:{pct_color};'>({d['pct']:+.1f}%)</b></span>"
-            f"<span style='color:#555;'>Z&nbsp;<b>{d['z']:+.1f}</b></span>"
-            f"<span style='color:#555;'>MACD&nbsp;<b>{d['macd']:+.1f}</b></span>"
-            f"<span style='color:#555;'>RSI&nbsp;<b>{d['rsi']:.1f}</b></span>"
-            f"</div>",
-            unsafe_allow_html=True
+        pc    = '#dc2626' if d['pct'] > 0 else '#1d4ed8' if d['pct'] < 0 else '#6b7280'
+        inner = (
+            f"<b style='color:#555;font-size:0.78rem;'>{d['date']}</b>&emsp;"
+            f"<b style='color:{bg};'>{label}</b>&emsp;"
+            f"<span style='color:#333;'>${d['price']:,.1f}&nbsp;"
+            f"<b style='color:{pc};'>({d['pct']:+.1f}%)</b></span>&emsp;"
+            f"Z&nbsp;<b>{d['z']:+.1f}</b>&emsp;"
+            f"MACD&nbsp;<b>{d['macd']:+.1f}</b>&emsp;"
+            f"RSI&nbsp;<b>{d['rsi']:.1f}</b>"
         )
+        border_color = bg
+    else:
+        inner        = "<span style='color:#bbb;'>그래프를 클릭하면 해당 날짜의 지표값이 표시됩니다</span>"
+        border_color = '#e5e7eb'
+
+    st.markdown(
+        f"<div style='min-height:2rem;padding:5px 12px;border-radius:6px;"
+        f"border:1px solid {border_color};background:#f9fafb;"
+        f"display:flex;align-items:center;flex-wrap:wrap;gap:4px;"
+        f"font-size:0.82rem;color:#333;margin:3px 0;'>"
+        f"{inner}</div>",
+        unsafe_allow_html=True
+    )
 
 # ====================================================
 # 9. 메모 표시 (목록만 — 전체 너비)
