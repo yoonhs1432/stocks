@@ -935,12 +935,7 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
         dragmode='pan', margin=dict(l=2, r=18, t=10, b=20),
         paper_bgcolor='white', plot_bgcolor='white')
     for r in range(3, total_rows + 1):
-        fig.update_xaxes(range=[view_start, last_date],
-                         spikemode='across', spikedash='none',
-                         spikethickness=0, row=r, col=1)
-    # 산점도 spike도 끔
-    fig.update_xaxes(spikemode='across', spikedash='none',
-                     spikethickness=0, row=1, col=1)
+        fig.update_xaxes(range=[view_start, last_date], row=r, col=1)
 
     sel = st.plotly_chart(fig, use_container_width=True,
                           on_select='rerun',
