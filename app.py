@@ -948,7 +948,7 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
                      autorange=False, fixedrange=True, row=current_row, col=1)
     
 
-    # ── 매매 기록 마커 ──
+    # ── 매매 기록 마커 (산점도: 일봉 기준 sc_df 사용) ──
     trade_history = st.session_state.trade_history
     if selected_ticker in trade_history:
         for trade in trade_history[selected_ticker]:
@@ -956,19 +956,23 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
             t_type        = trade['type']
             marker_color  = '#dc2626' if t_type == 'buy' else '#1d4ed8'
             marker_symbol = 'triangle-up' if t_type == 'buy' else 'triangle-down'
-            idx    = df_daily.index.get_indexer([t_date], method='nearest')[0]
-            d_date = df_daily.index[idx]
+            # 산점도 마커: sc_df(일봉) 기준
+            idx_sc  = sc_df.index.get_indexer([t_date], method='nearest')[0]
+            d_sc    = sc_df.index[idx_sc]
             fig.add_trace(go.Scatter(
-                x=[df_daily.loc[d_date, f'{X_ASSET_FIXED}_Norm']],
-                y=[df_daily.loc[d_date, f'{selected_ticker}_Norm']],
+                x=[sc_df.loc[d_sc, f'{X_ASSET_FIXED}_Norm']],
+                y=[sc_df.loc[d_sc, f'{selected_ticker}_Norm']],
                 mode='markers',
                 marker=dict(symbol=marker_symbol, size=10, color=marker_color,
                             line=dict(width=1, color='black')),
                 name=f"{t_type.upper()} ({t_date.date()})",
                 hoverinfo='skip'),
                 row=1, col=1)
+            # 2~5번 그래프 수직선: df_daily(주봉/일봉) 기준
+            idx_d  = df_daily.index.get_indexer([t_date], method='nearest')[0]
+            d_date = df_daily.index[idx_d]
             for r in range(3, total_rows + 1):
-                fig.add_vline(x=t_date, line_dash="solid", line_width=1,
+                fig.add_vline(x=d_date, line_dash="solid", line_width=1,
                               line_color=marker_color, opacity=0.8, row=r, col=1)
 
     # ── 축 스타일 ──
