@@ -599,6 +599,29 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     fig.update_yaxes(type="log", showgrid=False,
                      range=[np.log10(np.nanmin(y_all)*0.88), np.log10(np.nanmax(y_all)*1.18)],
                      row=row, col=1)
+    # ── ★ 신호 이력 마커 (산점도) ──
+    if 'Combined_Score' in sc_df.columns:
+        sig_series_sc = sc_df['Combined_Score'].apply(score_to_signal)
+        prev_sig_sc   = None
+        for dt, sig in sig_series_sc.items():
+            if sig not in SIG_MARKER or sig == prev_sig_sc:
+                prev_sig_sc = sig
+                continue
+            sym, color, sz = SIG_MARKER[sig]
+            x_pos = sc_df.loc[dt, f'{X_ASSET_FIXED}_Norm'] if dt in sc_df.index else None
+            y_pos = sc_df.loc[dt, f'{selected_ticker}_Norm'] if dt in sc_df.index else None
+            if x_pos is None or y_pos is None or pd.isna(x_pos) or pd.isna(y_pos):
+                prev_sig_sc = sig
+                continue
+            offset = 1.018 if 'up' in sym else 0.982
+            fig.add_trace(go.Scatter(
+                x=[x_pos], y=[y_pos * offset],
+                mode='markers',
+                marker=dict(symbol=sym, size=sz, color=color, line=dict(width=0)),
+                showlegend=False, hoverinfo='skip'),
+                row=1, col=1)
+            prev_sig_sc = sig
+
     fig.add_annotation(x=0, y=1, xref='x domain', yref='y domain',
                        text=f"<b>β = {beta:.2f}</b>", showarrow=False,
                        font=dict(size=11, color='black'), xanchor='left', yanchor='top',
@@ -662,29 +685,6 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     p_lo, p_hi = min(p_lo, spy_lo) * 0.97, max(p_hi, spy_hi) * 1.03
 
     add_segmented_fill(fig, df_daily, 'Plot_Norm_Ticker', 'Price_Fill_Color', row, 1, p_lo)
-
-    # ── ★ [6] 신호 이력 타임라인 마커 ──
-    if 'Combined_Score' in df_daily.columns:
-        sig_series = df_daily['Combined_Score'].apply(score_to_signal)
-        sig_view   = sig_series[df_daily.index >= view_start]
-        prev_sig   = None
-        for dt, sig in sig_view.items():
-            if sig not in SIG_MARKER or sig == prev_sig:
-                prev_sig = sig
-                continue
-            sym, color, sz = SIG_MARKER[sig]
-            y_pos = df_daily.loc[dt, 'Plot_Norm_Ticker'] if dt in df_daily.index else None
-            if y_pos is None or pd.isna(y_pos):
-                prev_sig = sig
-                continue
-            offset = 1.018 if 'up' in sym else 0.982
-            fig.add_trace(go.Scatter(
-                x=[dt], y=[y_pos * offset],
-                mode='markers',
-                marker=dict(symbol=sym, size=sz, color=color, line=dict(width=0)),
-                showlegend=False, hoverinfo='skip'),
-                row=price_row, col=1)
-            prev_sig = sig
 
     fig.update_yaxes(type="log",
                      range=[np.log10(max(p_lo, 1e-6)), np.log10(max(p_hi, 1e-6))],
