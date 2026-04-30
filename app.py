@@ -791,29 +791,34 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
 # ====================================================
 # 10. 포지션 트래커
 # ====================================================
-def _resolve_current_cycle(valid: list) -> dict:
+def _resolve_all_cycles(valid: list) -> tuple[dict, float]:
     """
-    거래 기록을 시간순으로 순회하며 현재(마지막) 사이클을 추출한다.
+    거래 기록 전체를 순회해 현재 사이클 정보와 누적 실현손익을 반환한다.
 
     사이클 규칙:
-      - 첫 매수가 사이클 시작 → cycle_start 기록
-      - 매수/매도 누적 중 hold_qty == 0 이 되면 사이클 종료 → 다음 매수로 리셋
-      - 마지막으로 남은 사이클이 현재 사이클
+      - hold_qty == 0 상태에서 매수 → 새 사이클 시작, 카운터 리셋
+      - 매도 후 hold_qty == 0 → 사이클 종료, 실현손익 확정
+      - 마지막 사이클이 현재 사이클
 
-    반환값 dict:
-      cycle_start   : 현재 사이클 첫 매수일 (datetime.date)
-      cycle_end     : 전량 매도 완료일 (datetime.date) or None(보유 중)
-      hold_qty      : 현재 보유 수량 (int)
-      buy_qty       : 현재 사이클 누적 매수 수량
-      buy_cost      : 현재 사이클 누적 매수 금액
+    반환값:
+      cyc  (dict)
+        cycle_start  : 현재 사이클 첫 매수일 (datetime.date)
+        cycle_end    : 전량 매도 완료일 (datetime.date) or None
+        hold_qty     : 현재 보유 수량 (int)
+        buy_qty      : 현재 사이클 누적 매수 수량
+        buy_cost     : 현재 사이클 누적 매수 금액
+        current_pnl  : 현재 사이클 실현손익 (청산 시) or None (보유 중)
+      cumulative_pnl (float) : 과거 사이클 실현손익 누적 합 (현재 사이클 제외)
     """
     sorted_records = sorted(valid, key=lambda r: r['date'])
 
-    cycle_start = None
-    cycle_end   = None
-    hold_qty    = 0
-    buy_qty     = 0
-    buy_cost    = 0.0
+    cycle_start    = None
+    cycle_end      = None
+    hold_qty       = 0
+    buy_qty        = 0
+    buy_cost       = 0.0
+    sell_proceeds  = 0.0   # 현재 사이클 매도 금액 누적
+    cumulative_pnl = 0.0   # 과거 사이클 실현손익 누적
 
     for r in sorted_records:
         date = datetime.date.fromisoformat(r['date'])
@@ -821,28 +826,38 @@ def _resolve_current_cycle(valid: list) -> dict:
 
         if r['type'] == 'buy':
             if hold_qty == 0:
-                # 새 사이클 시작 (첫 매수 또는 전량 매도 후 재매수)
-                cycle_start = date
-                cycle_end   = None
-                buy_qty     = 0
-                buy_cost    = 0.0
+                # 이전 사이클이 있었다면 누적에 편입
+                if cycle_start is not None and cycle_end is not None:
+                    cumulative_pnl += sell_proceeds - buy_cost
+                # 새 사이클 시작
+                cycle_start   = date
+                cycle_end     = None
+                buy_qty       = 0
+                buy_cost      = 0.0
+                sell_proceeds = 0.0
             hold_qty += qty
             buy_qty  += qty
             buy_cost += qty * r['price']
 
         elif r['type'] == 'sell' and hold_qty > 0:
-            hold_qty -= qty
-            hold_qty  = max(hold_qty, 0)
+            sell_proceeds += qty * r['price']
+            hold_qty      -= qty
+            hold_qty       = max(hold_qty, 0)
             if hold_qty == 0:
-                cycle_end = date  # 전량 매도 완료
+                cycle_end = date
 
-    return {
+    # 현재 사이클 실현손익 (청산된 경우에만)
+    current_pnl = (sell_proceeds - buy_cost) if cycle_end else None
+
+    cyc = {
         'cycle_start': cycle_start,
         'cycle_end':   cycle_end,
         'hold_qty':    hold_qty,
         'buy_qty':     buy_qty,
         'buy_cost':    buy_cost,
+        'current_pnl': current_pnl,
     }
+    return cyc, cumulative_pnl
 
 
 def render_position_tracker(selected_ticker: str, df_daily: pd.DataFrame) -> None:
@@ -851,64 +866,70 @@ def render_position_tracker(selected_ticker: str, df_daily: pd.DataFrame) -> Non
     if not valid:
         return
 
-    cyc = _resolve_current_cycle(valid)
+    cyc, cumulative_pnl = _resolve_all_cycles(valid)
     if cyc['cycle_start'] is None or cyc['buy_qty'] == 0:
         return
 
     current_price = float(df_daily[f'{selected_ticker}_Close'].iloc[-1])
-    avg_price     = cyc['buy_cost'] / cyc['buy_qty']
     hold_qty      = cyc['hold_qty']
+    avg_price     = cyc['buy_cost'] / cyc['buy_qty']
 
-    # ── 보유기간 계산 ──
+    # ── 보유기간 ──
     end_date  = cyc['cycle_end'] if cyc['cycle_end'] else datetime.date.today()
     hold_days = (end_date - cyc['cycle_start']).days
-    period_label = (
-        f"{cyc['cycle_start'].strftime('%m/%d')}–{end_date.strftime('%m/%d')} ({hold_days}일) ✅청산"
-        if cyc['cycle_end']
-        else f"{cyc['cycle_start'].strftime('%m/%d')}–오늘 ({hold_days}일)"
-    )
 
-    # ── 손익 계산 (보유 중이면 평가손익, 청산이면 실현손익) ──
-    if cyc['cycle_end']:
-        # 청산된 경우: 실제 매도 기록으로 실현손익 계산
-        sorted_records = sorted(valid, key=lambda r: r['date'])
-        # 현재 사이클의 매도 기록만 추출 (cycle_start 이후)
-        sell_proceeds = sum(
-            int(r['qty']) * r['price']
-            for r in sorted_records
-            if r['type'] == 'sell'
-            and datetime.date.fromisoformat(r['date']) >= cyc['cycle_start']
-        )
-        total_buy_cost = cyc['buy_cost']
-        pnl_dollar = sell_proceeds - total_buy_cost
-        pnl_pct    = pnl_dollar / total_buy_cost * 100 if total_buy_cost else 0.0
-        qty_display = f"{cyc['buy_qty']:,}주 (전량매도)"
+    # ── 보유수량 표시 ──
+    qty_display = f"{hold_qty:,}주" if hold_qty > 0 else "-"
+
+    # ── 현재 사이클 손익 ──
+    is_closed = cyc['cycle_end'] is not None
+    if is_closed:
+        # 청산 완료: 실현손익
+        pnl_dollar = cyc['current_pnl']
+        pnl_pct    = pnl_dollar / cyc['buy_cost'] * 100 if cyc['buy_cost'] else 0.0
+        pnl_label  = "실현손익"
     else:
-        pnl_dollar  = (current_price - avg_price) * hold_qty
-        pnl_pct     = (current_price - avg_price) / avg_price * 100
-        qty_display = f"{hold_qty:,}주"
+        # 보유 중: 평가손익
+        pnl_dollar = (current_price - avg_price) * hold_qty
+        pnl_pct    = (current_price - avg_price) / avg_price * 100 if avg_price else 0.0
+        pnl_label  = "평가손익"
 
-    pnl_color = '#b91c1c' if pnl_pct >= 0 else '#1d4ed8'
-    sign      = '+' if pnl_dollar >= 0 else ''
-    pnl_label = "실현손익" if cyc['cycle_end'] else "평가손익"
-    bg_color  = '#f0fdf4' if cyc['cycle_end'] else '#f8fafc'
-    border_c  = '#86efac' if cyc['cycle_end'] else '#e2e8f0'
+    # ── 누적실현손익 = 과거 사이클 + 현재 사이클(청산시) ──
+    total_realized = cumulative_pnl + (cyc['current_pnl'] if is_closed else 0.0)
+
+    def _fmt_pnl(val: float, pct: float | None = None) -> str:
+        sign = '+' if val >= 0 else ''
+        color = '#b91c1c' if val >= 0 else '#1d4ed8'
+        pct_str = f"&nbsp;({sign}{pct:.2f}%)" if pct is not None else ''
+        return f"<span style='font-weight:700;color:{color};'>{sign}${val:,.2f}{pct_str}</span>"
+
+    # 누적실현손익은 과거 사이클이 1개 이상 있을 때만 표시
+    has_cumulative = (cumulative_pnl != 0.0) or is_closed
+
+    bg_color = '#f0fdf4' if is_closed else '#f8fafc'
+    border_c = '#86efac' if is_closed else '#e2e8f0'
+
+    cumulative_html = (
+        f"<div><div style='color:#6b7280;font-size:0.68rem;'>누적실현손익</div>"
+        f"<div>{_fmt_pnl(total_realized)}</div></div>"
+        if has_cumulative else ""
+    )
 
     st.markdown(f"""
     <div style='display:flex;gap:12px;flex-wrap:wrap;margin:4px 0 8px 0;
                 padding:8px 12px;background:{bg_color};
                 border:1px solid {border_c};border-radius:8px;font-size:0.78rem;'>
+      <div><div style='color:#6b7280;font-size:0.68rem;'>현재가</div>
+           <div style='font-weight:700;'>${current_price:,.2f}</div></div>
       <div><div style='color:#6b7280;font-size:0.68rem;'>평균단가</div>
            <div style='font-weight:700;'>${avg_price:,.2f}</div></div>
       <div><div style='color:#6b7280;font-size:0.68rem;'>보유수량</div>
            <div style='font-weight:700;'>{qty_display}</div></div>
-      <div><div style='color:#6b7280;font-size:0.68rem;'>{pnl_label}</div>
-           <div style='font-weight:700;color:{pnl_color};'>
-             {sign}${pnl_dollar:,.2f}&nbsp;({sign}{pnl_pct:.2f}%)</div></div>
       <div><div style='color:#6b7280;font-size:0.68rem;'>보유기간</div>
-           <div style='font-weight:700;'>{period_label}</div></div>
-      <div><div style='color:#6b7280;font-size:0.68rem;'>현재가</div>
-           <div style='font-weight:700;'>${current_price:,.2f}</div></div>
+           <div style='font-weight:700;'>{hold_days}일</div></div>
+      <div><div style='color:#6b7280;font-size:0.68rem;'>{pnl_label}</div>
+           <div>{_fmt_pnl(pnl_dollar, pnl_pct)}</div></div>
+      {cumulative_html}
     </div>""", unsafe_allow_html=True)
 
 # ====================================================
