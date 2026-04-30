@@ -604,28 +604,6 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     fig.update_yaxes(type="log", showgrid=False,
                      range=[np.log10(np.nanmin(y_all)*0.88), np.log10(np.nanmax(y_all)*1.18)],
                      row=row, col=1)
-    # ── ★ 신호 이력 마커 (산점도, +-6점만 표시) ──
-    if 'Combined_Score' in sc_df.columns:
-        for dt, score in sc_df['Combined_Score'].items():
-            if score >= 6:
-                sig_key = 'FB6'
-            elif score <= -6:
-                sig_key = 'FS6'
-            else:
-                continue
-            sym, color, sz = SIG_MARKER_6[sig_key]
-            x_pos = sc_df.loc[dt, f'{X_ASSET_FIXED}_Norm']
-            y_pos = sc_df.loc[dt, f'{selected_ticker}_Norm']
-            if pd.isna(x_pos) or pd.isna(y_pos):
-                continue
-            offset = 1.018 if 'up' in sym else 0.982
-            fig.add_trace(go.Scatter(
-                x=[x_pos], y=[y_pos * offset],
-                mode='markers',
-                marker=dict(symbol=sym, size=sz, color=color, line=dict(width=0)),
-                showlegend=False, hoverinfo='skip'),
-                row=1, col=1)
-
     fig.add_annotation(x=0, y=1, xref='x domain', yref='y domain',
                        text=f"<b>β = {beta:.2f}</b>", showarrow=False,
                        font=dict(size=11, color='black'), xanchor='left', yanchor='top',
