@@ -22,6 +22,7 @@ TARGET_TICKERS = [
     'GDXU', 'KORU', '005930', 'BITU', 'ETHT', 'AVXX',
 ]
 TICKER_DISPLAY_NAMES = {'BTC-USD': 'BTC', 'ETH-USD': 'ETH', '005930': '삼전', '000660': '하닉'}
+SEED_MONEY_KRW = 21_000_000   # 시드머니 (원)
 
 SIGNAL_STYLE = {
     'FB2': ('#7f1d1d', '#ffffff'), 'FB':  ('#dc2626', '#ffffff'), 'B':   ('#fca5a5', '#1a1a1a'),
