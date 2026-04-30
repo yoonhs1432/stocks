@@ -39,6 +39,11 @@ SIG_MARKER = {
     'FS':  ('triangle-down', '#2563eb',  8),
     'FS2': ('triangle-down', '#1e3a8a', 10),
 }
+# +-6점 전용 마커 (산점도 표시용)
+SIG_MARKER_6 = {
+    'FB6': ('triangle-up',   '#7f1d1d', 11),
+    'FS6': ('triangle-down', '#1e3a8a', 11),
+}
 
 def display_name(ticker: str) -> str:
     return TICKER_DISPLAY_NAMES.get(ticker, ticker)
@@ -599,19 +604,19 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     fig.update_yaxes(type="log", showgrid=False,
                      range=[np.log10(np.nanmin(y_all)*0.88), np.log10(np.nanmax(y_all)*1.18)],
                      row=row, col=1)
-    # ── ★ 신호 이력 마커 (산점도) ──
+    # ── ★ 신호 이력 마커 (산점도, +-6점만 표시) ──
     if 'Combined_Score' in sc_df.columns:
-        sig_series_sc = sc_df['Combined_Score'].apply(score_to_signal)
-        prev_sig_sc   = None
-        for dt, sig in sig_series_sc.items():
-            if sig not in SIG_MARKER or sig == prev_sig_sc:
-                prev_sig_sc = sig
+        for dt, score in sc_df['Combined_Score'].items():
+            if score >= 6:
+                sig_key = 'FB6'
+            elif score <= -6:
+                sig_key = 'FS6'
+            else:
                 continue
-            sym, color, sz = SIG_MARKER[sig]
-            x_pos = sc_df.loc[dt, f'{X_ASSET_FIXED}_Norm'] if dt in sc_df.index else None
-            y_pos = sc_df.loc[dt, f'{selected_ticker}_Norm'] if dt in sc_df.index else None
-            if x_pos is None or y_pos is None or pd.isna(x_pos) or pd.isna(y_pos):
-                prev_sig_sc = sig
+            sym, color, sz = SIG_MARKER_6[sig_key]
+            x_pos = sc_df.loc[dt, f'{X_ASSET_FIXED}_Norm']
+            y_pos = sc_df.loc[dt, f'{selected_ticker}_Norm']
+            if pd.isna(x_pos) or pd.isna(y_pos):
                 continue
             offset = 1.018 if 'up' in sym else 0.982
             fig.add_trace(go.Scatter(
@@ -620,7 +625,6 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
                 marker=dict(symbol=sym, size=sz, color=color, line=dict(width=0)),
                 showlegend=False, hoverinfo='skip'),
                 row=1, col=1)
-            prev_sig_sc = sig
 
     fig.add_annotation(x=0, y=1, xref='x domain', yref='y domain',
                        text=f"<b>β = {beta:.2f}</b>", showarrow=False,
