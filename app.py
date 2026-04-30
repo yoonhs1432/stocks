@@ -32,6 +32,13 @@ BUTTON_TEXT_STYLE = {
     'FB2': '#f8fafc', 'FB': '#f8fafc', 'B': '#111827',
     'H': '#111827', 'S': '#111827', 'FS': '#f8fafc', 'FS2': '#f8fafc',
 }
+# 신호 이력 마커 스타일
+SIG_MARKER = {
+    'FB2': ('triangle-up',   '#7f1d1d', 10),
+    'FB':  ('triangle-up',   '#dc2626',  8),
+    'FS':  ('triangle-down', '#2563eb',  8),
+    'FS2': ('triangle-down', '#1e3a8a', 10),
+}
 
 def display_name(ticker: str) -> str:
     return TICKER_DISPLAY_NAMES.get(ticker, ticker)
@@ -40,7 +47,7 @@ def safe_key(ticker: str) -> str:
     return ticker.replace('-', '_').replace('.', '_').replace('/', '_')
 
 # ====================================================
-# 2. 영속화 (공통 Gist I/O)
+# 2. 영속화
 # ====================================================
 TRADE_FILE         = 'trade_history.json'
 MEMO_FILE          = 'memo_history.json'
@@ -153,11 +160,11 @@ def _us_holidays(year: int) -> set:
                 if count == n:
                     return d
     holidays = {date(year, 1, 1), date(year, 7, 4), date(year, 12, 25)}
-    holidays.add(nth_weekday(year, 1, 0, 3))   # MLK Day
-    holidays.add(nth_weekday(year, 2, 0, 3))   # Presidents Day
-    holidays.add(nth_weekday(year, 9, 0, 1))   # Labor Day
-    holidays.add(nth_weekday(year, 11, 3, 4))  # Thanksgiving
-    for day in range(31, 24, -1):              # Memorial Day
+    holidays.add(nth_weekday(year, 1, 0, 3))
+    holidays.add(nth_weekday(year, 2, 0, 3))
+    holidays.add(nth_weekday(year, 9, 0, 1))
+    holidays.add(nth_weekday(year, 11, 3, 4))
+    for day in range(31, 24, -1):
         try:
             d = date(year, 5, day)
             if d.weekday() == 0:
@@ -177,13 +184,11 @@ def get_market_status() -> dict:
     mc         = now_et.replace(hour=16, minute=0,  second=0, microsecond=0)
     in_hours   = mo <= now_et <= mc
     is_open    = not is_weekend and not is_holiday and in_hours
-
-    last_day = today
+    last_day   = today
     if is_weekend or is_holiday or (not in_hours and now_et < mo):
         last_day = today - datetime.timedelta(days=1)
         while last_day.weekday() >= 5 or last_day in _us_holidays(last_day.year):
             last_day -= datetime.timedelta(days=1)
-
     return {
         'is_open':            is_open,
         'status_label':       "🟢 장중" if is_open else "🔴 장마감",
@@ -192,7 +197,7 @@ def get_market_status() -> dict:
     }
 
 # ====================================================
-# 4. 신호 계산 (단일 정의)
+# 4. 신호 계산
 # ====================================================
 def compute_combined_score(cz: float, mhz: float, rsi: float) -> int:
     s = 0
@@ -201,8 +206,7 @@ def compute_combined_score(cz: float, mhz: float, rsi: float) -> int:
     s += 2 if rsi <= 30   else 1 if rsi < 50  else -2 if rsi >= 70   else -1
     return s
 
-def get_signal_combined(cz: float, mhz: float, rsi: float) -> str:
-    score = compute_combined_score(cz, mhz, rsi)
+def score_to_signal(score: int) -> str:
     if   score >= 5:  return 'FB2'
     elif score >= 3:  return 'FB'
     elif score >= 1:  return 'B'
@@ -210,6 +214,9 @@ def get_signal_combined(cz: float, mhz: float, rsi: float) -> str:
     elif score <= -3: return 'FS'
     elif score <= -1: return 'S'
     return 'H'
+
+def get_signal_combined(cz: float, mhz: float, rsi: float) -> str:
+    return score_to_signal(compute_combined_score(cz, mhz, rsi))
 
 def get_price_fill_color_combined(score: int) -> str:
     if score >= 5:  return 'rgba(127,29,29,0.40)'
@@ -315,7 +322,6 @@ def process_asset_data(df_x: pd.DataFrame, df_y: pd.DataFrame,
     if df.empty:
         return (None,) * 4
 
-    # 정규화 + 회귀
     base_x = df[f'{x_name}_Close'].iloc[0]
     base_y = df[f'{y_name}_Close'].iloc[0]
     df[f'{x_name}_Norm'] = df[f'{x_name}_Close'] / base_x
@@ -326,7 +332,6 @@ def process_asset_data(df_x: pd.DataFrame, df_y: pd.DataFrame,
     beta   = model.coef_[0]
     df['Predicted'] = np.exp(model.intercept_) * df[f'{x_name}_Norm'] ** beta
 
-    # 보조지표
     close  = df[f'{y_name}_Close']
     delta  = close.diff()
     gain   = delta.where(delta > 0, 0).ewm(alpha=1/14, adjust=False).mean()
@@ -344,7 +349,6 @@ def process_asset_data(df_x: pd.DataFrame, df_y: pd.DataFrame,
     std_resid         = log_resid.std()
     df['Z_Score']     = log_resid / log_resid.expanding(min_periods=30).std().replace(0, np.nan)
 
-    # 신호 점수 사전 계산 (render_chart 내 중복 제거)
     def _score_row(r):
         return compute_combined_score(
             float(r['Z_Score'])     if pd.notna(r['Z_Score'])     else 0.0,
@@ -357,7 +361,7 @@ def process_asset_data(df_x: pd.DataFrame, df_y: pd.DataFrame,
     return df, beta, std_resid
 
 @st.cache_data(show_spinner=False)
-def compute_all_analyses(df_close: pd.DataFrame, _version: int = 6,
+def compute_all_analyses(df_close: pd.DataFrame, _version: int = 7,
                          candle_type: str = '일봉') -> dict:
     df_x    = df_close[[f'{X_ASSET_FIXED}_Close']]
     results = {}
@@ -422,9 +426,16 @@ def render_sidebar(selected_ticker: str) -> dict:
                                 index=ticker_options.index(selected_ticker))
         t_date   = st.date_input("날짜", datetime.date.today())
         t_type   = st.radio("종류", ['buy', 'sell'], horizontal=True)
+        t_col1, t_col2 = st.columns(2)
+        t_qty   = t_col1.number_input("수량", min_value=0.0, value=0.0,
+                                      step=1.0, format="%.2f")
+        t_price = t_col2.number_input("단가($)", min_value=0.0, value=0.0,
+                                      step=0.01, format="%.4f")
         if st.button("기록 저장", key="trade_save_btn"):
-            st.session_state.trade_history.setdefault(t_ticker, []).append(
-                {'date': t_date.strftime("%Y-%m-%d"), 'type': t_type})
+            record = {'date': t_date.strftime("%Y-%m-%d"), 'type': t_type}
+            if t_qty > 0:   record['qty']   = t_qty
+            if t_price > 0: record['price'] = t_price
+            st.session_state.trade_history.setdefault(t_ticker, []).append(record)
             save_trade_history(st.session_state.trade_history)
             st.success("저장 완료!")
             st.rerun()
@@ -433,8 +444,10 @@ def render_sidebar(selected_ticker: str) -> dict:
         history = st.session_state.trade_history
         if selected_ticker in history and history[selected_ticker]:
             for i, record in enumerate(history[selected_ticker]):
-                if st.button(f"✕  {record['date']}  {record['type'].upper()}",
-                             key=f"del_{selected_ticker}_{i}"):
+                qty_str = f" {record['qty']}주" if record.get('qty') else ""
+                prc_str = f" @${record['price']:.2f}" if record.get('price') else ""
+                label   = f"✕  {record['date']}  {record['type'].upper()}{qty_str}{prc_str}"
+                if st.button(label, key=f"del_{selected_ticker}_{i}"):
                     st.session_state.trade_history[selected_ticker].pop(i)
                     save_trade_history(st.session_state.trade_history)
                     st.rerun()
@@ -612,6 +625,7 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     df_daily['Plot_Norm_Ticker'] = df_daily[f'{selected_ticker}_Norm'] / base_tkr
 
     # ── [3] Price ──
+    price_row = row
     fig.add_trace(go.Scatter(
         x=df_daily.index, y=df_daily['Plot_Norm_SPY'],
         mode='lines', line=dict(color='gray', width=1.5), name=X_ASSET_FIXED), row=row, col=1)
@@ -648,6 +662,30 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     p_lo, p_hi = min(p_lo, spy_lo) * 0.97, max(p_hi, spy_hi) * 1.03
 
     add_segmented_fill(fig, df_daily, 'Plot_Norm_Ticker', 'Price_Fill_Color', row, 1, p_lo)
+
+    # ── ★ [6] 신호 이력 타임라인 마커 ──
+    if 'Combined_Score' in df_daily.columns:
+        sig_series = df_daily['Combined_Score'].apply(score_to_signal)
+        sig_view   = sig_series[df_daily.index >= view_start]
+        prev_sig   = None
+        for dt, sig in sig_view.items():
+            if sig not in SIG_MARKER or sig == prev_sig:
+                prev_sig = sig
+                continue
+            sym, color, sz = SIG_MARKER[sig]
+            y_pos = df_daily.loc[dt, 'Plot_Norm_Ticker'] if dt in df_daily.index else None
+            if y_pos is None or pd.isna(y_pos):
+                prev_sig = sig
+                continue
+            offset = 1.018 if 'up' in sym else 0.982
+            fig.add_trace(go.Scatter(
+                x=[dt], y=[y_pos * offset],
+                mode='markers',
+                marker=dict(symbol=sym, size=sz, color=color, line=dict(width=0)),
+                showlegend=False, hoverinfo='skip'),
+                row=price_row, col=1)
+            prev_sig = sig
+
     fig.update_yaxes(type="log",
                      range=[np.log10(max(p_lo, 1e-6)), np.log10(max(p_hi, 1e-6))],
                      autorange=False, fixedrange=True, row=row, col=1)
@@ -660,17 +698,16 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     time_x_axis = f'x{row}'
     row += 1
 
-    # ── [4~6] Z / MACD / RSI 공통 패턴 ──
+    # ── [4~5] Z / MACD / RSI ──
     C_HI = 'rgba(29,78,216,0.85)'
     C_LO = 'rgba(185,28,28,0.85)'
     C_MH = 'rgba(147,197,253,0.6)'
     C_ML = 'rgba(252,165,165,0.6)'
 
-    indicator_cfg = [
-        ('Z_Score',     1.5,  -1.5,  'Z',    'black',   lambda v: 'black'),
-        ('MACD_Hist_Z', 1.0,  -1.0,  'MACD', '#dc2626', lambda v: '#dc2626' if v <= -1.0 else '#1d4ed8' if v >= 1.0 else 'black'),
-    ]
-    for col_name, hi, lo, label, _, color_fn in indicator_cfg:
+    for col_name, hi, lo, label, color_fn in [
+        ('Z_Score',     1.5, -1.5, 'Z',    lambda v: 'black'),
+        ('MACD_Hist_Z', 1.0, -1.0, 'MACD', lambda v: '#dc2626' if v <= -1.0 else '#1d4ed8' if v >= 1.0 else 'black'),
+    ]:
         colors = _bar_colors(df_daily[col_name], hi, lo, C_HI, C_LO, C_MH, C_ML)
         fig.add_trace(go.Bar(x=df_daily.index, y=df_daily[col_name],
                               marker_color=colors, name=col_name, hoverinfo='skip'), row=row, col=1)
@@ -678,9 +715,8 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
             fig.add_hline(y=y_val, line_dash="solid", line_color=lc,
                           line_width=0.8 if y_val != 0 else 0.6, row=row, col=1)
         val = float(df_daily[col_name].iloc[-1]) if pd.notna(df_daily[col_name].iloc[-1]) else 0.0
-        fmt = f"{val:+.2f}"
         fig.add_annotation(x=0, y=1, xref='x domain', yref='y domain',
-                           text=f"<b>{label}  {fmt}</b>", showarrow=False,
+                           text=f"<b>{label}  {val:+.2f}</b>", showarrow=False,
                            font=dict(size=11, color=color_fn(val)),
                            xanchor='left', yanchor='top',
                            bgcolor='white', bordercolor='black', borderwidth=1, borderpad=2,
@@ -690,8 +726,8 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
         fig.update_yaxes(range=[-(rng+0.3), rng+0.3], autorange=False, fixedrange=True, row=row, col=1)
         row += 1
 
-    # RSI (50 중심)
-    rsi_c = df_daily['RSI'] - 50
+    # RSI
+    rsi_c      = df_daily['RSI'] - 50
     rsi_colors = _bar_colors(df_daily['RSI'], 70, 30, C_HI, C_LO, C_MH, C_ML)
     fig.add_trace(go.Bar(x=df_daily.index, y=rsi_c,
                           marker_color=rsi_colors, name='RSI', hoverinfo='skip'), row=row, col=1)
@@ -753,7 +789,52 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
                             'doubleClick': 'reset', 'responsive': True, 'showTips': False})
 
 # ====================================================
-# 10. 메모 목록 (전체 너비)
+# 10. 포지션 트래커  ★ 신규
+# ====================================================
+def render_position_tracker(selected_ticker: str, df_daily: pd.DataFrame) -> None:
+    records = st.session_state.trade_history.get(selected_ticker, [])
+    valid   = [r for r in records if r.get('qty', 0) > 0 and r.get('price', 0) > 0]
+    if not valid:
+        return
+
+    current_price  = float(df_daily[f'{selected_ticker}_Close'].iloc[-1])
+    total_buy_qty  = sum(r['qty'] for r in valid if r['type'] == 'buy')
+    total_buy_cost = sum(r['qty'] * r['price'] for r in valid if r['type'] == 'buy')
+    total_sell_qty = sum(r['qty'] for r in valid if r['type'] == 'sell')
+    hold_qty       = total_buy_qty - total_sell_qty
+
+    if hold_qty <= 0 or total_buy_qty == 0:
+        return
+
+    avg_price  = total_buy_cost / total_buy_qty
+    pnl_pct    = (current_price - avg_price) / avg_price * 100
+    pnl_dollar = (current_price - avg_price) * hold_qty
+    pnl_color  = '#b91c1c' if pnl_pct >= 0 else '#1d4ed8'
+
+    buy_dates  = sorted(r['date'] for r in valid if r['type'] == 'buy')
+    hold_days  = (datetime.date.today() -
+                  datetime.date.fromisoformat(buy_dates[0])).days if buy_dates else 0
+
+    sign       = '+' if pnl_dollar >= 0 else ''
+    st.markdown(f"""
+    <div style='display:flex;gap:12px;flex-wrap:wrap;margin:4px 0 8px 0;
+                padding:8px 12px;background:#f8fafc;
+                border:1px solid #e2e8f0;border-radius:8px;font-size:0.78rem;'>
+      <div><div style='color:#6b7280;font-size:0.68rem;'>평균단가</div>
+           <div style='font-weight:700;'>${avg_price:,.2f}</div></div>
+      <div><div style='color:#6b7280;font-size:0.68rem;'>보유수량</div>
+           <div style='font-weight:700;'>{hold_qty:,.2f}</div></div>
+      <div><div style='color:#6b7280;font-size:0.68rem;'>평가손익</div>
+           <div style='font-weight:700;color:{pnl_color};'>
+             {sign}${pnl_dollar:,.2f}&nbsp;({sign}{pnl_pct:.2f}%)</div></div>
+      <div><div style='color:#6b7280;font-size:0.68rem;'>보유기간</div>
+           <div style='font-weight:700;'>{hold_days}일</div></div>
+      <div><div style='color:#6b7280;font-size:0.68rem;'>현재가</div>
+           <div style='font-weight:700;'>${current_price:,.2f}</div></div>
+    </div>""", unsafe_allow_html=True)
+
+# ====================================================
+# 11. 메모 목록
 # ====================================================
 def render_memo_section(selected_ticker: str) -> None:
     memos = sorted(st.session_state.memo_history.get(selected_ticker, []),
@@ -777,7 +858,7 @@ def render_memo_section(selected_ticker: str) -> None:
         unsafe_allow_html=True)
 
 # ====================================================
-# 11. CSS
+# 12. CSS
 # ====================================================
 def build_css(selected_option: str) -> str:
     btn_parts = []
@@ -827,7 +908,8 @@ def build_css(selected_option: str) -> str:
     }}
     section[data-testid="stMain"] div[data-testid="stHorizontalBlock"]
         > div[data-testid="stColumn"]:first-child {{
-        flex:0 0 80px!important; min-width:80px!important; max-width:80px!important; padding:0!important;
+        flex:0 0 80px!important; min-width:80px!important;
+        max-width:80px!important; padding:0!important;
     }}
     section[data-testid="stMain"] div[data-testid="stHorizontalBlock"]
         > div[data-testid="stColumn"]:last-child {{
@@ -851,7 +933,7 @@ def build_css(selected_option: str) -> str:
     </style>"""
 
 # ====================================================
-# 12. 메인
+# 13. 메인
 # ====================================================
 def main():
     init_session_state()
@@ -869,7 +951,6 @@ def main():
 
     cfg = render_sidebar(selected_ticker or TARGET_TICKERS[0])
 
-    # 설정 변경 감지 & 저장
     if (st.session_state.analysis_start != cfg['analysis_start'] or
             st.session_state.view_months != cfg['view_months']):
         st.session_state.analysis_start = cfg['analysis_start']
@@ -881,7 +962,6 @@ def main():
     candle_type = cfg['candle_type']
     st.session_state.candle_type = candle_type
 
-    # YY-MM → YYYY-MM-01
     raw_start = st.session_state.analysis_start.strip()
     try:
         analysis_start = datetime.datetime.strptime(raw_start, '%y-%m').strftime('%Y-%m-01')
@@ -895,7 +975,6 @@ def main():
     with st.spinner("데이터 로드 중..."):
         df_close = fetch_all_data(TARGET_TICKERS, analysis_start, candle_type)
 
-    # 커스텀 티커
     if selected_ticker and f'{selected_ticker}_Close' not in df_close.columns:
         with st.spinner(f"{selected_ticker} 데이터를 불러오는 중..."):
             df_custom = fetch_single_ticker(selected_ticker, analysis_start)
@@ -914,9 +993,8 @@ def main():
             df_close = df_close[df_close.index <= last_trading_date]
 
     with st.spinner("전체 종목 분석 중..."):
-        all_analyses = compute_all_analyses(df_close, _version=6, candle_type=candle_type)
+        all_analyses = compute_all_analyses(df_close, _version=7, candle_type=candle_type)
 
-    # 신호 + 등락률 집계
     pct_changes = {}
     for ticker in TARGET_TICKERS:
         col = f'{ticker}_Close'
@@ -932,7 +1010,6 @@ def main():
         else:
             st.session_state.ticker_signals.setdefault(ticker, 'H')
 
-    # 선택 종목 분석
     df_daily = beta = std_resid = None
     if selected_ticker:
         if selected_ticker in TARGET_TICKERS:
@@ -953,7 +1030,6 @@ def main():
             rsi = float(df_daily['RSI'].iloc[-1])          if pd.notna(df_daily['RSI'].iloc[-1])          else 50.0
             st.session_state.ticker_signals[selected_ticker] = get_signal_combined(cz, mhz, rsi)
 
-    # CSS + 헤더
     st.markdown(build_css(selected_option), unsafe_allow_html=True)
     KST      = datetime.timezone(datetime.timedelta(hours=9))
     queried  = datetime.datetime.now(KST).strftime('%Y-%m-%d %H:%M')
@@ -966,7 +1042,6 @@ def main():
         f"<span style='font-size:10px;color:#999;white-space:nowrap;'>{data_lbl}</span></div>",
         unsafe_allow_html=True)
 
-    # 버튼 + 차트
     btn_col, chart_col = st.columns([1, 6])
     with btn_col:
         for ticker in TARGET_TICKERS:
@@ -992,6 +1067,9 @@ def main():
 
     with chart_col:
         if df_daily is not None:
+            # ★ 포지션 트래커 (차트 위)
+            render_position_tracker(selected_ticker, df_daily)
+
             with st.spinner("캔들 데이터 로드 중..."):
                 df_ohlc = fetch_ohlc(selected_ticker, analysis_start, candle_type)
             df_daily_raw = None
