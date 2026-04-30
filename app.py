@@ -18,7 +18,7 @@ st.set_page_config(page_title="퀀트 트레이딩 대시보드", layout="wide")
 X_ASSET_FIXED  = 'SPY'
 TARGET_TICKERS = [
     'SPYU', 'SOXL', 'TQQQ', 'FNGU', 'HIBL', 'TARK', 'QPUX', 'BNKU',
-    'URTY', 'TECL', 'LABU', 'DFEN', 'EDC', 'INDL', 'EURL',
+    'URTY', 'TECL', 'LABU', 'DFEN', 'EDC',
     'GDXU', 'KORU', '005930', 'BITU', 'ETHT', 'AVXX',
 ]
 TICKER_DISPLAY_NAMES = {'BTC-USD': 'BTC', 'ETH-USD': 'ETH', '005930': '삼전', '000660': '하닉'}
@@ -420,6 +420,28 @@ def add_segmented_fill(fig, df, y_col, color_col, row, col, baseline_y):
 # ====================================================
 def render_sidebar(selected_ticker: str) -> dict:
     with st.sidebar:
+        # ── 시드 수익률 ──
+        pnl_cached = st.session_state.get('portfolio_pnl_cache', None)
+        usd_krw    = st.session_state.get('usd_krw_cache', None)
+        if pnl_cached is not None and usd_krw is not None:
+            pnl_krw  = pnl_cached * usd_krw
+            seed_ret = pnl_krw / SEED_MONEY_KRW * 100
+            s_sign   = '+' if seed_ret >= 0 else ''
+            s_color  = '#b91c1c' if seed_ret >= 0 else '#1d4ed8'
+            k_sign   = '+' if pnl_krw >= 0 else ''
+            k_color  = s_color
+            st.markdown(
+                f"<div style='padding:8px 10px;background:#f8fafc;"
+                f"border:1px solid #e2e8f0;border-radius:8px;margin-bottom:8px;'>"
+                f"<div style='font-size:0.68rem;color:#6b7280;margin-bottom:2px;'>"
+                f"💰 시드 대비 수익률 ({usd_krw:,.0f}₩/$)</div>"
+                f"<div style='font-size:1.1rem;font-weight:800;color:{s_color};'>"
+                f"{s_sign}{seed_ret:.1f}%</div>"
+                f"<div style='font-size:0.78rem;font-weight:700;color:{k_color};'>"
+                f"{k_sign}{int(round(pnl_krw/10000)):,}만원 / 시드 {SEED_MONEY_KRW//10000:,}만원</div>"
+                f"</div>",
+                unsafe_allow_html=True)
+
         st.markdown("### ⚙️ 분석 파라미터")
         candle_type    = st.radio("봉 기준", ['일봉', '주봉'], horizontal=True,
                                   index=1 if st.session_state.candle_type == '주봉' else 0)
@@ -911,25 +933,14 @@ def render_position_tracker(selected_ticker: str,
         return (f"<div><div style='color:#6b7280;font-size:0.68rem;'>{label}</div>"
                 f"<div style='font-weight:700;color:#9ca3af;'>-</div></div>")
 
-    # ── 환율 및 한화 수익률 ──
-    usd_krw    = fetch_usd_krw()
-    pnl_krw    = portfolio_pnl * usd_krw
-    seed_ret   = pnl_krw / SEED_MONEY_KRW * 100
-    seed_sign  = '+' if seed_ret >= 0 else ''
-    seed_color = _pnl_color(seed_ret)
-    krw_sign   = '+' if pnl_krw >= 0 else ''
-    krw_color  = _pnl_color(pnl_krw)
+    # ── 환율 조회 후 session_state에 캐시 → 사이드바에서 참조 ──
+    usd_krw = fetch_usd_krw()
+    st.session_state['portfolio_pnl_cache'] = portfolio_pnl
+    st.session_state['usd_krw_cache']       = usd_krw
 
     port_html = (
         f"<div><div style='color:#6b7280;font-size:0.68rem;'>전종목 누적손익</div>"
         f"<div>{_fmt_pnl(portfolio_pnl)}</div></div>"
-    )
-    krw_html = (
-        f"<div><div style='color:#6b7280;font-size:0.68rem;'>시드대비 수익률"
-        f"<span style='font-weight:400;color:#9ca3af;'> ({usd_krw:,.0f}₩/$)</span></div>"
-        f"<div style='font-weight:700;color:{seed_color};'>{seed_sign}{seed_ret:.1f}%"
-        f"&nbsp;<span style='font-size:0.72rem;color:{krw_color};'>"
-        f"({krw_sign}{int(round(pnl_krw/10000)):,}만원)</span></div></div>"
     )
 
     # ── 매매 기록 없는 경우: 빈 기본 화면 ──
@@ -950,7 +961,6 @@ def render_position_tracker(selected_ticker: str,
           {_dash_cell("평가손익")}
           {_dash_cell("누적실현손익")}
           {port_html}
-          {krw_html}
         </div>""", unsafe_allow_html=True)
         return
 
@@ -1059,7 +1069,6 @@ def render_position_tracker(selected_ticker: str,
       {pnl_html}
       {cumulative_html}
       {port_html}
-      {krw_html}
     </div>""", unsafe_allow_html=True)
 
 # ====================================================
