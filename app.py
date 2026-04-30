@@ -18,8 +18,8 @@ st.set_page_config(page_title="퀀트 트레이딩 대시보드", layout="wide")
 X_ASSET_FIXED  = 'SPY'
 TARGET_TICKERS = [
     'SPYU', 'SOXL', 'TQQQ', 'FNGU', 'HIBL', 'TARK', 'QPUX', 'BNKU',
-    'URTY', 'TECL', 'LABU', 'DFEN', 'EDC',
-    'GDXU', 'KORU', '005930', 'BITU', 'ETHT', 'AVXX'
+    'URTY', 'TECL', 'LABU', 'DFEN', 'EDC', 'INDL', 'EURL',
+    'GDXU', 'KORU', '005930', 'BITU', 'ETHT', 'AVXX',
 ]
 TICKER_DISPLAY_NAMES = {'BTC-USD': 'BTC', 'ETH-USD': 'ETH', '005930': '삼전', '000660': '하닉'}
 SEED_MONEY_KRW = 21_000_000   # 시드머니 (원)
@@ -442,15 +442,67 @@ def render_sidebar(selected_ticker: str) -> dict:
                 f"</div>",
                 unsafe_allow_html=True)
 
+        # ── 시드 배분 트래커 ──
+        usd_krw_alloc = st.session_state.get('usd_krw_cache', 1400.0)
+        total_invested_krw = 0.0
+        alloc_rows = []
+        for _tk in TARGET_TICKERS:
+            _records = st.session_state.trade_history.get(_tk, [])
+            _valid   = [r for r in _records if r.get('qty',0)>0 and r.get('price',0)>0]
+            if not _valid:
+                continue
+            _cyc, _ = _resolve_all_cycles(_valid)
+            if _cyc['hold_qty'] <= 0:
+                continue
+            # 현재 보유 포지션의 실제 투자금 (현재 사이클 매수금액)
+            invested_usd = _cyc['buy_cost']
+            invested_krw = invested_usd * usd_krw_alloc
+            total_invested_krw += invested_krw
+            alloc_rows.append((_tk, invested_krw))
+
+        if alloc_rows:
+            seed_krw = SEED_MONEY_KRW
+            used_pct = min(total_invested_krw / seed_krw * 100, 100)
+            bar_color = '#b91c1c' if used_pct >= 90 else '#f59e0b' if used_pct >= 70 else '#16a34a'
+            rows_html = ""
+            for _tk, _krw in sorted(alloc_rows, key=lambda x: -x[1]):
+                _pct = _krw / seed_krw * 100
+                _w   = max(_pct / 100 * 100, 2)
+                rows_html += (
+                    f"<div style='display:flex;align-items:center;gap:6px;margin-bottom:3px;'>"
+                    f"<div style='font-size:0.68rem;color:#374151;width:42px;flex-shrink:0;'>{display_name(_tk)}</div>"
+                    f"<div style='flex:1;background:#e5e7eb;border-radius:3px;height:8px;'>"
+                    f"<div style='width:{_w:.1f}%;background:{bar_color};border-radius:3px;height:8px;'></div></div>"
+                    f"<div style='font-size:0.65rem;color:#6b7280;width:34px;text-align:right;flex-shrink:0;'>{_pct:.1f}%</div>"
+                    f"</div>"
+                )
+            st.markdown(
+                f"<div style='padding:8px 10px;background:#f8fafc;"
+                f"border:1px solid #e2e8f0;border-radius:8px;margin-bottom:8px;'>"
+                f"<div style='font-size:0.68rem;color:#6b7280;margin-bottom:6px;'>"
+                f"📊 시드 배분 현황 &nbsp;"
+                f"<span style='font-weight:700;color:{bar_color};'>{used_pct:.1f}% 사용</span>"
+                f"&nbsp;<span style='color:#9ca3af;'>({int(round(total_invested_krw/10000)):,}만 / {seed_krw//10000:,}만원)</span></div>"
+                f"{rows_html}"
+                f"</div>",
+                unsafe_allow_html=True)
+
         st.markdown("### ⚙️ 분석 파라미터")
         candle_type    = st.radio("봉 기준", ['일봉', '주봉'], horizontal=True,
                                   index=1 if st.session_state.candle_type == '주봉' else 0)
         analysis_start = st.text_input("분석 시작일 (YY-MM)",
                                        value=st.session_state.analysis_start,
                                        placeholder="25-01")
-        view_months    = st.number_input("차트 조회 기간 (최근 N개월)",
-                                        min_value=1, max_value=240,
-                                        value=st.session_state.view_months, step=1)
+        # ── 차트 조회 기간 프리셋 ──
+        preset_cols = st.columns(5)
+        for _col, (_label, _months) in zip(preset_cols,
+                [('1M',1),('3M',3),('6M',6),('1Y',12),('ALL',240)]):
+            if _col.button(_label, key=f"preset_{_label}", use_container_width=True):
+                st.session_state.view_months = _months
+                st.rerun()
+        view_months = st.number_input("차트 조회 기간 (최근 N개월)",
+                                      min_value=1, max_value=240,
+                                      value=st.session_state.view_months, step=1)
         guide_n        = st.number_input("가이드라인 기울기 (n)",
                                         min_value=1, max_value=20, value=4, step=1)
 
