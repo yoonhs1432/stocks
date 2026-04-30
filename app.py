@@ -504,23 +504,100 @@ def render_sidebar(selected_ticker: str) -> dict:
         analysis_start = st.text_input("분석 시작일 (YY-MM)",
                                        value=st.session_state.analysis_start,
                                        placeholder="25-01")
-        # ── 차트 조회 기간 프리셋 ──
-        preset_cols = st.columns(5)
-        for _col, (_label, _months) in zip(preset_cols,
-                [('1M',1),('3M',3),('6M',6),('1Y',12),('ALL',240)]):
-            if _col.button(_label, key=f"preset_{_label}", use_container_width=True):
-                st.session_state.view_months = _months
-                st.rerun()
         view_months = st.number_input("차트 조회 기간 (최근 N개월)",
                                       min_value=1, max_value=240,
                                       value=st.session_state.view_months, step=1)
-        guide_n        = st.number_input("가이드라인 기울기 (n)",
-                                        min_value=1, max_value=20, value=4, step=1)
+        guide_n = 4
 
         st.markdown("---")
         _tok, _gid = _gist_cfg()
         st.caption(f"☁️ Gist 연동됨 (`{_gid[:8]}...`)" if (_tok and _gid)
                    else "💾 로컬 저장 (Gist 미설정)")
+
+        # ── 매매 달력 히트맵 ──
+        st.markdown("### 📅 매매 달력")
+        _today      = datetime.date.today()
+        _cal_month  = st.session_state.get('cal_month', _today.replace(day=1))
+        _nav1, _nav2, _nav3 = st.columns([1, 3, 1])
+        if _nav1.button("◀", key="cal_prev"):
+            _m = _cal_month.month - 1
+            _y = _cal_month.year + (_m - 1) // 12
+            _m = (_m - 1) % 12 + 1
+            st.session_state['cal_month'] = datetime.date(_y, _m, 1)
+            st.rerun()
+        _nav2.markdown(
+            f"<div style='text-align:center;font-weight:700;font-size:0.85rem;"
+            f"padding-top:4px;'>{_cal_month.strftime('%Y년 %m월')}</div>",
+            unsafe_allow_html=True)
+        if _nav3.button("▶", key="cal_next"):
+            _m = _cal_month.month + 1
+            _y = _cal_month.year + (_m - 1) // 12
+            _m = (_m - 1) % 12 + 1
+            st.session_state['cal_month'] = datetime.date(_y, _m, 1)
+            st.rerun()
+
+        # 이번 달 매매 날짜 수집 (전 종목)
+        import calendar
+        _buy_dates  = set()
+        _sell_dates = set()
+        for _tk in TARGET_TICKERS:
+            for _r in st.session_state.trade_history.get(_tk, []):
+                try:
+                    _d = datetime.date.fromisoformat(_r['date'])
+                except Exception:
+                    continue
+                if _d.year == _cal_month.year and _d.month == _cal_month.month:
+                    (_buy_dates if _r['type'] == 'buy' else _sell_dates).add(_d.day)
+        _both_dates = _buy_dates & _sell_dates
+
+        _days_in_month = calendar.monthrange(_cal_month.year, _cal_month.month)[1]
+        _first_weekday = calendar.monthrange(_cal_month.year, _cal_month.month)[0]  # 0=Mon
+
+        # 요일 헤더
+        _cal_html = ("<div style='display:grid;grid-template-columns:repeat(7,1fr);"
+                     "gap:2px;font-size:0.62rem;text-align:center;'>")
+        for _wd in ['월','화','수','목','금','토','일']:
+            _wc = '#1d4ed8' if _wd == '토' else '#b91c1c' if _wd == '일' else '#6b7280'
+            _cal_html += f"<div style='color:{_wc};font-weight:600;padding:2px 0;'>{_wd}</div>"
+
+        # 빈 칸 (첫 주 앞)
+        for _ in range(_first_weekday):
+            _cal_html += "<div></div>"
+
+        for _day in range(1, _days_in_month + 1):
+            _date_obj  = datetime.date(_cal_month.year, _cal_month.month, _day)
+            _weekday   = _date_obj.weekday()
+            _is_today  = (_date_obj == _today)
+
+            if _day in _both_dates:
+                _bg, _fc, _fw = '#7c3aed', 'white', '700'   # 매수+매도 동일날: 보라
+            elif _day in _buy_dates:
+                _bg, _fc, _fw = '#dc2626', 'white', '700'   # 매수: 빨강
+            elif _day in _sell_dates:
+                _bg, _fc, _fw = '#2563eb', 'white', '700'   # 매도: 파랑
+            elif _weekday >= 5:
+                _bg, _fc, _fw = 'transparent', '#d1d5db', '400'  # 주말: 회색
+            else:
+                _bg, _fc, _fw = 'transparent', '#374151', '400'  # 평일
+
+            _border = '1.5px solid #f59e0b' if _is_today else '1px solid transparent'
+            _cal_html += (
+                f"<div style='text-align:center;padding:3px 1px;"
+                f"background:{_bg};border-radius:4px;border:{_border};"
+                f"color:{_fc};font-weight:{_fw};font-size:0.7rem;'>{_day}</div>"
+            )
+
+        _cal_html += "</div>"
+        # 범례
+        _cal_html += ("<div style='display:flex;gap:8px;margin-top:6px;font-size:0.62rem;"
+                      "color:#6b7280;flex-wrap:wrap;'>"
+                      "<span><span style='color:#dc2626;'>●</span> 매수</span>"
+                      "<span><span style='color:#2563eb;'>●</span> 매도</span>"
+                      "<span><span style='color:#7c3aed;'>●</span> 매수+매도</span>"
+                      "<span style='border:1.5px solid #f59e0b;border-radius:3px;"
+                      "padding:0 3px;'>오늘</span></div>")
+        st.markdown(_cal_html, unsafe_allow_html=True)
+        st.markdown("---")
 
         # ── 매매 기록 ──
         st.markdown("### 📈 매매 기록")
