@@ -17,7 +17,9 @@ st.set_page_config(page_title="퀀트 트레이딩 대시보드", layout="wide")
 
 X_ASSET_FIXED  = 'SPY'
 TARGET_TICKERS = [
-    'SPYU', 'SOXL', 'TQQQ', 'FNGU', 'HIBL','TARK','QPUX', 'BNKU','URTY', 'TECL','LABU', 'DFEN', 'EDC',  'GDXU', 'KORU', '005930', 'BITU', 'ETHT', 'AVXX'
+    'SPYU', 'SOXL', 'TQQQ', 'FNGU', 'HIBL', 'TARK', 'QPUX', 'BNKU',
+    'URTY', 'TECL', 'LABU', 'DFEN', 'EDC',
+    'GDXU', 'KORU', '005930', 'BITU', 'ETHT', 'AVXX'
 ]
 TICKER_DISPLAY_NAMES = {'BTC-USD': 'BTC', 'ETH-USD': 'ETH', '005930': '삼전', '000660': '하닉'}
 SEED_MONEY_KRW = 21_000_000   # 시드머니 (원)
