@@ -19,7 +19,7 @@ X_ASSET_FIXED  = 'SPY'
 TARGET_TICKERS = [
     'SPYU', 'SOXL', 'TQQQ', 'FNGU', 'HIBL', 'TARK', 'QPUX', 'BNKU',
     'URTY', 'TECL', 'LABU', 'DFEN', 'EDC', 'INDL', 'EURL',
-    'GDXU', 'KORU', '005930', 'BITU', 'ETHT', 'AVXX',
+    'GDXU', 'KORU', '005930', 'BTC-USD', 'ETH-USD', 'AVAV',
 ]
 TICKER_DISPLAY_NAMES = {'BTC-USD': 'BTC', 'ETH-USD': 'ETH', '005930': '삼전', '000660': '하닉'}
 
@@ -270,7 +270,7 @@ def _filter_trading_days(df: pd.DataFrame) -> pd.DataFrame:
     is_wkday = pd.Series(df.index.weekday < 5, index=df.index)
     return df[traded & is_wkday]
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner=False, ttl=300)
 def fetch_ohlc(ticker: str, start_date_str: str, candle_type: str = '일봉') -> pd.DataFrame:
     try:
         data = fdr.DataReader(ticker, start_date_str)
@@ -285,7 +285,7 @@ def fetch_ohlc(ticker: str, start_date_str: str, candle_type: str = '일봉') ->
     except Exception:
         return pd.DataFrame()
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner=False, ttl=300)
 def fetch_all_data(tickers: list, start_date_str: str, candle_type: str = '일봉') -> pd.DataFrame:
     frames = []
     for ticker in [X_ASSET_FIXED] + list(tickers):
@@ -302,7 +302,7 @@ def fetch_all_data(tickers: list, start_date_str: str, candle_type: str = '일�
     df = _filter_trading_days(df)
     return _resample_weekly(df) if candle_type == '주봉' else df
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner=False, ttl=300)
 def fetch_single_ticker(ticker: str, start_date_str: str) -> pd.DataFrame:
     try:
         data = fdr.DataReader(ticker, start_date_str)
@@ -360,7 +360,7 @@ def process_asset_data(df_x: pd.DataFrame, df_y: pd.DataFrame,
 
     return df, beta, std_resid
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner=False, ttl=300)
 def compute_all_analyses(df_close: pd.DataFrame, _version: int = 7,
                          candle_type: str = '일봉') -> dict:
     df_x    = df_close[[f'{X_ASSET_FIXED}_Close']]
@@ -1274,8 +1274,19 @@ def main():
                 st.session_state.custom_ticker_input = new_val
                 st.rerun()
         if st.button("🔄 refresh", key="full_refresh_btn", use_container_width=True):
-            st.cache_data.clear()
+            with st.spinner("데이터 갱신 중..."):
+                st.cache_data.clear()
+                st.session_state['last_refresh'] = datetime.datetime.now(
+                    datetime.timezone(datetime.timedelta(hours=9))
+                ).strftime('%H:%M:%S')
             st.rerun()
+        last_refresh = st.session_state.get('last_refresh')
+        if last_refresh:
+            st.markdown(
+                f"<div style='font-size:0.65rem;color:#9ca3af;text-align:center;"
+                f"margin-top:-4px;'>updated {last_refresh}</div>",
+                unsafe_allow_html=True
+            )
 
     with chart_col:
         if df_daily is not None:
