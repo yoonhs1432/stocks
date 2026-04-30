@@ -860,60 +860,125 @@ def _resolve_all_cycles(valid: list) -> tuple[dict, float]:
     return cyc, cumulative_pnl
 
 
+def _calc_portfolio_total_pnl(df_daily: pd.DataFrame) -> float:
+    """
+    전 종목의 (누적실현손익 + 현재 평가손익) 합계를 반환한다.
+      - 누적실현손익 : 모든 청산 사이클의 실현손익 합 (종목별)
+      - 현재 평가손익 : 보유 중인 종목만 (현재가 - 평균단가) × 보유수량
+      - 청산 완료 종목의 현재 사이클 실현손익도 포함
+    """
+    total = 0.0
+    for ticker in TARGET_TICKERS:
+        records = st.session_state.trade_history.get(ticker, [])
+        valid   = [r for r in records if r.get('qty', 0) > 0 and r.get('price', 0) > 0]
+        if not valid:
+            continue
+        cyc, cum_pnl = _resolve_all_cycles(valid)
+        if cyc['buy_qty'] == 0:
+            continue
+
+        # 누적실현손익 (과거 사이클 + 현재 사이클 청산분)
+        realized = cum_pnl + (cyc['current_pnl'] if cyc['current_pnl'] is not None else 0.0)
+
+        # 현재 평가손익 (보유 중인 경우만)
+        unrealized = 0.0
+        if cyc['hold_qty'] > 0:
+            col = f'{ticker}_Close'
+            if col in df_daily.columns:
+                current_price = float(df_daily[col].iloc[-1])
+                avg_price     = cyc['buy_cost'] / cyc['buy_qty']
+                unrealized    = (current_price - avg_price) * cyc['hold_qty']
+
+        total += realized + unrealized
+    return total
+
+
 def render_position_tracker(selected_ticker: str, df_daily: pd.DataFrame) -> None:
     records = st.session_state.trade_history.get(selected_ticker, [])
     valid   = [r for r in records if r.get('qty', 0) > 0 and r.get('price', 0) > 0]
+
+    # ── 전 종목 누적 손익 (항상 계산) ──
+    portfolio_pnl = _calc_portfolio_total_pnl(df_daily)
+
+    # ── 현재가 (항상 필요) ──
+    col_close     = f'{selected_ticker}_Close'
+    current_price = float(df_daily[col_close].iloc[-1]) if col_close in df_daily.columns else None
+
+    # ── 공통 포맷 헬퍼 ──
+    def _fmt_pnl(val: float, pct: float | None = None) -> str:
+        sign    = '+' if val >= 0 else ''
+        color   = '#b91c1c' if val >= 0 else '#1d4ed8'
+        pct_str = f"&nbsp;({sign}{pct:.2f}%)" if pct is not None else ''
+        return f"<span style='font-weight:700;color:{color};'>{sign}${val:,.2f}{pct_str}</span>"
+
+    def _dash_cell(label: str) -> str:
+        return (f"<div><div style='color:#6b7280;font-size:0.68rem;'>{label}</div>"
+                f"<div style='font-weight:700;color:#9ca3af;'>-</div></div>")
+
+    port_sign  = '+' if portfolio_pnl >= 0 else ''
+    port_color = '#b91c1c' if portfolio_pnl >= 0 else '#1d4ed8'
+    port_html  = (
+        f"<div><div style='color:#6b7280;font-size:0.68rem;'>전종목 누적손익</div>"
+        f"<div style='font-weight:700;color:{port_color};'>{port_sign}${portfolio_pnl:,.2f}</div></div>"
+    )
+
+    # ── 매매 기록 없는 경우: 빈 기본 화면 ──
     if not valid:
+        price_html = (
+            f"<div><div style='color:#6b7280;font-size:0.68rem;'>현재가</div>"
+            f"<div style='font-weight:700;'>${current_price:,.2f}</div></div>"
+            if current_price else _dash_cell("현재가")
+        )
+        st.markdown(f"""
+        <div style='display:flex;gap:12px;flex-wrap:wrap;margin:4px 0 8px 0;
+                    padding:8px 12px;background:#f8fafc;
+                    border:1px solid #e2e8f0;border-radius:8px;font-size:0.78rem;'>
+          {price_html}
+          {_dash_cell("평균단가")}
+          {_dash_cell("보유수량")}
+          {_dash_cell("보유기간")}
+          {_dash_cell("평가손익")}
+          {_dash_cell("누적실현손익")}
+          {port_html}
+        </div>""", unsafe_allow_html=True)
         return
 
     cyc, cumulative_pnl = _resolve_all_cycles(valid)
     if cyc['cycle_start'] is None or cyc['buy_qty'] == 0:
         return
 
-    current_price = float(df_daily[f'{selected_ticker}_Close'].iloc[-1])
-    hold_qty      = cyc['hold_qty']
-    avg_price     = cyc['buy_cost'] / cyc['buy_qty']
+    hold_qty  = cyc['hold_qty']
+    avg_price = cyc['buy_cost'] / cyc['buy_qty']
 
     # ── 보유기간 ──
     end_date  = cyc['cycle_end'] if cyc['cycle_end'] else datetime.date.today()
     hold_days = (end_date - cyc['cycle_start']).days
 
-    # ── 보유수량 표시 ──
+    # ── 보유수량 ──
     qty_display = f"{hold_qty:,}주" if hold_qty > 0 else "-"
 
     # ── 현재 사이클 손익 ──
     is_closed = cyc['cycle_end'] is not None
     if is_closed:
-        # 청산 완료: 실현손익
         pnl_dollar = cyc['current_pnl']
         pnl_pct    = pnl_dollar / cyc['buy_cost'] * 100 if cyc['buy_cost'] else 0.0
         pnl_label  = "실현손익"
     else:
-        # 보유 중: 평가손익
         pnl_dollar = (current_price - avg_price) * hold_qty
         pnl_pct    = (current_price - avg_price) / avg_price * 100 if avg_price else 0.0
         pnl_label  = "평가손익"
 
-    # ── 누적실현손익 = 과거 사이클 + 현재 사이클(청산시) ──
-    total_realized = cumulative_pnl + (cyc['current_pnl'] if is_closed else 0.0)
-
-    def _fmt_pnl(val: float, pct: float | None = None) -> str:
-        sign = '+' if val >= 0 else ''
-        color = '#b91c1c' if val >= 0 else '#1d4ed8'
-        pct_str = f"&nbsp;({sign}{pct:.2f}%)" if pct is not None else ''
-        return f"<span style='font-weight:700;color:{color};'>{sign}${val:,.2f}{pct_str}</span>"
-
-    # 누적실현손익은 과거 사이클이 1개 이상 있을 때만 표시
-    has_cumulative = (cumulative_pnl != 0.0) or is_closed
+    # ── 누적실현손익 ──
+    total_realized     = cumulative_pnl + (cyc['current_pnl'] if is_closed else 0.0)
+    has_cumulative     = (cumulative_pnl != 0.0) or is_closed
+    cumulative_html    = (
+        f"<div><div style='color:#6b7280;font-size:0.68rem;'>누적실현손익</div>"
+        f"<div>{_fmt_pnl(total_realized)}</div></div>"
+        if has_cumulative else _dash_cell("누적실현손익")
+    )
 
     bg_color = '#f0fdf4' if is_closed else '#f8fafc'
     border_c = '#86efac' if is_closed else '#e2e8f0'
-
-    cumulative_html = (
-        f"<div><div style='color:#6b7280;font-size:0.68rem;'>누적실현손익</div>"
-        f"<div>{_fmt_pnl(total_realized)}</div></div>"
-        if has_cumulative else ""
-    )
 
     st.markdown(f"""
     <div style='display:flex;gap:12px;flex-wrap:wrap;margin:4px 0 8px 0;
@@ -930,6 +995,7 @@ def render_position_tracker(selected_ticker: str, df_daily: pd.DataFrame) -> Non
       <div><div style='color:#6b7280;font-size:0.68rem;'>{pnl_label}</div>
            <div>{_fmt_pnl(pnl_dollar, pnl_pct)}</div></div>
       {cumulative_html}
+      {port_html}
     </div>""", unsafe_allow_html=True)
 
 # ====================================================
