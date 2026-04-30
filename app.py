@@ -19,7 +19,7 @@ X_ASSET_FIXED  = 'SPY'
 TARGET_TICKERS = [
     'SPYU', 'SOXL', 'TQQQ', 'FNGU', 'HIBL', 'TARK', 'QPUX', 'BNKU',
     'URTY', 'TECL', 'LABU', 'DFEN', 'EDC', 'INDL', 'EURL',
-    'GDXU', 'KORU', '005930', 'BTC-USD', 'ETH-USD', 'AVAV',
+    'GDXU', 'KORU', '005930', 'BITU', 'ETHT', 'AVXX',
 ]
 TICKER_DISPLAY_NAMES = {'BTC-USD': 'BTC', 'ETH-USD': 'ETH', '005930': '삼전', '000660': '하닉'}
 
