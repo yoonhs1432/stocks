@@ -17,7 +17,7 @@ st.set_page_config(page_title="퀀트 트레이딩 대시보드", layout="wide")
 
 X_ASSET_FIXED      = 'SPY'
 TARGET_TICKERS     = ['SPYU', 'SOXL', 'TQQQ', 'FNGU',
-                      'HIBL', 'TARK', 'QPUX', 'BNKU','URTY','TECL','LABU','DFEN','UVXY',
+                      'HIBL', 'TARK', 'QPUX', 'BNKU','URTY','TECL','LABU','DFEN','EDC','INDL','EURL',
                       'GDXU', 'KORU', '005930',
                       'BTC-USD', 'ETH-USD',
                       'AVAV',
