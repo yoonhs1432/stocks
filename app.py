@@ -905,21 +905,21 @@ def render_position_tracker(selected_ticker: str, df_daily: pd.DataFrame) -> Non
     current_price = float(df_daily[col_close].iloc[-1]) if col_close in df_daily.columns else None
 
     # ── 공통 포맷 헬퍼 ──
-    def _fmt_pnl(val: float, pct: float | None = None) -> str:
-        sign    = '+' if val >= 0 else ''
-        color   = '#b91c1c' if val >= 0 else '#1d4ed8'
-        pct_str = f"&nbsp;({sign}{pct:.2f}%)" if pct is not None else ''
-        return f"<span style='font-weight:700;color:{color};'>{sign}${val:,.2f}{pct_str}</span>"
+    def _pnl_color(val: float) -> str:
+        return '#b91c1c' if val >= 0 else '#1d4ed8'
+
+    def _fmt_pnl(val: float) -> str:
+        sign  = '+' if val >= 0 else ''
+        color = _pnl_color(val)
+        return f"<span style='font-weight:700;color:{color};'>{sign}${int(round(val)):,}</span>"
 
     def _dash_cell(label: str) -> str:
         return (f"<div><div style='color:#6b7280;font-size:0.68rem;'>{label}</div>"
                 f"<div style='font-weight:700;color:#9ca3af;'>-</div></div>")
 
-    port_sign  = '+' if portfolio_pnl >= 0 else ''
-    port_color = '#b91c1c' if portfolio_pnl >= 0 else '#1d4ed8'
-    port_html  = (
+    port_html = (
         f"<div><div style='color:#6b7280;font-size:0.68rem;'>전종목 누적손익</div>"
-        f"<div style='font-weight:700;color:{port_color};'>{port_sign}${portfolio_pnl:,.2f}</div></div>"
+        f"<div>{_fmt_pnl(portfolio_pnl)}</div></div>"
     )
 
     # ── 매매 기록 없는 경우: 빈 기본 화면 ──
@@ -957,7 +957,7 @@ def render_position_tracker(selected_ticker: str, df_daily: pd.DataFrame) -> Non
     # ── 보유수량 ──
     qty_display = f"{hold_qty:,}주" if hold_qty > 0 else "-"
 
-    # ── 현재 사이클 손익 ──
+    # ── 현재 사이클 손익 + 수익률 ──
     is_closed = cyc['cycle_end'] is not None
     if is_closed:
         pnl_dollar = cyc['current_pnl']
@@ -968,10 +968,28 @@ def render_position_tracker(selected_ticker: str, df_daily: pd.DataFrame) -> Non
         pnl_pct    = (current_price - avg_price) / avg_price * 100 if avg_price else 0.0
         pnl_label  = "평가손익"
 
+    # ── 현재가: 수익률 포함, 색상 적용 ──
+    # 보유 중이면 평균단가 대비 수익률, 청산/미거래면 색상 없음
+    if hold_qty > 0 and avg_price:
+        price_pct   = (current_price - avg_price) / avg_price * 100
+        price_sign  = '+' if price_pct >= 0 else ''
+        price_color = _pnl_color(price_pct)
+        price_html  = (
+            f"<div><div style='color:#6b7280;font-size:0.68rem;'>현재가</div>"
+            f"<div style='font-weight:700;color:{price_color};'>"
+            f"${current_price:,.2f}&nbsp;<span style='font-size:0.72rem;'>"
+            f"({price_sign}{price_pct:.2f}%)</span></div></div>"
+        )
+    else:
+        price_html = (
+            f"<div><div style='color:#6b7280;font-size:0.68rem;'>현재가</div>"
+            f"<div style='font-weight:700;'>${current_price:,.2f}</div></div>"
+        )
+
     # ── 누적실현손익 ──
-    total_realized     = cumulative_pnl + (cyc['current_pnl'] if is_closed else 0.0)
-    has_cumulative     = (cumulative_pnl != 0.0) or is_closed
-    cumulative_html    = (
+    total_realized = cumulative_pnl + (cyc['current_pnl'] if is_closed else 0.0)
+    has_cumulative = (cumulative_pnl != 0.0) or is_closed
+    cumulative_html = (
         f"<div><div style='color:#6b7280;font-size:0.68rem;'>누적실현손익</div>"
         f"<div>{_fmt_pnl(total_realized)}</div></div>"
         if has_cumulative else _dash_cell("누적실현손익")
@@ -984,8 +1002,7 @@ def render_position_tracker(selected_ticker: str, df_daily: pd.DataFrame) -> Non
     <div style='display:flex;gap:12px;flex-wrap:wrap;margin:4px 0 8px 0;
                 padding:8px 12px;background:{bg_color};
                 border:1px solid {border_c};border-radius:8px;font-size:0.78rem;'>
-      <div><div style='color:#6b7280;font-size:0.68rem;'>현재가</div>
-           <div style='font-weight:700;'>${current_price:,.2f}</div></div>
+      {price_html}
       <div><div style='color:#6b7280;font-size:0.68rem;'>평균단가</div>
            <div style='font-weight:700;'>${avg_price:,.2f}</div></div>
       <div><div style='color:#6b7280;font-size:0.68rem;'>보유수량</div>
@@ -993,7 +1010,7 @@ def render_position_tracker(selected_ticker: str, df_daily: pd.DataFrame) -> Non
       <div><div style='color:#6b7280;font-size:0.68rem;'>보유기간</div>
            <div style='font-weight:700;'>{hold_days}일</div></div>
       <div><div style='color:#6b7280;font-size:0.68rem;'>{pnl_label}</div>
-           <div>{_fmt_pnl(pnl_dollar, pnl_pct)}</div></div>
+           <div>{_fmt_pnl(pnl_dollar)}</div></div>
       {cumulative_html}
       {port_html}
     </div>""", unsafe_allow_html=True)
