@@ -929,8 +929,8 @@ def render_position_tracker(selected_ticker: str,
         )
         st.markdown(f"""
         <div style='display:flex;gap:12px;flex-wrap:wrap;margin:4px 0 8px 0;
-                    padding:8px 12px;background:#f8fafc;
-                    border:1px solid #e2e8f0;border-radius:8px;font-size:0.78rem;'>
+                    padding:8px 12px;background:#f3f4f6;
+                    border:1px solid #d1d5db;border-radius:8px;font-size:0.78rem;'>
           {price_html}
           {_dash_cell("평균단가")}
           {_dash_cell("보유수량")}
@@ -971,7 +971,7 @@ def render_position_tracker(selected_ticker: str,
             f"<div><div style='color:#6b7280;font-size:0.68rem;'>현재가</div>"
             f"<div style='font-weight:700;color:{price_color};'>"
             f"${current_price:,.2f}&nbsp;<span style='font-size:0.72rem;'>"
-            f"({price_sign}{price_pct:.2f}%)</span></div></div>"
+            f"({price_sign}{int(round(price_pct))}%)</span></div></div>"
         )
     else:
         price_html = (
@@ -1027,8 +1027,13 @@ def render_position_tracker(selected_ticker: str,
         if has_cumulative else _dash_cell("누적실현손익")
     )
 
-    bg_color = '#f0fdf4' if is_closed else '#f8fafc'
-    border_c = '#86efac' if is_closed else '#e2e8f0'
+    # 보유 중: 초록 / 미보유(청산 완료 포함): 회색
+    if hold_qty > 0:
+        bg_color = '#f0fdf4'
+        border_c = '#86efac'
+    else:
+        bg_color = '#f3f4f6'
+        border_c = '#d1d5db'
 
     st.markdown(f"""
     <div style='display:flex;gap:12px;flex-wrap:wrap;margin:4px 0 8px 0;
