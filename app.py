@@ -443,7 +443,8 @@ def render_sidebar(selected_ticker: str) -> dict:
                 unsafe_allow_html=True)
 
         # ── 시드 배분 트래커 ──
-        usd_krw_alloc = st.session_state.get('usd_krw_cache', 1400.0)
+        usd_krw_alloc  = st.session_state.get('usd_krw_cache', 1400.0)
+        close_last     = st.session_state.get('df_close_last', {})
         total_invested_krw = 0.0
         alloc_rows = []
         for _tk in TARGET_TICKERS:
@@ -454,26 +455,36 @@ def render_sidebar(selected_ticker: str) -> dict:
             _cyc, _ = _resolve_all_cycles(_valid)
             if _cyc['hold_qty'] <= 0:
                 continue
-            # 현재 보유 포지션의 실제 투자금 (현재 사이클 매수금액)
             invested_usd = _cyc['buy_cost']
             invested_krw = invested_usd * usd_krw_alloc
             total_invested_krw += invested_krw
-            alloc_rows.append((_tk, invested_krw))
+            # 현재가 기반 수익률
+            _avg   = _cyc['buy_cost'] / _cyc['buy_qty']
+            _cur   = close_last.get(f'{_tk}_Close', None)
+            _ret   = (_cur - _avg) / _avg * 100 if _cur else None
+            alloc_rows.append((_tk, invested_krw, _ret))
 
         if alloc_rows:
             seed_krw = SEED_MONEY_KRW
             used_pct = min(total_invested_krw / seed_krw * 100, 100)
             bar_color = '#b91c1c' if used_pct >= 90 else '#f59e0b' if used_pct >= 70 else '#16a34a'
             rows_html = ""
-            for _tk, _krw in sorted(alloc_rows, key=lambda x: -x[1]):
-                _pct = _krw / seed_krw * 100
-                _w   = max(_pct / 100 * 100, 2)
+            for _tk, _krw, _ret in sorted(alloc_rows, key=lambda x: -x[1]):
+                _pct   = _krw / seed_krw * 100
+                _w     = max(_pct / 100 * 100, 2)
+                if _ret is not None:
+                    _rsign = '+' if _ret >= 0 else ''
+                    _rc    = '#b91c1c' if _ret >= 0 else '#1d4ed8'
+                    _ret_html = f"<div style='font-size:0.65rem;font-weight:700;color:{_rc};width:38px;text-align:right;flex-shrink:0;'>{_rsign}{int(round(_ret))}%</div>"
+                else:
+                    _ret_html = "<div style='width:38px;flex-shrink:0;'></div>"
                 rows_html += (
                     f"<div style='display:flex;align-items:center;gap:6px;margin-bottom:3px;'>"
                     f"<div style='font-size:0.68rem;color:#374151;width:42px;flex-shrink:0;'>{display_name(_tk)}</div>"
                     f"<div style='flex:1;background:#e5e7eb;border-radius:3px;height:8px;'>"
                     f"<div style='width:{_w:.1f}%;background:{bar_color};border-radius:3px;height:8px;'></div></div>"
-                    f"<div style='font-size:0.65rem;color:#6b7280;width:34px;text-align:right;flex-shrink:0;'>{_pct:.1f}%</div>"
+                    f"<div style='font-size:0.65rem;color:#6b7280;width:30px;text-align:right;flex-shrink:0;'>{_pct:.1f}%</div>"
+                    f"{_ret_html}"
                     f"</div>"
                 )
             st.markdown(
@@ -1279,6 +1290,7 @@ def main():
     last_trading_date = pd.Timestamp(mkt['last_trading_date'])
     if not df_close.empty:
         st.session_state.last_data_date = df_close.index[-1].strftime('%Y-%m-%d')
+        st.session_state['df_close_last'] = df_close.iloc[-1].to_dict()
         if candle_type == '일봉':
             df_close = df_close[df_close.index <= last_trading_date]
 
