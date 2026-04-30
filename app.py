@@ -559,12 +559,58 @@ def render_sidebar(selected_ticker: str) -> dict:
             "</div></div>"
         )
 
+        # ── 실현손익 목록 섹션 ──
+        _realized_rows = []
+        for _tk in TARGET_TICKERS:
+            _recs  = st.session_state.trade_history.get(_tk, [])
+            _valid = [r for r in _recs if r.get('qty',0)>0 and r.get('price',0)>0]
+            if not _valid: continue
+            _cyc, _cum = _resolve_all_cycles(_valid)
+            # 전체 실현손익 = 과거사이클 + 현재사이클 청산분
+            _total_real = _cum + (_cyc['current_pnl'] if _cyc['current_pnl'] is not None else 0.0)
+            if _total_real == 0.0: continue
+            _realized_rows.append((_tk, _total_real))
+
+        if _realized_rows:
+            _total_real_sum = sum(abs(v) for _, v in _realized_rows)  # 절대값 합 (비율 기준)
+            _net_real_sum   = sum(v for _, v in _realized_rows)       # 실제 합 (색상 기준)
+            _nr_sign = '+' if _net_real_sum >= 0 else ''
+            _nr_col  = '#b91c1c' if _net_real_sum >= 0 else '#1d4ed8'
+            _real_html = (
+                f"<div style='border-top:1px solid #e5e7eb;margin:6px 0 5px 0;padding-top:6px;'>"
+                f"<div style='display:flex;justify-content:space-between;"
+                f"font-size:0.62rem;color:#9ca3af;margin-bottom:4px;'>"
+                f"<span>💵 실현손익</span>"
+                f"<span style='color:{_nr_col};font-weight:700;'>"
+                f"{_nr_sign}${int(round(_net_real_sum)):,}"
+                f"&nbsp;<span style='font-weight:400;color:#9ca3af;'>"
+                f"({_nr_sign}{int(round(_net_real_sum*_usd_krw/10000)):,}만원)</span></span></div>"
+            )
+            for _tk, _real in sorted(_realized_rows, key=lambda x: -abs(x[1])):
+                _ratio  = abs(_real) / _total_real_sum * 100 if _total_real_sum else 0
+                _w      = max(_ratio, 2)
+                _rsign  = '+' if _real >= 0 else ''
+                _rc     = '#b91c1c' if _real >= 0 else '#1d4ed8'
+                _real_html += (
+                    f"<div style='display:flex;align-items:center;gap:5px;margin-bottom:3px;'>"
+                    f"<div style='font-size:0.67rem;color:#374151;width:40px;flex-shrink:0;'>{display_name(_tk)}</div>"
+                    f"<div style='flex:1;background:#e5e7eb;border-radius:3px;height:7px;'>"
+                    f"<div style='width:{_w:.1f}%;background:{_rc};border-radius:3px;height:7px;'></div></div>"
+                    f"<div style='font-size:0.63rem;color:#6b7280;width:28px;text-align:right;flex-shrink:0;'>{_ratio:.0f}%</div>"
+                    f"<div style='font-size:0.63rem;font-weight:700;color:{_rc};"
+                    f"width:40px;text-align:right;flex-shrink:0;'>{_rsign}${int(round(_real)):,}</div>"
+                    f"</div>"
+                )
+            _real_html += "</div>"
+        else:
+            _real_html = ""
+
         # ── 통합 카드 출력 ──
         st.markdown(
             f"<div style='padding:10px 12px;background:#ffffff;"
             f"border:1px solid #e2e8f0;border-radius:10px;margin-bottom:10px;"
             f"box-shadow:0 1px 3px rgba(0,0,0,0.06);'>"
-            f"{_seed_html}{_alloc_html}{_cal_html}"
+            f"{_seed_html}{_real_html}{_alloc_html}{_cal_html}"
             f"</div>",
             unsafe_allow_html=True)
 
