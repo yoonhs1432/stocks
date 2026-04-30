@@ -420,83 +420,172 @@ def add_segmented_fill(fig, df, y_col, color_col, row, col, baseline_y):
 # ====================================================
 def render_sidebar(selected_ticker: str) -> dict:
     with st.sidebar:
-        # ── 시드 수익률 ──
-        pnl_cached = st.session_state.get('portfolio_pnl_cache', None)
-        usd_krw    = st.session_state.get('usd_krw_cache', None)
-        if pnl_cached is not None and usd_krw is not None:
-            pnl_krw  = pnl_cached * usd_krw
-            seed_ret = pnl_krw / SEED_MONEY_KRW * 100
-            s_sign   = '+' if seed_ret >= 0 else ''
-            s_color  = '#b91c1c' if seed_ret >= 0 else '#1d4ed8'
-            k_sign   = '+' if pnl_krw >= 0 else ''
-            k_color  = s_color
-            st.markdown(
-                f"<div style='padding:8px 10px;background:#f8fafc;"
-                f"border:1px solid #e2e8f0;border-radius:8px;margin-bottom:8px;'>"
-                f"<div style='font-size:0.68rem;color:#6b7280;margin-bottom:2px;'>"
-                f"💰 시드 대비 수익률 ({usd_krw:,.0f}₩/$)</div>"
-                f"<div style='font-size:1.1rem;font-weight:800;color:{s_color};'>"
-                f"{s_sign}{seed_ret:.1f}%</div>"
-                f"<div style='font-size:0.78rem;font-weight:700;color:{k_color};'>"
-                f"{k_sign}{int(round(pnl_krw/10000)):,}만원 / 시드 {SEED_MONEY_KRW//10000:,}만원</div>"
-                f"</div>",
-                unsafe_allow_html=True)
+        # ══════════════════════════════════════════
+        # 포트폴리오 통합 카드 (시드수익률+배분현황+달력)
+        # ══════════════════════════════════════════
+        _pnl_cached  = st.session_state.get('portfolio_pnl_cache', None)
+        _usd_krw     = st.session_state.get('usd_krw_cache', 1400.0)
+        _close_last  = st.session_state.get('df_close_last', {})
 
-        # ── 시드 배분 트래커 ──
-        usd_krw_alloc  = st.session_state.get('usd_krw_cache', 1400.0)
-        close_last     = st.session_state.get('df_close_last', {})
-        total_invested_krw = 0.0
-        alloc_rows = []
+        # ── 배분 데이터 계산 ──
+        _total_inv_krw = 0.0
+        _alloc_rows    = []
         for _tk in TARGET_TICKERS:
-            _records = st.session_state.trade_history.get(_tk, [])
-            _valid   = [r for r in _records if r.get('qty',0)>0 and r.get('price',0)>0]
-            if not _valid:
-                continue
+            _recs  = st.session_state.trade_history.get(_tk, [])
+            _valid = [r for r in _recs if r.get('qty',0)>0 and r.get('price',0)>0]
+            if not _valid: continue
             _cyc, _ = _resolve_all_cycles(_valid)
-            if _cyc['hold_qty'] <= 0:
-                continue
-            invested_usd = _cyc['buy_cost']
-            invested_krw = invested_usd * usd_krw_alloc
-            total_invested_krw += invested_krw
-            # 현재가 기반 수익률
-            _avg   = _cyc['buy_cost'] / _cyc['buy_qty']
-            _cur   = close_last.get(f'{_tk}_Close', None)
-            _ret   = (_cur - _avg) / _avg * 100 if _cur else None
-            alloc_rows.append((_tk, invested_krw, _ret))
+            if _cyc['hold_qty'] <= 0: continue
+            _inv_krw = _cyc['buy_cost'] * _usd_krw
+            _total_inv_krw += _inv_krw
+            _avg = _cyc['buy_cost'] / _cyc['buy_qty']
+            _cur = _close_last.get(f'{_tk}_Close', None)
+            _ret = (_cur - _avg) / _avg * 100 if _cur else None
+            _alloc_rows.append((_tk, _inv_krw, _ret))
 
-        if alloc_rows:
-            seed_krw = SEED_MONEY_KRW
-            used_pct = min(total_invested_krw / seed_krw * 100, 100)
-            bar_color = '#b91c1c' if used_pct >= 90 else '#f59e0b' if used_pct >= 70 else '#16a34a'
-            rows_html = ""
-            for _tk, _krw, _ret in sorted(alloc_rows, key=lambda x: -x[1]):
-                _pct   = _krw / seed_krw * 100
-                _w     = max(_pct / 100 * 100, 2)
+        # ── 시드 수익률 섹션 ──
+        if _pnl_cached is not None:
+            _pnl_krw   = _pnl_cached * _usd_krw
+            _seed_ret  = _pnl_krw / SEED_MONEY_KRW * 100
+            _ss        = '+' if _seed_ret >= 0 else ''
+            _sc        = '#b91c1c' if _seed_ret >= 0 else '#1d4ed8'
+            _ks        = '+' if _pnl_krw >= 0 else ''
+            _seed_html = (
+                f"<div style='display:flex;justify-content:space-between;"
+                f"align-items:baseline;margin-bottom:4px;'>"
+                f"<div>"
+                f"<div style='font-size:0.62rem;color:#9ca3af;'>💰 시드 대비 수익률"
+                f" &nbsp;<span style='font-size:0.6rem;'>({_usd_krw:,.0f}₩/$)</span></div>"
+                f"<div style='font-size:1.2rem;font-weight:800;color:{_sc};line-height:1.2;'>"
+                f"{_ss}{_seed_ret:.1f}%</div>"
+                f"</div>"
+                f"<div style='text-align:right;'>"
+                f"<div style='font-size:0.62rem;color:#9ca3af;'>손익</div>"
+                f"<div style='font-size:0.82rem;font-weight:700;color:{_sc};'>"
+                f"{_ks}{int(round(_pnl_krw/10000)):,}만원</div>"
+                f"<div style='font-size:0.62rem;color:#9ca3af;'>시드 {SEED_MONEY_KRW//10000:,}만원</div>"
+                f"</div></div>"
+            )
+        else:
+            _seed_html = "<div style='font-size:0.7rem;color:#9ca3af;margin-bottom:4px;'>데이터 로딩 중...</div>"
+
+        # ── 배분 현황 섹션 ──
+        if _alloc_rows:
+            _used_pct  = min(_total_inv_krw / SEED_MONEY_KRW * 100, 100)
+            _bar_c     = '#b91c1c' if _used_pct >= 90 else '#f59e0b' if _used_pct >= 70 else '#16a34a'
+            _alloc_html = (
+                f"<div style='border-top:1px solid #e5e7eb;margin:6px 0 5px 0;"
+                f"padding-top:6px;'>"
+                f"<div style='display:flex;justify-content:space-between;"
+                f"font-size:0.62rem;color:#9ca3af;margin-bottom:4px;'>"
+                f"<span>📊 배분 현황</span>"
+                f"<span style='color:{_bar_c};font-weight:700;'>{_used_pct:.1f}% 사용"
+                f"&nbsp;<span style='color:#9ca3af;font-weight:400;'>"
+                f"({int(round(_total_inv_krw/10000)):,}만원)</span></span></div>"
+            )
+            for _tk, _inv_krw, _ret in sorted(_alloc_rows, key=lambda x: -x[1]):
+                _pct = _inv_krw / SEED_MONEY_KRW * 100
+                _w   = max(_pct, 2)
                 if _ret is not None:
                     _rsign = '+' if _ret >= 0 else ''
                     _rc    = '#b91c1c' if _ret >= 0 else '#1d4ed8'
-                    _ret_html = f"<div style='font-size:0.65rem;font-weight:700;color:{_rc};width:38px;text-align:right;flex-shrink:0;'>{_rsign}{int(round(_ret))}%</div>"
+                    _ret_str = f"<span style='color:{_rc};font-weight:700;'>{_rsign}{int(round(_ret))}%</span>"
                 else:
-                    _ret_html = "<div style='width:38px;flex-shrink:0;'></div>"
-                rows_html += (
-                    f"<div style='display:flex;align-items:center;gap:6px;margin-bottom:3px;'>"
-                    f"<div style='font-size:0.68rem;color:#374151;width:42px;flex-shrink:0;'>{display_name(_tk)}</div>"
-                    f"<div style='flex:1;background:#e5e7eb;border-radius:3px;height:8px;'>"
-                    f"<div style='width:{_w:.1f}%;background:{bar_color};border-radius:3px;height:8px;'></div></div>"
-                    f"<div style='font-size:0.65rem;color:#6b7280;width:30px;text-align:right;flex-shrink:0;'>{_pct:.1f}%</div>"
-                    f"{_ret_html}"
+                    _ret_str = "<span style='color:#9ca3af;'>-</span>"
+                _alloc_html += (
+                    f"<div style='display:flex;align-items:center;gap:5px;margin-bottom:3px;'>"
+                    f"<div style='font-size:0.67rem;color:#374151;width:40px;flex-shrink:0;'>{display_name(_tk)}</div>"
+                    f"<div style='flex:1;background:#e5e7eb;border-radius:3px;height:7px;'>"
+                    f"<div style='width:{_w:.1f}%;background:{_bar_c};border-radius:3px;height:7px;'></div></div>"
+                    f"<div style='font-size:0.63rem;color:#6b7280;width:28px;text-align:right;flex-shrink:0;'>{_pct:.1f}%</div>"
+                    f"<div style='font-size:0.63rem;width:32px;text-align:right;flex-shrink:0;'>{_ret_str}</div>"
                     f"</div>"
                 )
-            st.markdown(
-                f"<div style='padding:8px 10px;background:#f8fafc;"
-                f"border:1px solid #e2e8f0;border-radius:8px;margin-bottom:8px;'>"
-                f"<div style='font-size:0.68rem;color:#6b7280;margin-bottom:6px;'>"
-                f"📊 시드 배분 현황 &nbsp;"
-                f"<span style='font-weight:700;color:{bar_color};'>{used_pct:.1f}% 사용</span>"
-                f"&nbsp;<span style='color:#9ca3af;'>({int(round(total_invested_krw/10000)):,}만 / {seed_krw//10000:,}만원)</span></div>"
-                f"{rows_html}"
-                f"</div>",
-                unsafe_allow_html=True)
+            _alloc_html += "</div>"
+        else:
+            _alloc_html = ""
+
+        # ── 달력 섹션 ──
+        import calendar as _cal_mod
+        _today     = datetime.date.today()
+        _cal_month = st.session_state.get('cal_month', _today.replace(day=1))
+        _buy_dates, _sell_dates = set(), set()
+        for _tk in TARGET_TICKERS:
+            for _r in st.session_state.trade_history.get(_tk, []):
+                try: _d = datetime.date.fromisoformat(_r['date'])
+                except: continue
+                if _d.year == _cal_month.year and _d.month == _cal_month.month:
+                    (_buy_dates if _r['type']=='buy' else _sell_dates).add(_d.day)
+        _both = _buy_dates & _sell_dates
+        _dim  = _cal_mod.monthrange(_cal_month.year, _cal_month.month)[1]
+        _fw   = _cal_mod.monthrange(_cal_month.year, _cal_month.month)[0]
+
+        _cal_html = (
+            f"<div style='border-top:1px solid #e5e7eb;margin:6px 0 4px 0;padding-top:6px;'>"
+            f"<div style='display:grid;grid-template-columns:repeat(7,1fr);"
+            f"gap:2px;font-size:0.6rem;text-align:center;'>"
+        )
+        for _wd, _wc in [('월','#6b7280'),('화','#6b7280'),('수','#6b7280'),
+                          ('목','#6b7280'),('금','#6b7280'),('토','#1d4ed8'),('일','#b91c1c')]:
+            _cal_html += f"<div style='color:{_wc};font-weight:600;padding-bottom:2px;'>{_wd}</div>"
+        for _ in range(_fw):
+            _cal_html += "<div></div>"
+        for _day in range(1, _dim+1):
+            _do  = datetime.date(_cal_month.year, _cal_month.month, _day)
+            _wkd = _do.weekday()
+            _is_today = (_do == _today)
+            if _day in _both:
+                _bg, _fc, _bfw = '#7c3aed','white','700'
+            elif _day in _buy_dates:
+                _bg, _fc, _bfw = '#dc2626','white','700'
+            elif _day in _sell_dates:
+                _bg, _fc, _bfw = '#2563eb','white','700'
+            elif _wkd >= 5:
+                _bg, _fc, _bfw = 'transparent','#d1d5db','400'
+            else:
+                _bg, _fc, _bfw = 'transparent','#374151','400'
+            _bdr = '1.5px solid #f59e0b' if _is_today else '1px solid transparent'
+            _cal_html += (
+                f"<div style='text-align:center;padding:2px 1px;background:{_bg};"
+                f"border-radius:3px;border:{_bdr};color:{_fc};font-weight:{_bfw};"
+                f"font-size:0.67rem;'>{_day}</div>"
+            )
+        _cal_html += (
+            "</div>"
+            "<div style='display:flex;gap:8px;margin-top:5px;font-size:0.58rem;color:#9ca3af;'>"
+            "<span><span style='color:#dc2626;'>●</span> 매수</span>"
+            "<span><span style='color:#2563eb;'>●</span> 매도</span>"
+            "<span><span style='color:#7c3aed;'>●</span> 동시</span>"
+            "</div></div>"
+        )
+
+        # ── 통합 카드 출력 ──
+        st.markdown(
+            f"<div style='padding:10px 12px;background:#ffffff;"
+            f"border:1px solid #e2e8f0;border-radius:10px;margin-bottom:10px;"
+            f"box-shadow:0 1px 3px rgba(0,0,0,0.06);'>"
+            f"{_seed_html}{_alloc_html}{_cal_html}"
+            f"</div>",
+            unsafe_allow_html=True)
+
+        # 달력 월 네비게이션 버튼 (카드 바깥)
+        _nc1, _nc2, _nc3 = st.columns([1,3,1])
+        if _nc1.button("◀", key="cal_prev"):
+            _pm = _cal_month.month - 1
+            _py = _cal_month.year + (_pm-1)//12
+            _pm = (_pm-1)%12+1
+            st.session_state['cal_month'] = datetime.date(_py, _pm, 1)
+            st.rerun()
+        _nc2.markdown(
+            f"<div style='text-align:center;font-size:0.75rem;color:#6b7280;"
+            f"padding-top:5px;'>{_cal_month.strftime('%Y. %m')}</div>",
+            unsafe_allow_html=True)
+        if _nc3.button("▶", key="cal_next"):
+            _nm = _cal_month.month + 1
+            _ny = _cal_month.year + (_nm-1)//12
+            _nm = (_nm-1)%12+1
+            st.session_state['cal_month'] = datetime.date(_ny, _nm, 1)
+            st.rerun()
 
         st.markdown("### ⚙️ 분석 파라미터")
         candle_type    = st.radio("봉 기준", ['일봉', '주봉'], horizontal=True,
@@ -514,90 +603,6 @@ def render_sidebar(selected_ticker: str) -> dict:
         st.caption(f"☁️ Gist 연동됨 (`{_gid[:8]}...`)" if (_tok and _gid)
                    else "💾 로컬 저장 (Gist 미설정)")
 
-        # ── 매매 달력 히트맵 ──
-        st.markdown("### 📅 매매 달력")
-        _today      = datetime.date.today()
-        _cal_month  = st.session_state.get('cal_month', _today.replace(day=1))
-        _nav1, _nav2, _nav3 = st.columns([1, 3, 1])
-        if _nav1.button("◀", key="cal_prev"):
-            _m = _cal_month.month - 1
-            _y = _cal_month.year + (_m - 1) // 12
-            _m = (_m - 1) % 12 + 1
-            st.session_state['cal_month'] = datetime.date(_y, _m, 1)
-            st.rerun()
-        _nav2.markdown(
-            f"<div style='text-align:center;font-weight:700;font-size:0.85rem;"
-            f"padding-top:4px;'>{_cal_month.strftime('%Y년 %m월')}</div>",
-            unsafe_allow_html=True)
-        if _nav3.button("▶", key="cal_next"):
-            _m = _cal_month.month + 1
-            _y = _cal_month.year + (_m - 1) // 12
-            _m = (_m - 1) % 12 + 1
-            st.session_state['cal_month'] = datetime.date(_y, _m, 1)
-            st.rerun()
-
-        # 이번 달 매매 날짜 수집 (전 종목)
-        import calendar
-        _buy_dates  = set()
-        _sell_dates = set()
-        for _tk in TARGET_TICKERS:
-            for _r in st.session_state.trade_history.get(_tk, []):
-                try:
-                    _d = datetime.date.fromisoformat(_r['date'])
-                except Exception:
-                    continue
-                if _d.year == _cal_month.year and _d.month == _cal_month.month:
-                    (_buy_dates if _r['type'] == 'buy' else _sell_dates).add(_d.day)
-        _both_dates = _buy_dates & _sell_dates
-
-        _days_in_month = calendar.monthrange(_cal_month.year, _cal_month.month)[1]
-        _first_weekday = calendar.monthrange(_cal_month.year, _cal_month.month)[0]  # 0=Mon
-
-        # 요일 헤더
-        _cal_html = ("<div style='display:grid;grid-template-columns:repeat(7,1fr);"
-                     "gap:2px;font-size:0.62rem;text-align:center;'>")
-        for _wd in ['월','화','수','목','금','토','일']:
-            _wc = '#1d4ed8' if _wd == '토' else '#b91c1c' if _wd == '일' else '#6b7280'
-            _cal_html += f"<div style='color:{_wc};font-weight:600;padding:2px 0;'>{_wd}</div>"
-
-        # 빈 칸 (첫 주 앞)
-        for _ in range(_first_weekday):
-            _cal_html += "<div></div>"
-
-        for _day in range(1, _days_in_month + 1):
-            _date_obj  = datetime.date(_cal_month.year, _cal_month.month, _day)
-            _weekday   = _date_obj.weekday()
-            _is_today  = (_date_obj == _today)
-
-            if _day in _both_dates:
-                _bg, _fc, _fw = '#7c3aed', 'white', '700'   # 매수+매도 동일날: 보라
-            elif _day in _buy_dates:
-                _bg, _fc, _fw = '#dc2626', 'white', '700'   # 매수: 빨강
-            elif _day in _sell_dates:
-                _bg, _fc, _fw = '#2563eb', 'white', '700'   # 매도: 파랑
-            elif _weekday >= 5:
-                _bg, _fc, _fw = 'transparent', '#d1d5db', '400'  # 주말: 회색
-            else:
-                _bg, _fc, _fw = 'transparent', '#374151', '400'  # 평일
-
-            _border = '1.5px solid #f59e0b' if _is_today else '1px solid transparent'
-            _cal_html += (
-                f"<div style='text-align:center;padding:3px 1px;"
-                f"background:{_bg};border-radius:4px;border:{_border};"
-                f"color:{_fc};font-weight:{_fw};font-size:0.7rem;'>{_day}</div>"
-            )
-
-        _cal_html += "</div>"
-        # 범례
-        _cal_html += ("<div style='display:flex;gap:8px;margin-top:6px;font-size:0.62rem;"
-                      "color:#6b7280;flex-wrap:wrap;'>"
-                      "<span><span style='color:#dc2626;'>●</span> 매수</span>"
-                      "<span><span style='color:#2563eb;'>●</span> 매도</span>"
-                      "<span><span style='color:#7c3aed;'>●</span> 매수+매도</span>"
-                      "<span style='border:1.5px solid #f59e0b;border-radius:3px;"
-                      "padding:0 3px;'>오늘</span></div>")
-        st.markdown(_cal_html, unsafe_allow_html=True)
-        st.markdown("---")
 
         # ── 매매 기록 ──
         st.markdown("### 📈 매매 기록")
