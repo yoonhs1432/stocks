@@ -427,13 +427,13 @@ def render_sidebar(selected_ticker: str) -> dict:
         t_date   = st.date_input("날짜", datetime.date.today())
         t_type   = st.radio("종류", ['buy', 'sell'], horizontal=True)
         t_col1, t_col2 = st.columns(2)
-        t_qty   = t_col1.number_input("수량", min_value=0.0, value=0.0,
-                                      step=1.0, format="%.2f")
+        t_qty   = t_col1.number_input("수량", min_value=0, value=0,
+                                      step=1, format="%d")
         t_price = t_col2.number_input("단가($)", min_value=0.0, value=0.0,
                                       step=0.01, format="%.4f")
         if st.button("기록 저장", key="trade_save_btn"):
             record = {'date': t_date.strftime("%Y-%m-%d"), 'type': t_type}
-            if t_qty > 0:   record['qty']   = t_qty
+            if t_qty > 0:   record['qty']   = int(t_qty)
             if t_price > 0: record['price'] = t_price
             st.session_state.trade_history.setdefault(t_ticker, []).append(record)
             save_trade_history(st.session_state.trade_history)
@@ -789,46 +789,124 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
                             'doubleClick': 'reset', 'responsive': True, 'showTips': False})
 
 # ====================================================
-# 10. 포지션 트래커  ★ 신규
+# 10. 포지션 트래커
 # ====================================================
+def _resolve_current_cycle(valid: list) -> dict:
+    """
+    거래 기록을 시간순으로 순회하며 현재(마지막) 사이클을 추출한다.
+
+    사이클 규칙:
+      - 첫 매수가 사이클 시작 → cycle_start 기록
+      - 매수/매도 누적 중 hold_qty == 0 이 되면 사이클 종료 → 다음 매수로 리셋
+      - 마지막으로 남은 사이클이 현재 사이클
+
+    반환값 dict:
+      cycle_start   : 현재 사이클 첫 매수일 (datetime.date)
+      cycle_end     : 전량 매도 완료일 (datetime.date) or None(보유 중)
+      hold_qty      : 현재 보유 수량 (int)
+      buy_qty       : 현재 사이클 누적 매수 수량
+      buy_cost      : 현재 사이클 누적 매수 금액
+    """
+    sorted_records = sorted(valid, key=lambda r: r['date'])
+
+    cycle_start = None
+    cycle_end   = None
+    hold_qty    = 0
+    buy_qty     = 0
+    buy_cost    = 0.0
+
+    for r in sorted_records:
+        date = datetime.date.fromisoformat(r['date'])
+        qty  = int(r['qty'])
+
+        if r['type'] == 'buy':
+            if hold_qty == 0:
+                # 새 사이클 시작 (첫 매수 또는 전량 매도 후 재매수)
+                cycle_start = date
+                cycle_end   = None
+                buy_qty     = 0
+                buy_cost    = 0.0
+            hold_qty += qty
+            buy_qty  += qty
+            buy_cost += qty * r['price']
+
+        elif r['type'] == 'sell' and hold_qty > 0:
+            hold_qty -= qty
+            hold_qty  = max(hold_qty, 0)
+            if hold_qty == 0:
+                cycle_end = date  # 전량 매도 완료
+
+    return {
+        'cycle_start': cycle_start,
+        'cycle_end':   cycle_end,
+        'hold_qty':    hold_qty,
+        'buy_qty':     buy_qty,
+        'buy_cost':    buy_cost,
+    }
+
+
 def render_position_tracker(selected_ticker: str, df_daily: pd.DataFrame) -> None:
     records = st.session_state.trade_history.get(selected_ticker, [])
     valid   = [r for r in records if r.get('qty', 0) > 0 and r.get('price', 0) > 0]
     if not valid:
         return
 
-    current_price  = float(df_daily[f'{selected_ticker}_Close'].iloc[-1])
-    total_buy_qty  = sum(r['qty'] for r in valid if r['type'] == 'buy')
-    total_buy_cost = sum(r['qty'] * r['price'] for r in valid if r['type'] == 'buy')
-    total_sell_qty = sum(r['qty'] for r in valid if r['type'] == 'sell')
-    hold_qty       = total_buy_qty - total_sell_qty
-
-    if hold_qty <= 0 or total_buy_qty == 0:
+    cyc = _resolve_current_cycle(valid)
+    if cyc['cycle_start'] is None or cyc['buy_qty'] == 0:
         return
 
-    avg_price  = total_buy_cost / total_buy_qty
-    pnl_pct    = (current_price - avg_price) / avg_price * 100
-    pnl_dollar = (current_price - avg_price) * hold_qty
-    pnl_color  = '#b91c1c' if pnl_pct >= 0 else '#1d4ed8'
+    current_price = float(df_daily[f'{selected_ticker}_Close'].iloc[-1])
+    avg_price     = cyc['buy_cost'] / cyc['buy_qty']
+    hold_qty      = cyc['hold_qty']
 
-    buy_dates  = sorted(r['date'] for r in valid if r['type'] == 'buy')
-    hold_days  = (datetime.date.today() -
-                  datetime.date.fromisoformat(buy_dates[0])).days if buy_dates else 0
+    # ── 보유기간 계산 ──
+    end_date  = cyc['cycle_end'] if cyc['cycle_end'] else datetime.date.today()
+    hold_days = (end_date - cyc['cycle_start']).days
+    period_label = (
+        f"{cyc['cycle_start'].strftime('%m/%d')}–{end_date.strftime('%m/%d')} ({hold_days}일) ✅청산"
+        if cyc['cycle_end']
+        else f"{cyc['cycle_start'].strftime('%m/%d')}–오늘 ({hold_days}일)"
+    )
 
-    sign       = '+' if pnl_dollar >= 0 else ''
+    # ── 손익 계산 (보유 중이면 평가손익, 청산이면 실현손익) ──
+    if cyc['cycle_end']:
+        # 청산된 경우: 실제 매도 기록으로 실현손익 계산
+        sorted_records = sorted(valid, key=lambda r: r['date'])
+        # 현재 사이클의 매도 기록만 추출 (cycle_start 이후)
+        sell_proceeds = sum(
+            int(r['qty']) * r['price']
+            for r in sorted_records
+            if r['type'] == 'sell'
+            and datetime.date.fromisoformat(r['date']) >= cyc['cycle_start']
+        )
+        total_buy_cost = cyc['buy_cost']
+        pnl_dollar = sell_proceeds - total_buy_cost
+        pnl_pct    = pnl_dollar / total_buy_cost * 100 if total_buy_cost else 0.0
+        qty_display = f"{cyc['buy_qty']:,}주 (전량매도)"
+    else:
+        pnl_dollar  = (current_price - avg_price) * hold_qty
+        pnl_pct     = (current_price - avg_price) / avg_price * 100
+        qty_display = f"{hold_qty:,}주"
+
+    pnl_color = '#b91c1c' if pnl_pct >= 0 else '#1d4ed8'
+    sign      = '+' if pnl_dollar >= 0 else ''
+    pnl_label = "실현손익" if cyc['cycle_end'] else "평가손익"
+    bg_color  = '#f0fdf4' if cyc['cycle_end'] else '#f8fafc'
+    border_c  = '#86efac' if cyc['cycle_end'] else '#e2e8f0'
+
     st.markdown(f"""
     <div style='display:flex;gap:12px;flex-wrap:wrap;margin:4px 0 8px 0;
-                padding:8px 12px;background:#f8fafc;
-                border:1px solid #e2e8f0;border-radius:8px;font-size:0.78rem;'>
+                padding:8px 12px;background:{bg_color};
+                border:1px solid {border_c};border-radius:8px;font-size:0.78rem;'>
       <div><div style='color:#6b7280;font-size:0.68rem;'>평균단가</div>
            <div style='font-weight:700;'>${avg_price:,.2f}</div></div>
       <div><div style='color:#6b7280;font-size:0.68rem;'>보유수량</div>
-           <div style='font-weight:700;'>{hold_qty:,.2f}</div></div>
-      <div><div style='color:#6b7280;font-size:0.68rem;'>평가손익</div>
+           <div style='font-weight:700;'>{qty_display}</div></div>
+      <div><div style='color:#6b7280;font-size:0.68rem;'>{pnl_label}</div>
            <div style='font-weight:700;color:{pnl_color};'>
              {sign}${pnl_dollar:,.2f}&nbsp;({sign}{pnl_pct:.2f}%)</div></div>
       <div><div style='color:#6b7280;font-size:0.68rem;'>보유기간</div>
-           <div style='font-weight:700;'>{hold_days}일</div></div>
+           <div style='font-weight:700;'>{period_label}</div></div>
       <div><div style='color:#6b7280;font-size:0.68rem;'>현재가</div>
            <div style='font-weight:700;'>${current_price:,.2f}</div></div>
     </div>""", unsafe_allow_html=True)
