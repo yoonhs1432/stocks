@@ -22,6 +22,7 @@ TARGET_TICKERS = [
     'GDXU', 'KORU', '005930', 'BITU', 'ETHT', 'AVXX',
 ]
 TICKER_DISPLAY_NAMES = {'BTC-USD': 'BTC', 'ETH-USD': 'ETH', '005930': '삼전', '000660': '하닉'}
+SEED_MONEY_KRW = 21_000_000   # 시드머니 (원)
 
 SIGNAL_STYLE = {
     'FB2': ('#7f1d1d', '#ffffff'), 'FB':  ('#dc2626', '#ffffff'), 'B':   ('#fca5a5', '#1a1a1a'),
@@ -317,6 +318,19 @@ def fetch_single_ticker(ticker: str, start_date_str: str) -> pd.DataFrame:
     except Exception:
         pass
     return pd.DataFrame()
+
+@st.cache_data(show_spinner=False, ttl=300)
+def fetch_usd_krw() -> float:
+    """USD/KRW 실시간 환율 반환. 실패 시 fallback 1400.0"""
+    try:
+        today = datetime.date.today().strftime('%Y-%m-%d')
+        week_ago = (datetime.date.today() - datetime.timedelta(days=7)).strftime('%Y-%m-%d')
+        data = fdr.DataReader('USD/KRW', week_ago, today)
+        if not data.empty:
+            return float(data['Close'].iloc[-1])
+    except Exception:
+        pass
+    return 1400.0
 
 # ====================================================
 # 6. 데이터 처리
@@ -897,9 +911,25 @@ def render_position_tracker(selected_ticker: str,
         return (f"<div><div style='color:#6b7280;font-size:0.68rem;'>{label}</div>"
                 f"<div style='font-weight:700;color:#9ca3af;'>-</div></div>")
 
+    # ── 환율 및 한화 수익률 ──
+    usd_krw    = fetch_usd_krw()
+    pnl_krw    = portfolio_pnl * usd_krw
+    seed_ret   = pnl_krw / SEED_MONEY_KRW * 100
+    seed_sign  = '+' if seed_ret >= 0 else ''
+    seed_color = _pnl_color(seed_ret)
+    krw_sign   = '+' if pnl_krw >= 0 else ''
+    krw_color  = _pnl_color(pnl_krw)
+
     port_html = (
         f"<div><div style='color:#6b7280;font-size:0.68rem;'>전종목 누적손익</div>"
         f"<div>{_fmt_pnl(portfolio_pnl)}</div></div>"
+    )
+    krw_html = (
+        f"<div><div style='color:#6b7280;font-size:0.68rem;'>시드대비 수익률"
+        f"<span style='font-weight:400;color:#9ca3af;'> ({usd_krw:,.0f}₩/$)</span></div>"
+        f"<div style='font-weight:700;color:{seed_color};'>{seed_sign}{seed_ret:.1f}%"
+        f"&nbsp;<span style='font-size:0.72rem;color:{krw_color};'>"
+        f"({krw_sign}{int(round(pnl_krw/10000)):,}만원)</span></div></div>"
     )
 
     # ── 매매 기록 없는 경우: 빈 기본 화면 ──
@@ -920,6 +950,7 @@ def render_position_tracker(selected_ticker: str,
           {_dash_cell("평가손익")}
           {_dash_cell("누적실현손익")}
           {port_html}
+          {krw_html}
         </div>""", unsafe_allow_html=True)
         return
 
@@ -1028,6 +1059,7 @@ def render_position_tracker(selected_ticker: str,
       {pnl_html}
       {cumulative_html}
       {port_html}
+      {krw_html}
     </div>""", unsafe_allow_html=True)
 
 # ====================================================
