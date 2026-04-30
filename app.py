@@ -949,27 +949,22 @@ def render_position_tracker(selected_ticker: str, df_daily: pd.DataFrame) -> Non
 
     hold_qty  = cyc['hold_qty']
     avg_price = cyc['buy_cost'] / cyc['buy_qty']
+    is_closed = cyc['cycle_end'] is not None  # 현재 사이클 청산 완료 여부
 
-    # ── 보유기간 ──
-    end_date  = cyc['cycle_end'] if cyc['cycle_end'] else datetime.date.today()
-    hold_days = (end_date - cyc['cycle_start']).days
+    # ──────────────────────────────────────────────
+    # 상태별 표시 정책
+    #
+    #  항목          미거래   보유중   청산완료   재매수후보유
+    #  현재가         실제     실제+%   실제       실제+%
+    #  평균단가        -       실제      -         실제(새사이클)
+    #  보유수량        -       N주       -         N주
+    #  보유기간        -       N일       -         N일(새사이클)
+    #  평가/실현손익   -       평가실제  실현실제   평가실제
+    #  누적실현손익    -       실제or-   실제       실제
+    #  전종목누적손익  항상    항상      항상       항상
+    # ──────────────────────────────────────────────
 
-    # ── 보유수량 ──
-    qty_display = f"{hold_qty:,}주" if hold_qty > 0 else "-"
-
-    # ── 현재 사이클 손익 + 수익률 ──
-    is_closed = cyc['cycle_end'] is not None
-    if is_closed:
-        pnl_dollar = cyc['current_pnl']
-        pnl_pct    = pnl_dollar / cyc['buy_cost'] * 100 if cyc['buy_cost'] else 0.0
-        pnl_label  = "실현손익"
-    else:
-        pnl_dollar = (current_price - avg_price) * hold_qty
-        pnl_pct    = (current_price - avg_price) / avg_price * 100 if avg_price else 0.0
-        pnl_label  = "평가손익"
-
-    # ── 현재가: 수익률 포함, 색상 적용 ──
-    # 보유 중이면 평균단가 대비 수익률, 청산/미거래면 색상 없음
+    # ── 현재가: 보유 중이면 평균단가 대비 수익률+색상, 그 외엔 색상 없음 ──
     if hold_qty > 0 and avg_price:
         price_pct   = (current_price - avg_price) / avg_price * 100
         price_sign  = '+' if price_pct >= 0 else ''
@@ -986,9 +981,48 @@ def render_position_tracker(selected_ticker: str, df_daily: pd.DataFrame) -> Non
             f"<div style='font-weight:700;'>${current_price:,.2f}</div></div>"
         )
 
-    # ── 누적실현손익 ──
-    total_realized = cumulative_pnl + (cyc['current_pnl'] if is_closed else 0.0)
-    has_cumulative = (cumulative_pnl != 0.0) or is_closed
+    # ── 평균단가: 청산 완료 시 dash ──
+    avg_html = (
+        f"<div><div style='color:#6b7280;font-size:0.68rem;'>평균단가</div>"
+        f"<div style='font-weight:700;'>${avg_price:,.2f}</div></div>"
+        if not is_closed else _dash_cell("평균단가")
+    )
+
+    # ── 보유수량: 청산 완료 시 dash ──
+    qty_html = (
+        f"<div><div style='color:#6b7280;font-size:0.68rem;'>보유수량</div>"
+        f"<div style='font-weight:700;'>{hold_qty:,}주</div></div>"
+        if not is_closed else _dash_cell("보유수량")
+    )
+
+    # ── 보유기간: 청산 완료 시 dash ──
+    if not is_closed:
+        hold_days = (datetime.date.today() - cyc['cycle_start']).days
+        period_html = (
+            f"<div><div style='color:#6b7280;font-size:0.68rem;'>보유기간</div>"
+            f"<div style='font-weight:700;'>{hold_days}일</div></div>"
+        )
+    else:
+        period_html = _dash_cell("보유기간")
+
+    # ── 평가/실현손익 ──
+    #   보유 중  → 평가손익 실제값
+    #   청산 완료 → 실현손익 실제값 (결과 확인용으로 유지)
+    #   미거래    → dash (위에서 이미 return)
+    if is_closed:
+        pnl_dollar = cyc['current_pnl']
+        pnl_label  = "실현손익"
+    else:
+        pnl_dollar = (current_price - avg_price) * hold_qty
+        pnl_label  = "평가손익"
+    pnl_html = (
+        f"<div><div style='color:#6b7280;font-size:0.68rem;'>{pnl_label}</div>"
+        f"<div>{_fmt_pnl(pnl_dollar)}</div></div>"
+    )
+
+    # ── 누적실현손익: 과거 사이클 없고 보유 중이면 dash ──
+    total_realized  = cumulative_pnl + (cyc['current_pnl'] if is_closed else 0.0)
+    has_cumulative  = (cumulative_pnl != 0.0) or is_closed
     cumulative_html = (
         f"<div><div style='color:#6b7280;font-size:0.68rem;'>누적실현손익</div>"
         f"<div>{_fmt_pnl(total_realized)}</div></div>"
@@ -1003,14 +1037,10 @@ def render_position_tracker(selected_ticker: str, df_daily: pd.DataFrame) -> Non
                 padding:8px 12px;background:{bg_color};
                 border:1px solid {border_c};border-radius:8px;font-size:0.78rem;'>
       {price_html}
-      <div><div style='color:#6b7280;font-size:0.68rem;'>평균단가</div>
-           <div style='font-weight:700;'>${avg_price:,.2f}</div></div>
-      <div><div style='color:#6b7280;font-size:0.68rem;'>보유수량</div>
-           <div style='font-weight:700;'>{qty_display}</div></div>
-      <div><div style='color:#6b7280;font-size:0.68rem;'>보유기간</div>
-           <div style='font-weight:700;'>{hold_days}일</div></div>
-      <div><div style='color:#6b7280;font-size:0.68rem;'>{pnl_label}</div>
-           <div>{_fmt_pnl(pnl_dollar)}</div></div>
+      {avg_html}
+      {qty_html}
+      {period_html}
+      {pnl_html}
       {cumulative_html}
       {port_html}
     </div>""", unsafe_allow_html=True)
