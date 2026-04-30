@@ -860,12 +860,10 @@ def _resolve_all_cycles(valid: list) -> tuple[dict, float]:
     return cyc, cumulative_pnl
 
 
-def _calc_portfolio_total_pnl(df_daily: pd.DataFrame) -> float:
+def _calc_portfolio_total_pnl(df_close: pd.DataFrame) -> float:
     """
     전 종목의 (누적실현손익 + 현재 평가손익) 합계를 반환한다.
-      - 누적실현손익 : 모든 청산 사이클의 실현손익 합 (종목별)
-      - 현재 평가손익 : 보유 중인 종목만 (현재가 - 평균단가) × 보유수량
-      - 청산 완료 종목의 현재 사이클 실현손익도 포함
+    df_close : fetch_all_data()가 반환한 전 종목 Close DataFrame (종목별 컬럼 보장)
     """
     total = 0.0
     for ticker in TARGET_TICKERS:
@@ -877,15 +875,13 @@ def _calc_portfolio_total_pnl(df_daily: pd.DataFrame) -> float:
         if cyc['buy_qty'] == 0:
             continue
 
-        # 누적실현손익 (과거 사이클 + 현재 사이클 청산분)
         realized = cum_pnl + (cyc['current_pnl'] if cyc['current_pnl'] is not None else 0.0)
 
-        # 현재 평가손익 (보유 중인 경우만)
         unrealized = 0.0
         if cyc['hold_qty'] > 0:
             col = f'{ticker}_Close'
-            if col in df_daily.columns:
-                current_price = float(df_daily[col].iloc[-1])
+            if col in df_close.columns:
+                current_price = float(df_close[col].iloc[-1])
                 avg_price     = cyc['buy_cost'] / cyc['buy_qty']
                 unrealized    = (current_price - avg_price) * cyc['hold_qty']
 
@@ -893,12 +889,14 @@ def _calc_portfolio_total_pnl(df_daily: pd.DataFrame) -> float:
     return total
 
 
-def render_position_tracker(selected_ticker: str, df_daily: pd.DataFrame) -> None:
+def render_position_tracker(selected_ticker: str,
+                            df_daily: pd.DataFrame,
+                            df_close: pd.DataFrame) -> None:
     records = st.session_state.trade_history.get(selected_ticker, [])
     valid   = [r for r in records if r.get('qty', 0) > 0 and r.get('price', 0) > 0]
 
-    # ── 전 종목 누적 손익 (항상 계산) ──
-    portfolio_pnl = _calc_portfolio_total_pnl(df_daily)
+    # ── 전 종목 누적 손익: df_close(원본 전종목) 사용 → 종목 무관하게 동일값 ──
+    portfolio_pnl = _calc_portfolio_total_pnl(df_close)
 
     # ── 현재가 (항상 필요) ──
     col_close     = f'{selected_ticker}_Close'
@@ -1291,7 +1289,7 @@ def main():
     with chart_col:
         if df_daily is not None:
             # ★ 포지션 트래커 (차트 위)
-            render_position_tracker(selected_ticker, df_daily)
+            render_position_tracker(selected_ticker, df_daily, df_close)
 
             with st.spinner("캔들 데이터 로드 중..."):
                 df_ohlc = fetch_ohlc(selected_ticker, analysis_start, candle_type)
