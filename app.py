@@ -1087,7 +1087,6 @@ def _build_beta_html(
     wavg_beta = (
         sum(b * eval_map[tk] for tk, b in hold_betas) / total_eval if total_eval else 0
     )
-    # 알파 가중평균 (#4)
     alphas = alphas or {}
     wavg_alpha = (
         sum(alphas.get(tk, 0) * eval_map[tk] for tk, _ in hold_betas) / total_eval
@@ -1095,41 +1094,61 @@ def _build_beta_html(
     )
 
     if wavg_beta >= CFG.BETA_HIGH:
-        risk_bg, risk_bc, risk_lbl = '#fef2f2', '#b91c1c', '🔴 매우 고위험'
+        risk_bg, risk_bc, risk_lbl = '#fef2f2', '#b91c1c', '🔴'
     elif wavg_beta >= CFG.BETA_WARN:
-        risk_bg, risk_bc, risk_lbl = '#fffbeb', '#ca8a04', '🟡 고위험'
+        risk_bg, risk_bc, risk_lbl = '#fffbeb', '#ca8a04', '🟡'
     else:
-        risk_bg, risk_bc, risk_lbl = '#f0fdf4', '#16a34a', '🟢 정상'
+        risk_bg, risk_bc, risk_lbl = '#f0fdf4', '#16a34a', '🟢'
 
-    # 종목별 β + α 표시
-    beta_items = ''.join(
-        f"<span style='margin-right:6px;font-size:0.6rem;'>"
-        f"<span style='color:#6b7280;'>{display_name(tk)}</span>"
-        f"<span style='color:{COLOR_TEXT};font-weight:700;'> β{b:.1f}</span>"
-        + (
-            f"<span style='color:{pnl_color(alphas.get(tk, 0))};font-weight:600;'>"
-            f" α{signed_str(alphas.get(tk, 0), '{:.0f}')}%</span>"
-            if tk in alphas else ""
-        )
-        + "</span>"
-        for tk, b in sorted(hold_betas, key=lambda x: -x[1])
-    )
-    # 가중 알파 라벨
+    # 헤더: ⚡ 베타 / 가중β / 가중α
     alpha_color = pnl_color(wavg_alpha)
-    alpha_label_html = (
-        f"&nbsp;<span style='color:{alpha_color};font-weight:600;font-size:0.62rem;'>"
-        f"α{signed_str(wavg_alpha, '{:.0f}')}%</span>"
-        if alphas else ""
+    header = (
+        f"<div style='display:flex;justify-content:space-between;"
+        f"align-items:center;margin-bottom:5px;'>"
+        f"<span style='font-size:0.62rem;color:{COLOR_LABEL};'>⚡ 포트폴리오 베타/알파</span>"
+        f"<span style='display:flex;gap:6px;align-items:center;'>"
+        f"<span style='font-size:0.7rem;font-weight:800;color:{risk_bc};"
+        f"background:{risk_bg};padding:1px 6px;border-radius:4px;'>"
+        f"{risk_lbl} β{wavg_beta:.1f}</span>"
+        + (
+            f"<span style='font-size:0.7rem;font-weight:700;color:{alpha_color};"
+            f"background:#f9fafb;padding:1px 6px;border-radius:4px;'>"
+            f"α{signed_str(wavg_alpha, '{:.0f}')}%</span>"
+            if alphas else ""
+        )
+        + "</span></div>"
     )
+
+    # 종목별 행: [종목명] [β bar] [β값] [α값]
+    max_beta = max((b for _, b in hold_betas), default=1) or 1
+    rows = []
+    for tk, b in sorted(hold_betas, key=lambda x: -x[1]):
+        bar_w = b / max_beta * 100
+        a = alphas.get(tk)
+        a_html = (
+            f"<div style='font-size:0.63rem;font-weight:700;color:{pnl_color(a)};"
+            f"width:42px;text-align:right;flex-shrink:0;'>α{signed_str(a, '{:.0f}')}%</div>"
+            if a is not None
+            else f"<div style='font-size:0.63rem;color:#9ca3af;width:42px;"
+                 f"text-align:right;flex-shrink:0;'>-</div>"
+        )
+        rows.append(
+            f"<div style='display:flex;align-items:center;gap:5px;margin-bottom:3px;'>"
+            f"<div style='font-size:0.67rem;color:{COLOR_TEXT};width:40px;flex-shrink:0;'>"
+            f"{display_name(tk)}</div>"
+            f"<div style='flex:1;background:#e5e7eb;border-radius:3px;height:6px;'>"
+            f"<div style='width:{bar_w:.1f}%;background:#6366f1;"
+            f"border-radius:3px;height:6px;'></div></div>"
+            f"<div style='font-size:0.63rem;font-weight:700;color:{COLOR_TEXT};"
+            f"width:32px;text-align:right;flex-shrink:0;'>β{b:.1f}</div>"
+            f"{a_html}"
+            f"</div>"
+        )
+
     return (
         f"{html_section_divider()}"
-        f"<div style='display:flex;justify-content:space-between;"
-        f"align-items:center;margin-bottom:4px;'>"
-        f"<span style='font-size:0.62rem;color:{COLOR_LABEL};'>⚡ 포트폴리오 베타{alpha_label_html}</span>"
-        f"<span style='font-size:0.72rem;font-weight:800;color:{risk_bc};"
-        f"background:{risk_bg};padding:1px 6px;border-radius:4px;'>"
-        f"{risk_lbl}&nbsp;β{wavg_beta:.1f}</span></div>"
-        f"<div style='flex-wrap:wrap;'>{beta_items}</div>"
+        f"{header}"
+        f"{''.join(rows)}"
         f"</div>"
     )
 
@@ -2154,123 +2173,6 @@ def render_analytics_panel(
                 st.markdown("".join(rows), unsafe_allow_html=True)
                 st.caption("신호 발생 N캔들 후 평균수익 / 승률")
 
-    # ── #5 상관관계 매트릭스 ──
-    with st.expander("🔗 상관관계 (보유)", expanded=False):
-        holding_list = sorted([
-            tk for tk, ts in portfolio_state.items() if ts['cycle']['hold_qty'] > 0
-        ])
-        if len(holding_list) < 2:
-            st.caption("보유 종목 2개 이상 필요")
-        else:
-            corr = compute_correlation_matrix(df_close, holding_list)
-            if corr is None or corr.empty:
-                st.caption("데이터 부족")
-            else:
-                z = corr.values
-                tick_labels = [display_name(t) for t in corr.columns]
-                fig = go.Figure(data=go.Heatmap(
-                    z=z, x=tick_labels, y=tick_labels,
-                    zmin=-1, zmax=1, colorscale='RdBu_r',
-                    text=[[f"{v:.2f}" for v in row] for row in z],
-                    texttemplate="%{text}",
-                    textfont={"size": 10},
-                    showscale=False,
-                ))
-                # 모바일에서도 정사각형 비율 유지
-                cell_size = max(28, int(280 / len(holding_list)))
-                fig.update_layout(
-                    height=cell_size * len(holding_list) + 60,
-                    margin=dict(l=2, r=2, t=2, b=2),
-                    xaxis=dict(tickfont=dict(size=10), side='top'),
-                    yaxis=dict(tickfont=dict(size=10)),
-                    paper_bgcolor='white', plot_bgcolor='white',
-                )
-                st.plotly_chart(fig, use_container_width=True,
-                                config={'displayModeBar': False})
-                avg_off_diag = (corr.values.sum() - len(corr)) / (len(corr) ** 2 - len(corr))
-                diag_color = (
-                    '#b91c1c' if avg_off_diag > 0.7
-                    else '#ca8a04' if avg_off_diag > 0.4 else '#16a34a'
-                )
-                interpret = (
-                    "분산효과 거의 없음" if avg_off_diag > 0.7
-                    else "부분적 분산" if avg_off_diag > 0.4 else "양호한 분산"
-                )
-                st.markdown(
-                    f"<div style='font-size:0.72rem;color:#6b7280;text-align:center;margin-top:4px;'>"
-                    f"평균 상관 <b style='color:{diag_color};'>{avg_off_diag:.2f}</b>"
-                    f" · {interpret}"
-                    f"</div>",
-                    unsafe_allow_html=True,
-                )
-
-
-# ====================================================
-# 17. 빠른 매매 입력 (#14)
-# ====================================================
-def render_quick_trade(selected_ticker: str, df_daily: pd.DataFrame) -> None:
-    """차트 위 빠른 매수/매도 버튼 (모바일 최적화)."""
-    if 'quick_trade_open' not in st.session_state:
-        st.session_state['quick_trade_open'] = None  # 'buy' | 'sell' | None
-
-    col_close = f'{selected_ticker}_Close'
-    current_price = (
-        float(df_daily[col_close].iloc[-1])
-        if col_close in df_daily.columns and not df_daily.empty else 0.0
-    )
-
-    bcol1, bcol2, bcol3 = st.columns([1, 1, 4])
-    if bcol1.button("➕ 매수", key="qt_buy_btn", use_container_width=True):
-        st.session_state['quick_trade_open'] = (
-            None if st.session_state['quick_trade_open'] == 'buy' else 'buy'
-        )
-    if bcol2.button("➖ 매도", key="qt_sell_btn", use_container_width=True):
-        st.session_state['quick_trade_open'] = (
-            None if st.session_state['quick_trade_open'] == 'sell' else 'sell'
-        )
-
-    mode = st.session_state.get('quick_trade_open')
-    if mode in ('buy', 'sell'):
-        with st.container():
-            mode_label = "매수" if mode == 'buy' else "매도"
-            mode_color = '#dc2626' if mode == 'buy' else '#1d4ed8'
-            st.markdown(
-                f"<div style='border:2px solid {mode_color};border-radius:6px;"
-                f"padding:8px;margin:4px 0 0 0;background:#fafafa;"
-                f"display:flex;justify-content:space-between;align-items:center;'>"
-                f"<b style='color:{mode_color};font-size:0.85rem;'>"
-                f"{display_name(selected_ticker)} {mode_label}"
-                f"</b>"
-                f"<span style='color:#9ca3af;font-size:0.7rem;'>"
-                f"현재가 ${current_price:,.2f}</span>"
-                f"</div>",
-                unsafe_allow_html=True,
-            )
-            # 모바일: 수량/단가 한 줄, 저장 버튼 다음 줄
-            qc1, qc2 = st.columns(2)
-            qt_qty = qc1.number_input(
-                "수량", min_value=0, value=0, step=1, format="%d", key="qt_qty",
-            )
-            qt_price = qc2.number_input(
-                "단가($)", min_value=0.0, value=float(current_price), step=0.01,
-                format="%.4f", key="qt_price",
-            )
-            if st.button("💾 저장", key="qt_save", use_container_width=True, type="primary"):
-                if qt_qty > 0 and qt_price > 0:
-                    record = {
-                        'date': datetime.date.today().strftime("%Y-%m-%d"),
-                        'type': mode, 'qty': int(qt_qty), 'price': float(qt_price),
-                    }
-                    st.session_state.trade_history.setdefault(
-                        selected_ticker, []
-                    ).append(record)
-                    save_trade_history(st.session_state.trade_history)
-                    st.session_state['quick_trade_open'] = None
-                    st.success(f"{mode_label} 기록 저장!")
-                    st.rerun()
-                else:
-                    st.warning("수량과 단가를 입력하세요.")
-
 
 # ====================================================
 # 18. 메모 섹션
@@ -2355,8 +2257,8 @@ def build_css(selected_option: str, holding_tickers: set) -> str:
     }}
     section[data-testid="stMain"] div[data-testid="stHorizontalBlock"]
         > div[data-testid="stColumn"]:first-child {{
-        flex:0 0 80px!important; min-width:80px!important;
-        max-width:80px!important; padding:0!important;
+        flex:0 0 88px!important; min-width:88px!important;
+        max-width:88px!important; padding:0!important;
     }}
     section[data-testid="stMain"] div[data-testid="stHorizontalBlock"]
         > div[data-testid="stColumn"]:last-child {{
@@ -2567,9 +2469,6 @@ def main() -> None:
     with chart_col:
         if df_daily is not None:
             render_position_tracker(selected_ticker, df_daily, df_close, portfolio_state)
-
-            # 빠른 매매 입력 (#14) — chart_col 안에 두되 첫 컬럼 제약은 폭이 좁아도 OK
-            render_quick_trade(selected_ticker, df_daily)
 
             with st.spinner("캔들 데이터 로드 중..."):
                 df_ohlc = fetch_ohlc(selected_ticker, analysis_start, candle_type)
