@@ -178,7 +178,10 @@ def init_session_state() -> None:
         'custom_ticker_input': str,
         'last_data_date':      str,
         'view_months':         lambda: load_settings().get('view_months', 12),
-        'analysis_start':      lambda: load_settings().get('analysis_start', '25-01'),
+        'analysis_start':      lambda: load_settings().get(
+            'analysis_start',
+            (datetime.date.today() - datetime.timedelta(days=548)).strftime('%y-%m')
+        ),
         'memo_editing_idx':    lambda: None,
         'memo_input_key':      int,
         'candle_type':         lambda: '주봉',
@@ -727,9 +730,32 @@ def render_sidebar(selected_ticker: str) -> dict:
         st.markdown("### ⚙️ 분석 파라미터")
         candle_type    = st.radio("봉 기준", ['일봉', '주봉'], horizontal=True,
                                   index=1 if st.session_state.candle_type == '주봉' else 0)
-        analysis_start = st.text_input("분석 시작일 (YY-MM)",
-                                       value=st.session_state.analysis_start,
-                                       placeholder="25-01")
+
+        # ── 분석 시작일 프리셋 버튼 ──
+        st.caption("분석 시작일")
+        _today = datetime.date.today()
+        _presets = [
+            ('6개월',   182),
+            ('1년',     365),
+            ('1년6개월', 548),
+            ('2년',     730),
+        ]
+        _p_cols = st.columns(len(_presets))
+        for _pc, (_plabel, _pdays) in zip(_p_cols, _presets):
+            _pdate = (_today - datetime.timedelta(days=_pdays)).strftime('%y-%m')
+            _is_active = st.session_state.analysis_start == _pdate
+            if _pc.button(
+                _plabel,
+                key=f"astart_{_plabel}",
+                use_container_width=True,
+                type="primary" if _is_active else "secondary"
+            ):
+                st.session_state.analysis_start = _pdate
+                _s = load_settings()
+                _s['analysis_start'] = _pdate
+                save_settings(_s)
+                st.rerun()
+        analysis_start = st.session_state.analysis_start
         view_months    = st.number_input("차트 조회 기간 (최근 N개월)",
                                         min_value=1, max_value=240,
                                         value=st.session_state.view_months, step=1)
