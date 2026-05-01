@@ -529,17 +529,22 @@ def render_sidebar(selected_ticker: str) -> dict:
                 _hold_betas.append((_tk, _b))
 
         if _hold_betas:
-            # 보유수량 가중 평균 베타
-            _inv_map = {_tk: _cyc_val['buy_cost']
-                        for _tk in TARGET_TICKERS
-                        for _cyc_val, _ in [_resolve_all_cycles(
-                            [r for r in st.session_state.trade_history.get(_tk,[])
-                             if r.get('qty',0)>0 and r.get('price',0)>0]
-                        )]
-                        if _cyc_val['hold_qty'] > 0}
-            _total_cost = sum(_inv_map.get(_tk, 1) for _tk, _ in _hold_betas)
-            _wavg_beta  = (sum(_b * _inv_map.get(_tk, 1) for _tk, _b in _hold_betas)
-                           / _total_cost if _total_cost else 0)
+            # 현재 평가금액 기준 가중 평균 베타 (원금보다 실제 리스크 노출에 정확)
+            _eval_map = {}
+            for _tk in TARGET_TICKERS:
+                _recs2  = st.session_state.trade_history.get(_tk, [])
+                _valid2 = [r for r in _recs2 if r.get('qty',0)>0 and r.get('price',0)>0]
+                if not _valid2: continue
+                _cyc2, _ = _resolve_all_cycles(_valid2)
+                if _cyc2['hold_qty'] <= 0: continue
+                _cur2 = _close_last.get(f'{_tk}_Close', None)
+                if _cur2:
+                    _eval_map[_tk] = _cur2 * _cyc2['hold_qty']   # 현재 평가금액 ($)
+                else:
+                    _eval_map[_tk] = _cyc2['buy_cost']            # 현재가 없으면 원금
+            _total_eval = sum(_eval_map.get(_tk, 1) for _tk, _ in _hold_betas)
+            _wavg_beta  = (sum(_b * _eval_map.get(_tk, 1) for _tk, _b in _hold_betas)
+                           / _total_eval if _total_eval else 0)
             # 고베타 집중 경고 임계값
             _WARN_BETA = 4.0
             _HIGH_BETA = 6.0
