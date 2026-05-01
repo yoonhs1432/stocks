@@ -602,9 +602,10 @@ def render_sidebar(selected_ticker: str) -> dict:
                 f"&nbsp;<span style='font-weight:400;color:#9ca3af;'>"
                 f"({_nr_sign}{int(round(_net_real_sum*_usd_krw/10000)):,}만원)</span></span></div>"
             )
+            _max_real_abs = max(abs(v) for _, v in _realized_rows)
             for _tk, _real in sorted(_realized_rows, key=lambda x: -abs(x[1])):
                 _ratio = abs(_real) / _total_real_sum * 100 if _total_real_sum else 0
-                _w     = max(_ratio, 2)
+                _w     = max(abs(_real) / _max_real_abs * 100, 2) if _max_real_abs else 2
                 _rsign = '+' if _real >= 0 else ''
                 _tc    = ticker_color(_tk)
                 _vc    = '#b91c1c' if _real >= 0 else '#1d4ed8'
@@ -635,32 +636,33 @@ def render_sidebar(selected_ticker: str) -> dict:
                 f"&nbsp;<span style='color:#9ca3af;font-weight:400;'>"
                 f"({int(round(_total_inv_krw/10000)):,}만원)</span></span></div>"
             )
+            # 최대 평가금액 기준으로 normalize (가장 큰 종목이 100%)
+            _max_eval = max(_eval_krw for _, _, _, _eval_krw in _alloc_rows)
             for _tk, _inv_krw, _ret, _eval_krw in sorted(_alloc_rows, key=lambda x: -x[1]):
-                _tc      = ticker_color(_tk)
-                # 원금 비율과 평가비율 (시드 기준)
-                _cost_pct = _inv_krw  / SEED_MONEY_KRW * 100
-                _eval_pct = _eval_krw / SEED_MONEY_KRW * 100
-                _cost_w   = max(min(_cost_pct, 100), 1)
-                # 손익 부분 너비 (평가-원금, 양수면 수익 연장/음수면 원금 단축)
-                _pnl_pct  = _eval_pct - _cost_pct
-                _pnl_w    = abs(_pnl_pct)
-                _pnl_c    = '#b91c1c' if _pnl_pct >= 0 else '#1d4ed8'
-                # 손실이면 원금 바를 줄여서 표현
-                _bar_cost_w = max(min(_eval_pct if _pnl_pct < 0 else _cost_pct, 100), 1)
+                _tc       = ticker_color(_tk)
+                _cost_pct = _inv_krw  / SEED_MONEY_KRW * 100   # 시드 대비 원금% (텍스트 표시용)
+                _pnl_c    = '#b91c1c' if (_ret or 0) >= 0 else '#1d4ed8'
+                # normalize된 너비 (최대 종목 = 100%)
+                _eval_w = max(_eval_krw / _max_eval * 100, 1) if _max_eval else 1
+                _cost_w = max(_inv_krw  / _max_eval * 100, 1) if _max_eval else 1
+                _cost_w = min(_cost_w, _eval_w)   # 원금이 평가금액 초과 방지
+                _pnl_w  = max(_eval_w - _cost_w, 0)   # 수익 부분
                 if _ret is not None:
                     _rsign   = '+' if _ret >= 0 else ''
                     _ret_str = f"<span style='color:{_pnl_c};font-weight:700;'>{_rsign}{int(round(_ret))}%</span>"
                 else:
                     _ret_str = "<span style='color:#9ca3af;'>-</span>"
-                # 스택 바: [원금 ████] [손익 ██] 형태
+                # flex 스택 바: 외부 컨테이너 안에 원금+손익 나란히
                 _bar_html = (
-                    f"<div style='flex:1;background:#e5e7eb;border-radius:3px;height:7px;position:relative;'>"
-                    f"<div style='width:{_bar_cost_w:.1f}%;background:{_tc};border-radius:3px;height:7px;'></div>"
+                    f"<div style='flex:1;background:#e5e7eb;border-radius:3px;height:7px;"
+                    f"display:flex;align-items:center;overflow:hidden;'>"
+                    f"<div style='width:{_cost_w:.1f}%;background:{_tc};height:7px;"
+                    f"border-radius:3px 0 0 3px;flex-shrink:0;'></div>"
                 )
-                if _pnl_pct > 0:
+                if _pnl_w > 0.5:
                     _bar_html += (
-                        f"<div style='position:absolute;left:{_bar_cost_w:.1f}%;top:0;"
-                        f"width:{_pnl_w:.1f}%;background:{_pnl_c};border-radius:0 3px 3px 0;height:7px;'></div>"
+                        f"<div style='width:{_pnl_w:.1f}%;background:{_pnl_c};height:7px;"
+                        f"border-radius:0 3px 3px 0;flex-shrink:0;opacity:0.85;'></div>"
                     )
                 _bar_html += "</div>"
                 _alloc_html += (
