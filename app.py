@@ -24,25 +24,45 @@ TARGET_TICKERS = [
 TICKER_DISPLAY_NAMES = {'BTC-USD': 'BTC', 'ETH-USD': 'ETH', '005930': '삼전', '000660': '하닉'}
 SEED_MONEY_KRW = 21_000_000   # 시드머니 (원)
 
-# 종목별 색상 (범주 기준)
-# 나스닥/테크 레버리지: 빨강 계열
-# 반도체:              주황 계열
-# 섹터 레버리지:       초록 계열
-# 금융/은행:           파랑 계열
-# 원자재/에너지/금:    노랑 계열
-# 신흥국/해외:         보라 계열
-# 코인:               회색 계열
-# 국내주:             청록 계열
+# 종목별 색상 — 같은 범주는 완전히 동일한 색
+# 범주 기준:
+#   index  : 대형지수 레버리지 (S&P500, 나스닥, Russell)
+#   tech   : 테크/혁신 섹터 레버리지 (FANG, ARK, 테크3배)
+#   semi   : 반도체 레버리지
+#   bio    : 바이오 레버리지
+#   defense: 방산 레버리지 (DFEN, AVXX)
+#   fin    : 금융/은행 레버리지
+#   em     : 신흥국/해외 레버리지 (신흥국, 인도, 유럽, 한국)
+#   commod : 원자재/금 레버리지
+#   crypto : 암호화폐 레버리지
+#   other  : 단일 종목 및 기타
+_C = {
+    'index':   '#dc2626',  # 대형지수 (빨강)
+    'tech':    '#f97316',  # 테크/혁신 (주황)
+    'semi':    '#eab308',  # 반도체 (노랑)
+    'bio':     '#16a34a',  # 바이오 (초록)
+    'defense': '#14b8a6',  # 방산 (청록)
+    'fin':     '#2563eb',  # 금융/은행 (파랑)
+    'em':      '#7c3aed',  # 신흥국/해외 (보라)
+    'commod':  '#ca8a04',  # 원자재/금 (황금)
+    'crypto':  '#6b7280',  # 화폐/원자재 (회색)
+    'other':   '#9ca3af',  # 기타/단일종목 (연회색)
+}
 TICKER_COLOR = {
-    'TQQQ': '#dc2626', 'FNGU': '#b91c1c', 'TECL': '#ef4444', 'SPYU': '#f87171',
-    'QPUX': '#c2410c',
-    'SOXL': '#f97316', 'INDL': '#fb923c',
-    'LABU': '#16a34a', 'DFEN': '#15803d', 'HIBL': '#22c55e', 'TARK': '#4ade80',
-    'EURL': '#86efac', 'EDC': '#bbf7d0',
-    'BNKU': '#2563eb', 'URTY': '#3b82f6',
-    'GDXU': '#ca8a04', 'KORU': '#7c3aed',
-    'BITU': '#6b7280', 'ETHT': '#9ca3af', 'AVXX': '#d1d5db',
-    '005930': '#0d9488',
+    # 대형지수
+    'SPYU': _C['index'], 'TQQQ': _C['index'], 'QPUX': _C['index'], 'URTY': _C['index'],
+    # 테크/혁신 (반도체, 바이오 포함)
+    'FNGU': _C['tech'],  'TECL': _C['tech'],  'TARK': _C['tech'],  'HIBL': _C['tech'],
+    'SOXL': _C['tech'],  'LABU': _C['tech'],
+    # 방산
+    'DFEN': _C['defense'], 'AVXX': _C['defense'],
+    # 신흥국/해외
+    'EDC':  _C['em'],  'INDL': _C['em'],  'EURL': _C['em'],  'KORU': _C['em'],
+    # 화폐/원자재 (금융, 금, 암호화폐)
+    'BNKU': _C['crypto'], 'GDXU': _C['crypto'],
+    'BITU': _C['crypto'], 'ETHT': _C['crypto'],
+    # 기타 (단일 종목)
+    '005930': _C['other'],
 }
 def ticker_color(ticker: str) -> str:
     return TICKER_COLOR.get(ticker, '#9ca3af')
