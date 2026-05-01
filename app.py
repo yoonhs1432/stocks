@@ -174,6 +174,7 @@ def init_session_state() -> None:
         'trade_history':       load_trade_history,
         'memo_history':        load_memo_history,
         'ticker_signals':      dict,
+        'ticker_betas':        dict,
         'selected_option':     lambda: TARGET_TICKERS[0],
         'custom_ticker_input': str,
         'last_data_date':      str,
@@ -477,12 +478,14 @@ def render_sidebar(selected_ticker: str) -> dict:
             if not _valid: continue
             _cyc, _ = _resolve_all_cycles(_valid)
             if _cyc['hold_qty'] <= 0: continue
-            _inv_krw = _cyc['buy_cost'] * _usd_krw
+            _inv_krw  = _cyc['buy_cost'] * _usd_krw
             _total_inv_krw += _inv_krw
             _avg = _cyc['buy_cost'] / _cyc['buy_qty']
             _cur = _close_last.get(f'{_tk}_Close', None)
             _ret = (_cur - _avg) / _avg * 100 if _cur else None
-            _alloc_rows.append((_tk, _inv_krw, _ret))
+            # 현재 평가금액 (원금+손익), 없으면 원금으로 대체
+            _eval_krw = (_cur * _cyc['hold_qty'] * _usd_krw) if _cur else _inv_krw
+            _alloc_rows.append((_tk, _inv_krw, _ret, _eval_krw))
 
         # ── 시드 수익률 섹션 ──
         if _pnl_cached is not None:
@@ -511,6 +514,62 @@ def render_sidebar(selected_ticker: str) -> dict:
             )
         else:
             _seed_html = "<div style='font-size:0.7rem;color:#9ca3af;margin-bottom:4px;'>데이터 로딩 중...</div>"
+
+        # ── 베타 리스크 경고 ──
+        _betas      = st.session_state.get('ticker_betas', {})
+        _hold_betas = []
+        for _tk in TARGET_TICKERS:
+            _recs  = st.session_state.trade_history.get(_tk, [])
+            _valid = [r for r in _recs if r.get('qty',0)>0 and r.get('price',0)>0]
+            if not _valid: continue
+            _cyc, _ = _resolve_all_cycles(_valid)
+            if _cyc['hold_qty'] <= 0: continue
+            _b = _betas.get(_tk)
+            if _b is not None:
+                _hold_betas.append((_tk, _b))
+
+        if _hold_betas:
+            # 보유수량 가중 평균 베타
+            _inv_map = {_tk: _cyc_val['buy_cost']
+                        for _tk in TARGET_TICKERS
+                        for _cyc_val, _ in [_resolve_all_cycles(
+                            [r for r in st.session_state.trade_history.get(_tk,[])
+                             if r.get('qty',0)>0 and r.get('price',0)>0]
+                        )]
+                        if _cyc_val['hold_qty'] > 0}
+            _total_cost = sum(_inv_map.get(_tk, 1) for _tk, _ in _hold_betas)
+            _wavg_beta  = (sum(_b * _inv_map.get(_tk, 1) for _tk, _b in _hold_betas)
+                           / _total_cost if _total_cost else 0)
+            # 고베타 집중 경고 임계값
+            _WARN_BETA = 4.0
+            _HIGH_BETA = 6.0
+            if _wavg_beta >= _HIGH_BETA:
+                _risk_bg, _risk_bc, _risk_lbl = '#fef2f2','#b91c1c','🔴 매우 고위험'
+            elif _wavg_beta >= _WARN_BETA:
+                _risk_bg, _risk_bc, _risk_lbl = '#fffbeb','#ca8a04','🟡 고위험'
+            else:
+                _risk_bg, _risk_bc, _risk_lbl = '#f0fdf4','#16a34a','🟢 정상'
+            # 종목별 베타 목록
+            _beta_items = ''.join(
+                f"<span style='margin-right:6px;font-size:0.6rem;'>"
+                f"<span style='color:#6b7280;'>{display_name(_tk)}</span>"
+                f"<span style='color:#374151;font-weight:700;'> β{_b:.1f}</span></span>"
+                for _tk, _b in sorted(_hold_betas, key=lambda x: -x[1])
+            )
+            _beta_html = (
+                f"<div style='border-top:1px solid #e5e7eb;margin:6px 0 5px 0;"
+                f"padding:6px 0 2px 0;'>"
+                f"<div style='display:flex;justify-content:space-between;"
+                f"align-items:center;margin-bottom:4px;'>"
+                f"<span style='font-size:0.62rem;color:#9ca3af;'>⚡ 포트폴리오 베타</span>"
+                f"<span style='font-size:0.72rem;font-weight:800;color:{_risk_bc};"
+                f"background:{_risk_bg};padding:1px 6px;border-radius:4px;'>"
+                f"{_risk_lbl}&nbsp;β{_wavg_beta:.1f}</span></div>"
+                f"<div style='flex-wrap:wrap;'>{_beta_items}</div>"
+                f"</div>"
+            )
+        else:
+            _beta_html = ""
 
         # ── 실현손익 목록 섹션 ──
         _realized_rows = []
@@ -571,22 +630,39 @@ def render_sidebar(selected_ticker: str) -> dict:
                 f"&nbsp;<span style='color:#9ca3af;font-weight:400;'>"
                 f"({int(round(_total_inv_krw/10000)):,}만원)</span></span></div>"
             )
-            for _tk, _inv_krw, _ret in sorted(_alloc_rows, key=lambda x: -x[1]):
-                _pct = _inv_krw / SEED_MONEY_KRW * 100
-                _w   = max(_pct, 2)
-                _tc  = ticker_color(_tk)
+            for _tk, _inv_krw, _ret, _eval_krw in sorted(_alloc_rows, key=lambda x: -x[1]):
+                _tc      = ticker_color(_tk)
+                # 원금 비율과 평가비율 (시드 기준)
+                _cost_pct = _inv_krw  / SEED_MONEY_KRW * 100
+                _eval_pct = _eval_krw / SEED_MONEY_KRW * 100
+                _cost_w   = max(min(_cost_pct, 100), 1)
+                # 손익 부분 너비 (평가-원금, 양수면 수익 연장/음수면 원금 단축)
+                _pnl_pct  = _eval_pct - _cost_pct
+                _pnl_w    = abs(_pnl_pct)
+                _pnl_c    = '#b91c1c' if _pnl_pct >= 0 else '#1d4ed8'
+                # 손실이면 원금 바를 줄여서 표현
+                _bar_cost_w = max(min(_eval_pct if _pnl_pct < 0 else _cost_pct, 100), 1)
                 if _ret is not None:
-                    _rsign = '+' if _ret >= 0 else ''
-                    _rc    = '#b91c1c' if _ret >= 0 else '#1d4ed8'
-                    _ret_str = f"<span style='color:{_rc};font-weight:700;'>{_rsign}{int(round(_ret))}%</span>"
+                    _rsign   = '+' if _ret >= 0 else ''
+                    _ret_str = f"<span style='color:{_pnl_c};font-weight:700;'>{_rsign}{int(round(_ret))}%</span>"
                 else:
                     _ret_str = "<span style='color:#9ca3af;'>-</span>"
+                # 스택 바: [원금 ████] [손익 ██] 형태
+                _bar_html = (
+                    f"<div style='flex:1;background:#e5e7eb;border-radius:3px;height:7px;position:relative;'>"
+                    f"<div style='width:{_bar_cost_w:.1f}%;background:{_tc};border-radius:3px;height:7px;'></div>"
+                )
+                if _pnl_pct > 0:
+                    _bar_html += (
+                        f"<div style='position:absolute;left:{_bar_cost_w:.1f}%;top:0;"
+                        f"width:{_pnl_w:.1f}%;background:{_pnl_c};border-radius:0 3px 3px 0;height:7px;'></div>"
+                    )
+                _bar_html += "</div>"
                 _alloc_html += (
                     f"<div style='display:flex;align-items:center;gap:5px;margin-bottom:3px;'>"
                     f"<div style='font-size:0.67rem;color:#374151;width:40px;flex-shrink:0;'>{display_name(_tk)}</div>"
-                    f"<div style='flex:1;background:#e5e7eb;border-radius:3px;height:7px;'>"
-                    f"<div style='width:{_w:.1f}%;background:{_tc};border-radius:3px;height:7px;'></div></div>"
-                    f"<div style='font-size:0.63rem;color:#6b7280;width:28px;text-align:right;flex-shrink:0;'>{_pct:.1f}%</div>"
+                    f"{_bar_html}"
+                    f"<div style='font-size:0.63rem;color:#6b7280;width:28px;text-align:right;flex-shrink:0;'>{_cost_pct:.1f}%</div>"
                     f"<div style='font-size:0.63rem;width:32px;text-align:right;flex-shrink:0;'>{_ret_str}</div>"
                     f"</div>"
                 )
@@ -704,7 +780,7 @@ def render_sidebar(selected_ticker: str) -> dict:
             f"<div style='padding:10px 12px;background:#ffffff;"
             f"border:1px solid #e2e8f0;border-radius:10px;margin-bottom:10px;"
             f"box-shadow:0 1px 3px rgba(0,0,0,0.06);'>"
-            f"{_seed_html}{_real_html}{_alloc_html}{_cal_html}"
+            f"{_seed_html}{_beta_html}{_real_html}{_alloc_html}{_cal_html}"
             f"</div>",
             unsafe_allow_html=True)
 
@@ -1541,11 +1617,12 @@ def main():
                                if col in df_close.columns and len(df_close) > 1 else 0.0)
         result = all_analyses.get(ticker)
         if result and result[0] is not None:
-            df_t, _, _ = result
+            df_t, _beta_t, _ = result
             cz  = float(df_t['Z_Score'].iloc[-1])     if pd.notna(df_t['Z_Score'].iloc[-1])     else 0.0
             mhz = float(df_t['MACD_Hist_Z'].iloc[-1]) if pd.notna(df_t['MACD_Hist_Z'].iloc[-1]) else 0.0
             rsi = float(df_t['RSI'].iloc[-1])          if pd.notna(df_t['RSI'].iloc[-1])          else 50.0
             st.session_state.ticker_signals[ticker] = get_signal_combined(cz, mhz, rsi)
+            st.session_state.ticker_betas[ticker]   = round(_beta_t, 2)
         else:
             st.session_state.ticker_signals.setdefault(ticker, 'H')
 
