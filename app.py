@@ -2350,63 +2350,31 @@ def build_css(selected_option: str, holding_tickers: set) -> str:
     .block-container {{
         padding-top:3.5rem!important; padding-bottom:0.5rem!important; max-width:100%!important;
     }}
-    /* 종목 버튼 영역 (#ticker-buttons-marker 마커의 다음 stHorizontalBlock만) */
-    div:has(> #ticker-buttons-marker) + div[data-testid="stHorizontalBlock"],
-    div[data-testid="stVerticalBlock"]:has(> div > #ticker-buttons-marker)
-        + div[data-testid="stHorizontalBlock"] {{
+    section[data-testid="stMain"] div[data-testid="stHorizontalBlock"] {{
         flex-wrap:nowrap!important; gap:5px!important; align-items:flex-start!important;
     }}
-    div:has(> #ticker-buttons-marker) + div[data-testid="stHorizontalBlock"]
-        > div[data-testid="stColumn"]:first-child,
-    div[data-testid="stVerticalBlock"]:has(> div > #ticker-buttons-marker)
-        + div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"]:first-child {{
+    section[data-testid="stMain"] div[data-testid="stHorizontalBlock"]
+        > div[data-testid="stColumn"]:first-child {{
         flex:0 0 80px!important; min-width:80px!important;
         max-width:80px!important; padding:0!important;
     }}
-    div:has(> #ticker-buttons-marker) + div[data-testid="stHorizontalBlock"]
-        > div[data-testid="stColumn"]:last-child,
-    div[data-testid="stVerticalBlock"]:has(> div > #ticker-buttons-marker)
-        + div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"]:last-child {{
+    section[data-testid="stMain"] div[data-testid="stHorizontalBlock"]
+        > div[data-testid="stColumn"]:last-child {{
         flex:1 1 0!important; min-width:0!important; overflow:visible!important;
         padding-left:2px!important; padding-right:2px!important;
     }}
-    /* 종목 버튼 (첫 컬럼 안의 vertical block)만 빈 여백 제거 */
-    div:has(> #ticker-buttons-marker) + div[data-testid="stHorizontalBlock"]
-        > div[data-testid="stColumn"]:first-child div[data-testid="stVerticalBlock"] > div,
-    div[data-testid="stVerticalBlock"]:has(> div > #ticker-buttons-marker)
-        + div[data-testid="stHorizontalBlock"]
-        > div[data-testid="stColumn"]:first-child div[data-testid="stVerticalBlock"] > div
-        {{ margin-bottom:0px!important; padding:0!important; }}
-    div:has(> #ticker-buttons-marker) + div[data-testid="stHorizontalBlock"]
-        > div[data-testid="stColumn"]:first-child div[data-testid="stVerticalBlock"],
-    div[data-testid="stVerticalBlock"]:has(> div > #ticker-buttons-marker)
-        + div[data-testid="stHorizontalBlock"]
-        > div[data-testid="stColumn"]:first-child div[data-testid="stVerticalBlock"]
-        {{ gap:1px!important; }}
-    div:has(> #ticker-buttons-marker) + div[data-testid="stHorizontalBlock"]
-        > div[data-testid="stColumn"]:first-child button p,
-    div[data-testid="stVerticalBlock"]:has(> div > #ticker-buttons-marker)
-        + div[data-testid="stHorizontalBlock"]
-        > div[data-testid="stColumn"]:first-child button p {{
+    section[data-testid="stMain"] div[data-testid="stColumn"]:first-child
+        div[data-testid="stVerticalBlock"] > div {{ margin-bottom:0px!important; padding:0!important; }}
+    section[data-testid="stMain"] div[data-testid="stColumn"]:first-child
+        div[data-testid="stVerticalBlock"] {{ gap:1px!important; }}
+    section[data-testid="stMain"] div[data-testid="stColumn"]:first-child button p {{
         margin:0!important; padding:0!important; font-size:0.73rem!important;
         line-height:1!important; font-weight:500!important; white-space:pre!important;
     }}
-    div:has(> #ticker-buttons-marker) + div[data-testid="stHorizontalBlock"]
-        > div[data-testid="stColumn"]:first-child button span,
-    div:has(> #ticker-buttons-marker) + div[data-testid="stHorizontalBlock"]
-        > div[data-testid="stColumn"]:first-child button strong,
-    div[data-testid="stVerticalBlock"]:has(> div > #ticker-buttons-marker)
-        + div[data-testid="stHorizontalBlock"]
-        > div[data-testid="stColumn"]:first-child button span,
-    div[data-testid="stVerticalBlock"]:has(> div > #ticker-buttons-marker)
-        + div[data-testid="stHorizontalBlock"]
-        > div[data-testid="stColumn"]:first-child button strong
+    section[data-testid="stMain"] div[data-testid="stColumn"]:first-child button span,
+    section[data-testid="stMain"] div[data-testid="stColumn"]:first-child button strong
         {{ color:inherit!important; }}
-    div:has(> #ticker-buttons-marker) + div[data-testid="stHorizontalBlock"]
-        > div[data-testid="stColumn"]:first-child button strong,
-    div[data-testid="stVerticalBlock"]:has(> div > #ticker-buttons-marker)
-        + div[data-testid="stHorizontalBlock"]
-        > div[data-testid="stColumn"]:first-child button strong
+    section[data-testid="stMain"] div[data-testid="stColumn"]:first-child button strong
         {{ font-weight:700!important; }}
     {''.join(btn_parts)}
     </style>"""
@@ -2557,33 +2525,9 @@ def main() -> None:
         unsafe_allow_html=True,
     )
 
-    # ── #13 보유 종목만 필터 토글 ──
-    if 'show_holding_only' not in st.session_state:
-        st.session_state['show_holding_only'] = False
-
-    # 종목 버튼 영역에 식별 마커 (CSS scope용)
-    st.markdown(
-        "<div id='ticker-buttons-marker' style='display:none;'></div>",
-        unsafe_allow_html=True,
-    )
     btn_col, chart_col = st.columns([1, 6])
     with btn_col:
-        # 보유 토글 (모바일 최적화)
-        toggle_label = (
-            f"⭐ 보유만 ({len(holding_tickers)})"
-            if not st.session_state['show_holding_only']
-            else f"전체 ({len(TARGET_TICKERS)})"
-        )
-        if st.button(toggle_label, key="hold_filter_btn", use_container_width=True):
-            st.session_state['show_holding_only'] = not st.session_state['show_holding_only']
-            st.rerun()
-
-        # 종목 버튼 (필터 적용)
-        visible_tickers = (
-            [t for t in TARGET_TICKERS if t in holding_tickers]
-            if st.session_state['show_holding_only'] else TARGET_TICKERS
-        )
-        for ticker in visible_tickers:
+        for ticker in TARGET_TICKERS:
             pct = pct_changes.get(ticker, 0)
             star = "★ " if ticker in holding_tickers else ""
             if st.button(
