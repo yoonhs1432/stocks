@@ -466,7 +466,7 @@ def render_sidebar(selected_ticker: str) -> dict:
         else:
             _seed_html = "<div style='font-size:0.7rem;color:#9ca3af;margin-bottom:4px;'>데이터 로딩 중...</div>"
 
-        # ── 실현손익 + 배분현황 파이 차트 ──
+        # ── 실현손익 목록 섹션 ──
         _realized_rows = []
         for _tk in TARGET_TICKERS:
             _recs  = st.session_state.trade_history.get(_tk, [])
@@ -477,87 +477,74 @@ def render_sidebar(selected_ticker: str) -> dict:
             if _total_real == 0.0: continue
             _realized_rows.append((_tk, _total_real))
 
-        _net_real_sum = sum(v for _, v in _realized_rows) if _realized_rows else 0.0
-        _real_html = ""
-        _alloc_html = ""
-
-        # 파이차트: 실현손익 & 배분현황 나란히
-        _show_real  = bool(_realized_rows)
-        _show_alloc = bool(_alloc_rows)
-
-        if _show_real or _show_alloc:
-            import plotly.graph_objects as _go
-            from plotly.subplots import make_subplots as _make_subplots
-
-            _n_charts = int(_show_real) + int(_show_alloc)
-            _pie_fig  = _make_subplots(
-                rows=1, cols=_n_charts,
-                specs=[[{'type':'pie'}]*_n_charts],
-                subplot_titles=(
-                    (['💵 실현손익'] if _show_real else []) +
-                    (['📊 배분 현황'] if _show_alloc else [])
+        if _realized_rows:
+            _total_real_sum = sum(abs(v) for _, v in _realized_rows)
+            _net_real_sum   = sum(v for _, v in _realized_rows)
+            _nr_sign = '+' if _net_real_sum >= 0 else ''
+            _nr_col  = '#b91c1c' if _net_real_sum >= 0 else '#1d4ed8'
+            _real_html = (
+                f"<div style='border-top:1px solid #e5e7eb;margin:6px 0 5px 0;padding-top:6px;'>"
+                f"<div style='display:flex;justify-content:space-between;"
+                f"font-size:0.62rem;color:#9ca3af;margin-bottom:4px;'>"
+                f"<span>💵 실현손익</span>"
+                f"<span style='color:{_nr_col};font-weight:700;'>"
+                f"{_nr_sign}${int(round(_net_real_sum)):,}"
+                f"&nbsp;<span style='font-weight:400;color:#9ca3af;'>"
+                f"({_nr_sign}{int(round(_net_real_sum*_usd_krw/10000)):,}만원)</span></span></div>"
+            )
+            for _tk, _real in sorted(_realized_rows, key=lambda x: -abs(x[1])):
+                _ratio = abs(_real) / _total_real_sum * 100 if _total_real_sum else 0
+                _w     = max(_ratio, 2)
+                _rsign = '+' if _real >= 0 else ''
+                _rc    = '#b91c1c' if _real >= 0 else '#1d4ed8'
+                _real_html += (
+                    f"<div style='display:flex;align-items:center;gap:5px;margin-bottom:3px;'>"
+                    f"<div style='font-size:0.67rem;color:#374151;width:40px;flex-shrink:0;'>{display_name(_tk)}</div>"
+                    f"<div style='flex:1;background:#e5e7eb;border-radius:3px;height:7px;'>"
+                    f"<div style='width:{_w:.1f}%;background:{_rc};border-radius:3px;height:7px;'></div></div>"
+                    f"<div style='font-size:0.63rem;color:#6b7280;width:28px;text-align:right;flex-shrink:0;'>{_ratio:.0f}%</div>"
+                    f"<div style='font-size:0.63rem;font-weight:700;color:{_rc};"
+                    f"width:40px;text-align:right;flex-shrink:0;'>{_rsign}${int(round(_real)):,}</div>"
+                    f"</div>"
                 )
+            _real_html += "</div>"
+        else:
+            _real_html = ""
+
+        # ── 배분 현황 섹션 ──
+        if _alloc_rows:
+            _used_pct = min(_total_inv_krw / SEED_MONEY_KRW * 100, 100)
+            _bar_c    = '#b91c1c' if _used_pct >= 90 else '#f59e0b' if _used_pct >= 70 else '#16a34a'
+            _alloc_html = (
+                f"<div style='border-top:1px solid #e5e7eb;margin:6px 0 5px 0;padding-top:6px;'>"
+                f"<div style='display:flex;justify-content:space-between;"
+                f"font-size:0.62rem;color:#9ca3af;margin-bottom:4px;'>"
+                f"<span>📊 배분 현황</span>"
+                f"<span style='color:{_bar_c};font-weight:700;'>{_used_pct:.1f}% 사용"
+                f"&nbsp;<span style='color:#9ca3af;font-weight:400;'>"
+                f"({int(round(_total_inv_krw/10000)):,}만원)</span></span></div>"
             )
-
-            # 공통 파이 스타일
-            _pie_kwargs = dict(
-                textposition='inside',
-                textinfo='label+percent',
-                insidetextfont=dict(size=9),
-                hole=0.38,
-                showlegend=False,
-            )
-
-            _col_idx = 1
-            if _show_real:
-                _r_labels = [display_name(t) for t, _ in _realized_rows]
-                _r_vals   = [abs(v) for _, v in _realized_rows]
-                _r_colors = ['#b91c1c' if v >= 0 else '#1d4ed8' for _, v in _realized_rows]
-                _nr_sign  = '+' if _net_real_sum >= 0 else ''
-                _nr_col   = '#b91c1c' if _net_real_sum >= 0 else '#1d4ed8'
-                _pie_fig.add_trace(_go.Pie(
-                    labels=_r_labels, values=_r_vals,
-                    marker=dict(colors=_r_colors, line=dict(color='white', width=1)),
-                    title=dict(
-                        text=f"<b style='color:{_nr_col}'>{_nr_sign}${int(round(_net_real_sum)):,}</b>",
-                        font=dict(size=10)),
-                    **_pie_kwargs), row=1, col=_col_idx)
-                _col_idx += 1
-
-            if _show_alloc:
-                _a_labels = [display_name(t) for t, _, _ in _alloc_rows]
-                _a_vals   = [v for _, v, _ in _alloc_rows]
-                # 색상 팔레트 (종목별)
-                _palette  = ['#f59e0b','#3b82f6','#10b981','#8b5cf6','#f97316',
-                             '#ec4899','#14b8a6','#6366f1','#84cc16','#ef4444']
-                _a_colors = [_palette[i % len(_palette)] for i in range(len(_alloc_rows))]
-                _used_pct = min(_total_inv_krw / SEED_MONEY_KRW * 100, 100)
-                _bar_c    = '#b91c1c' if _used_pct >= 90 else '#f59e0b' if _used_pct >= 70 else '#16a34a'
-                # 수익률 커스텀 텍스트
-                _a_custom = []
-                for _tk, _, _ret in _alloc_rows:
-                    if _ret is not None:
-                        _rs = '+' if _ret >= 0 else ''
-                        _a_custom.append(f"{display_name(_tk)}<br>{_rs}{int(round(_ret))}%")
-                    else:
-                        _a_custom.append(display_name(_tk))
-                _pie_fig.add_trace(_go.Pie(
-                    labels=_a_labels, values=_a_vals,
-                    customdata=_a_custom,
-                    texttemplate='%{customdata}',
-                    marker=dict(colors=_a_colors, line=dict(color='white', width=1)),
-                    title=dict(
-                        text=f"<b style='color:{_bar_c}'>{_used_pct:.0f}%</b>",
-                        font=dict(size=10)),
-                    **{k:v for k,v in _pie_kwargs.items() if k != 'textinfo'}),
-                    row=1, col=_col_idx)
-
-            _pie_fig.update_layout(
-                height=170, margin=dict(l=0, r=0, t=22, b=0),
-                paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
-                font=dict(size=9),
-            )
-            _pie_fig.update_annotations(font_size=9, yshift=-4)
+            for _tk, _inv_krw, _ret in sorted(_alloc_rows, key=lambda x: -x[1]):
+                _pct = _inv_krw / SEED_MONEY_KRW * 100
+                _w   = max(_pct, 2)
+                if _ret is not None:
+                    _rsign = '+' if _ret >= 0 else ''
+                    _rc    = '#b91c1c' if _ret >= 0 else '#1d4ed8'
+                    _ret_str = f"<span style='color:{_rc};font-weight:700;'>{_rsign}{int(round(_ret))}%</span>"
+                else:
+                    _ret_str = "<span style='color:#9ca3af;'>-</span>"
+                _alloc_html += (
+                    f"<div style='display:flex;align-items:center;gap:5px;margin-bottom:3px;'>"
+                    f"<div style='font-size:0.67rem;color:#374151;width:40px;flex-shrink:0;'>{display_name(_tk)}</div>"
+                    f"<div style='flex:1;background:#e5e7eb;border-radius:3px;height:7px;'>"
+                    f"<div style='width:{_w:.1f}%;background:{_bar_c};border-radius:3px;height:7px;'></div></div>"
+                    f"<div style='font-size:0.63rem;color:#6b7280;width:28px;text-align:right;flex-shrink:0;'>{_pct:.1f}%</div>"
+                    f"<div style='font-size:0.63rem;width:32px;text-align:right;flex-shrink:0;'>{_ret_str}</div>"
+                    f"</div>"
+                )
+            _alloc_html += "</div>"
+        else:
+            _alloc_html = ""
 
         # ── 일별 손익 달력 섹션 ──
         import calendar as _cal_mod
@@ -667,16 +654,11 @@ def render_sidebar(selected_ticker: str) -> dict:
         # ── 통합 카드 출력 ──
         st.markdown(
             f"<div style='padding:10px 12px;background:#ffffff;"
-            f"border:1px solid #e2e8f0;border-radius:10px;margin-bottom:6px;"
+            f"border:1px solid #e2e8f0;border-radius:10px;margin-bottom:10px;"
             f"box-shadow:0 1px 3px rgba(0,0,0,0.06);'>"
-            f"{_seed_html}{_cal_html}"
+            f"{_seed_html}{_real_html}{_alloc_html}{_cal_html}"
             f"</div>",
             unsafe_allow_html=True)
-
-        # ── 파이차트 (카드 바깥, 달력 네비 앞) ──
-        if _show_real or _show_alloc:
-            st.plotly_chart(_pie_fig, use_container_width=True,
-                            config={'displayModeBar': False, 'staticPlot': True})
 
         # 달력 월 네비게이션 버튼
         _nc1, _nc2, _nc3 = st.columns([1,3,1])
@@ -1364,17 +1346,7 @@ def render_memo_section(selected_ticker: str) -> None:
 # ====================================================
 # 12. CSS
 # ====================================================
-def build_css(selected_option: str) -> str:
-    # 보유 중인 종목 목록
-    holding_tickers = set()
-    for _tk in TARGET_TICKERS:
-        _recs  = st.session_state.trade_history.get(_tk, [])
-        _valid = [r for r in _recs if r.get('qty',0)>0 and r.get('price',0)>0]
-        if not _valid: continue
-        _cyc, _ = _resolve_all_cycles(_valid)
-        if _cyc['hold_qty'] > 0:
-            holding_tickers.add(_tk)
-
+def build_css(selected_option: str, holding_tickers: set) -> str:
     btn_parts = []
     for ticker in TARGET_TICKERS:
         sig      = st.session_state.ticker_signals.get(ticker, 'H')
@@ -1384,7 +1356,6 @@ def build_css(selected_option: str) -> str:
         sel_extra = (f"box-shadow:0 0 0 2px #fff,0 0 0 4px {bg}!important;"
                      "transform:scale(1.03);") if selected_option == ticker else ""
         # 보유 중: 흰색 좌측 테두리 3px
-        hold_extra = "border-left:3px solid #ffffff!important;" if ticker in holding_tickers else ""
         btn_parts.append(f"""
         div.st-key-{k} button {{
             background:{bg}!important; border-color:{bg}!important;
@@ -1392,7 +1363,7 @@ def build_css(selected_option: str) -> str:
             height:1.7rem!important; font-size:0.62rem!important;
             padding:0 2px!important; line-height:1!important;
             min-height:0!important; border-radius:3px!important;
-            width:100%!important; text-align:left!important; {sel_extra} {hold_extra}
+            width:100%!important; text-align:left!important; {sel_extra}
         }}
         div.st-key-{k} button p, div.st-key-{k} button strong,
         div.st-key-{k} button span {{ color:{fg}!important; }}
@@ -1547,7 +1518,17 @@ def main():
             rsi = float(df_daily['RSI'].iloc[-1])          if pd.notna(df_daily['RSI'].iloc[-1])          else 50.0
             st.session_state.ticker_signals[selected_ticker] = get_signal_combined(cz, mhz, rsi)
 
-    st.markdown(build_css(selected_option), unsafe_allow_html=True)
+    # 보유 중인 종목 목록 계산
+    holding_tickers = set()
+    for _htk in TARGET_TICKERS:
+        _hrecs  = st.session_state.trade_history.get(_htk, [])
+        _hvalid = [r for r in _hrecs if r.get('qty',0)>0 and r.get('price',0)>0]
+        if not _hvalid: continue
+        _hcyc, _ = _resolve_all_cycles(_hvalid)
+        if _hcyc['hold_qty'] > 0:
+            holding_tickers.add(_htk)
+
+    st.markdown(build_css(selected_option, holding_tickers), unsafe_allow_html=True)
     KST      = datetime.timezone(datetime.timedelta(hours=9))
     queried  = datetime.datetime.now(KST).strftime('%Y-%m-%d %H:%M')
     data_lbl = (f"🟢 장중&nbsp;·&nbsp;조회: {queried}" if mkt['is_open']
@@ -1563,7 +1544,8 @@ def main():
     with btn_col:
         for ticker in TARGET_TICKERS:
             pct = pct_changes.get(ticker, 0)
-            if st.button(f"**{display_name(ticker)}**   {pct:+.1f}%",
+            _star = "★ " if ticker in holding_tickers else ""
+            if st.button(f"{_star}**{display_name(ticker)}**   {pct:+.1f}%",
                          key=f"ticker_btn_{safe_key(ticker)}", use_container_width=True):
                 st.session_state.selected_option     = ticker
                 st.session_state.custom_ticker_input = ''
