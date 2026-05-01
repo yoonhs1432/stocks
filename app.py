@@ -587,13 +587,10 @@ def process_asset_data(
     회귀: numpy.polyfit (sklearn 의존 제거)
     Z-Score: expanding std (look-ahead 없음)
     std_resid: 전체 std (밴드용, 시각적 일관성)
-
-    반환: (df, beta, std_resid, alpha_ann)
-      alpha_ann: SPY 베타 조정 후 연환산 초과수익률 (%, 'Jensen alpha 단순화 버전')
     """
     df = pd.merge(df_x, df_y, left_index=True, right_index=True).dropna().sort_index()
     if df.empty:
-        return (None,) * 4
+        return (None,) * 3
 
     base_x = df[f'{x_name}_Close'].iloc[0]
     base_y = df[f'{y_name}_Close'].iloc[0]
@@ -605,20 +602,6 @@ def process_asset_data(
     # numpy.polyfit으로 OLS — sklearn 제거
     beta, intercept = np.polyfit(log_x, log_y, 1)
     df['Predicted'] = np.exp(intercept) * df[f'{x_name}_Norm'] ** beta
-
-    # ── 알파(연환산): 일별 로그수익률의 Jensen 알파 단순화 ──
-    # r_y = α + β * r_x  →  α = mean(r_y) - β * mean(r_x), 영업일 기준 252일 환산
-    rx = pd.Series(log_x, index=df.index).diff().dropna()
-    ry = pd.Series(log_y, index=df.index).diff().dropna()
-    common = rx.index.intersection(ry.index)
-    if len(common) > 5:
-        alpha_daily = ry.loc[common].mean() - beta * rx.loc[common].mean()
-        # 주봉이면 52, 일봉이면 252로 환산 (간격 추정)
-        avg_gap_days = (df.index[-1] - df.index[0]).days / max(len(df) - 1, 1)
-        periods_per_year = 252 if avg_gap_days < 3 else 52
-        alpha_ann = float((np.exp(alpha_daily * periods_per_year) - 1) * 100)
-    else:
-        alpha_ann = 0.0
 
     close = df[f'{y_name}_Close']
     delta = close.diff()
@@ -649,7 +632,7 @@ def process_asset_data(
     )
     df['Price_Fill_Color'] = df['Combined_Score'].apply(get_price_fill_color_combined)
 
-    return df, beta, std_resid, alpha_ann
+    return df, beta, std_resid
 
 
 @st.cache_data(show_spinner=False, ttl=CFG.DATA_TTL_SEC)
@@ -736,54 +719,6 @@ def compute_cycle_stats(records: list) -> Optional[dict]:
         'worst_date': worst['end'],
         'cycles': cycles,
     }
-
-
-# ====================================================
-# 9-B. 신호 백테스트 (#2)
-# ====================================================
-def backtest_signals(df: pd.DataFrame, ticker: str, horizons: list = [5, 10, 20]) -> dict:
-    """
-    신호별 N 캔들 후의 평균 수익률 / 승률을 계산.
-    신호: Combined_Score 기반 'FB2','FB','B','S','FS','FS2'
-    반환: {signal: {N: {'mean_ret', 'win_rate', 'count'}}}
-    """
-    if df is None or df.empty or 'Combined_Score' not in df.columns:
-        return {}
-
-    close_col = f'{ticker}_Close'
-    if close_col not in df.columns:
-        return {}
-
-    close = df[close_col]
-    score = df['Combined_Score']
-    # 점수→레이블 변환
-    sig = score.apply(score_to_signal)
-
-    result: dict = {}
-    target_signals = ['FB2', 'FB', 'B', 'S', 'FS', 'FS2']
-    for s in target_signals:
-        idx_list = sig[sig == s].index
-        if len(idx_list) == 0:
-            continue
-        result[s] = {}
-        for n in horizons:
-            rets = []
-            for ts in idx_list:
-                pos = df.index.get_loc(ts)
-                if pos + n >= len(df):
-                    continue
-                p0 = close.iloc[pos]
-                pn = close.iloc[pos + n]
-                if p0 > 0:
-                    rets.append((pn / p0 - 1) * 100)
-            if rets:
-                arr = np.array(rets)
-                result[s][n] = {
-                    'mean_ret': float(arr.mean()),
-                    'win_rate': float((arr > 0).mean() * 100),
-                    'count': len(rets),
-                }
-    return result
 
 
 # ====================================================
@@ -1064,95 +999,6 @@ def _build_seed_html(
     )
 
 
-def _build_beta_html(
-    portfolio_state: dict[str, TickerState],
-    betas: dict[str, float],
-    df_close_last: dict,
-    alphas: Optional[dict[str, float]] = None,
-) -> str:
-    hold_betas = [
-        (tk, betas[tk]) for tk, ts in portfolio_state.items()
-        if ts['cycle']['hold_qty'] > 0 and tk in betas and ts['cycle']['hold_qty']
-    ]
-    if not hold_betas:
-        return ""
-
-    eval_map = {}
-    for tk, _ in hold_betas:
-        cyc = portfolio_state[tk]['cycle']
-        cur = df_close_last.get(f'{tk}_Close')
-        eval_map[tk] = cur * cyc['hold_qty'] if cur else cyc['buy_cost']
-
-    total_eval = sum(eval_map.values())
-    wavg_beta = (
-        sum(b * eval_map[tk] for tk, b in hold_betas) / total_eval if total_eval else 0
-    )
-    alphas = alphas or {}
-    wavg_alpha = (
-        sum(alphas.get(tk, 0) * eval_map[tk] for tk, _ in hold_betas) / total_eval
-        if total_eval else 0
-    )
-
-    if wavg_beta >= CFG.BETA_HIGH:
-        risk_bg, risk_bc, risk_lbl = '#fef2f2', '#b91c1c', '🔴'
-    elif wavg_beta >= CFG.BETA_WARN:
-        risk_bg, risk_bc, risk_lbl = '#fffbeb', '#ca8a04', '🟡'
-    else:
-        risk_bg, risk_bc, risk_lbl = '#f0fdf4', '#16a34a', '🟢'
-
-    # 헤더: ⚡ 베타 / 가중β / 가중α
-    alpha_color = pnl_color(wavg_alpha)
-    header = (
-        f"<div style='display:flex;justify-content:space-between;"
-        f"align-items:center;margin-bottom:5px;'>"
-        f"<span style='font-size:0.62rem;color:{COLOR_LABEL};'>⚡ 포트폴리오 베타/알파</span>"
-        f"<span style='display:flex;gap:6px;align-items:center;'>"
-        f"<span style='font-size:0.7rem;font-weight:800;color:{risk_bc};"
-        f"background:{risk_bg};padding:1px 6px;border-radius:4px;'>"
-        f"{risk_lbl} β{wavg_beta:.1f}</span>"
-        + (
-            f"<span style='font-size:0.7rem;font-weight:700;color:{alpha_color};"
-            f"background:#f9fafb;padding:1px 6px;border-radius:4px;'>"
-            f"α{signed_str(wavg_alpha, '{:.0f}')}%</span>"
-            if alphas else ""
-        )
-        + "</span></div>"
-    )
-
-    # 종목별 행: [종목명] [β bar] [β값] [α값]
-    max_beta = max((b for _, b in hold_betas), default=1) or 1
-    rows = []
-    for tk, b in sorted(hold_betas, key=lambda x: -x[1]):
-        bar_w = b / max_beta * 100
-        a = alphas.get(tk)
-        a_html = (
-            f"<div style='font-size:0.63rem;font-weight:700;color:{pnl_color(a)};"
-            f"width:42px;text-align:right;flex-shrink:0;'>α{signed_str(a, '{:.0f}')}%</div>"
-            if a is not None
-            else f"<div style='font-size:0.63rem;color:#9ca3af;width:42px;"
-                 f"text-align:right;flex-shrink:0;'>-</div>"
-        )
-        rows.append(
-            f"<div style='display:flex;align-items:center;gap:5px;margin-bottom:3px;'>"
-            f"<div style='font-size:0.67rem;color:{COLOR_TEXT};width:40px;flex-shrink:0;'>"
-            f"{display_name(tk)}</div>"
-            f"<div style='flex:1;background:#e5e7eb;border-radius:3px;height:6px;'>"
-            f"<div style='width:{bar_w:.1f}%;background:#6366f1;"
-            f"border-radius:3px;height:6px;'></div></div>"
-            f"<div style='font-size:0.63rem;font-weight:700;color:{COLOR_TEXT};"
-            f"width:32px;text-align:right;flex-shrink:0;'>β{b:.1f}</div>"
-            f"{a_html}"
-            f"</div>"
-        )
-
-    return (
-        f"{html_section_divider()}"
-        f"{header}"
-        f"{''.join(rows)}"
-        f"</div>"
-    )
-
-
 def _build_realized_html(
     portfolio_state: dict[str, TickerState], usd_krw: float
 ) -> str:
@@ -1396,14 +1242,9 @@ def render_sidebar(
         portfolio_pnl = st.session_state.get('portfolio_pnl_cache')
         usd_krw = st.session_state.get('usd_krw_cache', CFG.USD_KRW_FALLBACK)
         df_close_last = st.session_state.get('df_close_last', {})
-        betas = st.session_state.get('ticker_betas', {})
 
         dd_info = st.session_state.get('dd_info_cache')
         seed_html = _build_seed_html(portfolio_pnl, usd_krw, dd_info)
-        beta_html = _build_beta_html(
-            portfolio_state, betas, df_close_last,
-            st.session_state.get('ticker_alphas', {}),
-        )
         real_html = _build_realized_html(portfolio_state, usd_krw)
         alloc_html = _build_alloc_html(portfolio_state, df_close_last, usd_krw)
 
@@ -1414,7 +1255,7 @@ def render_sidebar(
             f"<div style='padding:10px 12px;background:#ffffff;"
             f"border:1px solid #e2e8f0;border-radius:10px;margin-bottom:10px;"
             f"box-shadow:0 1px 3px rgba(0,0,0,0.06);'>"
-            f"{seed_html}{beta_html}{real_html}{alloc_html}{cal_html}"
+            f"{seed_html}{real_html}{alloc_html}{cal_html}"
             f"</div>",
             unsafe_allow_html=True,
         )
@@ -2124,55 +1965,6 @@ def render_analytics_panel(
                 unsafe_allow_html=True,
             )
 
-    # ── #2 신호 백테스트 ──
-    with st.expander("🎯 신호 백테스트", expanded=False):
-        if df_daily is None or df_daily.empty:
-            st.caption("데이터 부족")
-        else:
-            bt = backtest_signals(df_daily, selected_ticker, [5, 10, 20])
-            if not bt:
-                st.caption("신호 발생 이력 없음")
-            else:
-                rows = ["<table style='width:100%;font-size:0.72rem;border-collapse:collapse;'>"]
-                rows.append(
-                    "<tr style='color:#6b7280;border-bottom:1px solid #e5e7eb;'>"
-                    "<th style='text-align:left;padding:4px;'>신호</th>"
-                    "<th style='padding:4px;'>5</th>"
-                    "<th style='padding:4px;'>10</th>"
-                    "<th style='padding:4px;'>20</th>"
-                    "<th style='padding:4px;'>n</th></tr>"
-                )
-                for sig in ['FB2', 'FB', 'B', 'S', 'FS', 'FS2']:
-                    if sig not in bt:
-                        continue
-                    bg, _ = SIGNAL_STYLE.get(sig, ('#9ca3af', '#fff'))
-                    sig_html = (
-                        f"<span style='background:{bg};color:#fff;"
-                        f"padding:2px 6px;border-radius:3px;font-weight:700;"
-                        f"font-size:0.7rem;'>{sig}</span>"
-                    )
-                    cells = [f"<td style='padding:4px;'>{sig_html}</td>"]
-                    n_count = 0
-                    for n in [5, 10, 20]:
-                        if n in bt[sig]:
-                            m = bt[sig][n]['mean_ret']
-                            w = bt[sig][n]['win_rate']
-                            n_count = bt[sig][n]['count']
-                            color = pnl_color(m)
-                            cells.append(
-                                f"<td style='text-align:center;color:{color};padding:4px;'>"
-                                f"{signed_str(m, '{:.1f}')}%<br>"
-                                f"<span style='color:#9ca3af;font-size:0.62rem;'>"
-                                f"{w:.0f}%</span></td>"
-                            )
-                        else:
-                            cells.append("<td style='text-align:center;color:#9ca3af;padding:4px;'>-</td>")
-                    cells.append(f"<td style='text-align:center;color:#6b7280;padding:4px;'>{n_count}</td>")
-                    rows.append("<tr>" + "".join(cells) + "</tr>")
-                rows.append("</table>")
-                st.markdown("".join(rows), unsafe_allow_html=True)
-                st.caption("신호 발생 N캔들 후 평균수익 / 승률")
-
 
 # ====================================================
 # 18. 메모 섹션
@@ -2355,7 +2147,6 @@ def main() -> None:
         all_analyses = compute_all_analyses(df_close, _version=8, candle_type=candle_type)
 
     pct_changes = {}
-    ticker_alphas: dict[str, float] = {}
     for ticker in TARGET_TICKERS:
         col = f'{ticker}_Close'
         pct_changes[ticker] = (
@@ -2364,18 +2155,16 @@ def main() -> None:
         )
         result = all_analyses.get(ticker)
         if result and result[0] is not None:
-            df_t, beta_t, _, alpha_t = result
+            df_t, beta_t, _ = result
             cz = float(df_t['Z_Score'].iloc[-1]) if pd.notna(df_t['Z_Score'].iloc[-1]) else 0.0
             mhz = float(df_t['MACD_Hist_Z'].iloc[-1]) if pd.notna(df_t['MACD_Hist_Z'].iloc[-1]) else 0.0
             rsi = float(df_t['RSI'].iloc[-1]) if pd.notna(df_t['RSI'].iloc[-1]) else 50.0
             st.session_state.ticker_signals[ticker] = get_signal_combined(cz, mhz, rsi)
             st.session_state.ticker_betas[ticker] = round(beta_t, 2)
-            ticker_alphas[ticker] = round(alpha_t, 1)
         else:
             st.session_state.ticker_signals.setdefault(ticker, 'H')
-    st.session_state['ticker_alphas'] = ticker_alphas
 
-    df_daily = beta = std_resid = alpha_ann = None
+    df_daily = beta = std_resid = None
     if selected_ticker:
         if selected_ticker in TARGET_TICKERS:
             result = all_analyses.get(selected_ticker)
@@ -2390,7 +2179,7 @@ def main() -> None:
             result = None
 
         if result and result[0] is not None:
-            df_daily, beta, std_resid, alpha_ann = result
+            df_daily, beta, std_resid = result
             cz = float(df_daily['Z_Score'].iloc[-1]) if pd.notna(df_daily['Z_Score'].iloc[-1]) else 0.0
             mhz = float(df_daily['MACD_Hist_Z'].iloc[-1]) if pd.notna(df_daily['MACD_Hist_Z'].iloc[-1]) else 0.0
             rsi = float(df_daily['RSI'].iloc[-1]) if pd.notna(df_daily['RSI'].iloc[-1]) else 50.0
