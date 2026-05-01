@@ -24,6 +24,29 @@ TARGET_TICKERS = [
 TICKER_DISPLAY_NAMES = {'BTC-USD': 'BTC', 'ETH-USD': 'ETH', '005930': '삼전', '000660': '하닉'}
 SEED_MONEY_KRW = 21_000_000   # 시드머니 (원)
 
+# 종목별 색상 (범주 기준)
+# 나스닥/테크 레버리지: 빨강 계열
+# 반도체:              주황 계열
+# 섹터 레버리지:       초록 계열
+# 금융/은행:           파랑 계열
+# 원자재/에너지/금:    노랑 계열
+# 신흥국/해외:         보라 계열
+# 코인:               회색 계열
+# 국내주:             청록 계열
+TICKER_COLOR = {
+    'TQQQ': '#dc2626', 'FNGU': '#b91c1c', 'TECL': '#ef4444', 'SPYU': '#f87171',
+    'QPUX': '#c2410c',
+    'SOXL': '#f97316', 'INDL': '#fb923c',
+    'LABU': '#16a34a', 'DFEN': '#15803d', 'HIBL': '#22c55e', 'TARK': '#4ade80',
+    'EURL': '#86efac', 'EDC': '#bbf7d0',
+    'BNKU': '#2563eb', 'URTY': '#3b82f6',
+    'GDXU': '#ca8a04', 'KORU': '#7c3aed',
+    'BITU': '#6b7280', 'ETHT': '#9ca3af', 'AVXX': '#d1d5db',
+    '005930': '#0d9488',
+}
+def ticker_color(ticker: str) -> str:
+    return TICKER_COLOR.get(ticker, '#9ca3af')
+
 SIGNAL_STYLE = {
     'FB2': ('#7f1d1d', '#ffffff'), 'FB':  ('#dc2626', '#ffffff'), 'B':   ('#fca5a5', '#1a1a1a'),
     'H':   ('#9ca3af', '#ffffff'), 'S':   ('#93c5fd', '#1a1a1a'), 'FS':  ('#2563eb', '#ffffff'),
@@ -496,14 +519,15 @@ def render_sidebar(selected_ticker: str) -> dict:
                 _ratio = abs(_real) / _total_real_sum * 100 if _total_real_sum else 0
                 _w     = max(_ratio, 2)
                 _rsign = '+' if _real >= 0 else ''
-                _rc    = '#b91c1c' if _real >= 0 else '#1d4ed8'
+                _tc    = ticker_color(_tk)
+                _vc    = '#b91c1c' if _real >= 0 else '#1d4ed8'
                 _real_html += (
                     f"<div style='display:flex;align-items:center;gap:5px;margin-bottom:3px;'>"
                     f"<div style='font-size:0.67rem;color:#374151;width:40px;flex-shrink:0;'>{display_name(_tk)}</div>"
                     f"<div style='flex:1;background:#e5e7eb;border-radius:3px;height:7px;'>"
-                    f"<div style='width:{_w:.1f}%;background:{_rc};border-radius:3px;height:7px;'></div></div>"
+                    f"<div style='width:{_w:.1f}%;background:{_tc};border-radius:3px;height:7px;'></div></div>"
                     f"<div style='font-size:0.63rem;color:#6b7280;width:28px;text-align:right;flex-shrink:0;'>{_ratio:.0f}%</div>"
-                    f"<div style='font-size:0.63rem;font-weight:700;color:{_rc};"
+                    f"<div style='font-size:0.63rem;font-weight:700;color:{_vc};"
                     f"width:40px;text-align:right;flex-shrink:0;'>{_rsign}${int(round(_real)):,}</div>"
                     f"</div>"
                 )
@@ -527,6 +551,7 @@ def render_sidebar(selected_ticker: str) -> dict:
             for _tk, _inv_krw, _ret in sorted(_alloc_rows, key=lambda x: -x[1]):
                 _pct = _inv_krw / SEED_MONEY_KRW * 100
                 _w   = max(_pct, 2)
+                _tc  = ticker_color(_tk)
                 if _ret is not None:
                     _rsign = '+' if _ret >= 0 else ''
                     _rc    = '#b91c1c' if _ret >= 0 else '#1d4ed8'
@@ -537,7 +562,7 @@ def render_sidebar(selected_ticker: str) -> dict:
                     f"<div style='display:flex;align-items:center;gap:5px;margin-bottom:3px;'>"
                     f"<div style='font-size:0.67rem;color:#374151;width:40px;flex-shrink:0;'>{display_name(_tk)}</div>"
                     f"<div style='flex:1;background:#e5e7eb;border-radius:3px;height:7px;'>"
-                    f"<div style='width:{_w:.1f}%;background:{_bar_c};border-radius:3px;height:7px;'></div></div>"
+                    f"<div style='width:{_w:.1f}%;background:{_tc};border-radius:3px;height:7px;'></div></div>"
                     f"<div style='font-size:0.63rem;color:#6b7280;width:28px;text-align:right;flex-shrink:0;'>{_pct:.1f}%</div>"
                     f"<div style='font-size:0.63rem;width:32px;text-align:right;flex-shrink:0;'>{_ret_str}</div>"
                     f"</div>"
@@ -939,29 +964,6 @@ def render_chart(df_daily: pd.DataFrame, selected_ticker: str,
     p_lo, p_hi = min(p_lo, spy_lo) * 0.97, max(p_hi, spy_hi) * 1.03
 
     add_segmented_fill(fig, df_daily, 'Plot_Norm_Ticker', 'Price_Fill_Color', row, 1, p_lo)
-
-    # ── ★ [6] 신호 이력 타임라인 마커 ──
-    if 'Combined_Score' in df_daily.columns:
-        sig_series = df_daily['Combined_Score'].apply(score_to_signal)
-        sig_view   = sig_series[df_daily.index >= view_start]
-        prev_sig   = None
-        for dt, sig in sig_view.items():
-            if sig not in SIG_MARKER or sig == prev_sig:
-                prev_sig = sig
-                continue
-            sym, color, sz = SIG_MARKER[sig]
-            y_pos = df_daily.loc[dt, 'Plot_Norm_Ticker'] if dt in df_daily.index else None
-            if y_pos is None or pd.isna(y_pos):
-                prev_sig = sig
-                continue
-            offset = 1.018 if 'up' in sym else 0.982
-            fig.add_trace(go.Scatter(
-                x=[dt], y=[y_pos * offset],
-                mode='markers',
-                marker=dict(symbol=sym, size=sz, color=color, line=dict(width=0)),
-                showlegend=False, hoverinfo='skip'),
-                row=price_row, col=1)
-            prev_sig = sig
 
     fig.update_yaxes(type="log",
                      range=[np.log10(max(p_lo, 1e-6)), np.log10(max(p_hi, 1e-6))],
