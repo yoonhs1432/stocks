@@ -2066,133 +2066,143 @@ def render_analytics_panel(
     df_close: pd.DataFrame,
     portfolio_state: dict[str, TickerState],
 ) -> None:
-    """차트 위 expander 3개: 사이클 통계 / 신호 백테스트 / 상관관계."""
-
-    col1, col2, col3 = st.columns(3)
+    """차트 아래 expander 3개 (세로 stack, 모바일 친화)."""
 
     # ── #1 사이클 통계 ──
-    with col1:
-        with st.expander("📊 사이클 통계", expanded=False):
-            records = st.session_state.trade_history.get(selected_ticker, [])
-            stats = compute_cycle_stats(records)
-            if stats is None:
-                st.caption("완료된 사이클이 없습니다.")
+    with st.expander("📊 사이클 통계", expanded=False):
+        records = st.session_state.trade_history.get(selected_ticker, [])
+        stats = compute_cycle_stats(records)
+        if stats is None:
+            st.caption("완료된 사이클이 없습니다.")
+        else:
+            pf_str = (
+                f"{stats['profit_factor']:.2f}"
+                if stats['profit_factor'] != float('inf') else "∞"
+            )
+            wr_color = pnl_color(stats['win_rate'] - 50)
+            avg_color = pnl_color(stats['avg_ret_pct'])
+            # 가로 배치 (한 줄에 핵심지표 6개)
+            st.markdown(
+                f"<div style='display:grid;grid-template-columns:repeat(3,1fr);"
+                f"gap:8px;font-size:0.78rem;'>"
+                f"<div><div style='color:#6b7280;font-size:0.7rem;'>사이클</div>"
+                f"<b>{stats['count']}회</b></div>"
+                f"<div><div style='color:#6b7280;font-size:0.7rem;'>승률</div>"
+                f"<b style='color:{wr_color};'>{stats['win_rate']:.0f}%</b></div>"
+                f"<div><div style='color:#6b7280;font-size:0.7rem;'>PF</div>"
+                f"<b>{pf_str}</b></div>"
+                f"<div><div style='color:#6b7280;font-size:0.7rem;'>평균수익</div>"
+                f"<b style='color:{avg_color};'>{signed_str(stats['avg_ret_pct'], '{:.1f}')}%</b></div>"
+                f"<div><div style='color:#6b7280;font-size:0.7rem;'>평균보유</div>"
+                f"<b>{stats['avg_hold_days']:.0f}일</b></div>"
+                f"<div><div style='color:#6b7280;font-size:0.7rem;'>최고/최저</div>"
+                f"<span style='color:#b91c1c;font-weight:700;'>+{stats['best_pct']:.1f}%</span>"
+                f" / <span style='color:#1d4ed8;font-weight:700;'>{stats['worst_pct']:.1f}%</span></div>"
+                f"</div>"
+                f"<div style='font-size:0.65rem;color:#9ca3af;margin-top:6px;'>"
+                f"최고: {stats['best_date']} · 최저: {stats['worst_date']}"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+
+    # ── #2 신호 백테스트 ──
+    with st.expander("🎯 신호 백테스트", expanded=False):
+        if df_daily is None or df_daily.empty:
+            st.caption("데이터 부족")
+        else:
+            bt = backtest_signals(df_daily, selected_ticker, [5, 10, 20])
+            if not bt:
+                st.caption("신호 발생 이력 없음")
             else:
-                pf_str = (
-                    f"{stats['profit_factor']:.2f}"
-                    if stats['profit_factor'] != float('inf') else "∞"
+                rows = ["<table style='width:100%;font-size:0.72rem;border-collapse:collapse;'>"]
+                rows.append(
+                    "<tr style='color:#6b7280;border-bottom:1px solid #e5e7eb;'>"
+                    "<th style='text-align:left;padding:4px;'>신호</th>"
+                    "<th style='padding:4px;'>5</th>"
+                    "<th style='padding:4px;'>10</th>"
+                    "<th style='padding:4px;'>20</th>"
+                    "<th style='padding:4px;'>n</th></tr>"
                 )
-                wr_color = pnl_color(stats['win_rate'] - 50)
-                avg_color = pnl_color(stats['avg_ret_pct'])
+                for sig in ['FB2', 'FB', 'B', 'S', 'FS', 'FS2']:
+                    if sig not in bt:
+                        continue
+                    bg, _ = SIGNAL_STYLE.get(sig, ('#9ca3af', '#fff'))
+                    sig_html = (
+                        f"<span style='background:{bg};color:#fff;"
+                        f"padding:2px 6px;border-radius:3px;font-weight:700;"
+                        f"font-size:0.7rem;'>{sig}</span>"
+                    )
+                    cells = [f"<td style='padding:4px;'>{sig_html}</td>"]
+                    n_count = 0
+                    for n in [5, 10, 20]:
+                        if n in bt[sig]:
+                            m = bt[sig][n]['mean_ret']
+                            w = bt[sig][n]['win_rate']
+                            n_count = bt[sig][n]['count']
+                            color = pnl_color(m)
+                            cells.append(
+                                f"<td style='text-align:center;color:{color};padding:4px;'>"
+                                f"{signed_str(m, '{:.1f}')}%<br>"
+                                f"<span style='color:#9ca3af;font-size:0.62rem;'>"
+                                f"{w:.0f}%</span></td>"
+                            )
+                        else:
+                            cells.append("<td style='text-align:center;color:#9ca3af;padding:4px;'>-</td>")
+                    cells.append(f"<td style='text-align:center;color:#6b7280;padding:4px;'>{n_count}</td>")
+                    rows.append("<tr>" + "".join(cells) + "</tr>")
+                rows.append("</table>")
+                st.markdown("".join(rows), unsafe_allow_html=True)
+                st.caption("신호 발생 N캔들 후 평균수익 / 승률")
+
+    # ── #5 상관관계 매트릭스 ──
+    with st.expander("🔗 상관관계 (보유)", expanded=False):
+        holding_list = sorted([
+            tk for tk, ts in portfolio_state.items() if ts['cycle']['hold_qty'] > 0
+        ])
+        if len(holding_list) < 2:
+            st.caption("보유 종목 2개 이상 필요")
+        else:
+            corr = compute_correlation_matrix(df_close, holding_list)
+            if corr is None or corr.empty:
+                st.caption("데이터 부족")
+            else:
+                z = corr.values
+                tick_labels = [display_name(t) for t in corr.columns]
+                fig = go.Figure(data=go.Heatmap(
+                    z=z, x=tick_labels, y=tick_labels,
+                    zmin=-1, zmax=1, colorscale='RdBu_r',
+                    text=[[f"{v:.2f}" for v in row] for row in z],
+                    texttemplate="%{text}",
+                    textfont={"size": 10},
+                    showscale=False,
+                ))
+                # 모바일에서도 정사각형 비율 유지
+                cell_size = max(28, int(280 / len(holding_list)))
+                fig.update_layout(
+                    height=cell_size * len(holding_list) + 60,
+                    margin=dict(l=2, r=2, t=2, b=2),
+                    xaxis=dict(tickfont=dict(size=10), side='top'),
+                    yaxis=dict(tickfont=dict(size=10)),
+                    paper_bgcolor='white', plot_bgcolor='white',
+                )
+                st.plotly_chart(fig, use_container_width=True,
+                                config={'displayModeBar': False})
+                avg_off_diag = (corr.values.sum() - len(corr)) / (len(corr) ** 2 - len(corr))
+                diag_color = (
+                    '#b91c1c' if avg_off_diag > 0.7
+                    else '#ca8a04' if avg_off_diag > 0.4 else '#16a34a'
+                )
+                interpret = (
+                    "분산효과 거의 없음" if avg_off_diag > 0.7
+                    else "부분적 분산" if avg_off_diag > 0.4 else "양호한 분산"
+                )
                 st.markdown(
-                    f"<div style='font-size:0.78rem;line-height:1.7;'>"
-                    f"사이클 <b>{stats['count']}회</b><br>"
-                    f"승률 <b style='color:{wr_color};'>{stats['win_rate']:.0f}%</b><br>"
-                    f"평균 <b style='color:{avg_color};'>"
-                    f"{signed_str(stats['avg_ret_pct'], '{:.1f}')}%</b><br>"
-                    f"평균보유 <b>{stats['avg_hold_days']:.0f}일</b><br>"
-                    f"PF <b>{pf_str}</b><br>"
-                    f"최고 <span style='color:#b91c1c;'>+{stats['best_pct']:.1f}%</span>"
-                    f" <span style='color:#9ca3af;font-size:0.7rem;'>"
-                    f"({stats['best_date']})</span><br>"
-                    f"최저 <span style='color:#1d4ed8;'>{stats['worst_pct']:.1f}%</span>"
-                    f" <span style='color:#9ca3af;font-size:0.7rem;'>"
-                    f"({stats['worst_date']})</span>"
+                    f"<div style='font-size:0.72rem;color:#6b7280;text-align:center;margin-top:4px;'>"
+                    f"평균 상관 <b style='color:{diag_color};'>{avg_off_diag:.2f}</b>"
+                    f" · {interpret}"
                     f"</div>",
                     unsafe_allow_html=True,
                 )
-
-    # ── #2 신호 백테스트 ──
-    with col2:
-        with st.expander("🎯 신호 백테스트", expanded=False):
-            if df_daily is None or df_daily.empty:
-                st.caption("데이터 부족")
-            else:
-                bt = backtest_signals(df_daily, selected_ticker, [5, 10, 20])
-                if not bt:
-                    st.caption("신호 발생 이력 없음")
-                else:
-                    rows = ["<table style='width:100%;font-size:0.7rem;'>"]
-                    rows.append(
-                        "<tr style='color:#6b7280;border-bottom:1px solid #e5e7eb;'>"
-                        "<th style='text-align:left;'>신호</th>"
-                        "<th>5</th><th>10</th><th>20</th><th>n</th></tr>"
-                    )
-                    for sig in ['FB2', 'FB', 'B', 'S', 'FS', 'FS2']:
-                        if sig not in bt:
-                            continue
-                        bg, _ = SIGNAL_STYLE.get(sig, ('#9ca3af', '#fff'))
-                        sig_html = (
-                            f"<span style='background:{bg};color:#fff;"
-                            f"padding:1px 4px;border-radius:3px;font-weight:700;'>"
-                            f"{sig}</span>"
-                        )
-                        cells = [f"<td>{sig_html}</td>"]
-                        n_count = 0
-                        for n in [5, 10, 20]:
-                            if n in bt[sig]:
-                                m = bt[sig][n]['mean_ret']
-                                w = bt[sig][n]['win_rate']
-                                n_count = bt[sig][n]['count']
-                                color = pnl_color(m)
-                                cells.append(
-                                    f"<td style='text-align:center;color:{color};'>"
-                                    f"{signed_str(m, '{:.1f}')}%<br>"
-                                    f"<span style='color:#9ca3af;font-size:0.6rem;'>"
-                                    f"{w:.0f}%</span></td>"
-                                )
-                            else:
-                                cells.append("<td style='text-align:center;color:#9ca3af;'>-</td>")
-                        cells.append(f"<td style='text-align:center;color:#6b7280;'>{n_count}</td>")
-                        rows.append("<tr>" + "".join(cells) + "</tr>")
-                    rows.append("</table>")
-                    st.markdown("".join(rows), unsafe_allow_html=True)
-                    st.caption("신호 발생 N캔들 후 평균수익 / 승률")
-
-    # ── #5 상관관계 매트릭스 ──
-    with col3:
-        with st.expander("🔗 상관관계", expanded=False):
-            holding_list = sorted([
-                tk for tk, ts in portfolio_state.items() if ts['cycle']['hold_qty'] > 0
-            ])
-            if len(holding_list) < 2:
-                st.caption("보유 종목 2개 이상 필요")
-            else:
-                corr = compute_correlation_matrix(df_close, holding_list)
-                if corr is None or corr.empty:
-                    st.caption("데이터 부족")
-                else:
-                    # 컴팩트한 heatmap
-                    z = corr.values
-                    tick_labels = [display_name(t) for t in corr.columns]
-                    fig = go.Figure(data=go.Heatmap(
-                        z=z, x=tick_labels, y=tick_labels,
-                        zmin=-1, zmax=1, colorscale='RdBu_r',
-                        text=[[f"{v:.2f}" for v in row] for row in z],
-                        texttemplate="%{text}",
-                        textfont={"size": 9},
-                        showscale=False,
-                    ))
-                    fig.update_layout(
-                        height=max(180, 30 * len(holding_list) + 50),
-                        margin=dict(l=2, r=2, t=2, b=2),
-                        xaxis=dict(tickfont=dict(size=9)),
-                        yaxis=dict(tickfont=dict(size=9)),
-                        paper_bgcolor='white', plot_bgcolor='white',
-                    )
-                    st.plotly_chart(fig, use_container_width=True,
-                                    config={'displayModeBar': False})
-                    avg_off_diag = (corr.values.sum() - len(corr)) / (len(corr) ** 2 - len(corr))
-                    diag_color = (
-                        '#b91c1c' if avg_off_diag > 0.7
-                        else '#ca8a04' if avg_off_diag > 0.4 else '#16a34a'
-                    )
-                    st.markdown(
-                        f"<div style='font-size:0.7rem;color:#6b7280;text-align:center;'>"
-                        f"평균 상관 <b style='color:{diag_color};'>{avg_off_diag:.2f}</b>"
-                        f"</div>",
-                        unsafe_allow_html=True,
-                    )
 
 
 # ====================================================
@@ -2226,12 +2236,18 @@ def render_quick_trade(selected_ticker: str, df_daily: pd.DataFrame) -> None:
             mode_color = '#dc2626' if mode == 'buy' else '#1d4ed8'
             st.markdown(
                 f"<div style='border:2px solid {mode_color};border-radius:6px;"
-                f"padding:8px;margin:4px 0;background:#fafafa;'>"
+                f"padding:8px;margin:4px 0 0 0;background:#fafafa;"
+                f"display:flex;justify-content:space-between;align-items:center;'>"
                 f"<b style='color:{mode_color};font-size:0.85rem;'>"
-                f"{display_name(selected_ticker)} {mode_label}</b></div>",
+                f"{display_name(selected_ticker)} {mode_label}"
+                f"</b>"
+                f"<span style='color:#9ca3af;font-size:0.7rem;'>"
+                f"현재가 ${current_price:,.2f}</span>"
+                f"</div>",
                 unsafe_allow_html=True,
             )
-            qc1, qc2, qc3 = st.columns([2, 2, 1])
+            # 모바일: 수량/단가 한 줄, 저장 버튼 다음 줄
+            qc1, qc2 = st.columns(2)
             qt_qty = qc1.number_input(
                 "수량", min_value=0, value=0, step=1, format="%d", key="qt_qty",
             )
@@ -2239,7 +2255,7 @@ def render_quick_trade(selected_ticker: str, df_daily: pd.DataFrame) -> None:
                 "단가($)", min_value=0.0, value=float(current_price), step=0.01,
                 format="%.4f", key="qt_price",
             )
-            if qc3.button("저장", key="qt_save", use_container_width=True, type="primary"):
+            if st.button("💾 저장", key="qt_save", use_container_width=True, type="primary"):
                 if qt_qty > 0 and qt_price > 0:
                     record = {
                         'date': datetime.date.today().strftime("%Y-%m-%d"),
@@ -2334,31 +2350,63 @@ def build_css(selected_option: str, holding_tickers: set) -> str:
     .block-container {{
         padding-top:3.5rem!important; padding-bottom:0.5rem!important; max-width:100%!important;
     }}
-    section[data-testid="stMain"] div[data-testid="stHorizontalBlock"] {{
+    /* 종목 버튼 영역 (#ticker-buttons-marker 마커의 다음 stHorizontalBlock만) */
+    div:has(> #ticker-buttons-marker) + div[data-testid="stHorizontalBlock"],
+    div[data-testid="stVerticalBlock"]:has(> div > #ticker-buttons-marker)
+        + div[data-testid="stHorizontalBlock"] {{
         flex-wrap:nowrap!important; gap:5px!important; align-items:flex-start!important;
     }}
-    section[data-testid="stMain"] div[data-testid="stHorizontalBlock"]
-        > div[data-testid="stColumn"]:first-child {{
+    div:has(> #ticker-buttons-marker) + div[data-testid="stHorizontalBlock"]
+        > div[data-testid="stColumn"]:first-child,
+    div[data-testid="stVerticalBlock"]:has(> div > #ticker-buttons-marker)
+        + div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"]:first-child {{
         flex:0 0 80px!important; min-width:80px!important;
         max-width:80px!important; padding:0!important;
     }}
-    section[data-testid="stMain"] div[data-testid="stHorizontalBlock"]
-        > div[data-testid="stColumn"]:last-child {{
+    div:has(> #ticker-buttons-marker) + div[data-testid="stHorizontalBlock"]
+        > div[data-testid="stColumn"]:last-child,
+    div[data-testid="stVerticalBlock"]:has(> div > #ticker-buttons-marker)
+        + div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"]:last-child {{
         flex:1 1 0!important; min-width:0!important; overflow:visible!important;
         padding-left:2px!important; padding-right:2px!important;
     }}
-    section[data-testid="stMain"] div[data-testid="stColumn"]:first-child
-        div[data-testid="stVerticalBlock"] > div {{ margin-bottom:0px!important; padding:0!important; }}
-    section[data-testid="stMain"] div[data-testid="stColumn"]:first-child
-        div[data-testid="stVerticalBlock"] {{ gap:1px!important; }}
-    section[data-testid="stMain"] div[data-testid="stColumn"]:first-child button p {{
+    /* 종목 버튼 (첫 컬럼 안의 vertical block)만 빈 여백 제거 */
+    div:has(> #ticker-buttons-marker) + div[data-testid="stHorizontalBlock"]
+        > div[data-testid="stColumn"]:first-child div[data-testid="stVerticalBlock"] > div,
+    div[data-testid="stVerticalBlock"]:has(> div > #ticker-buttons-marker)
+        + div[data-testid="stHorizontalBlock"]
+        > div[data-testid="stColumn"]:first-child div[data-testid="stVerticalBlock"] > div
+        {{ margin-bottom:0px!important; padding:0!important; }}
+    div:has(> #ticker-buttons-marker) + div[data-testid="stHorizontalBlock"]
+        > div[data-testid="stColumn"]:first-child div[data-testid="stVerticalBlock"],
+    div[data-testid="stVerticalBlock"]:has(> div > #ticker-buttons-marker)
+        + div[data-testid="stHorizontalBlock"]
+        > div[data-testid="stColumn"]:first-child div[data-testid="stVerticalBlock"]
+        {{ gap:1px!important; }}
+    div:has(> #ticker-buttons-marker) + div[data-testid="stHorizontalBlock"]
+        > div[data-testid="stColumn"]:first-child button p,
+    div[data-testid="stVerticalBlock"]:has(> div > #ticker-buttons-marker)
+        + div[data-testid="stHorizontalBlock"]
+        > div[data-testid="stColumn"]:first-child button p {{
         margin:0!important; padding:0!important; font-size:0.73rem!important;
         line-height:1!important; font-weight:500!important; white-space:pre!important;
     }}
-    section[data-testid="stMain"] div[data-testid="stColumn"]:first-child button span,
-    section[data-testid="stMain"] div[data-testid="stColumn"]:first-child button strong
+    div:has(> #ticker-buttons-marker) + div[data-testid="stHorizontalBlock"]
+        > div[data-testid="stColumn"]:first-child button span,
+    div:has(> #ticker-buttons-marker) + div[data-testid="stHorizontalBlock"]
+        > div[data-testid="stColumn"]:first-child button strong,
+    div[data-testid="stVerticalBlock"]:has(> div > #ticker-buttons-marker)
+        + div[data-testid="stHorizontalBlock"]
+        > div[data-testid="stColumn"]:first-child button span,
+    div[data-testid="stVerticalBlock"]:has(> div > #ticker-buttons-marker)
+        + div[data-testid="stHorizontalBlock"]
+        > div[data-testid="stColumn"]:first-child button strong
         {{ color:inherit!important; }}
-    section[data-testid="stMain"] div[data-testid="stColumn"]:first-child button strong
+    div:has(> #ticker-buttons-marker) + div[data-testid="stHorizontalBlock"]
+        > div[data-testid="stColumn"]:first-child button strong,
+    div[data-testid="stVerticalBlock"]:has(> div > #ticker-buttons-marker)
+        + div[data-testid="stHorizontalBlock"]
+        > div[data-testid="stColumn"]:first-child button strong
         {{ font-weight:700!important; }}
     {''.join(btn_parts)}
     </style>"""
@@ -2513,6 +2561,11 @@ def main() -> None:
     if 'show_holding_only' not in st.session_state:
         st.session_state['show_holding_only'] = False
 
+    # 종목 버튼 영역에 식별 마커 (CSS scope용)
+    st.markdown(
+        "<div id='ticker-buttons-marker' style='display:none;'></div>",
+        unsafe_allow_html=True,
+    )
     btn_col, chart_col = st.columns([1, 6])
     with btn_col:
         # 보유 토글 (모바일 최적화)
@@ -2571,11 +2624,8 @@ def main() -> None:
         if df_daily is not None:
             render_position_tracker(selected_ticker, df_daily, df_close, portfolio_state)
 
-            # 빠른 매매 입력 (#14)
+            # 빠른 매매 입력 (#14) — chart_col 안에 두되 첫 컬럼 제약은 폭이 좁아도 OK
             render_quick_trade(selected_ticker, df_daily)
-
-            # 분석 패널 (#1, #2, #5)
-            render_analytics_panel(selected_ticker, df_daily, df_close, portfolio_state)
 
             with st.spinner("캔들 데이터 로드 중..."):
                 df_ohlc = fetch_ohlc(selected_ticker, analysis_start, candle_type)
@@ -2603,6 +2653,14 @@ def main() -> None:
                 st.error(f"'{st.session_state.custom_ticker_input}' 데이터를 가져올 수 없습니다.")
         elif selected_ticker:
             st.error("분석에 필요한 데이터가 부족합니다.")
+
+    # 분석 패널 (#1, #2, #5) — chart_col 밖 별도 행, 80px 첫 컬럼 제약 회피
+    if df_daily is not None and selected_ticker:
+        st.markdown(
+            "<div data-analytics-panel style='margin-top:8px;'></div>",
+            unsafe_allow_html=True,
+        )
+        render_analytics_panel(selected_ticker, df_daily, df_close, portfolio_state)
 
     if selected_ticker:
         render_memo_section(selected_ticker)
