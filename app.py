@@ -761,13 +761,19 @@ def compute_cycle_stats(records: list) -> Optional[dict]:
     }
 
 
-def compute_cycle_avg_prices(records: list) -> list:
+def compute_cycle_avg_prices(
+    records: list,
+    df_daily: Optional[pd.DataFrame] = None,
+) -> list:
     """
     종목의 매매 기록에서 모든 사이클의 가중평균 매수/매도가를 반환.
     완료된 사이클뿐 아니라 진행 중인 사이클(매도 미완료)도 포함.
 
-    반환: [{'idx': 사이클번호, 'avg_buy': 평균매수가, 'avg_sell': 평균매도가 or None,
-            'is_active': 진행중여부, 'start': 시작일}]
+    df_daily가 주어지면 매매 시점의 Z_Score를 가중평균한 σ도 추가.
+    이는 그래프2 가격 패널의 빨간/파란 수직선 (= 매매 시점 Z-score)과 정확히 일치.
+
+    반환: [{'idx', 'avg_buy', 'avg_sell', 'avg_buy_sigma', 'avg_sell_sigma',
+            'is_active', 'start', 'end'}]
     오래된 → 최근 순
     """
     valid = [r for r in records if r.get('qty', 0) > 0 and r.get('price', 0) > 0]
@@ -775,21 +781,53 @@ def compute_cycle_avg_prices(records: list) -> list:
         return []
     sorted_recs = sorted(valid, key=lambda r: r['date'])
 
+    # df_daily가 있으면 Z_Score lookup 헬퍼 준비
+    z_lookup = None
+    if df_daily is not None and 'Z_Score' in df_daily.columns:
+        z_series = df_daily['Z_Score'].dropna()
+
+        def _z_at(d: datetime.date) -> Optional[float]:
+            """매매 일자 d 또는 그 이전 가장 가까운 거래일의 Z_Score."""
+            if z_series.empty:
+                return None
+            ts = pd.Timestamp(d)
+            # 해당 일자까지의 series에서 마지막 값 (asof)
+            sub = z_series[z_series.index <= ts]
+            if sub.empty:
+                return None
+            return float(sub.iloc[-1])
+        z_lookup = _z_at
+
     cycles = []
     hold_qty = 0
     buy_qty = 0
     buy_cost = 0.0
     sell_qty = 0
     sell_proceeds = 0.0
+    # σ 가중합 (매매 시점 Z-score × qty)
+    buy_sigma_qty_sum = 0.0
+    buy_sigma_qty_total = 0  # 유효한 z를 가진 qty 합
+    sell_sigma_qty_sum = 0.0
+    sell_sigma_qty_total = 0
     cycle_start: Optional[datetime.date] = None
 
     def _close_cycle(end_date: Optional[datetime.date], is_active: bool):
         if buy_qty == 0:
             return
+        avg_buy_sigma = (
+            buy_sigma_qty_sum / buy_sigma_qty_total
+            if buy_sigma_qty_total > 0 else None
+        )
+        avg_sell_sigma = (
+            sell_sigma_qty_sum / sell_sigma_qty_total
+            if sell_sigma_qty_total > 0 else None
+        )
         cycles.append({
             'idx': len(cycles) + 1,
             'avg_buy': buy_cost / buy_qty,
             'avg_sell': (sell_proceeds / sell_qty) if sell_qty > 0 else None,
+            'avg_buy_sigma': avg_buy_sigma,
+            'avg_sell_sigma': avg_sell_sigma,
             'is_active': is_active,
             'start': cycle_start,
             'end': end_date,
@@ -806,12 +844,26 @@ def compute_cycle_avg_prices(records: list) -> list:
                 buy_cost = 0.0
                 sell_qty = 0
                 sell_proceeds = 0.0
+                buy_sigma_qty_sum = 0.0
+                buy_sigma_qty_total = 0
+                sell_sigma_qty_sum = 0.0
+                sell_sigma_qty_total = 0
             hold_qty += qty
             buy_qty += qty
             buy_cost += qty * r['price']
+            if z_lookup is not None:
+                z_val = z_lookup(date)
+                if z_val is not None and np.isfinite(z_val):
+                    buy_sigma_qty_sum += qty * z_val
+                    buy_sigma_qty_total += qty
         elif r['type'] == 'sell' and hold_qty > 0:
             sell_qty += qty
             sell_proceeds += qty * r['price']
+            if z_lookup is not None:
+                z_val = z_lookup(date)
+                if z_val is not None and np.isfinite(z_val):
+                    sell_sigma_qty_sum += qty * z_val
+                    sell_sigma_qty_total += qty
             hold_qty = max(hold_qty - qty, 0)
             if hold_qty == 0 and buy_qty > 0:
                 _close_cycle(date, is_active=False)
@@ -2427,7 +2479,7 @@ def build_action_card_html(
     # σ 위치: -3=0%, -2=16.67%, -1.5=25%, -1=33.33%, 0=50%,
     #         +1=66.67%, +1.5=75%, +2=83.33%, +3=100%
     bar_html = (
-        "<div style='position:relative;height:38px;margin:6px 8px 14px 8px;'>"
+        "<div style='position:relative;height:48px;margin:6px 8px 14px 8px;'>"
         "<div style='position:absolute;top:18px;left:0;right:0;height:8px;"
         "border-radius:4px;"
         "background:linear-gradient(to right,"
@@ -2479,43 +2531,81 @@ def build_action_card_html(
         f"font-size:18px;color:#ec4899;text-shadow:0 0 3px #fff,0 0 3px #fff;"
         f"z-index:3;' title='현재가 ${cur_price:.2f}'>★</div>"
     )
-    # ── 사이클별 평균 매매가 마커 ──
+    # ── 사이클별 평균 매매가 마커 (매매 시점 Z-score 기반) ──
     if trade_records:
-        cycle_list = compute_cycle_avg_prices(trade_records)
+        cycle_list = compute_cycle_avg_prices(trade_records, df_daily=df_daily)
         # 최근 5개만 (가장 오래된 → 최근 순으로 정렬되어 있음)
         cycle_list = cycle_list[-5:]
         n_cycles = len(cycle_list)
+
+        def _draw_cycle_marker(
+            sigma_val: float, color: str, dark_color: str,
+            opacity: float, tooltip: str,
+        ) -> str:
+            """매매 시점 σ로 마커를 그림. 범위 밖이면 가장자리에 σ값 라벨."""
+            pct, outside = _sigma_to_pct(sigma_val)
+            if not outside:
+                # bar 안에 들어옴 → 일반 동그라미 마커
+                return (
+                    f"<div style='position:absolute;left:{pct:.1f}%;top:17px;"
+                    f"transform:translateX(-50%);width:10px;height:10px;"
+                    f"border-radius:50%;background:{color};border:2px solid #fff;"
+                    f"box-shadow:0 0 0 1px {dark_color},0 1px 2px rgba(0,0,0,0.3);"
+                    f"opacity:{opacity:.2f};z-index:2;cursor:help;' "
+                    f"title='{tooltip}'></div>"
+                )
+            # 범위 밖 → 가장자리 화살표 + σ 라벨
+            if sigma_val < -3:
+                arrow = "◀"
+                edge_pct = 0.0
+                tf = "translateX(0%)"
+                lbl_align = "left"
+            else:  # sigma_val > 3
+                arrow = "▶"
+                edge_pct = 100.0
+                tf = "translateX(-100%)"
+                lbl_align = "right"
+            return (
+                # 가장자리 마커
+                f"<div style='position:absolute;left:{edge_pct:.1f}%;top:17px;"
+                f"transform:translateX(-50%);width:10px;height:10px;"
+                f"border-radius:50%;background:{color};border:2px solid #fff;"
+                f"box-shadow:0 0 0 1px {dark_color},0 1px 2px rgba(0,0,0,0.3);"
+                f"opacity:{opacity:.2f};z-index:2;cursor:help;' "
+                f"title='{tooltip}'></div>"
+                # σ 라벨 (가장자리 — 눈금 라벨 아래)
+                f"<div style='position:absolute;left:{edge_pct:.1f}%;top:38px;"
+                f"transform:{tf};text-align:{lbl_align};font-size:0.55rem;"
+                f"color:{dark_color};font-weight:700;white-space:nowrap;"
+                f"opacity:{opacity:.2f};'>"
+                f"{arrow}{sigma_val:+.1f}σ</div>"
+            )
+
         for i, cyc in enumerate(cycle_list):
             # 최근일수록 진하게: opacity 0.5 → 1.0
             opacity = 0.5 + 0.5 * ((i + 1) / max(n_cycles, 1))
 
-            # 매수 마커 (빨강 점)
-            buy_sigma = _price_to_sigma(cyc['avg_buy'])
-            buy_pct, buy_outside = _sigma_to_pct(buy_sigma)
-            if not buy_outside or (-3.5 <= buy_sigma <= 3.5):
-                # 약간 범위 밖이라도 표시. ± 2.5σ 초과는 생략
-                bar_html += (
-                    f"<div style='position:absolute;left:{buy_pct:.1f}%;top:17px;"
-                    f"transform:translateX(-50%);width:10px;height:10px;"
-                    f"border-radius:50%;background:#dc2626;border:2px solid #fff;"
-                    f"box-shadow:0 0 0 1px #7f1d1d,0 1px 2px rgba(0,0,0,0.3);"
-                    f"opacity:{opacity:.2f};z-index:2;cursor:help;' "
-                    f"title='사이클 {cyc['idx']} 평균매수 ${cyc['avg_buy']:.2f}'></div>"
+            # 매수 마커 (매매 시점 σ 사용)
+            if cyc.get('avg_buy_sigma') is not None:
+                buy_sigma_at_trade = float(cyc['avg_buy_sigma'])
+                tooltip_buy = (
+                    f"사이클 {cyc['idx']} 평균매수 "
+                    f"${cyc['avg_buy']:.2f} (당시 σ {buy_sigma_at_trade:+.2f})"
+                )
+                bar_html += _draw_cycle_marker(
+                    buy_sigma_at_trade, '#dc2626', '#7f1d1d', opacity, tooltip_buy,
                 )
 
-            # 매도 마커 (파랑 점, 매도 완료된 경우만)
-            if cyc['avg_sell'] is not None:
-                sell_sigma = _price_to_sigma(cyc['avg_sell'])
-                sell_pct, sell_outside = _sigma_to_pct(sell_sigma)
-                if not sell_outside or (-3.5 <= sell_sigma <= 3.5):
-                    bar_html += (
-                        f"<div style='position:absolute;left:{sell_pct:.1f}%;top:17px;"
-                        f"transform:translateX(-50%);width:10px;height:10px;"
-                        f"border-radius:50%;background:#1d4ed8;border:2px solid #fff;"
-                        f"box-shadow:0 0 0 1px #1e3a8a,0 1px 2px rgba(0,0,0,0.3);"
-                        f"opacity:{opacity:.2f};z-index:2;cursor:help;' "
-                        f"title='사이클 {cyc['idx']} 평균매도 ${cyc['avg_sell']:.2f}'></div>"
-                    )
+            # 매도 마커 (매도 완료된 경우만)
+            if cyc.get('avg_sell_sigma') is not None and cyc['avg_sell'] is not None:
+                sell_sigma_at_trade = float(cyc['avg_sell_sigma'])
+                tooltip_sell = (
+                    f"사이클 {cyc['idx']} 평균매도 "
+                    f"${cyc['avg_sell']:.2f} (당시 σ {sell_sigma_at_trade:+.2f})"
+                )
+                bar_html += _draw_cycle_marker(
+                    sell_sigma_at_trade, '#1d4ed8', '#1e3a8a', opacity, tooltip_sell,
+                )
 
     if cur_outside:
         bar_html += (
@@ -2542,7 +2632,7 @@ def build_action_card_html(
     # 사이클 마커 범례 (사이클 있을 때만)
     legend_html = ""
     if trade_records:
-        cyc_count = len(compute_cycle_avg_prices(trade_records))
+        cyc_count = len(compute_cycle_avg_prices(trade_records, df_daily=df_daily))
         if cyc_count > 0:
             shown = min(cyc_count, 5)
             legend_html = (
@@ -2550,11 +2640,11 @@ def build_action_card_html(
                 f"<span style='display:inline-block;width:8px;height:8px;"
                 f"border-radius:50%;background:#dc2626;border:1.5px solid #fff;"
                 f"box-shadow:0 0 0 1px #7f1d1d;vertical-align:middle;'></span>"
-                f" 평균매수&nbsp;&nbsp;"
+                f" 매수&nbsp;&nbsp;"
                 f"<span style='display:inline-block;width:8px;height:8px;"
                 f"border-radius:50%;background:#1d4ed8;border:1.5px solid #fff;"
                 f"box-shadow:0 0 0 1px #1e3a8a;vertical-align:middle;'></span>"
-                f" 평균매도 (최근 {shown}/{cyc_count}사이클)</span>"
+                f" 매도 · <i>당시 σ 기준</i> (최근 {shown}/{cyc_count}사이클)</span>"
             )
 
     interp_html = (
