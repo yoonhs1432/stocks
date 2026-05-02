@@ -2506,11 +2506,10 @@ def build_action_card_html(
             else ""
         )
         bar_html += (
-            f"<div style='position:absolute;left:{avg_pct_bar:.1f}%;top:11px;"
-            f"transform:translateX(-50%);width:20px;height:20px;"
-            f"border-radius:50%;background:transparent;"
-            f"border:3px solid #374151;outline:1px solid #000;"
-            f"box-shadow:inset 0 0 0 1px #000,0 1px 3px rgba(0,0,0,0.3);"
+            f"<div style='position:absolute;left:{avg_pct_bar:.1f}%;top:16px;"
+            f"transform:translateX(-50%);width:12px;height:12px;"
+            f"background:#dc2626;border:2px solid #fff;"
+            f"box-shadow:0 0 0 1px #7f1d1d,0 1px 2px rgba(0,0,0,0.3);"
             f"z-index:2;cursor:help;' "
             f"title='평균단가 ${avg_price:.2f}'></div>"
             f"<div style='position:absolute;left:{avg_pct_bar:.1f}%;top:0;"
@@ -2832,7 +2831,7 @@ def build_mini_gradient_bar(
     """탭2용 컴팩트 그라디언트 바.
     - σ 눈금 라벨 없음 (헤더에서 한번만 표시)
     - 현재가 ■ 사각형 마커 (투명 + 신호색 테두리)
-    - 평균단가 ● 원형 마커 (투명 + 회색 테두리, 보유 시)
+    - 평균단가 ▪ 작은 사각형 마커 (빨강 채움, 보유 시)
     - 사이클 매수/매도 마커 (작은 채움 점)
     """
     if 'Predicted' not in df_daily.columns:
@@ -2946,14 +2945,13 @@ def build_mini_gradient_bar(
     if avg_price is not None and avg_price > 0:
         avg_sigma_v = _price_to_sigma(avg_price)
         avg_pct_v, avg_outside_v = _sigma_to_pct(avg_sigma_v)
-        avg_marker_top = (bar_height - 16) // 2
+        avg_marker_top = (bar_height - 12) // 2
         bar_html += (
             f"<div style='position:absolute;left:{avg_pct_v:.1f}%;"
             f"top:{avg_marker_top}px;"
-            f"transform:translateX(-50%);width:16px;height:16px;"
-            f"border-radius:50%;background:transparent;"
-            f"border:2.5px solid #374151;outline:1px solid #000;"
-            f"box-shadow:inset 0 0 0 1px #000,0 1px 2px rgba(0,0,0,0.3);"
+            f"transform:translateX(-50%);width:12px;height:12px;"
+            f"background:#dc2626;border:2px solid #fff;"
+            f"box-shadow:0 0 0 1px #7f1d1d,0 1px 2px rgba(0,0,0,0.3);"
             f"z-index:2;cursor:help;' "
             f"title='평균단가 ${avg_price:.2f} · {avg_sigma_v:+.2f}σ'></div>"
         )
@@ -3710,7 +3708,7 @@ def main() -> None:
 
         st.caption(
             "■ 현재가 (테두리색=신호: FB2 짙은빨강 → H 회색 → FS2 짙은파랑) · "
-            "◯ 평균단가 (보유 시) · "
+            "▪ 평균단가 (보유 시) · "
             "● 매수 ● 매도 (당시 σ 기준)"
         )
 
