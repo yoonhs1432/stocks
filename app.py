@@ -11,6 +11,13 @@
 - Config dataclass로 매직 넘버 통합
 - sklearn 의존성 제거 (numpy.polyfit으로 대체)
 - 분석/Z-score look-ahead 일관성 개선 (expanding std로 통일)
+
+[v3 변경사항 — #1 종목 리스트 UI 개선]
+- 종목 리스트를 사이드 세로 21개 → 상단 가로 4열 그리드로 변경
+- 보유 종목(★) + 강신호(FB2/FB/FS/FS2)만 기본 노출, 토글로 전체 펼침
+- 보유 우선 → 신호 강도순 → 원본 순서로 정렬
+- 직접 입력 / 새로고침 버튼은 헤더 영역으로 이동
+- 메인 차트 영역은 풀폭(full width)으로 사용
 """
 from __future__ import annotations
 
@@ -113,6 +120,11 @@ SIG_MARKER = {
     'FS':  ('triangle-down', '#2563eb',  8),
     'FS2': ('triangle-down', '#1e3a8a', 10),
 }
+
+# 강신호 정의 — 기본 노출 대상 [v3]
+STRONG_SIGNALS = {'FB2', 'FB', 'FS', 'FS2'}
+# 토글 OFF 시 최소 노출 개수 (모두 H일 때 빈 화면 방지) [v3]
+MIN_VISIBLE_TICKERS = 6
 
 # 색상 팔레트 (반복 사용)
 COLOR_GAIN = '#b91c1c'   # 수익(빨강 - 한국식)
@@ -361,6 +373,8 @@ def init_session_state() -> None:
         'memo_editing_idx':    lambda: None,
         'memo_input_key':      int,
         'candle_type':         lambda: '주봉',
+        # [v3] 종목 칩 토글 상태
+        'show_all_tickers':    lambda: False,
     }
     for key, factory in defaults.items():
         if key not in st.session_state:
@@ -2973,9 +2987,15 @@ def render_memo_section(selected_ticker: str) -> None:
 
 
 # ====================================================
-# 17. CSS
+# 17. CSS  [v3] — 풀폭 레이아웃 + 칩 버튼 스타일
 # ====================================================
 def build_css(selected_option: str, holding_tickers: set) -> str:
+    """
+    [v3] 변경사항:
+    - 사이드 좌측 80px 컬럼 제거 → 메인 풀폭 사용
+    - 종목 버튼은 상단 가로 그리드용으로 컴팩트 스타일
+    - 토글/직접입력/refresh 버튼은 약간 다른 스타일
+    """
     btn_parts = []
     for ticker in TARGET_TICKERS:
         sig = st.session_state.ticker_signals.get(ticker, 'H')
@@ -2983,77 +3003,205 @@ def build_css(selected_option: str, holding_tickers: set) -> str:
         fg = BUTTON_TEXT_STYLE.get(sig, '#111827')
         k = f"ticker_btn_{safe_key(ticker)}"
         sel_extra = (
-            f"box-shadow:0 0 0 2px #fff,0 0 0 4px {bg}!important;"
-            "transform:scale(1.03);"
+            f"box-shadow:0 0 0 2px #fff,0 0 0 3px #111827!important;"
+            "transform:translateY(-1px);"
         ) if selected_option == ticker else ""
         btn_parts.append(f"""
         div.st-key-{k} button {{
-            background:{bg}!important; border-color:{bg}!important;
-            color:{fg}!important; font-weight:500!important;
-            height:1.7rem!important; font-size:0.62rem!important;
-            padding:0 2px!important; line-height:1!important;
-            min-height:0!important; border-radius:3px!important;
-            width:100%!important; text-align:left!important; {sel_extra}
+            background:{bg}!important; border:1px solid {bg}!important;
+            color:{fg}!important; font-weight:600!important;
+            height:2.0rem!important; font-size:0.72rem!important;
+            padding:0 6px!important; line-height:1.1!important;
+            min-height:0!important; border-radius:5px!important;
+            width:100%!important; text-align:center!important;
+            white-space:nowrap!important; overflow:hidden!important;
+            text-overflow:ellipsis!important;
+            transition:transform 0.1s ease!important;
+            {sel_extra}
         }}
         div.st-key-{k} button p, div.st-key-{k} button strong,
         div.st-key-{k} button span {{ color:{fg}!important; }}
         div.st-key-{k} button strong {{ font-weight:700!important; }}
-        div.st-key-{k} button:hover {{ opacity:0.82!important; }}""")
+        div.st-key-{k} button:hover {{
+            opacity:0.88!important;
+            transform:translateY(-1px)!important;
+        }}""")
 
-    di_border = (
-        "border:2px solid #1565C0!important;font-weight:700!important;"
-        if selected_option == "직접 입력" else ""
-    )
+    di_active = "background:#dbeafe!important;border:2px solid #1565C0!important;font-weight:700!important;" if selected_option == "직접 입력" else ""
     btn_parts.append(f"""
-    div.st-key-ticker_btn_direct button {{
-        height:1.1rem!important; font-size:0.55rem!important;
-        padding:0!important; min-height:0!important; border-radius:3px!important; {di_border}
-    }}
+    /* 토글 버튼 / 직접입력 / refresh 공통: 약간 더 작고 회색조 */
+    div.st-key-ticker_toggle_btn button,
+    div.st-key-ticker_btn_direct button,
     div.st-key-full_refresh_btn button {{
-        height:1.1rem!important; min-height:0!important; border-radius:3px!important;
-        font-size:0.55rem!important; font-weight:700!important; padding:0!important;
-        border:1px solid #cbd5e1!important; background:#f8fafc!important;
-        color:#0f172a!important; line-height:1!important;
+        height:2.0rem!important;
+        min-height:0!important;
+        border-radius:5px!important;
+        font-size:0.7rem!important;
+        font-weight:600!important;
+        padding:0 6px!important;
+        background:#f8fafc!important;
+        color:#0f172a!important;
+        border:1px solid #cbd5e1!important;
+        white-space:nowrap!important;
+        line-height:1.1!important;
     }}
+    div.st-key-ticker_btn_direct button {{ {di_active} }}
+    div.st-key-ticker_toggle_btn button:hover,
+    div.st-key-ticker_btn_direct button:hover,
     div.st-key-full_refresh_btn button:hover {{
-        border-color:#94a3b8!important; background:#eef2f7!important; }}""")
+        border-color:#94a3b8!important; background:#eef2f7!important;
+    }}""")
 
     return f"""<style>
     .block-container {{
-        padding-top:3.5rem!important; padding-bottom:0.5rem!important; max-width:100%!important;
+        padding-top:3.5rem!important;
+        padding-bottom:0.5rem!important;
+        padding-left:0.6rem!important;
+        padding-right:0.6rem!important;
+        max-width:100%!important;
     }}
-    section[data-testid="stMain"] div[data-testid="stHorizontalBlock"] {{
-        flex-wrap:nowrap!important; gap:5px!important; align-items:flex-start!important;
+    /* [v3] 종목 버튼 그리드 영역의 버튼 간 여백 최소화 */
+    div[data-testid="stHorizontalBlock"] {{
+        gap:6px!important;
     }}
-    section[data-testid="stMain"] div[data-testid="stHorizontalBlock"]
-        > div[data-testid="stColumn"]:first-child {{
-        flex:0 0 88px!important; min-width:88px!important;
-        max-width:88px!important; padding:0!important;
+    div[data-testid="stHorizontalBlock"] div[data-testid="stColumn"] {{
+        padding:0!important;
     }}
-    section[data-testid="stMain"] div[data-testid="stHorizontalBlock"]
-        > div[data-testid="stColumn"]:last-child {{
-        flex:1 1 0!important; min-width:0!important; overflow:visible!important;
-        padding-left:2px!important; padding-right:2px!important;
-    }}
-    section[data-testid="stMain"] div[data-testid="stColumn"]:first-child
-        div[data-testid="stVerticalBlock"] > div {{ margin-bottom:0px!important; padding:0!important; }}
-    section[data-testid="stMain"] div[data-testid="stColumn"]:first-child
-        div[data-testid="stVerticalBlock"] {{ gap:1px!important; }}
-    section[data-testid="stMain"] div[data-testid="stColumn"]:first-child button p {{
-        margin:0!important; padding:0!important; font-size:0.73rem!important;
-        line-height:1!important; font-weight:500!important; white-space:pre!important;
-    }}
-    section[data-testid="stMain"] div[data-testid="stColumn"]:first-child button span,
-    section[data-testid="stMain"] div[data-testid="stColumn"]:first-child button strong
-        {{ color:inherit!important; }}
-    section[data-testid="stMain"] div[data-testid="stColumn"]:first-child button strong
-        {{ font-weight:700!important; }}
     {''.join(btn_parts)}
     </style>"""
 
 
 # ====================================================
-# 18. 메인
+# 18-A. 종목 칩 렌더링 [v3]
+# ====================================================
+def render_ticker_chips(
+    selected_option: str,
+    holding_tickers: set,
+    pct_changes: dict,
+) -> None:
+    """
+    [v3 신규] 상단 가로 그리드 형태로 종목 선택 UI를 렌더링.
+
+    - 헤더 행: 라벨 / 토글 / 직접입력 / refresh
+    - 그리드: 보유 + 강신호 우선 노출, 4열 (모바일 친화)
+    - 토글로 전체 펼침/접기
+    """
+    # 정렬 키
+    def _sort_key(tk: str) -> tuple:
+        sig = st.session_state.ticker_signals.get(tk, 'H')
+        return (
+            0 if tk in holding_tickers else 1,
+            signal_sort_key(sig),
+            TARGET_TICKERS.index(tk),
+        )
+
+    sorted_tickers = sorted(TARGET_TICKERS, key=_sort_key)
+
+    # 가시 종목 결정 (보유 + 강신호)
+    show_all = st.session_state.get('show_all_tickers', False)
+    if show_all:
+        visible = sorted_tickers
+    else:
+        visible = [
+            tk for tk in sorted_tickers
+            if tk in holding_tickers
+            or st.session_state.ticker_signals.get(tk, 'H') in STRONG_SIGNALS
+        ]
+        # 최소 노출 보장 (모두 H일 때 빈 화면 방지)
+        if len(visible) < MIN_VISIBLE_TICKERS:
+            for tk in sorted_tickers:
+                if tk not in visible:
+                    visible.append(tk)
+                    if len(visible) >= MIN_VISIBLE_TICKERS:
+                        break
+
+    hidden_count = len(sorted_tickers) - len(visible)
+
+    # ── 헤더 행 ──
+    h1, h2, h3, h4 = st.columns([3, 2, 2, 2])
+    with h1:
+        st.markdown(
+            f"<div style='font-size:0.7rem;color:#6b7280;padding-top:6px;'>"
+            f"<b>📍 종목</b> "
+            f"<span style='color:#9ca3af;'>· 보유 {len(holding_tickers)}, "
+            f"강신호 포함 {len(visible)}/{len(sorted_tickers)}</span></div>",
+            unsafe_allow_html=True,
+        )
+    with h2:
+        if hidden_count > 0 or show_all:
+            toggle_label = "− 접기" if show_all else f"+ 전체 ({hidden_count})"
+            if st.button(toggle_label, key="ticker_toggle_btn",
+                          use_container_width=True):
+                st.session_state.show_all_tickers = not show_all
+                st.rerun()
+        else:
+            st.markdown(
+                "<div style='height:2.0rem;'></div>", unsafe_allow_html=True
+            )
+    with h3:
+        if st.button("직접 입력", key="ticker_btn_direct",
+                      use_container_width=True):
+            st.session_state.selected_option = "직접 입력"
+            st.rerun()
+    with h4:
+        if st.button("🔄 refresh", key="full_refresh_btn",
+                      use_container_width=True):
+            with st.spinner("데이터 갱신 중..."):
+                st.cache_data.clear()
+                st.session_state['last_refresh'] = datetime.datetime.now(
+                    datetime.timezone(datetime.timedelta(hours=9))
+                ).strftime('%H:%M:%S')
+            st.rerun()
+
+    # ── 종목 그리드 (4열) ──
+    n_cols = 4
+    rows = (len(visible) + n_cols - 1) // n_cols
+    for row_idx in range(rows):
+        cols = st.columns(n_cols)
+        for col_idx in range(n_cols):
+            idx = row_idx * n_cols + col_idx
+            if idx >= len(visible):
+                break
+            tk = visible[idx]
+            pct = pct_changes.get(tk, 0)
+            star = "★" if tk in holding_tickers else ""
+            # 컴팩트 라벨: ★ TICKER ±X.X%
+            label = f"{star} {display_name(tk)} {pct:+.1f}%"
+            with cols[col_idx]:
+                if st.button(
+                    label,
+                    key=f"ticker_btn_{safe_key(tk)}",
+                    use_container_width=True,
+                ):
+                    st.session_state.selected_option = tk
+                    st.session_state.custom_ticker_input = ''
+                    st.rerun()
+
+    # 마지막 새로고침 시각 표시
+    last_refresh = st.session_state.get('last_refresh')
+    if last_refresh:
+        st.markdown(
+            f"<div style='font-size:0.62rem;color:#9ca3af;text-align:right;"
+            f"margin-top:-2px;margin-bottom:4px;'>updated {last_refresh}</div>",
+            unsafe_allow_html=True,
+        )
+
+    # 직접 입력 모드: 텍스트박스
+    if selected_option == "직접 입력":
+        custom_input = st.text_input(
+            "티커 입력",
+            value=st.session_state.get('custom_ticker_input', ''),
+            placeholder="예: NVDA, 000660",
+            label_visibility="collapsed",
+        )
+        new_val = custom_input.strip().upper()
+        if new_val != st.session_state.get('custom_ticker_input', ''):
+            st.session_state.custom_ticker_input = new_val
+            st.rerun()
+
+
+# ====================================================
+# 19. 메인  [v3] — 풀폭 레이아웃
 # ====================================================
 def main() -> None:
     init_session_state()
@@ -3190,7 +3338,10 @@ def main() -> None:
         st.session_state['dd_info_cache'] = None
         st.session_state['equity_series_cache'] = None
 
+    # CSS 주입
     st.markdown(build_css(selected_option, holding_tickers), unsafe_allow_html=True)
+
+    # ── 페이지 헤더 ──
     KST = datetime.timezone(datetime.timedelta(hours=9))
     queried = datetime.datetime.now(KST).strftime('%Y-%m-%d %H:%M')
     data_lbl = (
@@ -3199,98 +3350,50 @@ def main() -> None:
     )
     st.markdown(
         f"<div style='display:flex;align-items:center;gap:10px;"
-        f"margin-bottom:1px;padding-bottom:1px;'>"
+        f"margin-bottom:6px;padding-bottom:1px;'>"
         f"<b style='font-size:1.15rem;white-space:nowrap;color:#111;'>📊 퀀트 대시보드</b>"
         f"<span style='font-size:10px;color:#999;white-space:nowrap;'>{data_lbl}</span></div>",
         unsafe_allow_html=True,
     )
 
-    btn_col, chart_col = st.columns([1, 6])
-    with btn_col:
-        # #1 보유 우선 → 신호 강도순 → 원본 순서 정렬
-        def _ticker_sort_key(tk: str) -> tuple:
-            sig = st.session_state.ticker_signals.get(tk, 'H')
-            is_holding = tk in holding_tickers
-            return (
-                0 if is_holding else 1,         # 보유 먼저
-                signal_sort_key(sig),            # 신호 강도 (FB2 → ... → FS2)
-                TARGET_TICKERS.index(tk),        # 동률은 원본 순서
-            )
+    # ── [v3] 종목 칩 영역 (상단 풀폭) ──
+    render_ticker_chips(selected_option, holding_tickers, pct_changes)
 
-        sorted_tickers = sorted(TARGET_TICKERS, key=_ticker_sort_key)
+    # ── 메인 콘텐츠 (풀폭) ──
+    if df_daily is not None:
+        render_position_tracker(
+            selected_ticker, df_daily, df_close, portfolio_state, beta, std_resid,
+        )
 
-        for ticker in sorted_tickers:
-            pct = pct_changes.get(ticker, 0)
-            star = "★ " if ticker in holding_tickers else ""
-            if st.button(
-                f"{star}**{display_name(ticker)}**   {pct:+.1f}%",
-                key=f"ticker_btn_{safe_key(ticker)}", use_container_width=True,
-            ):
-                st.session_state.selected_option = ticker
-                st.session_state.custom_ticker_input = ''
-                st.rerun()
-        if st.button(DIRECT_INPUT_LABEL, key="ticker_btn_direct", use_container_width=True):
-            st.session_state.selected_option = DIRECT_INPUT_LABEL
-            st.rerun()
-        if selected_option == DIRECT_INPUT_LABEL:
-            custom_input = st.text_input(
-                "티커", value=st.session_state.get('custom_ticker_input', ''),
-                placeholder="NVDA", label_visibility="collapsed",
-            )
-            new_val = custom_input.strip().upper()
-            if new_val != st.session_state.get('custom_ticker_input', ''):
-                st.session_state.custom_ticker_input = new_val
-                st.rerun()
-        if st.button("🔄 refresh", key="full_refresh_btn", use_container_width=True):
-            with st.spinner("데이터 갱신 중..."):
-                st.cache_data.clear()
-                st.session_state['last_refresh'] = datetime.datetime.now(
-                    datetime.timezone(datetime.timedelta(hours=9))
-                ).strftime('%H:%M:%S')
-            st.rerun()
-        last_refresh = st.session_state.get('last_refresh')
-        if last_refresh:
-            st.markdown(
-                f"<div style='font-size:0.65rem;color:#9ca3af;text-align:center;"
-                f"margin-top:-4px;'>updated {last_refresh}</div>",
-                unsafe_allow_html=True,
-            )
+        with st.spinner("캔들 데이터 로드 중..."):
+            df_ohlc = fetch_ohlc(selected_ticker, analysis_start, candle_type)
+        df_daily_raw = None
+        if candle_type == '주봉':
+            df_raw = fetch_all_data(TARGET_TICKERS, analysis_start, '일봉')
+            if not df_raw.empty:
+                df_raw = df_raw[df_raw.index <= last_trading_date]
+                col_raw = f'{selected_ticker}_Close'
+                if col_raw in df_raw.columns:
+                    result_raw = process_asset_data(
+                        df_raw[[f'{X_ASSET_FIXED}_Close']],
+                        df_raw[[col_raw]], X_ASSET_FIXED, selected_ticker,
+                    )
+                    if result_raw[0] is not None:
+                        df_daily_raw = result_raw[0]
 
-    with chart_col:
-        if df_daily is not None:
-            render_position_tracker(
-                selected_ticker, df_daily, df_close, portfolio_state, beta, std_resid,
-            )
+        render_chart(
+            df_daily, selected_ticker, beta, std_resid,
+            cfg['guide_n'], st.session_state.view_months, df_ohlc, df_daily_raw,
+        )
+    elif selected_option == DIRECT_INPUT_LABEL:
+        if not st.session_state.get('custom_ticker_input', ''):
+            st.info("위에서 티커를 입력해 주세요. (예: NVDA, 000660)")
+        else:
+            st.error(f"'{st.session_state.custom_ticker_input}' 데이터를 가져올 수 없습니다.")
+    elif selected_ticker:
+        st.error("분석에 필요한 데이터가 부족합니다.")
 
-            with st.spinner("캔들 데이터 로드 중..."):
-                df_ohlc = fetch_ohlc(selected_ticker, analysis_start, candle_type)
-            df_daily_raw = None
-            if candle_type == '주봉':
-                df_raw = fetch_all_data(TARGET_TICKERS, analysis_start, '일봉')
-                if not df_raw.empty:
-                    df_raw = df_raw[df_raw.index <= last_trading_date]
-                    col_raw = f'{selected_ticker}_Close'
-                    if col_raw in df_raw.columns:
-                        result_raw = process_asset_data(
-                            df_raw[[f'{X_ASSET_FIXED}_Close']],
-                            df_raw[[col_raw]], X_ASSET_FIXED, selected_ticker,
-                        )
-                        if result_raw[0] is not None:
-                            df_daily_raw = result_raw[0]
-
-            render_chart(
-                df_daily, selected_ticker, beta, std_resid,
-                cfg['guide_n'], st.session_state.view_months, df_ohlc, df_daily_raw,
-            )
-        elif selected_option == DIRECT_INPUT_LABEL:
-            if not st.session_state.get('custom_ticker_input', ''):
-                st.info("왼쪽에서 티커를 입력해 주세요. (예: NVDA, 000660)")
-            else:
-                st.error(f"'{st.session_state.custom_ticker_input}' 데이터를 가져올 수 없습니다.")
-        elif selected_ticker:
-            st.error("분석에 필요한 데이터가 부족합니다.")
-
-    # 분석 패널 (#1, #2, #5) — chart_col 밖 별도 행, 80px 첫 컬럼 제약 회피
+    # 분석 패널
     if df_daily is not None and selected_ticker:
         st.markdown(
             "<div data-analytics-panel style='margin-top:8px;'></div>",
