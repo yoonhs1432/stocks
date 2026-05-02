@@ -2485,6 +2485,44 @@ def render_analytics_panel(
                     unsafe_allow_html=True,
                 )
 
+                # ── 현재가 / 평균단가 정보 카드 ──
+                price_info_html = (
+                    "<div style='display:flex;gap:12px;padding:6px 10px;"
+                    "background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;"
+                    "margin-bottom:8px;font-size:0.78rem;'>"
+                    f"<div style='flex:1;'>"
+                    f"<div style='color:#6b7280;font-size:0.65rem;'>★ 현재가</div>"
+                    f"<div style='color:#ec4899;font-weight:700;'>${cur_price:,.2f}</div>"
+                    f"</div>"
+                )
+                if avg_price:
+                    ret_pct = (cur_price - avg_price) / avg_price * 100
+                    ret_color = pnl_color(ret_pct)
+                    price_info_html += (
+                        f"<div style='flex:1;'>"
+                        f"<div style='color:#6b7280;font-size:0.65rem;'>● 평균단가</div>"
+                        f"<div style='color:#374151;font-weight:700;'>${avg_price:,.2f}</div>"
+                        f"</div>"
+                        f"<div style='flex:1;'>"
+                        f"<div style='color:#6b7280;font-size:0.65rem;'>평균대비</div>"
+                        f"<div style='color:{ret_color};font-weight:700;'>"
+                        f"{signed_str(ret_pct, '{:.1f}')}%</div>"
+                        f"</div>"
+                    )
+                # 회귀선(추세) 가격 추가
+                trend_diff_pct = (trend_price / cur_price - 1) * 100
+                trend_color = pnl_color(-trend_diff_pct)  # 추세가 더 높으면 매수 우호=빨강
+                price_info_html += (
+                    f"<div style='flex:1;'>"
+                    f"<div style='color:#6b7280;font-size:0.65rem;'>회귀선</div>"
+                    f"<div style='color:#374151;font-weight:700;'>${trend_price:,.2f}</div>"
+                    f"<div style='color:{trend_color};font-size:0.6rem;'>"
+                    f"{signed_str(trend_diff_pct, '{:.1f}')}%</div>"
+                    f"</div>"
+                    f"</div>"
+                )
+                st.markdown(price_info_html, unsafe_allow_html=True)
+
                 # ── 통합 매매가 테이블 ──
                 # 각 신호별: σ 가격 + 분위 가격 + 추천가(평균) + 신뢰도
                 # 분위 매핑: σ ≈ 정규분포의 분위와 비슷하게 잡음
@@ -2521,10 +2559,14 @@ def render_analytics_panel(
                     f"<th style='padding:3px;'>{ref_label}대비</th>"
                     "<th style='padding:3px;'>신뢰</th></tr>"
                 ]
+
+                # ── 모든 행을 (price, html) 튜플로 모은 뒤 가격순 정렬 ──
+                table_rows = []  # [(price, html_str), ...]
+
+                # 신호별 행
                 for label, c, sigma_k, quantile_q in signal_specs:
                     p_sigma = _price_at_sigma(sigma_k)
                     p_quantile = _price_at_quantile(quantile_q)
-                    # 추천가 = σ + 분위의 평균 (둘 다 있을 때), 한쪽만 있으면 그것
                     if p_quantile is not None:
                         p_reco = (p_sigma + p_quantile) / 2
                     else:
@@ -2535,7 +2577,7 @@ def render_analytics_panel(
                     quantile_str = (
                         f"${p_quantile:,.2f}" if p_quantile is not None else "-"
                     )
-                    tbl.append(
+                    row_html = (
                         f"<tr style='{bg}'>"
                         f"<td style='padding:3px;'>"
                         f"<span style='background:{c};color:#fff;padding:1px 4px;"
@@ -2549,6 +2591,53 @@ def render_analytics_panel(
                         f"{_confidence_stars(p_sigma, p_quantile)}</td>"
                         f"</tr>"
                     )
+                    table_rows.append((p_reco, row_html))
+
+                # ── 현재가 행 (별표 + 핑크 강조) ──
+                cur_pct_ref = (cur_price - ref_price) / ref_price * 100
+                cur_pct_color = pnl_color(cur_pct_ref) if avg_price else '#ec4899'
+                cur_row_html = (
+                    f"<tr style='background:#fdf2f8;border-top:1.5px dashed #ec4899;"
+                    f"border-bottom:1.5px dashed #ec4899;'>"
+                    f"<td style='padding:5px 3px;'>"
+                    f"<span style='background:#ec4899;color:#fff;padding:1px 5px;"
+                    f"border-radius:3px;font-size:0.6rem;font-weight:700;'>★ 현재가</span>"
+                    f"<div style='color:#9ca3af;font-size:0.55rem;'>{cur_sigma:+.2f}σ</div></td>"
+                    f"<td style='padding:5px 3px;text-align:center;color:#9ca3af;'>-</td>"
+                    f"<td style='padding:5px 3px;text-align:center;color:#9ca3af;'>-</td>"
+                    f"<td style='padding:5px 3px;text-align:center;font-weight:700;color:#ec4899;'>"
+                    f"${cur_price:,.2f}</td>"
+                    f"<td style='padding:5px 3px;text-align:center;color:{cur_pct_color};font-weight:700;'>"
+                    f"{signed_str(cur_pct_ref, '{:.1f}')}%</td>"
+                    f"<td style='padding:5px 3px;text-align:center;'></td>"
+                    f"</tr>"
+                )
+                table_rows.append((cur_price, cur_row_html))
+
+                # ── 평균단가 행 (보유 시) ──
+                if avg_price:
+                    avg_sigma_val = _price_to_sigma(avg_price)
+                    avg_row_html = (
+                        f"<tr style='background:#f3f4f6;'>"
+                        f"<td style='padding:5px 3px;'>"
+                        f"<span style='background:#6b7280;color:#fff;padding:1px 5px;"
+                        f"border-radius:3px;font-size:0.6rem;font-weight:700;'>● 평균단가</span>"
+                        f"<div style='color:#9ca3af;font-size:0.55rem;'>{avg_sigma_val:+.2f}σ</div></td>"
+                        f"<td style='padding:5px 3px;text-align:center;color:#9ca3af;'>-</td>"
+                        f"<td style='padding:5px 3px;text-align:center;color:#9ca3af;'>-</td>"
+                        f"<td style='padding:5px 3px;text-align:center;font-weight:700;color:#374151;'>"
+                        f"${avg_price:,.2f}</td>"
+                        f"<td style='padding:5px 3px;text-align:center;color:#6b7280;'>0.0%</td>"
+                        f"<td style='padding:5px 3px;text-align:center;'></td>"
+                        f"</tr>"
+                    )
+                    table_rows.append((avg_price, avg_row_html))
+
+                # ── 가격 내림차순 정렬 (높은 가격 = 위, 익절 영역이 위쪽) ──
+                # 익절 영역이 위쪽에 오도록 내림차순
+                table_rows.sort(key=lambda x: -x[0])
+                for _, html in table_rows:
+                    tbl.append(html)
                 tbl.append("</table>")
                 st.markdown("".join(tbl), unsafe_allow_html=True)
                 st.caption(
