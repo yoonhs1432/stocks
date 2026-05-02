@@ -2373,7 +2373,8 @@ def build_action_card_html(
         return float(np.log(p / trend_price) / std_resid)
 
     def _sigma_to_pct(sigma: float) -> tuple[float, bool]:
-        pct = (sigma + 2) / 4 * 100
+        # ±3σ → 0~100%
+        pct = (sigma + 3) / 6 * 100
         is_outside = pct < 0 or pct > 100
         return float(max(0, min(100, pct))), is_outside
 
@@ -2393,17 +2394,23 @@ def build_action_card_html(
         else:
             return ("translateX(-50%)", "center")
 
-    # ── 위치 bar HTML ──
+    # ── 위치 bar HTML (±3σ 범위) ──
+    # σ 위치: -3=0%, -2=16.67%, -1.5=25%, -1=33.33%, 0=50%,
+    #         +1=66.67%, +1.5=75%, +2=83.33%, +3=100%
     bar_html = (
         "<div style='position:relative;height:38px;margin:6px 8px 14px 8px;'>"
         "<div style='position:absolute;top:18px;left:0;right:0;height:8px;"
         "border-radius:4px;"
         "background:linear-gradient(to right,"
-        "#7f1d1d 0%,#dc2626 12.5%,#fca5a5 25%,"
+        "#450a0a 0%,#7f1d1d 16.67%,#dc2626 25%,#fca5a5 33.33%,"
         "#e5e7eb 50%,"
-        "#93c5fd 75%,#2563eb 87.5%,#1e3a8a 100%);'></div>"
+        "#93c5fd 66.67%,#2563eb 75%,#1e3a8a 83.33%,#172554 100%);'></div>"
     )
-    sigma_marks = [(0, '-2σ'), (25, '-1σ'), (50, '추세'), (75, '+1σ'), (100, '+2σ')]
+    sigma_marks = [
+        (0, '-3σ'), (16.67, '-2σ'), (33.33, '-1σ'),
+        (50, '추세'),
+        (66.67, '+1σ'), (83.33, '+2σ'), (100, '+3σ'),
+    ]
     for pos, lbl in sigma_marks:
         bar_html += (
             f"<div style='position:absolute;left:{pos}%;top:28px;"
@@ -2413,8 +2420,8 @@ def build_action_card_html(
     if avg_pct_bar is not None:
         avg_tf, avg_ta = _label_align(avg_pct_bar)
         out_arrow = (
-            " ◀" if avg_sigma is not None and avg_sigma < -2
-            else " ▶" if avg_sigma is not None and avg_sigma > 2
+            " ◀" if avg_sigma is not None and avg_sigma < -3
+            else " ▶" if avg_sigma is not None and avg_sigma > 3
             else ""
         )
         bar_html += (
@@ -2432,8 +2439,8 @@ def build_action_card_html(
         )
     cur_tf, cur_ta = _label_align(cur_pct_bar)
     cur_out_arrow = (
-        " ◀" if cur_outside and cur_sigma < -2
-        else " ▶" if cur_outside and cur_sigma > 2
+        " ◀" if cur_outside and cur_sigma < -3
+        else " ▶" if cur_outside and cur_sigma > 3
         else ""
     )
     bar_html += (
@@ -2456,7 +2463,7 @@ def build_action_card_html(
             # 매수 마커 (빨강 점)
             buy_sigma = _price_to_sigma(cyc['avg_buy'])
             buy_pct, buy_outside = _sigma_to_pct(buy_sigma)
-            if not buy_outside or (-2.5 <= buy_sigma <= 2.5):
+            if not buy_outside or (-3.5 <= buy_sigma <= 3.5):
                 # 약간 범위 밖이라도 표시. ± 2.5σ 초과는 생략
                 bar_html += (
                     f"<div style='position:absolute;left:{buy_pct:.1f}%;top:17px;"
@@ -2471,7 +2478,7 @@ def build_action_card_html(
             if cyc['avg_sell'] is not None:
                 sell_sigma = _price_to_sigma(cyc['avg_sell'])
                 sell_pct, sell_outside = _sigma_to_pct(sell_sigma)
-                if not sell_outside or (-2.5 <= sell_sigma <= 2.5):
+                if not sell_outside or (-3.5 <= sell_sigma <= 3.5):
                     bar_html += (
                         f"<div style='position:absolute;left:{sell_pct:.1f}%;top:17px;"
                         f"transform:translateX(-50%);width:10px;height:10px;"
