@@ -2411,6 +2411,95 @@ def render_analytics_panel(
                     ("FS 익절",  sell_15, '#2563eb', '+1.5σ'),
                     ("FS2 익절", sell_2, '#1e3a8a', '+2σ'),
                 ]
+
+                # ── 위치 시각화 bar (현재가 + 평균단가) ──
+                # log space에서 -2σ ~ +2σ를 0~100%로 매핑
+                ts = portfolio_state.get(selected_ticker)
+                avg_price = None
+                if ts and ts['cycle']['hold_qty'] > 0 and ts['cycle']['buy_qty'] > 0:
+                    avg_price = ts['cycle']['buy_cost'] / ts['cycle']['buy_qty']
+
+                # 가격 → bar 위치 (%) 변환: log(price/trend) / std_resid 가 sigma값
+                # bar 범위: -2σ ~ +2σ → 0 ~ 100%
+                def _price_to_pct(p: float) -> float:
+                    if p <= 0 or trend_price <= 0:
+                        return 50.0
+                    sigma = np.log(p / trend_price) / std_resid
+                    pct = (sigma + 2) / 4 * 100   # -2σ→0%, +2σ→100%
+                    return float(max(-5, min(105, pct)))   # clip with margin
+
+                cur_pct = _price_to_pct(cur_price)
+                avg_pct = _price_to_pct(avg_price) if avg_price else None
+
+                # bar 그라디언트: 진입 영역(빨강) → 회귀선(회색) → 익절 영역(파랑)
+                bar_html = (
+                    "<div style='position:relative;height:32px;margin:6px 0 14px 0;'>"
+                    # 배경 그라디언트 bar
+                    "<div style='position:absolute;top:13px;left:0;right:0;height:8px;"
+                    "border-radius:4px;"
+                    "background:linear-gradient(to right,"
+                    "#7f1d1d 0%,#dc2626 12.5%,#fca5a5 25%,"
+                    "#e5e7eb 50%,"
+                    "#93c5fd 75%,#2563eb 87.5%,#1e3a8a 100%);'></div>"
+                )
+                # 시그마 눈금 라벨 (-2, -1.5, -1, 0, +1, +1.5, +2)
+                sigma_marks = [(0, '-2σ'), (12.5, '-1.5σ'), (25, '-1σ'),
+                               (50, '추세'), (75, '+1σ'), (87.5, '+1.5σ'), (100, '+2σ')]
+                for pos, lbl in sigma_marks:
+                    bar_html += (
+                        f"<div style='position:absolute;left:{pos}%;top:23px;"
+                        f"transform:translateX(-50%);font-size:0.55rem;"
+                        f"color:#9ca3af;'>{lbl}</div>"
+                    )
+
+                # 평균단가 마커 (회색 동그라미, 보유 중일 때만)
+                if avg_pct is not None:
+                    bar_html += (
+                        f"<div style='position:absolute;left:{avg_pct:.1f}%;top:8px;"
+                        f"transform:translateX(-50%);width:18px;height:18px;"
+                        f"border-radius:50%;background:#fff;border:2.5px solid #6b7280;"
+                        f"box-shadow:0 1px 3px rgba(0,0,0,0.3);z-index:2;' "
+                        f"title='평균단가 ${avg_price:.2f}'></div>"
+                        f"<div style='position:absolute;left:{avg_pct:.1f}%;top:0;"
+                        f"transform:translateX(-50%);font-size:0.58rem;"
+                        f"font-weight:700;color:#374151;white-space:nowrap;'>"
+                        f"평균 ${avg_price:.2f}</div>"
+                    )
+
+                # 현재가 마커 (별표, 핫핑크)
+                bar_html += (
+                    f"<div style='position:absolute;left:{cur_pct:.1f}%;top:6px;"
+                    f"transform:translateX(-50%);width:22px;height:22px;"
+                    f"display:flex;align-items:center;justify-content:center;"
+                    f"font-size:18px;color:#ec4899;text-shadow:0 0 3px #fff,0 0 3px #fff;"
+                    f"z-index:3;' title='현재가 ${cur_price:.2f}'>★</div>"
+                )
+                bar_html += "</div>"
+                st.markdown(bar_html, unsafe_allow_html=True)
+
+                # 위치 해석 한 줄
+                cur_sigma = (cur_pct - 50) / 100 * 4   # 0~100 → -2~+2
+                if cur_sigma <= -1.5:
+                    interp = f"🔴 매우 과매도 영역 ({cur_sigma:+.1f}σ)"
+                    interp_c = '#b91c1c'
+                elif cur_sigma <= -0.5:
+                    interp = f"🟠 과매도 ({cur_sigma:+.1f}σ)"
+                    interp_c = '#dc2626'
+                elif cur_sigma >= 1.5:
+                    interp = f"🔵 매우 과매수 영역 ({cur_sigma:+.1f}σ)"
+                    interp_c = '#1e3a8a'
+                elif cur_sigma >= 0.5:
+                    interp = f"🟦 과매수 ({cur_sigma:+.1f}σ)"
+                    interp_c = '#2563eb'
+                else:
+                    interp = f"⚪ 회귀선 부근 ({cur_sigma:+.1f}σ)"
+                    interp_c = '#6b7280'
+                st.markdown(
+                    f"<div style='font-size:0.7rem;color:{interp_c};font-weight:600;"
+                    f"margin-bottom:6px;'>현재 위치: {interp}</div>",
+                    unsafe_allow_html=True,
+                )
+
                 tbl = ["<table style='width:100%;font-size:0.72rem;border-collapse:collapse;'>"]
                 tbl.append(
                     "<tr style='color:#6b7280;border-bottom:1px solid #e5e7eb;'>"
@@ -2647,6 +2736,30 @@ def build_css(selected_option: str, holding_tickers: set) -> str:
         {{ color:inherit!important; }}
     section[data-testid="stMain"] div[data-testid="stColumn"]:first-child button strong
         {{ font-weight:700!important; }}
+    /* #19 줌 라디오 - 가로 5개 버튼 형태로 */
+    div.st-key-zoom_radio div[role="radiogroup"] {{
+        display:flex!important; gap:4px!important; flex-wrap:nowrap!important;
+        width:100%!important;
+    }}
+    div.st-key-zoom_radio div[role="radiogroup"] > label {{
+        flex:1 1 0!important; margin:0!important; padding:4px 0!important;
+        text-align:center!important; cursor:pointer!important;
+        background:#f8fafc!important; border:1px solid #cbd5e1!important;
+        border-radius:4px!important; font-size:0.7rem!important;
+        font-weight:600!important; color:#475569!important;
+        transition:all 0.1s!important;
+    }}
+    div.st-key-zoom_radio div[role="radiogroup"] > label:has(input:checked) {{
+        background:#dc2626!important; border-color:#dc2626!important;
+        color:#fff!important;
+    }}
+    /* 라디오 동그라미 숨기기 */
+    div.st-key-zoom_radio div[role="radiogroup"] > label > div:first-child {{
+        display:none!important;
+    }}
+    div.st-key-zoom_radio div[role="radiogroup"] > label > div {{
+        text-align:center!important; width:100%!important;
+    }}
     {''.join(btn_parts)}
     </style>"""
 
@@ -2875,21 +2988,31 @@ def main() -> None:
                         if result_raw[0] is not None:
                             df_daily_raw = result_raw[0]
 
-            # ── #19 차트 줌 프리셋 ──
+            # ── #19 차트 줌 프리셋 (horizontal radio로 처리) ──
             zoom_presets = [('1M', 1), ('3M', 3), ('6M', 6), ('1Y', 12), ('전체', 240)]
-            zoom_cols = st.columns(len(zoom_presets))
+            zoom_labels = [p[0] for p in zoom_presets]
+            zoom_map = dict(zoom_presets)
             current_view = st.session_state.view_months
-            for zc, (zlabel, zmonths) in zip(zoom_cols, zoom_presets):
-                is_active = current_view == zmonths
-                if zc.button(
-                    zlabel, key=f"zoom_{zlabel}", use_container_width=True,
-                    type="primary" if is_active else "secondary",
-                ):
-                    st.session_state.view_months = zmonths
-                    s = load_settings()
-                    s['view_months'] = zmonths
-                    save_settings(s)
-                    st.rerun()
+            # 현재 view_months에 가장 가까운 프리셋을 활성으로
+            current_label = next(
+                (lbl for lbl, m in zoom_presets if m == current_view),
+                zoom_labels[1],  # 기본 3M
+            )
+            zoom_choice = st.radio(
+                "차트 기간",
+                zoom_labels,
+                index=zoom_labels.index(current_label),
+                horizontal=True,
+                key="zoom_radio",
+                label_visibility="collapsed",
+            )
+            new_months = zoom_map[zoom_choice]
+            if new_months != current_view:
+                st.session_state.view_months = new_months
+                s = load_settings()
+                s['view_months'] = new_months
+                save_settings(s)
+                st.rerun()
 
             render_chart(
                 df_daily, selected_ticker, beta, std_resid,
