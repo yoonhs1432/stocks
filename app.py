@@ -1571,7 +1571,7 @@ def render_sidebar(
             unsafe_allow_html=True,
         )
 
-        # ── #15 포트폴리오 자산 시계열 미니 차트 ──
+        # ── #15 포트폴리오 자산 시계열 미니 차트 (view_months와 동기화) ──
         equity_series = st.session_state.get('equity_series_cache')
         if equity_series is not None and not equity_series.empty:
             seed_usd = CFG.SEED_KRW / usd_krw
@@ -1581,8 +1581,16 @@ def render_sidebar(
             portfolio_krw = portfolio_value * usd_krw / 10000  # 만원 단위
             seed_krw = CFG.SEED_KRW / 10000
 
+            # ── 메인 차트 view_months와 동기화 ──
+            view_months = st.session_state.get('view_months', 12)
+            view_start = portfolio_krw.index[-1] - pd.DateOffset(months=view_months)
+            portfolio_view = portfolio_krw[portfolio_krw.index >= view_start]
+            # 데이터가 너무 적으면 전체 사용
+            if len(portfolio_view) < 2:
+                portfolio_view = portfolio_krw
+
             # 색상: 현재 시드 대비 수익/손실
-            cur_val = float(portfolio_krw.iloc[-1])
+            cur_val = float(portfolio_view.iloc[-1])
             line_color = '#b91c1c' if cur_val >= seed_krw else '#1d4ed8'
             fill_color = (
                 'rgba(185,28,28,0.1)' if cur_val >= seed_krw
@@ -1592,7 +1600,7 @@ def render_sidebar(
             fig_eq = go.Figure()
             # 자산 시계열
             fig_eq.add_trace(go.Scatter(
-                x=portfolio_krw.index, y=portfolio_krw.values,
+                x=portfolio_view.index, y=portfolio_view.values,
                 mode='lines', line=dict(color=line_color, width=1.5),
                 fill='tozeroy', fillcolor=fill_color,
                 hovertemplate='%{x|%y.%m.%d}<br>%{y:.0f}만원<extra></extra>',
@@ -1605,26 +1613,32 @@ def render_sidebar(
                 annotation_position="bottom right",
                 annotation_font=dict(size=9, color='#6b7280'),
             )
-            # 고점 라인 (MDD 시각화)
-            running_max = portfolio_krw.cummax()
+            # 고점 라인 (MDD 시각화) - view 범위 내에서만
+            running_max = portfolio_view.cummax()
             fig_eq.add_trace(go.Scatter(
                 x=running_max.index, y=running_max.values,
                 mode='lines', line=dict(color='#9ca3af', width=0.8, dash='dash'),
                 hoverinfo='skip', showlegend=False,
             ))
 
-            y_min = min(portfolio_krw.min(), seed_krw) * 0.97
-            y_max = max(portfolio_krw.max(), seed_krw) * 1.03
+            y_min = min(portfolio_view.min(), seed_krw) * 0.97
+            y_max = max(portfolio_view.max(), seed_krw) * 1.03
+
+            # 기간 라벨 (자산 추이 옆에 작게)
+            zoom_label_map = {1: '1M', 3: '3M', 6: '6M', 12: '1Y', 240: '전체'}
+            period_label = zoom_label_map.get(view_months, f'{view_months}M')
+
             fig_eq.update_layout(
                 height=110,
                 margin=dict(l=2, r=4, t=20, b=2),
                 xaxis=dict(showgrid=False, tickfont=dict(size=8),
-                           tickformat='%y.%m', nticks=4),
+                           tickformat='%y.%m', nticks=4,
+                           range=[portfolio_view.index[0], portfolio_view.index[-1]]),
                 yaxis=dict(showgrid=True, gridcolor='rgba(156,163,175,0.2)',
                            tickfont=dict(size=8), range=[y_min, y_max],
                            ticksuffix='만'),
                 paper_bgcolor='white', plot_bgcolor='white',
-                title=dict(text='💼 자산 추이', x=0.02, y=0.95,
+                title=dict(text=f'💼 자산 추이 ({period_label})', x=0.02, y=0.95,
                            font=dict(size=10, color='#6b7280')),
             )
             st.plotly_chart(fig_eq, use_container_width=True,
@@ -2366,7 +2380,7 @@ def render_analytics_panel(
             )
             st.markdown(html, unsafe_allow_html=True)
 
-    # ── #20 진입/익절 가격 제안 ──
+    # ── #20 진입/익절 가격 제안 (σ + 역사적 분위 통합) ──
     if (df_daily is not None and not df_daily.empty
             and beta is not None and std_resid is not None):
         with st.expander("🎯 매매가 제안", expanded=False):
@@ -2376,65 +2390,53 @@ def render_analytics_panel(
             else:
                 cur_price = float(df_daily[close_col].iloc[-1])
                 cur_predicted = float(df_daily['Predicted'].iloc[-1])
-                # 현재 시점의 회귀선 + 표준편차 밴드 (선형이 아닌 로그 잔차 기준)
-                # log_y_predicted ± k*std → exp 변환
-                base_close = df_daily[close_col].iloc[0]
-                base_norm_pred = cur_predicted  # already normalized
-                # 가격 변환: norm * base_close = price. base_y는 첫 값이 1
-                # cur_predicted가 norm space의 예측값.
-                # 실제 가격 = norm_pred * close_at_t0
-                # 더 간단: 회귀선 가격 = close * (predicted / current_norm)
                 cur_norm_y = float(df_daily[f'{selected_ticker}_Norm'].iloc[-1])
                 trend_price = cur_price * (cur_predicted / cur_norm_y)
 
+                # ── σ 기반 가격 (회귀 모델) ──
                 def _price_at_sigma(k: float) -> float:
                     return trend_price * np.exp(k * std_resid)
 
-                buy_2 = _price_at_sigma(-2.0)
-                buy_15 = _price_at_sigma(-1.5)
-                buy_1 = _price_at_sigma(-1.0)
-                sell_1 = _price_at_sigma(1.0)
-                sell_15 = _price_at_sigma(1.5)
-                sell_2 = _price_at_sigma(2.0)
+                # ── 분위 기반 가격 (실증) ──
+                # 과거 Z-score가 특정 분위였을 때의 가격을 추정.
+                # 방법: log_resid의 분위값 → 그 분위에서의 가격 = trend * exp(log_resid_quantile)
+                log_resid_series = (
+                    np.log(df_daily[f'{selected_ticker}_Norm'])
+                    - np.log(df_daily['Predicted'])
+                ).dropna()
 
-                # 현재가 대비 % 표시
-                def _pct_from_cur(p: float) -> str:
-                    pct = (p / cur_price - 1) * 100
-                    return signed_str(pct, '{:.1f}') + "%"
+                def _price_at_quantile(q: float) -> Optional[float]:
+                    """q는 0~1 (예: 0.10 = 하위 10% 분위)."""
+                    if len(log_resid_series) < 30:
+                        return None
+                    qval = float(log_resid_series.quantile(q))
+                    return trend_price * np.exp(qval)
 
-                rows = [
-                    ("FB2 진입", buy_2, '#7f1d1d', '−2σ'),
-                    ("FB 진입",  buy_15, '#dc2626', '−1.5σ'),
-                    ("B 진입",   buy_1, '#fca5a5', '−1σ'),
-                    ("회귀선",   trend_price, '#6b7280', '추세'),
-                    ("S 익절",   sell_1, '#93c5fd', '+1σ'),
-                    ("FS 익절",  sell_15, '#2563eb', '+1.5σ'),
-                    ("FS2 익절", sell_2, '#1e3a8a', '+2σ'),
-                ]
-
-                # ── 위치 시각화 bar (현재가 + 평균단가) ──
-                # log space에서 -2σ ~ +2σ를 0~100%로 매핑
+                # ── 보유 중 여부 + % 기준점 결정 (#2) ──
                 ts = portfolio_state.get(selected_ticker)
                 avg_price = None
                 if ts and ts['cycle']['hold_qty'] > 0 and ts['cycle']['buy_qty'] > 0:
                     avg_price = ts['cycle']['buy_cost'] / ts['cycle']['buy_qty']
 
-                # 가격 → bar 위치 (%) 변환: log(price/trend) / std_resid 가 sigma값
-                # bar 범위: -2σ ~ +2σ → 0 ~ 100%
+                ref_price = avg_price if avg_price else cur_price
+                ref_label = "평균단가" if avg_price else "현재가"
+
+                def _pct_from_ref(p: float) -> str:
+                    pct = (p / ref_price - 1) * 100
+                    return signed_str(pct, '{:.1f}') + "%"
+
+                # ── 위치 시각화 bar ──
                 def _price_to_pct(p: float) -> float:
                     if p <= 0 or trend_price <= 0:
                         return 50.0
                     sigma = np.log(p / trend_price) / std_resid
-                    pct = (sigma + 2) / 4 * 100   # -2σ→0%, +2σ→100%
-                    return float(max(-5, min(105, pct)))   # clip with margin
+                    return float(max(-5, min(105, (sigma + 2) / 4 * 100)))
 
-                cur_pct = _price_to_pct(cur_price)
-                avg_pct = _price_to_pct(avg_price) if avg_price else None
+                cur_pct_bar = _price_to_pct(cur_price)
+                avg_pct_bar = _price_to_pct(avg_price) if avg_price else None
 
-                # bar 그라디언트: 진입 영역(빨강) → 회귀선(회색) → 익절 영역(파랑)
                 bar_html = (
                     "<div style='position:relative;height:32px;margin:6px 0 14px 0;'>"
-                    # 배경 그라디언트 bar
                     "<div style='position:absolute;top:13px;left:0;right:0;height:8px;"
                     "border-radius:4px;"
                     "background:linear-gradient(to right,"
@@ -2442,90 +2444,125 @@ def render_analytics_panel(
                     "#e5e7eb 50%,"
                     "#93c5fd 75%,#2563eb 87.5%,#1e3a8a 100%);'></div>"
                 )
-                # 시그마 눈금 라벨 (-2, -1.5, -1, 0, +1, +1.5, +2)
-                sigma_marks = [(0, '-2σ'), (12.5, '-1.5σ'), (25, '-1σ'),
-                               (50, '추세'), (75, '+1σ'), (87.5, '+1.5σ'), (100, '+2σ')]
+                sigma_marks = [(0, '-2σ'), (25, '-1σ'), (50, '추세'),
+                               (75, '+1σ'), (100, '+2σ')]
                 for pos, lbl in sigma_marks:
                     bar_html += (
                         f"<div style='position:absolute;left:{pos}%;top:23px;"
                         f"transform:translateX(-50%);font-size:0.55rem;"
                         f"color:#9ca3af;'>{lbl}</div>"
                     )
-
-                # 평균단가 마커 (회색 동그라미, 보유 중일 때만)
-                if avg_pct is not None:
+                if avg_pct_bar is not None:
                     bar_html += (
-                        f"<div style='position:absolute;left:{avg_pct:.1f}%;top:8px;"
+                        f"<div style='position:absolute;left:{avg_pct_bar:.1f}%;top:8px;"
                         f"transform:translateX(-50%);width:18px;height:18px;"
                         f"border-radius:50%;background:#fff;border:2.5px solid #6b7280;"
                         f"box-shadow:0 1px 3px rgba(0,0,0,0.3);z-index:2;' "
                         f"title='평균단가 ${avg_price:.2f}'></div>"
-                        f"<div style='position:absolute;left:{avg_pct:.1f}%;top:0;"
+                        f"<div style='position:absolute;left:{avg_pct_bar:.1f}%;top:0;"
                         f"transform:translateX(-50%);font-size:0.58rem;"
                         f"font-weight:700;color:#374151;white-space:nowrap;'>"
                         f"평균 ${avg_price:.2f}</div>"
                     )
-
-                # 현재가 마커 (별표, 핫핑크)
                 bar_html += (
-                    f"<div style='position:absolute;left:{cur_pct:.1f}%;top:6px;"
+                    f"<div style='position:absolute;left:{cur_pct_bar:.1f}%;top:6px;"
                     f"transform:translateX(-50%);width:22px;height:22px;"
                     f"display:flex;align-items:center;justify-content:center;"
                     f"font-size:18px;color:#ec4899;text-shadow:0 0 3px #fff,0 0 3px #fff;"
                     f"z-index:3;' title='현재가 ${cur_price:.2f}'>★</div>"
+                    "</div>"
                 )
-                bar_html += "</div>"
                 st.markdown(bar_html, unsafe_allow_html=True)
 
                 # 위치 해석 한 줄
-                cur_sigma = (cur_pct - 50) / 100 * 4   # 0~100 → -2~+2
+                cur_sigma = (cur_pct_bar - 50) / 100 * 4
                 if cur_sigma <= -1.5:
-                    interp = f"🔴 매우 과매도 영역 ({cur_sigma:+.1f}σ)"
-                    interp_c = '#b91c1c'
+                    interp, interp_c = f"🔴 매우 과매도 ({cur_sigma:+.1f}σ)", '#b91c1c'
                 elif cur_sigma <= -0.5:
-                    interp = f"🟠 과매도 ({cur_sigma:+.1f}σ)"
-                    interp_c = '#dc2626'
+                    interp, interp_c = f"🟠 과매도 ({cur_sigma:+.1f}σ)", '#dc2626'
                 elif cur_sigma >= 1.5:
-                    interp = f"🔵 매우 과매수 영역 ({cur_sigma:+.1f}σ)"
-                    interp_c = '#1e3a8a'
+                    interp, interp_c = f"🔵 매우 과매수 ({cur_sigma:+.1f}σ)", '#1e3a8a'
                 elif cur_sigma >= 0.5:
-                    interp = f"🟦 과매수 ({cur_sigma:+.1f}σ)"
-                    interp_c = '#2563eb'
+                    interp, interp_c = f"🟦 과매수 ({cur_sigma:+.1f}σ)", '#2563eb'
                 else:
-                    interp = f"⚪ 회귀선 부근 ({cur_sigma:+.1f}σ)"
-                    interp_c = '#6b7280'
+                    interp, interp_c = f"⚪ 회귀선 부근 ({cur_sigma:+.1f}σ)", '#6b7280'
                 st.markdown(
                     f"<div style='font-size:0.7rem;color:{interp_c};font-weight:600;"
                     f"margin-bottom:6px;'>현재 위치: {interp}</div>",
                     unsafe_allow_html=True,
                 )
 
-                tbl = ["<table style='width:100%;font-size:0.72rem;border-collapse:collapse;'>"]
-                tbl.append(
+                # ── 통합 매매가 테이블 ──
+                # 각 신호별: σ 가격 + 분위 가격 + 추천가(평균) + 신뢰도
+                # 분위 매핑: σ ≈ 정규분포의 분위와 비슷하게 잡음
+                #   -2σ ≈ 2.5%분위, -1.5σ ≈ 7%, -1σ ≈ 16%, +1σ ≈ 84%, +1.5σ ≈ 93%, +2σ ≈ 97.5%
+                signal_specs = [
+                    ("FB2 진입", '#7f1d1d', -2.0, 0.025),
+                    ("FB 진입",  '#dc2626', -1.5, 0.07),
+                    ("B 진입",   '#fca5a5', -1.0, 0.16),
+                    ("회귀선",   '#6b7280',  0.0, 0.50),
+                    ("S 익절",   '#93c5fd',  1.0, 0.84),
+                    ("FS 익절",  '#2563eb',  1.5, 0.93),
+                    ("FS2 익절", '#1e3a8a',  2.0, 0.975),
+                ]
+
+                def _confidence_stars(p_sigma: float, p_quantile: Optional[float]) -> str:
+                    """σ 가격과 분위 가격이 비슷할수록 신뢰도 ↑."""
+                    if p_quantile is None:
+                        return "<span style='color:#9ca3af;'>·</span>"
+                    diff_pct = abs(p_sigma - p_quantile) / max(p_sigma, 0.01) * 100
+                    if diff_pct < 3:
+                        return "<span style='color:#16a34a;'>★★★</span>"
+                    elif diff_pct < 8:
+                        return "<span style='color:#ca8a04;'>★★</span>"
+                    else:
+                        return "<span style='color:#9ca3af;'>★</span>"
+
+                tbl = [
+                    "<table style='width:100%;font-size:0.7rem;border-collapse:collapse;'>",
                     "<tr style='color:#6b7280;border-bottom:1px solid #e5e7eb;'>"
                     "<th style='text-align:left;padding:3px;'>구간</th>"
-                    "<th style='padding:3px;'>가격</th>"
-                    "<th style='padding:3px;'>현재가 대비</th></tr>"
-                )
-                for label, p, c, sigma in rows:
-                    is_current = (label == "회귀선")
-                    bg = "background:#fef3c7;" if is_current else ""
+                    "<th style='padding:3px;'>σ가격</th>"
+                    "<th style='padding:3px;'>분위가</th>"
+                    "<th style='padding:3px;'>추천가</th>"
+                    f"<th style='padding:3px;'>{ref_label}대비</th>"
+                    "<th style='padding:3px;'>신뢰</th></tr>"
+                ]
+                for label, c, sigma_k, quantile_q in signal_specs:
+                    p_sigma = _price_at_sigma(sigma_k)
+                    p_quantile = _price_at_quantile(quantile_q)
+                    # 추천가 = σ + 분위의 평균 (둘 다 있을 때), 한쪽만 있으면 그것
+                    if p_quantile is not None:
+                        p_reco = (p_sigma + p_quantile) / 2
+                    else:
+                        p_reco = p_sigma
+                    is_trend = (sigma_k == 0.0)
+                    bg = "background:#fef3c7;" if is_trend else ""
+                    sigma_lbl = f"{sigma_k:+.1f}σ" if not is_trend else "추세"
+                    quantile_str = (
+                        f"${p_quantile:,.2f}" if p_quantile is not None else "-"
+                    )
                     tbl.append(
                         f"<tr style='{bg}'>"
                         f"<td style='padding:3px;'>"
-                        f"<span style='background:{c};color:#fff;padding:1px 5px;"
-                        f"border-radius:3px;font-size:0.65rem;font-weight:700;'>{label}</span>"
-                        f"<span style='color:#9ca3af;font-size:0.6rem;'> {sigma}</span></td>"
-                        f"<td style='padding:3px;text-align:center;font-weight:700;'>"
-                        f"${p:,.2f}</td>"
-                        f"<td style='padding:3px;text-align:center;color:#6b7280;'>"
-                        f"{_pct_from_cur(p)}</td>"
+                        f"<span style='background:{c};color:#fff;padding:1px 4px;"
+                        f"border-radius:3px;font-size:0.6rem;font-weight:700;'>{label}</span>"
+                        f"<div style='color:#9ca3af;font-size:0.55rem;'>{sigma_lbl}</div></td>"
+                        f"<td style='padding:3px;text-align:center;color:#6b7280;'>${p_sigma:,.2f}</td>"
+                        f"<td style='padding:3px;text-align:center;color:#6b7280;'>{quantile_str}</td>"
+                        f"<td style='padding:3px;text-align:center;font-weight:700;'>${p_reco:,.2f}</td>"
+                        f"<td style='padding:3px;text-align:center;color:#6b7280;'>{_pct_from_ref(p_reco)}</td>"
+                        f"<td style='padding:3px;text-align:center;font-size:0.65rem;'>"
+                        f"{_confidence_stars(p_sigma, p_quantile)}</td>"
                         f"</tr>"
                     )
                 tbl.append("</table>")
                 st.markdown("".join(tbl), unsafe_allow_html=True)
                 st.caption(
-                    f"회귀선 ${trend_price:,.2f} 기준 ±σ 가격대. β={beta:.2f}, σ={std_resid:.3f}"
+                    f"σ가격: 회귀모델 ±σ × 잔차표준편차 / "
+                    f"분위가: 과거 분위 가격 / "
+                    f"추천가: 두 값 평균 / "
+                    f"★★★ = σ·분위 일치도 높음 (3% 이내)"
                 )
 
     # ── #1 사이클 통계 + #5 진행 게이지 ──
@@ -2742,12 +2779,12 @@ def build_css(selected_option: str, holding_tickers: set) -> str:
         width:100%!important;
     }}
     div.st-key-zoom_radio div[role="radiogroup"] > label {{
-        flex:1 1 0!important; margin:0!important; padding:4px 0!important;
+        flex:1 1 0!important; margin:0!important; padding:8px 0!important;
         text-align:center!important; cursor:pointer!important;
         background:#f8fafc!important; border:1px solid #cbd5e1!important;
-        border-radius:4px!important; font-size:0.7rem!important;
+        border-radius:5px!important; font-size:0.85rem!important;
         font-weight:600!important; color:#475569!important;
-        transition:all 0.1s!important;
+        transition:all 0.1s!important; min-height:36px!important;
     }}
     div.st-key-zoom_radio div[role="radiogroup"] > label:has(input:checked) {{
         background:#dc2626!important; border-color:#dc2626!important;
