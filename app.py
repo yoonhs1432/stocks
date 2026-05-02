@@ -2282,6 +2282,13 @@ def render_position_tracker(
           {html_dash_cell("평가손익")}
           {html_dash_cell("누적실현손익")}
         </div>""", unsafe_allow_html=True)
+        # 액션 카드 (미보유)
+        if (current_price is not None and beta is not None and std_resid is not None):
+            action_card = build_action_card_html(
+                df_daily, selected_ticker, current_price, None, beta, std_resid,
+            )
+            if action_card:
+                st.markdown(action_card, unsafe_allow_html=True)
         return
 
     cyc = ts['cycle']
@@ -2355,6 +2362,292 @@ def render_position_tracker(
       {cumulative_html}
     </div>""", unsafe_allow_html=True)
 
+    # 액션 카드 (보유 중)
+    if current_price is not None and beta is not None and std_resid is not None:
+        action_card = build_action_card_html(
+            df_daily, selected_ticker, current_price,
+            avg_price if hold_qty > 0 else None, beta, std_resid,
+        )
+        if action_card:
+            st.markdown(action_card, unsafe_allow_html=True)
+
+
+# ====================================================
+# 15-B. 액션 카드 빌더 (위치 bar + 액션 카드 + 서브 액션)
+# ====================================================
+def build_action_card_html(
+    df_daily: pd.DataFrame,
+    selected_ticker: str,
+    cur_price: float,
+    avg_price: Optional[float],
+    beta: float,
+    std_resid: float,
+) -> Optional[str]:
+    """그래프 위에 표시할 위치 bar + 액션 카드 통합 HTML.
+
+    None을 반환하면 데이터 부족으로 스킵.
+    """
+    if 'Predicted' not in df_daily.columns:
+        return None
+    norm_col = f'{selected_ticker}_Norm'
+    if norm_col not in df_daily.columns:
+        return None
+    cur_predicted = float(df_daily['Predicted'].iloc[-1])
+    cur_norm_y = float(df_daily[norm_col].iloc[-1])
+    if cur_norm_y <= 0:
+        return None
+    trend_price = cur_price * (cur_predicted / cur_norm_y)
+
+    # log_resid for quantile-based price
+    log_resid_series = (
+        np.log(df_daily[norm_col]) - np.log(df_daily['Predicted'])
+    ).dropna()
+
+    def _price_at_sigma(k: float) -> float:
+        return trend_price * np.exp(k * std_resid)
+
+    def _price_at_quantile(q: float) -> Optional[float]:
+        if len(log_resid_series) < 30:
+            return None
+        return trend_price * np.exp(float(log_resid_series.quantile(q)))
+
+    def _price_to_sigma(p: float) -> float:
+        if p <= 0 or trend_price <= 0:
+            return 0.0
+        return float(np.log(p / trend_price) / std_resid)
+
+    def _sigma_to_pct(sigma: float) -> tuple[float, bool]:
+        pct = (sigma + 2) / 4 * 100
+        is_outside = pct < 0 or pct > 100
+        return float(max(0, min(100, pct))), is_outside
+
+    cur_sigma = _price_to_sigma(cur_price)
+    cur_pct_bar, cur_outside = _sigma_to_pct(cur_sigma)
+    avg_sigma = _price_to_sigma(avg_price) if avg_price else None
+    if avg_sigma is not None:
+        avg_pct_bar, avg_outside = _sigma_to_pct(avg_sigma)
+    else:
+        avg_pct_bar, avg_outside = None, False
+
+    def _label_align(pct: float) -> tuple[str, str]:
+        if pct < 20:
+            return ("translateX(0%)", "left")
+        elif pct > 80:
+            return ("translateX(-100%)", "right")
+        else:
+            return ("translateX(-50%)", "center")
+
+    # ── 위치 bar HTML ──
+    bar_html = (
+        "<div style='position:relative;height:38px;margin:6px 8px 14px 8px;'>"
+        "<div style='position:absolute;top:18px;left:0;right:0;height:8px;"
+        "border-radius:4px;"
+        "background:linear-gradient(to right,"
+        "#7f1d1d 0%,#dc2626 12.5%,#fca5a5 25%,"
+        "#e5e7eb 50%,"
+        "#93c5fd 75%,#2563eb 87.5%,#1e3a8a 100%);'></div>"
+    )
+    sigma_marks = [(0, '-2σ'), (25, '-1σ'), (50, '추세'), (75, '+1σ'), (100, '+2σ')]
+    for pos, lbl in sigma_marks:
+        bar_html += (
+            f"<div style='position:absolute;left:{pos}%;top:28px;"
+            f"transform:translateX(-50%);font-size:0.55rem;"
+            f"color:#9ca3af;'>{lbl}</div>"
+        )
+    if avg_pct_bar is not None:
+        avg_tf, avg_ta = _label_align(avg_pct_bar)
+        out_arrow = (
+            " ◀" if avg_sigma is not None and avg_sigma < -2
+            else " ▶" if avg_sigma is not None and avg_sigma > 2
+            else ""
+        )
+        bar_html += (
+            f"<div style='position:absolute;left:{avg_pct_bar:.1f}%;top:13px;"
+            f"transform:translateX(-50%);width:18px;height:18px;"
+            f"border-radius:50%;background:#fff;border:2.5px solid #6b7280;"
+            f"box-shadow:0 1px 3px rgba(0,0,0,0.3);z-index:2;' "
+            f"title='평균단가 ${avg_price:.2f}'></div>"
+            f"<div style='position:absolute;left:{avg_pct_bar:.1f}%;top:0;"
+            f"transform:{avg_tf};text-align:{avg_ta};font-size:0.6rem;"
+            f"font-weight:700;color:#374151;white-space:nowrap;"
+            f"padding:0 3px;background:rgba(255,255,255,0.85);"
+            f"border-radius:3px;'>"
+            f"평균 ${avg_price:.2f}{out_arrow}</div>"
+        )
+    cur_tf, cur_ta = _label_align(cur_pct_bar)
+    cur_out_arrow = (
+        " ◀" if cur_outside and cur_sigma < -2
+        else " ▶" if cur_outside and cur_sigma > 2
+        else ""
+    )
+    bar_html += (
+        f"<div style='position:absolute;left:{cur_pct_bar:.1f}%;top:11px;"
+        f"transform:translateX(-50%);width:22px;height:22px;"
+        f"display:flex;align-items:center;justify-content:center;"
+        f"font-size:18px;color:#ec4899;text-shadow:0 0 3px #fff,0 0 3px #fff;"
+        f"z-index:3;' title='현재가 ${cur_price:.2f}'>★</div>"
+    )
+    if cur_outside:
+        bar_html += (
+            f"<div style='position:absolute;left:{cur_pct_bar:.1f}%;top:0;"
+            f"transform:{cur_tf};text-align:{cur_ta};font-size:0.6rem;"
+            f"font-weight:700;color:#ec4899;white-space:nowrap;"
+            f"padding:0 3px;background:rgba(255,255,255,0.85);"
+            f"border-radius:3px;'>"
+            f"${cur_price:.2f}{cur_out_arrow}</div>"
+        )
+    bar_html += "</div>"
+
+    # ── 현재 위치 한 줄 ──
+    if cur_sigma <= -1.5:
+        interp, interp_c = f"🔴 매우 과매도 ({cur_sigma:+.1f}σ)", '#b91c1c'
+    elif cur_sigma <= -0.5:
+        interp, interp_c = f"🟠 과매도 ({cur_sigma:+.1f}σ)", '#dc2626'
+    elif cur_sigma >= 1.5:
+        interp, interp_c = f"🔵 매우 과매수 ({cur_sigma:+.1f}σ)", '#1e3a8a'
+    elif cur_sigma >= 0.5:
+        interp, interp_c = f"🟦 과매수 ({cur_sigma:+.1f}σ)", '#2563eb'
+    else:
+        interp, interp_c = f"⚪ 회귀선 부근 ({cur_sigma:+.1f}σ)", '#6b7280'
+    interp_html = (
+        f"<div style='font-size:0.72rem;color:{interp_c};font-weight:600;"
+        f"margin:0 8px 8px 8px;'>현재 위치: {interp}</div>"
+    )
+
+    # ── 액션 카드 ──
+    price_specs = [
+        ("FB2", '#7f1d1d', -2.0, 0.025, 'buy'),
+        ("FB",  '#dc2626', -1.5, 0.07, 'buy'),
+        ("B",   '#fca5a5', -1.0, 0.16, 'buy'),
+        ("S",   '#93c5fd',  1.0, 0.84, 'sell'),
+        ("FS",  '#2563eb',  1.5, 0.93, 'sell'),
+        ("FS2", '#1e3a8a',  2.0, 0.975, 'sell'),
+    ]
+    buy_levels, sell_levels = [], []
+    for label, c, sk, qq, side in price_specs:
+        p_sigma = _price_at_sigma(sk)
+        p_quantile = _price_at_quantile(qq)
+        p_reco = (p_sigma + p_quantile) / 2 if p_quantile is not None else p_sigma
+        if side == 'buy':
+            buy_levels.append((label, p_reco, sk, c))
+        else:
+            sell_levels.append((label, p_reco, sk, c))
+    next_buy = next(
+        ((lbl, p, sk, c) for lbl, p, sk, c in buy_levels if p < cur_price), None,
+    )
+    next_sell = next(
+        ((lbl, p, sk, c) for lbl, p, sk, c in sell_levels if p > cur_price), None,
+    )
+
+    holding = avg_price is not None
+    if cur_sigma <= -1.5:
+        action_text = ("🔥 강한 매수 영역 — 추가매수 적극 검토" if holding
+                       else "🔥 강한 매수 영역 — 신규 진입 검토")
+        action_bg, action_border = '#fef2f2', '#7f1d1d'
+    elif cur_sigma <= -0.5:
+        action_text = ("🟧 매수 영역 — 평균단가 낮출 기회" if holding
+                       else "🟧 매수 영역 — 분할매수 검토")
+        action_bg, action_border = '#fff7ed', '#dc2626'
+    elif cur_sigma >= 1.5:
+        action_text = ("💰 강한 익절 영역 — 일부/전량 매도 검토" if holding
+                       else "🚫 강한 익절 영역 — 신규 진입 부적절")
+        action_bg, action_border = '#eff6ff', '#1e3a8a'
+    elif cur_sigma >= 0.5:
+        action_text = ("🟦 익절 영역 — 일부 매도 검토" if holding
+                       else "⏸ 익절 영역 — 관망")
+        action_bg, action_border = '#eff6ff', '#2563eb'
+    else:
+        action_text = "⏸ 회귀선 부근 — 관망 (트리거 대기)"
+        action_bg, action_border = '#f9fafb', '#9ca3af'
+
+    action_html = (
+        f"<div style='padding:8px 10px;background:{action_bg};"
+        f"border-left:4px solid {action_border};border-radius:6px;"
+        f"margin:0 8px 8px 8px;'>"
+        f"<div style='font-size:0.8rem;font-weight:700;color:#111827;"
+        f"margin-bottom:6px;'>{action_text}</div>"
+        f"<div style='display:flex;gap:8px;font-size:0.7rem;'>"
+    )
+    if next_buy:
+        lbl, p, sk, c = next_buy
+        drop_pct = (p / cur_price - 1) * 100
+        action_html += (
+            f"<div style='flex:1;background:#fff;padding:5px 7px;"
+            f"border-radius:5px;border:1px solid #fecaca;'>"
+            f"<div style='color:#9ca3af;font-size:0.58rem;'>다음 매수</div>"
+            f"<div style='display:flex;align-items:baseline;gap:4px;'>"
+            f"<span style='background:{c};color:#fff;padding:1px 4px;"
+            f"border-radius:3px;font-size:0.55rem;font-weight:700;'>{lbl}</span>"
+            f"<span style='font-weight:700;color:#111827;'>${p:,.2f}</span>"
+            f"</div>"
+            f"<div style='color:#b91c1c;font-size:0.58rem;'>"
+            f"<b>{drop_pct:.1f}%</b> 더 하락 시</div>"
+            f"</div>"
+        )
+    else:
+        action_html += (
+            f"<div style='flex:1;background:#fff;padding:5px 7px;"
+            f"border-radius:5px;border:1px solid #e5e7eb;'>"
+            f"<div style='color:#9ca3af;font-size:0.58rem;'>다음 매수</div>"
+            f"<div style='color:#9ca3af;font-size:0.65rem;'>-2σ보다 낮음</div>"
+            f"</div>"
+        )
+    if next_sell:
+        lbl, p, sk, c = next_sell
+        rise_pct = (p / cur_price - 1) * 100
+        action_html += (
+            f"<div style='flex:1;background:#fff;padding:5px 7px;"
+            f"border-radius:5px;border:1px solid #bfdbfe;'>"
+            f"<div style='color:#9ca3af;font-size:0.58rem;'>다음 익절</div>"
+            f"<div style='display:flex;align-items:baseline;gap:4px;'>"
+            f"<span style='background:{c};color:#fff;padding:1px 4px;"
+            f"border-radius:3px;font-size:0.55rem;font-weight:700;'>{lbl}</span>"
+            f"<span style='font-weight:700;color:#111827;'>${p:,.2f}</span>"
+            f"</div>"
+            f"<div style='color:#1d4ed8;font-size:0.58rem;'>"
+            f"<b>+{rise_pct:.1f}%</b> 상승 시</div>"
+            f"</div>"
+        )
+    else:
+        action_html += (
+            f"<div style='flex:1;background:#fff;padding:5px 7px;"
+            f"border-radius:5px;border:1px solid #e5e7eb;'>"
+            f"<div style='color:#9ca3af;font-size:0.58rem;'>다음 익절</div>"
+            f"<div style='color:#9ca3af;font-size:0.65rem;'>+2σ보다 높음</div>"
+            f"</div>"
+        )
+    action_html += "</div></div>"
+
+    # ── 보유 종목 서브 액션 (조건부) ──
+    sub_html = ""
+    if avg_price:
+        ret_pct_now = (cur_price - avg_price) / avg_price * 100
+        sub_action, sub_color = None, None
+        if ret_pct_now <= -10 and cur_sigma <= -1.0:
+            sub_action = (
+                f"💡 손실 -{abs(ret_pct_now):.0f}% + 과매도 → "
+                f"평균단가 낮추기 좋은 시점"
+            )
+            sub_color = '#b91c1c'
+        elif ret_pct_now >= 20 and cur_sigma >= 0.5:
+            sub_action = (
+                f"💡 수익 +{ret_pct_now:.0f}% + 익절권 → "
+                f"일부 익절로 리스크 축소"
+            )
+            sub_color = '#1d4ed8'
+        elif ret_pct_now >= 50:
+            sub_action = f"💡 수익 +{ret_pct_now:.0f}% — 트레일링 스톱 고려"
+            sub_color = '#1d4ed8'
+        if sub_action:
+            sub_html = (
+                f"<div style='padding:6px 10px;background:#fefce8;"
+                f"border:1px dashed {sub_color};border-radius:5px;"
+                f"margin:0 8px 8px 8px;font-size:0.7rem;color:{sub_color};"
+                f"font-weight:600;'>{sub_action}</div>"
+            )
+
+    return bar_html + interp_html + action_html + sub_html
+
 
 # ====================================================
 # 16. 분석 패널 (#1 사이클 통계 + #2 신호 백테스트 + #5 상관관계)
@@ -2414,300 +2707,14 @@ def render_analytics_panel(
                     pct = (p / ref_price - 1) * 100
                     return signed_str(pct, '{:.1f}') + "%"
 
-                # ── 위치 시각화 bar ──
+                # 표 행에서 σ 표시용 헬퍼
                 def _price_to_sigma(p: float) -> float:
-                    """가격 → σ 단위. clip 없이 실제 sigma 반환."""
                     if p <= 0 or trend_price <= 0:
                         return 0.0
                     return float(np.log(p / trend_price) / std_resid)
-
-                def _sigma_to_pct(sigma: float) -> tuple[float, bool]:
-                    """σ → bar 위치 %. clip된 값 + 범위 밖 여부 반환."""
-                    pct = (sigma + 2) / 4 * 100  # -2σ→0%, +2σ→100%
-                    is_outside = pct < 0 or pct > 100
-                    return float(max(0, min(100, pct))), is_outside
-
                 cur_sigma = _price_to_sigma(cur_price)
-                cur_pct_bar, cur_outside = _sigma_to_pct(cur_sigma)
-                avg_sigma = _price_to_sigma(avg_price) if avg_price else None
-                if avg_sigma is not None:
-                    avg_pct_bar, avg_outside = _sigma_to_pct(avg_sigma)
-                else:
-                    avg_pct_bar, avg_outside = None, False
 
-                bar_html = (
-                    "<div style='position:relative;height:38px;margin:6px 8px 16px 8px;'>"
-                    "<div style='position:absolute;top:18px;left:0;right:0;height:8px;"
-                    "border-radius:4px;"
-                    "background:linear-gradient(to right,"
-                    "#7f1d1d 0%,#dc2626 12.5%,#fca5a5 25%,"
-                    "#e5e7eb 50%,"
-                    "#93c5fd 75%,#2563eb 87.5%,#1e3a8a 100%);'></div>"
-                )
-                sigma_marks = [(0, '-2σ'), (25, '-1σ'), (50, '추세'),
-                               (75, '+1σ'), (100, '+2σ')]
-                for pos, lbl in sigma_marks:
-                    bar_html += (
-                        f"<div style='position:absolute;left:{pos}%;top:28px;"
-                        f"transform:translateX(-50%);font-size:0.55rem;"
-                        f"color:#9ca3af;'>{lbl}</div>"
-                    )
-
-                # 라벨 위치 정렬: 좌측 끝(<20%)이면 우측 정렬, 우측 끝(>80%)이면 좌측 정렬
-                def _label_align(pct: float) -> tuple[str, str]:
-                    """반환: (transform, text-align)"""
-                    if pct < 20:
-                        return ("translateX(0%)", "left")        # 라벨이 마커 오른쪽으로
-                    elif pct > 80:
-                        return ("translateX(-100%)", "right")    # 라벨이 마커 왼쪽으로
-                    else:
-                        return ("translateX(-50%)", "center")    # 가운데 정렬
-
-                if avg_pct_bar is not None:
-                    avg_tf, avg_ta = _label_align(avg_pct_bar)
-                    out_arrow = (
-                        " ◀" if avg_sigma is not None and avg_sigma < -2
-                        else " ▶" if avg_sigma is not None and avg_sigma > 2
-                        else ""
-                    )
-                    bar_html += (
-                        # 평균단가 동그라미 마커
-                        f"<div style='position:absolute;left:{avg_pct_bar:.1f}%;top:13px;"
-                        f"transform:translateX(-50%);width:18px;height:18px;"
-                        f"border-radius:50%;background:#fff;border:2.5px solid #6b7280;"
-                        f"box-shadow:0 1px 3px rgba(0,0,0,0.3);z-index:2;' "
-                        f"title='평균단가 ${avg_price:.2f}'></div>"
-                        # 평균단가 라벨 (위치 정렬 적용)
-                        f"<div style='position:absolute;left:{avg_pct_bar:.1f}%;top:0;"
-                        f"transform:{avg_tf};text-align:{avg_ta};font-size:0.6rem;"
-                        f"font-weight:700;color:#374151;white-space:nowrap;"
-                        f"padding:0 3px;background:rgba(255,255,255,0.85);"
-                        f"border-radius:3px;'>"
-                        f"평균 ${avg_price:.2f}{out_arrow}</div>"
-                    )
-
-                # 현재가 별표 + 라벨
-                cur_tf, cur_ta = _label_align(cur_pct_bar)
-                cur_out_arrow = (
-                    " ◀" if cur_outside and cur_sigma < -2
-                    else " ▶" if cur_outside and cur_sigma > 2
-                    else ""
-                )
-                bar_html += (
-                    f"<div style='position:absolute;left:{cur_pct_bar:.1f}%;top:11px;"
-                    f"transform:translateX(-50%);width:22px;height:22px;"
-                    f"display:flex;align-items:center;justify-content:center;"
-                    f"font-size:18px;color:#ec4899;text-shadow:0 0 3px #fff,0 0 3px #fff;"
-                    f"z-index:3;' title='현재가 ${cur_price:.2f}'>★</div>"
-                )
-                # 현재가 라벨 (별표 위에 작게)
-                if cur_outside:
-                    bar_html += (
-                        f"<div style='position:absolute;left:{cur_pct_bar:.1f}%;top:0;"
-                        f"transform:{cur_tf};text-align:{cur_ta};font-size:0.6rem;"
-                        f"font-weight:700;color:#ec4899;white-space:nowrap;"
-                        f"padding:0 3px;background:rgba(255,255,255,0.85);"
-                        f"border-radius:3px;'>"
-                        f"${cur_price:.2f}{cur_out_arrow}</div>"
-                    )
-                bar_html += "</div>"
-                st.markdown(bar_html, unsafe_allow_html=True)
-
-                # 위치 해석 한 줄
-                if cur_sigma <= -1.5:
-                    interp, interp_c = f"🔴 매우 과매도 ({cur_sigma:+.1f}σ)", '#b91c1c'
-                elif cur_sigma <= -0.5:
-                    interp, interp_c = f"🟠 과매도 ({cur_sigma:+.1f}σ)", '#dc2626'
-                elif cur_sigma >= 1.5:
-                    interp, interp_c = f"🔵 매우 과매수 ({cur_sigma:+.1f}σ)", '#1e3a8a'
-                elif cur_sigma >= 0.5:
-                    interp, interp_c = f"🟦 과매수 ({cur_sigma:+.1f}σ)", '#2563eb'
-                else:
-                    interp, interp_c = f"⚪ 회귀선 부근 ({cur_sigma:+.1f}σ)", '#6b7280'
-                st.markdown(
-                    f"<div style='font-size:0.7rem;color:{interp_c};font-weight:600;"
-                    f"margin-bottom:6px;'>현재 위치: {interp}</div>",
-                    unsafe_allow_html=True,
-                )
-
-                # ── ⭐ 한눈에 액션 카드 ──
-                # 신호별 가격을 미리 계산
-                price_specs_for_action = [
-                    ("FB2 진입", '#7f1d1d', -2.0, 0.025, 'buy'),
-                    ("FB 진입",  '#dc2626', -1.5, 0.07, 'buy'),
-                    ("B 진입",   '#fca5a5', -1.0, 0.16, 'buy'),
-                    ("S 익절",   '#93c5fd',  1.0, 0.84, 'sell'),
-                    ("FS 익절",  '#2563eb',  1.5, 0.93, 'sell'),
-                    ("FS2 익절", '#1e3a8a',  2.0, 0.975, 'sell'),
-                ]
-                buy_levels = []   # (label, price, sigma, color)
-                sell_levels = []
-                for label, c, sk, qq, side in price_specs_for_action:
-                    p_sigma = trend_price * np.exp(sk * std_resid)
-                    if len(log_resid_series) >= 30:
-                        p_quantile = trend_price * np.exp(
-                            float(log_resid_series.quantile(qq))
-                        )
-                        p_reco = (p_sigma + p_quantile) / 2
-                    else:
-                        p_reco = p_sigma
-                    if side == 'buy':
-                        buy_levels.append((label, p_reco, sk, c))
-                    else:
-                        sell_levels.append((label, p_reco, sk, c))
-
-                # 다음 매수 트리거: 현재가보다 낮은 가격 중 가장 가까운 것
-                next_buy = next(
-                    ((lbl, p, sk, c) for lbl, p, sk, c in buy_levels if p < cur_price),
-                    None,
-                )
-                # 다음 익절 트리거: 현재가보다 높은 가격 중 가장 가까운 것
-                next_sell = next(
-                    ((lbl, p, sk, c) for lbl, p, sk, c in sell_levels if p > cur_price),
-                    None,
-                )
-
-                # ── 추천 액션 결정 ──
-                # cur_sigma 기준
-                # σ < -1.5: 강한 매수
-                # -1.5 ≤ σ < -0.5: 분할매수 / 추가매수
-                # -0.5 ≤ σ < 0.5: 관망
-                # 0.5 ≤ σ < 1.5: 일부 익절 검토
-                # σ ≥ 1.5: 강한 익절
-                # 보유 여부에 따라 액션 톤 조정
-                holding = avg_price is not None
-                if cur_sigma <= -1.5:
-                    if holding:
-                        action_text = "🔥 강한 매수 영역 — 추가매수 적극 검토"
-                    else:
-                        action_text = "🔥 강한 매수 영역 — 신규 진입 검토"
-                    action_bg, action_border = '#fef2f2', '#7f1d1d'
-                elif cur_sigma <= -0.5:
-                    action_text = (
-                        "🟧 매수 영역 — 분할매수 검토" if not holding
-                        else "🟧 매수 영역 — 평균단가 낮출 기회"
-                    )
-                    action_bg, action_border = '#fff7ed', '#dc2626'
-                elif cur_sigma >= 1.5:
-                    if holding:
-                        action_text = "💰 강한 익절 영역 — 일부/전량 매도 검토"
-                    else:
-                        action_text = "🚫 강한 익절 영역 — 신규 진입 부적절"
-                    action_bg, action_border = '#eff6ff', '#1e3a8a'
-                elif cur_sigma >= 0.5:
-                    action_text = (
-                        "🟦 익절 영역 — 일부 매도 검토" if holding
-                        else "⏸ 익절 영역 — 관망"
-                    )
-                    action_bg, action_border = '#eff6ff', '#2563eb'
-                else:
-                    action_text = "⏸ 회귀선 부근 — 관망 (트리거 대기)"
-                    action_bg, action_border = '#f9fafb', '#9ca3af'
-
-                # 액션 카드 HTML
-                action_html = (
-                    f"<div style='padding:10px 12px;background:{action_bg};"
-                    f"border-left:4px solid {action_border};border-radius:6px;"
-                    f"margin-bottom:10px;'>"
-                    f"<div style='font-size:0.85rem;font-weight:700;color:#111827;"
-                    f"margin-bottom:6px;'>{action_text}</div>"
-                )
-
-                # 트리거 박스 (좌: 매수, 우: 익절)
-                action_html += "<div style='display:flex;gap:8px;font-size:0.7rem;'>"
-
-                if next_buy:
-                    lbl, p, sk, c = next_buy
-                    drop_pct = (p / cur_price - 1) * 100  # 음수
-                    action_html += (
-                        f"<div style='flex:1;background:#fff;padding:6px 8px;"
-                        f"border-radius:5px;border:1px solid #fecaca;'>"
-                        f"<div style='color:#9ca3af;font-size:0.6rem;'>다음 매수 트리거</div>"
-                        f"<div style='display:flex;align-items:baseline;gap:4px;'>"
-                        f"<span style='background:{c};color:#fff;padding:1px 4px;"
-                        f"border-radius:3px;font-size:0.58rem;font-weight:700;'>{lbl}</span>"
-                        f"<span style='font-weight:700;color:#111827;'>${p:,.2f}</span>"
-                        f"</div>"
-                        f"<div style='color:#b91c1c;font-size:0.6rem;'>"
-                        f"현재가에서 <b>{drop_pct:.1f}%</b> 더 하락 시</div>"
-                        f"</div>"
-                    )
-                else:
-                    action_html += (
-                        f"<div style='flex:1;background:#fff;padding:6px 8px;"
-                        f"border-radius:5px;border:1px solid #e5e7eb;'>"
-                        f"<div style='color:#9ca3af;font-size:0.6rem;'>다음 매수 트리거</div>"
-                        f"<div style='color:#9ca3af;'>현재가가 -2σ보다 낮음</div>"
-                        f"</div>"
-                    )
-
-                if next_sell:
-                    lbl, p, sk, c = next_sell
-                    rise_pct = (p / cur_price - 1) * 100
-                    action_html += (
-                        f"<div style='flex:1;background:#fff;padding:6px 8px;"
-                        f"border-radius:5px;border:1px solid #bfdbfe;'>"
-                        f"<div style='color:#9ca3af;font-size:0.6rem;'>다음 익절 트리거</div>"
-                        f"<div style='display:flex;align-items:baseline;gap:4px;'>"
-                        f"<span style='background:{c};color:#fff;padding:1px 4px;"
-                        f"border-radius:3px;font-size:0.58rem;font-weight:700;'>{lbl}</span>"
-                        f"<span style='font-weight:700;color:#111827;'>${p:,.2f}</span>"
-                        f"</div>"
-                        f"<div style='color:#1d4ed8;font-size:0.6rem;'>"
-                        f"현재가에서 <b>+{rise_pct:.1f}%</b> 상승 시</div>"
-                        f"</div>"
-                    )
-                else:
-                    action_html += (
-                        f"<div style='flex:1;background:#fff;padding:6px 8px;"
-                        f"border-radius:5px;border:1px solid #e5e7eb;'>"
-                        f"<div style='color:#9ca3af;font-size:0.6rem;'>다음 익절 트리거</div>"
-                        f"<div style='color:#9ca3af;'>현재가가 +2σ보다 높음</div>"
-                        f"</div>"
-                    )
-
-                action_html += "</div></div>"
-
-                # ── 보유 중일 때 평균단가 대비 액션 추가 ──
-                if avg_price:
-                    ret_pct_now = (cur_price - avg_price) / avg_price * 100
-                    if ret_pct_now <= -10 and cur_sigma <= -1.0:
-                        sub_action = (
-                            f"💡 손실 -{abs(ret_pct_now):.0f}% + 과매도 → "
-                            f"평균단가 낮추기 좋은 시점"
-                        )
-                        sub_color = '#b91c1c'
-                    elif ret_pct_now >= 20 and cur_sigma >= 0.5:
-                        sub_action = (
-                            f"💡 수익 +{ret_pct_now:.0f}% + 익절권 → "
-                            f"일부 익절로 리스크 축소"
-                        )
-                        sub_color = '#1d4ed8'
-                    elif ret_pct_now >= 50:
-                        sub_action = (
-                            f"💡 수익 +{ret_pct_now:.0f}% — 트레일링 스톱 고려"
-                        )
-                        sub_color = '#1d4ed8'
-                    else:
-                        sub_action = None
-
-                    if sub_action:
-                        action_html_sub = (
-                            f"<div style='padding:6px 10px;background:#fefce8;"
-                            f"border:1px dashed {sub_color};border-radius:5px;"
-                            f"margin:-6px 0 10px 0;font-size:0.72rem;color:{sub_color};"
-                            f"font-weight:600;'>{sub_action}</div>"
-                        )
-                        action_html += action_html_sub
-
-                st.markdown(action_html, unsafe_allow_html=True)
-
-                # ── 통합 매매가 테이블 (전체 가격대 - 보조 참고) ──
-                st.markdown(
-                    "<div style='font-size:0.7rem;color:#6b7280;font-weight:600;"
-                    "margin:4px 0 4px 0;'>📋 전체 가격대 (참고)</div>",
-                    unsafe_allow_html=True,
-                )
+                # ── 통합 매매가 테이블 ──
                 # 각 신호별: σ 가격 + 분위 가격 + 추천가(평균) + 신뢰도
                 # 분위 매핑: σ ≈ 정규분포의 분위와 비슷하게 잡음
                 #   -2σ ≈ 2.5%분위, -1.5σ ≈ 7%, -1σ ≈ 16%, +1σ ≈ 84%, +1.5σ ≈ 93%, +2σ ≈ 97.5%
@@ -3294,16 +3301,28 @@ def main() -> None:
                         if result_raw[0] is not None:
                             df_daily_raw = result_raw[0]
 
-            # ── #19 차트 줌 프리셋 (horizontal radio로 처리) ──
+            # ── #19 차트 줌 프리셋 + 마지막 데이터 일자 ──
             zoom_presets = [('1M', 1), ('3M', 3), ('6M', 6), ('1Y', 12), ('All', 240)]
             zoom_labels = [p[0] for p in zoom_presets]
             zoom_map = dict(zoom_presets)
             current_view = st.session_state.view_months
-            # 현재 view_months에 가장 가까운 프리셋을 활성으로
             current_label = next(
                 (lbl for lbl, m in zoom_presets if m == current_view),
-                zoom_labels[1],  # 기본 3M
+                zoom_labels[1],
             )
+
+            # 마지막 데이터 일자
+            last_data_date = df_daily.index[-1].strftime('%Y-%m-%d')
+            wd_kor = ['월', '화', '수', '목', '금', '토', '일'][df_daily.index[-1].weekday()]
+            data_count = len(df_daily)
+            data_info_html = (
+                f"<div style='text-align:right;font-size:0.62rem;color:#9ca3af;"
+                f"margin:-4px 6px 4px 0;line-height:1.3;'>"
+                f"📅 {last_data_date}({wd_kor}) · {candle_type} · {data_count}개"
+                f"</div>"
+            )
+            st.markdown(data_info_html, unsafe_allow_html=True)
+
             zoom_choice = st.radio(
                 "차트 기간",
                 zoom_labels,
