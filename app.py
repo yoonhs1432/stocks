@@ -2506,10 +2506,12 @@ def build_action_card_html(
             else ""
         )
         bar_html += (
-            f"<div style='position:absolute;left:{avg_pct_bar:.1f}%;top:13px;"
-            f"transform:translateX(-50%);width:18px;height:18px;"
-            f"border-radius:50%;background:#fff;border:2.5px solid #6b7280;"
-            f"box-shadow:0 1px 3px rgba(0,0,0,0.3);z-index:2;' "
+            f"<div style='position:absolute;left:{avg_pct_bar:.1f}%;top:11px;"
+            f"transform:translateX(-50%);width:20px;height:20px;"
+            f"border-radius:50%;background:transparent;"
+            f"border:3px solid #374151;outline:1px solid #000;"
+            f"box-shadow:inset 0 0 0 1px #000,0 1px 3px rgba(0,0,0,0.3);"
+            f"z-index:2;cursor:help;' "
             f"title='평균단가 ${avg_price:.2f}'></div>"
             f"<div style='position:absolute;left:{avg_pct_bar:.1f}%;top:0;"
             f"transform:{avg_tf};text-align:{avg_ta};font-size:0.6rem;"
@@ -2540,14 +2542,15 @@ def build_action_card_html(
         last_score_val = df_daily['Combined_Score'].iloc[-1]
         if pd.notna(last_score_val):
             cur_signal = score_to_signal(int(last_score_val))
-    marker_bg = SIGNAL_MARKER_COLOR.get(cur_signal, '#9ca3af')
+    marker_color = SIGNAL_MARKER_COLOR.get(cur_signal, '#9ca3af')
 
-    # 현재가 ■ 사각형 마커 (매매 신호 색 + 검은 테두리)
+    # 현재가 ■ 사각형 마커 — 투명 + 신호색 굵은 테두리 + 검정 외곽선
     bar_html += (
-        f"<div style='position:absolute;left:{cur_pct_bar:.1f}%;top:13px;"
-        f"transform:translateX(-50%);width:18px;height:18px;"
-        f"background:{marker_bg};border:2px solid #000;"
-        f"box-shadow:0 1px 3px rgba(0,0,0,0.3);"
+        f"<div style='position:absolute;left:{cur_pct_bar:.1f}%;top:11px;"
+        f"transform:translateX(-50%);width:20px;height:20px;"
+        f"background:transparent;border:3px solid {marker_color};"
+        f"outline:1px solid #000;"
+        f"box-shadow:inset 0 0 0 1px #000,0 1px 3px rgba(0,0,0,0.3);"
         f"z-index:3;cursor:help;' "
         f"title='현재가 ${cur_price:.2f} · 신호 {cur_signal}'></div>"
     )
@@ -2828,8 +2831,9 @@ def build_mini_gradient_bar(
 ) -> Optional[str]:
     """탭2용 컴팩트 그라디언트 바.
     - σ 눈금 라벨 없음 (헤더에서 한번만 표시)
-    - 현재가 사각형 마커 (매매 신호 색)
-    - 사이클 매수/매도 마커 (작게)
+    - 현재가 ■ 사각형 마커 (투명 + 신호색 테두리)
+    - 평균단가 ● 원형 마커 (투명 + 회색 테두리, 보유 시)
+    - 사이클 매수/매도 마커 (작은 채움 점)
     """
     if 'Predicted' not in df_daily.columns:
         return None
@@ -2879,7 +2883,7 @@ def build_mini_gradient_bar(
         last_score_val = df_daily['Combined_Score'].iloc[-1]
         if pd.notna(last_score_val):
             cur_signal = score_to_signal(int(last_score_val))
-    marker_bg = SIGNAL_MARKER_COLOR.get(cur_signal, '#9ca3af')
+    marker_color = SIGNAL_MARKER_COLOR.get(cur_signal, '#9ca3af')
 
     # ── bar HTML ──
     # 컨테이너 높이 = bar_height; 그라디언트 두께 6px; 마커 14px
@@ -2938,12 +2942,30 @@ def build_mini_gradient_bar(
                     f"(당시 σ {sigma_val:+.2f})'></div>"
                 )
 
-    # ── 현재가 사각형 마커 (매매 신호 색) ──
+    # ── 평균단가 ● 마커 (보유 시) — 투명 + 굵은 회색 테두리 ──
+    if avg_price is not None and avg_price > 0:
+        avg_sigma_v = _price_to_sigma(avg_price)
+        avg_pct_v, avg_outside_v = _sigma_to_pct(avg_sigma_v)
+        avg_marker_top = (bar_height - 16) // 2
+        bar_html += (
+            f"<div style='position:absolute;left:{avg_pct_v:.1f}%;"
+            f"top:{avg_marker_top}px;"
+            f"transform:translateX(-50%);width:16px;height:16px;"
+            f"border-radius:50%;background:transparent;"
+            f"border:2.5px solid #374151;outline:1px solid #000;"
+            f"box-shadow:inset 0 0 0 1px #000,0 1px 2px rgba(0,0,0,0.3);"
+            f"z-index:2;cursor:help;' "
+            f"title='평균단가 ${avg_price:.2f} · {avg_sigma_v:+.2f}σ'></div>"
+        )
+
+    # ── 현재가 ■ 사각형 마커 — 투명 + 신호색 굵은 테두리 + 검정 외곽선 ──
+    cur_marker_top = (bar_height - 16) // 2
     bar_html += (
-        f"<div style='position:absolute;left:{cur_pct_bar:.1f}%;top:{marker_top}px;"
-        f"transform:translateX(-50%);width:14px;height:14px;"
-        f"background:{marker_bg};border:1.5px solid #000;"
-        f"box-shadow:0 1px 2px rgba(0,0,0,0.3);"
+        f"<div style='position:absolute;left:{cur_pct_bar:.1f}%;top:{cur_marker_top}px;"
+        f"transform:translateX(-50%);width:16px;height:16px;"
+        f"background:transparent;border:2.5px solid {marker_color};"
+        f"outline:1px solid #000;"
+        f"box-shadow:inset 0 0 0 1px #000,0 1px 2px rgba(0,0,0,0.3);"
         f"z-index:3;cursor:help;' "
         f"title='현재가 ${cur_price:.2f} · 신호 {cur_signal} · {cur_sigma:+.2f}σ'></div>"
     )
@@ -3687,7 +3709,8 @@ def main() -> None:
             )
 
         st.caption(
-            "■ 현재가 (색=신호: FB2 짙은빨강 → H 회색 → FS2 짙은파랑) · "
+            "■ 현재가 (테두리색=신호: FB2 짙은빨강 → H 회색 → FS2 짙은파랑) · "
+            "◯ 평균단가 (보유 시) · "
             "● 매수 ● 매도 (당시 σ 기준)"
         )
 
