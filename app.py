@@ -165,29 +165,6 @@ def signed_str(val: float, fmt: str = "{:,.0f}") -> str:
     return f"{sign}{fmt.format(val)}"
 
 
-# ── #2 sparkline ──
-SPARK_BLOCKS = '▁▂▃▄▅▆▇█'
-
-
-def sparkline(values: list, width: int = 8) -> str:
-    """리스트 → unicode block sparkline 문자열."""
-    if not values or len(values) < 2:
-        return ' ' * width
-    vals = [v for v in values if v is not None and not pd.isna(v)]
-    if not vals:
-        return ' ' * width
-    # 끝에서 width개만
-    vals = vals[-width:]
-    lo, hi = min(vals), max(vals)
-    if hi == lo:
-        return SPARK_BLOCKS[len(SPARK_BLOCKS) // 2] * len(vals)
-    out = []
-    for v in vals:
-        idx = int((v - lo) / (hi - lo) * (len(SPARK_BLOCKS) - 1))
-        out.append(SPARK_BLOCKS[idx])
-    return ''.join(out)
-
-
 # ── #1 신호 정렬 우선순위 ──
 SIGNAL_PRIORITY = {
     'FB2': 0, 'FB': 1, 'B': 2, 'H': 3, 'S': 4, 'FS': 5, 'FS2': 6,
@@ -892,6 +869,136 @@ def compute_correlation_matrix(df_close: pd.DataFrame, tickers: list) -> Optiona
 
 
 # ====================================================
+# 9-D. 매수/매도 추천 후보 (#1, #2)
+# ====================================================
+def compute_buy_candidates(
+    all_analyses: dict,
+    holding_tickers: set,
+    pct_changes: dict,
+    df_close: pd.DataFrame,
+) -> list:
+    """
+    매수 추천 후보:
+    - 보유 안 한 종목 중
+    - 신호: FB2 또는 FB
+    - Z-score 분위 < 20% (역사적으로 과매도 영역)
+
+    반환: [{ticker, signal, z_score, z_pct, rsi, rsi_pct, price, pct_change}]
+          z_pct 낮은 순 정렬
+    """
+    candidates = []
+    for ticker in TARGET_TICKERS:
+        if ticker in holding_tickers:
+            continue
+        result = all_analyses.get(ticker)
+        if not result or result[0] is None:
+            continue
+        df_t = result[0]
+        if df_t.empty:
+            continue
+        last = df_t.iloc[-1]
+        cz = float(last['Z_Score']) if pd.notna(last['Z_Score']) else 0.0
+        mhz = float(last['MACD_Hist_Z']) if pd.notna(last['MACD_Hist_Z']) else 0.0
+        rsi_v = float(last['RSI']) if pd.notna(last['RSI']) else 50.0
+        signal = get_signal_combined(cz, mhz, rsi_v)
+
+        # 강한 매수 신호만 (FB2/FB)
+        if signal not in ('FB2', 'FB'):
+            continue
+
+        z_pct = historical_percentile(df_t['Z_Score'], cz, 'low')
+        rsi_pct = historical_percentile(df_t['RSI'], rsi_v, 'low')
+
+        # 분위 20% 이하 추가 필터 (역사적으로도 과매도)
+        if z_pct > 20:
+            continue
+
+        col = f'{ticker}_Close'
+        price = float(df_close[col].iloc[-1]) if col in df_close.columns else 0.0
+
+        candidates.append({
+            'ticker': ticker,
+            'signal': signal,
+            'z_score': cz,
+            'z_pct': z_pct,
+            'rsi': rsi_v,
+            'rsi_pct': rsi_pct,
+            'price': price,
+            'pct_change': pct_changes.get(ticker, 0.0),
+        })
+    # 분위 낮은 순 (가장 과매도)
+    candidates.sort(key=lambda x: x['z_pct'])
+    return candidates
+
+
+def compute_sell_candidates(
+    all_analyses: dict,
+    portfolio_state: dict,
+    df_close: pd.DataFrame,
+) -> list:
+    """
+    매도 추천 후보:
+    - 보유 중인 종목 중
+    - (a) 신호: FS2/FS  또는
+    - (b) 평균단가 대비 +20% 이상 수익
+
+    반환: [{ticker, signal, z_score, z_pct, ret_pct, hold_qty, reason}]
+          ret_pct 높은 순 정렬
+    """
+    candidates = []
+    for ticker, ts in portfolio_state.items():
+        cyc = ts['cycle']
+        if cyc['hold_qty'] <= 0:
+            continue
+        result = all_analyses.get(ticker)
+        if not result or result[0] is None:
+            continue
+        df_t = result[0]
+        if df_t.empty:
+            continue
+
+        last = df_t.iloc[-1]
+        cz = float(last['Z_Score']) if pd.notna(last['Z_Score']) else 0.0
+        mhz = float(last['MACD_Hist_Z']) if pd.notna(last['MACD_Hist_Z']) else 0.0
+        rsi_v = float(last['RSI']) if pd.notna(last['RSI']) else 50.0
+        signal = get_signal_combined(cz, mhz, rsi_v)
+
+        col = f'{ticker}_Close'
+        cur_price = float(df_close[col].iloc[-1]) if col in df_close.columns else 0.0
+        avg_price = cyc['buy_cost'] / cyc['buy_qty']
+        ret_pct = (cur_price - avg_price) / avg_price * 100 if avg_price > 0 else 0.0
+
+        # 트리거 조건
+        is_signal = signal in ('FS2', 'FS')
+        is_profit = ret_pct >= 20.0
+
+        if not (is_signal or is_profit):
+            continue
+
+        reasons = []
+        if is_signal:
+            reasons.append(f"{signal} 신호")
+        if is_profit:
+            reasons.append(f"+{ret_pct:.0f}% 익절권")
+
+        z_pct = historical_percentile(df_t['Z_Score'], cz, 'high')
+
+        candidates.append({
+            'ticker': ticker,
+            'signal': signal,
+            'z_score': cz,
+            'z_pct': z_pct,
+            'ret_pct': ret_pct,
+            'hold_qty': cyc['hold_qty'],
+            'cur_price': cur_price,
+            'avg_price': avg_price,
+            'reason': ' · '.join(reasons),
+        })
+    candidates.sort(key=lambda x: -x['ret_pct'])
+    return candidates
+
+
+# ====================================================
 # 10. 포트폴리오 사이클 계산 (단일 호출 최적화)
 # ====================================================
 def _resolve_all_cycles(valid: list) -> tuple[CycleInfo, float]:
@@ -1379,6 +1486,74 @@ def render_sidebar(
         market_html += "</div>"
         st.markdown(market_html, unsafe_allow_html=True)
 
+        # ── #1, #2 매수/매도 추천 카드 ──
+        buy_cands = st.session_state.get('buy_candidates', [])
+        sell_cands = st.session_state.get('sell_candidates', [])
+
+        if buy_cands or sell_cands:
+            reco_html = (
+                "<div style='padding:8px 10px;background:#fafafa;"
+                "border:1px solid #e5e7eb;border-radius:8px;margin-bottom:8px;'>"
+            )
+
+            # 매수 추천
+            if buy_cands:
+                reco_html += (
+                    f"<div style='font-size:0.62rem;color:{COLOR_LABEL};margin-bottom:4px;'>"
+                    f"🎯 매수 후보 <b style='color:#b91c1c;'>{len(buy_cands)}개</b>"
+                    f" <span style='color:#9ca3af;'>· FB/FB2 + 분위 ≤20%</span></div>"
+                )
+                for c in buy_cands[:5]:  # 최대 5개
+                    sig = c['signal']
+                    bg, _ = SIGNAL_STYLE.get(sig, ('#9ca3af', '#fff'))
+                    reco_html += (
+                        f"<div style='display:flex;align-items:center;gap:5px;"
+                        f"margin-bottom:3px;font-size:0.68rem;'>"
+                        f"<span style='background:{bg};color:#fff;padding:1px 5px;"
+                        f"border-radius:3px;font-weight:700;font-size:0.6rem;"
+                        f"width:30px;text-align:center;flex-shrink:0;'>{sig}</span>"
+                        f"<span style='color:{COLOR_TEXT};font-weight:700;width:46px;flex-shrink:0;'>"
+                        f"{display_name(c['ticker'])}</span>"
+                        f"<span style='color:#6b7280;font-size:0.62rem;width:50px;flex-shrink:0;'>"
+                        f"${c['price']:.2f}</span>"
+                        f"<span style='color:#b91c1c;font-size:0.62rem;flex:1;text-align:right;'>"
+                        f"Z {c['z_score']:+.2f} <span style='color:#9ca3af;'>"
+                        f"({c['z_pct']:.0f}%분위)</span></span>"
+                        f"</div>"
+                    )
+
+            # 매도 추천
+            if sell_cands:
+                if buy_cands:
+                    reco_html += (
+                        "<div style='border-top:1px dashed #e5e7eb;margin:5px 0;'></div>"
+                    )
+                reco_html += (
+                    f"<div style='font-size:0.62rem;color:{COLOR_LABEL};margin-bottom:4px;'>"
+                    f"💰 익절 검토 <b style='color:#1d4ed8;'>{len(sell_cands)}개</b>"
+                    f" <span style='color:#9ca3af;'>· FS/FS2 또는 +20%</span></div>"
+                )
+                for c in sell_cands[:5]:
+                    sig = c['signal']
+                    bg, _ = SIGNAL_STYLE.get(sig, ('#9ca3af', '#fff'))
+                    ret_color = pnl_color(c['ret_pct'])
+                    reco_html += (
+                        f"<div style='display:flex;align-items:center;gap:5px;"
+                        f"margin-bottom:3px;font-size:0.68rem;'>"
+                        f"<span style='background:{bg};color:#fff;padding:1px 5px;"
+                        f"border-radius:3px;font-weight:700;font-size:0.6rem;"
+                        f"width:30px;text-align:center;flex-shrink:0;'>{sig}</span>"
+                        f"<span style='color:{COLOR_TEXT};font-weight:700;width:46px;flex-shrink:0;'>"
+                        f"{display_name(c['ticker'])}</span>"
+                        f"<span style='color:{ret_color};font-weight:700;font-size:0.62rem;"
+                        f"width:50px;flex-shrink:0;'>{signed_str(c['ret_pct'], '{:.1f}')}%</span>"
+                        f"<span style='color:#9ca3af;font-size:0.6rem;flex:1;text-align:right;'>"
+                        f"{c['reason']}</span>"
+                        f"</div>"
+                    )
+            reco_html += "</div>"
+            st.markdown(reco_html, unsafe_allow_html=True)
+
         dd_info = st.session_state.get('dd_info_cache')
         seed_html = _build_seed_html(portfolio_pnl, usd_krw, dd_info)
         real_html = _build_realized_html(portfolio_state, usd_krw)
@@ -1395,6 +1570,65 @@ def render_sidebar(
             f"</div>",
             unsafe_allow_html=True,
         )
+
+        # ── #15 포트폴리오 자산 시계열 미니 차트 ──
+        equity_series = st.session_state.get('equity_series_cache')
+        if equity_series is not None and not equity_series.empty:
+            seed_usd = CFG.SEED_KRW / usd_krw
+            portfolio_value = equity_series + seed_usd  # 시드 + 누적손익 = 평가자산
+
+            # KRW 환산
+            portfolio_krw = portfolio_value * usd_krw / 10000  # 만원 단위
+            seed_krw = CFG.SEED_KRW / 10000
+
+            # 색상: 현재 시드 대비 수익/손실
+            cur_val = float(portfolio_krw.iloc[-1])
+            line_color = '#b91c1c' if cur_val >= seed_krw else '#1d4ed8'
+            fill_color = (
+                'rgba(185,28,28,0.1)' if cur_val >= seed_krw
+                else 'rgba(29,78,216,0.1)'
+            )
+
+            fig_eq = go.Figure()
+            # 자산 시계열
+            fig_eq.add_trace(go.Scatter(
+                x=portfolio_krw.index, y=portfolio_krw.values,
+                mode='lines', line=dict(color=line_color, width=1.5),
+                fill='tozeroy', fillcolor=fill_color,
+                hovertemplate='%{x|%y.%m.%d}<br>%{y:.0f}만원<extra></extra>',
+                showlegend=False,
+            ))
+            # 시드 라인 (점선)
+            fig_eq.add_hline(
+                y=seed_krw, line_dash="dot", line_color='#9ca3af',
+                line_width=1, annotation_text=f"시드 {seed_krw:.0f}만",
+                annotation_position="bottom right",
+                annotation_font=dict(size=9, color='#6b7280'),
+            )
+            # 고점 라인 (MDD 시각화)
+            running_max = portfolio_krw.cummax()
+            fig_eq.add_trace(go.Scatter(
+                x=running_max.index, y=running_max.values,
+                mode='lines', line=dict(color='#9ca3af', width=0.8, dash='dash'),
+                hoverinfo='skip', showlegend=False,
+            ))
+
+            y_min = min(portfolio_krw.min(), seed_krw) * 0.97
+            y_max = max(portfolio_krw.max(), seed_krw) * 1.03
+            fig_eq.update_layout(
+                height=110,
+                margin=dict(l=2, r=4, t=20, b=2),
+                xaxis=dict(showgrid=False, tickfont=dict(size=8),
+                           tickformat='%y.%m', nticks=4),
+                yaxis=dict(showgrid=True, gridcolor='rgba(156,163,175,0.2)',
+                           tickfont=dict(size=8), range=[y_min, y_max],
+                           ticksuffix='만'),
+                paper_bgcolor='white', plot_bgcolor='white',
+                title=dict(text='💼 자산 추이', x=0.02, y=0.95,
+                           font=dict(size=10, color='#6b7280')),
+            )
+            st.plotly_chart(fig_eq, use_container_width=True,
+                            config={'displayModeBar': False, 'staticPlot': True})
 
         nc1, nc2, nc3 = st.columns([1, 3, 1])
         if nc1.button("◀", key="cal_prev"):
@@ -2205,7 +2439,7 @@ def render_analytics_panel(
                     f"회귀선 ${trend_price:,.2f} 기준 ±σ 가격대. β={beta:.2f}, σ={std_resid:.3f}"
                 )
 
-    # ── #1 사이클 통계 ──
+    # ── #1 사이클 통계 + #5 진행 게이지 ──
     with st.expander("📈 사이클 통계", expanded=False):
         records = st.session_state.trade_history.get(selected_ticker, [])
         stats = compute_cycle_stats(records)
@@ -2242,59 +2476,71 @@ def render_analytics_panel(
                 unsafe_allow_html=True,
             )
 
-    # ── #11 신호 발생 히트맵 (요일 × 월) ──
-    if df_daily is not None and not df_daily.empty and 'Combined_Score' in df_daily.columns:
-        with st.expander("🗓️ 신호 발생 패턴", expanded=False):
-            sig_series = df_daily['Combined_Score'].apply(score_to_signal)
-            df_pat = pd.DataFrame({
-                'signal': sig_series,
-                'weekday': df_daily.index.weekday,    # 0=Mon
-                'month': df_daily.index.month,
-            })
-            # 매수 신호(B/FB/FB2)와 매도 신호(S/FS/FS2) 빈도 집계
-            df_pat['is_buy'] = df_pat['signal'].isin(['FB2', 'FB', 'B'])
-            df_pat['is_sell'] = df_pat['signal'].isin(['FS2', 'FS', 'S'])
+            # ── #5 현재 사이클 진행 게이지 (보유 중일 때만) ──
+            ts = portfolio_state.get(selected_ticker)
+            if ts and ts['cycle']['hold_qty'] > 0 and ts['cycle']['cycle_start']:
+                cyc = ts['cycle']
+                # 현재 사이클의 보유일 / 손익률
+                hold_days_now = (datetime.date.today() - cyc['cycle_start']).days
+                avg_buy_price = cyc['buy_cost'] / cyc['buy_qty']
+                col_close = f'{selected_ticker}_Close'
+                cur_price = (
+                    float(df_daily[col_close].iloc[-1])
+                    if col_close in df_daily.columns else avg_buy_price
+                )
+                cur_ret_pct = (cur_price - avg_buy_price) / avg_buy_price * 100
 
-            mode_choice = st.radio(
-                "신호 종류", ['매수', '매도'], horizontal=True,
-                key=f"heatmap_mode_{safe_key(selected_ticker)}", label_visibility="collapsed",
-            )
-            target_col = 'is_buy' if mode_choice == '매수' else 'is_sell'
+                # 진행률 (평균 대비)
+                day_progress = (
+                    hold_days_now / stats['avg_hold_days'] * 100
+                    if stats['avg_hold_days'] > 0 else 0
+                )
+                ret_progress = (
+                    cur_ret_pct / stats['avg_ret_pct'] * 100
+                    if stats['avg_ret_pct'] != 0 else 0
+                )
 
-            # 요일 × 월 피벗 (count)
-            pivot = df_pat.groupby(['weekday', 'month'])[target_col].sum().unstack(fill_value=0)
-            # 0~12월 정렬
-            for m in range(1, 13):
-                if m not in pivot.columns:
-                    pivot[m] = 0
-            pivot = pivot.reindex(columns=range(1, 13), fill_value=0)
-            # 0~6 요일 (월~일) — 캔들이 일/주봉이라 토일은 거의 없음
-            pivot = pivot.reindex(index=range(0, 7), fill_value=0)
+                # 진행바 색상
+                def _progress_bar(pct: float, cur_label: str, avg_label: str,
+                                   value_color: str) -> str:
+                    # 100% 초과는 진행바 가득, 라벨은 그대로 노출
+                    bar_pct = max(0, min(pct, 100))
+                    over_100 = pct > 100
+                    bar_color = '#16a34a' if over_100 else value_color
+                    over_badge = (
+                        f"<span style='color:#16a34a;font-weight:700;'>"
+                        f" 초과달성</span>" if over_100 else ""
+                    )
+                    return (
+                        f"<div style='display:flex;align-items:center;gap:6px;margin-bottom:5px;'>"
+                        f"<div style='width:90px;font-size:0.7rem;color:{value_color};font-weight:700;'>"
+                        f"{cur_label}</div>"
+                        f"<div style='flex:1;background:#e5e7eb;border-radius:3px;height:8px;'>"
+                        f"<div style='width:{bar_pct:.1f}%;background:{bar_color};"
+                        f"border-radius:3px;height:8px;'></div></div>"
+                        f"<div style='width:48px;font-size:0.65rem;color:#6b7280;text-align:right;'>"
+                        f"{pct:.0f}%{over_badge}</div>"
+                        f"<div style='width:80px;font-size:0.65rem;color:#9ca3af;text-align:right;'>"
+                        f"평균 {avg_label}</div>"
+                        f"</div>"
+                    )
 
-            wd_labels = ['월', '화', '수', '목', '금', '토', '일']
-            mo_labels = [f'{m}월' for m in range(1, 13)]
-            color_scale = 'Reds' if mode_choice == '매수' else 'Blues'
+                day_color = '#374151'
+                ret_color = pnl_color(cur_ret_pct)
+                avg_days_str = f"{stats['avg_hold_days']:.0f}일"
+                avg_ret_str = f"{signed_str(stats['avg_ret_pct'], '{:.1f}')}%"
+                cur_days_str = f"보유 {hold_days_now}일"
+                cur_ret_str = f"손익 {signed_str(cur_ret_pct, '{:.1f}')}%"
 
-            fig_h = go.Figure(data=go.Heatmap(
-                z=pivot.values,
-                x=mo_labels, y=wd_labels,
-                colorscale=color_scale, showscale=False,
-                text=pivot.values,
-                texttemplate="%{text}",
-                textfont={"size": 10},
-                hovertemplate=f"{mode_choice} 신호: %{{z}}회<br>%{{y}}요일 %{{x}}<extra></extra>",
-            ))
-            fig_h.update_layout(
-                height=180,
-                margin=dict(l=2, r=2, t=10, b=2),
-                xaxis=dict(tickfont=dict(size=10), side='top'),
-                yaxis=dict(tickfont=dict(size=10)),
-                paper_bgcolor='white', plot_bgcolor='white',
-            )
-            st.plotly_chart(fig_h, use_container_width=True,
-                            config={'displayModeBar': False})
-            total = int(pivot.values.sum())
-            st.caption(f"분석 기간 내 {mode_choice} 신호 총 {total}회 발생")
+                gauge_html = (
+                    f"<div style='border-top:1px dashed #e5e7eb;margin-top:10px;padding-top:8px;'>"
+                    f"<div style='font-size:0.7rem;color:#6b7280;font-weight:600;margin-bottom:6px;'>"
+                    f"🚀 이번 사이클 진행 (vs 평균)</div>"
+                    f"{_progress_bar(day_progress, cur_days_str, avg_days_str, day_color)}"
+                    f"{_progress_bar(ret_progress, cur_ret_str, avg_ret_str, ret_color)}"
+                    f"</div>"
+                )
+                st.markdown(gauge_html, unsafe_allow_html=True)
 
 
 # ====================================================
@@ -2343,11 +2589,10 @@ def build_css(selected_option: str, holding_tickers: set) -> str:
         div.st-key-{k} button {{
             background:{bg}!important; border-color:{bg}!important;
             color:{fg}!important; font-weight:500!important;
-            height:2.4rem!important; font-size:0.62rem!important;
-            padding:1px 2px!important; line-height:1.05!important;
+            height:1.7rem!important; font-size:0.62rem!important;
+            padding:0 2px!important; line-height:1!important;
             min-height:0!important; border-radius:3px!important;
-            width:100%!important; text-align:left!important;
-            white-space:pre-line!important; {sel_extra}
+            width:100%!important; text-align:left!important; {sel_extra}
         }}
         div.st-key-{k} button p, div.st-key-{k} button strong,
         div.st-key-{k} button span {{ color:{fg}!important; }}
@@ -2521,17 +2766,28 @@ def main() -> None:
         tk for tk, ts in portfolio_state.items() if ts['cycle']['hold_qty'] > 0
     }
 
-    # 드로다운 계산 (#6) — 시간 좀 걸리지만 필요시만
+    # ── #1, #2 매수/매도 추천 후보 계산 ──
+    st.session_state['buy_candidates'] = compute_buy_candidates(
+        all_analyses, holding_tickers, pct_changes, df_close,
+    )
+    st.session_state['sell_candidates'] = compute_sell_candidates(
+        all_analyses, portfolio_state, df_close,
+    )
+
+    # 드로다운 계산 (#6) + 자산 시계열 캐싱 (#15)
     if portfolio_state and not df_close.empty:
         equity = compute_portfolio_equity(
             portfolio_state, df_close, st.session_state.trade_history
         )
         if equity is not None and not equity.empty:
             st.session_state['dd_info_cache'] = compute_drawdown(equity)
+            st.session_state['equity_series_cache'] = equity
         else:
             st.session_state['dd_info_cache'] = None
+            st.session_state['equity_series_cache'] = None
     else:
         st.session_state['dd_info_cache'] = None
+        st.session_state['equity_series_cache'] = None
 
     st.markdown(build_css(selected_option, holding_tickers), unsafe_allow_html=True)
     KST = datetime.timezone(datetime.timedelta(hours=9))
@@ -2562,26 +2818,11 @@ def main() -> None:
 
         sorted_tickers = sorted(TARGET_TICKERS, key=_ticker_sort_key)
 
-        # #2 sparkline 미리 생성 (최근 8캔들)
-        spark_map: dict[str, str] = {}
-        for tk in TARGET_TICKERS:
-            col = f'{tk}_Close'
-            if col in df_close.columns and len(df_close) >= 2:
-                tail = df_close[col].dropna().tail(8).tolist()
-                spark_map[tk] = sparkline(tail, width=8)
-            else:
-                spark_map[tk] = ''
-
         for ticker in sorted_tickers:
             pct = pct_changes.get(ticker, 0)
             star = "★ " if ticker in holding_tickers else ""
-            spark = spark_map.get(ticker, '')
-            label = (
-                f"{star}**{display_name(ticker)}**  {pct:+.1f}%\n{spark}"
-                if spark else f"{star}**{display_name(ticker)}**   {pct:+.1f}%"
-            )
             if st.button(
-                label,
+                f"{star}**{display_name(ticker)}**   {pct:+.1f}%",
                 key=f"ticker_btn_{safe_key(ticker)}", use_container_width=True,
             ):
                 st.session_state.selected_option = ticker
@@ -2616,35 +2857,6 @@ def main() -> None:
 
     with chart_col:
         if df_daily is not None:
-            # #13 차트 상단 종목 칩 — 시장 한눈에 보기 (보유+강한 신호 상위 10개)
-            chip_tickers = sorted(
-                TARGET_TICKERS,
-                key=lambda tk: (
-                    0 if tk in holding_tickers else 1,
-                    signal_sort_key(st.session_state.ticker_signals.get(tk, 'H')),
-                ),
-            )[:10]
-            chip_html = (
-                "<div style='display:flex;gap:4px;overflow-x:auto;"
-                "padding:4px 0 8px 0;scroll-behavior:smooth;"
-                "-webkit-overflow-scrolling:touch;'>"
-            )
-            for tk in chip_tickers:
-                sig = st.session_state.ticker_signals.get(tk, 'H')
-                bg, fg = SIGNAL_STYLE.get(sig, ('#9ca3af', '#fff'))
-                pct = pct_changes.get(tk, 0)
-                star = "★" if tk in holding_tickers else ""
-                is_sel = tk == selected_ticker
-                border = "border:2px solid #111;" if is_sel else "border:1px solid transparent;"
-                chip_html += (
-                    f"<div style='background:{bg};color:{fg};padding:4px 8px;border-radius:14px;"
-                    f"font-size:0.7rem;font-weight:600;white-space:nowrap;flex-shrink:0;"
-                    f"{border}'>"
-                    f"{star}{display_name(tk)} {pct:+.1f}%</div>"
-                )
-            chip_html += "</div>"
-            st.markdown(chip_html, unsafe_allow_html=True)
-
             render_position_tracker(selected_ticker, df_daily, df_close, portfolio_state)
 
             with st.spinner("캔들 데이터 로드 중..."):
@@ -2662,9 +2874,26 @@ def main() -> None:
                         )
                         if result_raw[0] is not None:
                             df_daily_raw = result_raw[0]
+
+            # ── #19 차트 줌 프리셋 ──
+            zoom_presets = [('1M', 1), ('3M', 3), ('6M', 6), ('1Y', 12), ('전체', 240)]
+            zoom_cols = st.columns(len(zoom_presets))
+            current_view = st.session_state.view_months
+            for zc, (zlabel, zmonths) in zip(zoom_cols, zoom_presets):
+                is_active = current_view == zmonths
+                if zc.button(
+                    zlabel, key=f"zoom_{zlabel}", use_container_width=True,
+                    type="primary" if is_active else "secondary",
+                ):
+                    st.session_state.view_months = zmonths
+                    s = load_settings()
+                    s['view_months'] = zmonths
+                    save_settings(s)
+                    st.rerun()
+
             render_chart(
                 df_daily, selected_ticker, beta, std_resid,
-                cfg['guide_n'], cfg['view_months'], df_ohlc, df_daily_raw,
+                cfg['guide_n'], st.session_state.view_months, df_ohlc, df_daily_raw,
             )
         elif selected_option == DIRECT_INPUT_LABEL:
             if not st.session_state.get('custom_ticker_input', ''):
