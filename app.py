@@ -2166,8 +2166,9 @@ def render_position_tracker(
     col_close = f'{selected_ticker}_Close'
     current_price = float(df_daily[col_close].iloc[-1]) if col_close in df_daily.columns else None
 
-    # 회귀선 가격 계산 (가능한 경우)
+    # 회귀선 가격 + 현재 시점 expanding std (그래프2 Z-score와 일치)
     trend_price = None
+    sigma_unit = std_resid  # fallback
     if (df_daily is not None and 'Predicted' in df_daily.columns
             and f'{selected_ticker}_Norm' in df_daily.columns):
         try:
@@ -2175,6 +2176,18 @@ def render_position_tracker(
             cur_norm_y = float(df_daily[f'{selected_ticker}_Norm'].iloc[-1])
             if cur_norm_y > 0 and current_price is not None:
                 trend_price = current_price * (cur_predicted / cur_norm_y)
+            # expanding std (표시용)
+            log_resid = (
+                np.log(df_daily[f'{selected_ticker}_Norm'])
+                - np.log(df_daily['Predicted'])
+            ).dropna()
+            exp_std = log_resid.expanding(
+                min_periods=CFG.EXPANDING_MIN_PERIODS
+            ).std().dropna()
+            if len(exp_std) > 0:
+                last_std = float(exp_std.iloc[-1])
+                if last_std > 0 and np.isfinite(last_std) and std_resid is not None:
+                    sigma_unit = last_std
         except Exception:
             trend_price = None
 
@@ -2183,12 +2196,12 @@ def render_position_tracker(
         color = pnl_color(val)
         return f"<span style='font-weight:700;color:{color};'>{sign}${int(round(val)):,}</span>"
 
-    # ── 종목명 헤더 (항상 표시) ──
+    # ── 종목명 헤더 (항상 표시) — σ는 expanding std (그래프2 Z와 일치) ──
     header_right = ""
     if beta is not None and std_resid is not None:
         header_right = (
             f"<span style='font-size:0.65rem;color:#6b7280;'>"
-            f"σ={std_resid:.3f} · β={beta:.2f}</span>"
+            f"σ={sigma_unit:.3f} · β={beta:.2f}</span>"
         )
     header_html = (
         f"<div style='display:flex;justify-content:space-between;align-items:baseline;"
@@ -2354,13 +2367,29 @@ def build_action_card_html(
         return None
     trend_price = cur_price * (cur_predicted / cur_norm_y)
 
-    # log_resid for quantile-based price
+    # log_resid (분위가 + expanding std 계산용)
     log_resid_series = (
         np.log(df_daily[norm_col]) - np.log(df_daily['Predicted'])
     ).dropna()
 
+    # ── 현재 시점 expanding std (그래프2의 Z-score 표시값과 일치하기 위함) ──
+    # process_asset_data의 Z_Score = log_resid / log_resid.expanding().std()
+    # 매매가 제안의 σ도 같은 std를 써야 일치함.
+    expanding_std = log_resid_series.expanding(
+        min_periods=CFG.EXPANDING_MIN_PERIODS
+    ).std()
+    # 마지막 유효 std 사용 (데이터 부족 시 fallback으로 std_resid)
+    cur_std = expanding_std.dropna()
+    if len(cur_std) > 0:
+        sigma_unit = float(cur_std.iloc[-1])
+        # 안전장치: 0이거나 비정상이면 fallback
+        if sigma_unit <= 0 or not np.isfinite(sigma_unit):
+            sigma_unit = std_resid
+    else:
+        sigma_unit = std_resid
+
     def _price_at_sigma(k: float) -> float:
-        return trend_price * np.exp(k * std_resid)
+        return trend_price * np.exp(k * sigma_unit)
 
     def _price_at_quantile(q: float) -> Optional[float]:
         if len(log_resid_series) < 30:
@@ -2370,7 +2399,7 @@ def build_action_card_html(
     def _price_to_sigma(p: float) -> float:
         if p <= 0 or trend_price <= 0:
             return 0.0
-        return float(np.log(p / trend_price) / std_resid)
+        return float(np.log(p / trend_price) / sigma_unit)
 
     def _sigma_to_pct(sigma: float) -> tuple[float, bool]:
         # ±3σ → 0~100%
@@ -2700,18 +2729,30 @@ def render_analytics_panel(
                 cur_norm_y = float(df_daily[f'{selected_ticker}_Norm'].iloc[-1])
                 trend_price = cur_price * (cur_predicted / cur_norm_y)
 
-                # ── σ 기반 가격 (회귀 모델) ──
-                def _price_at_sigma(k: float) -> float:
-                    return trend_price * np.exp(k * std_resid)
-
-                # ── 분위 기반 가격 (실증) ──
-                # 과거 Z-score가 특정 분위였을 때의 가격을 추정.
-                # 방법: log_resid의 분위값 → 그 분위에서의 가격 = trend * exp(log_resid_quantile)
+                # log_resid 시계열
                 log_resid_series = (
                     np.log(df_daily[f'{selected_ticker}_Norm'])
                     - np.log(df_daily['Predicted'])
                 ).dropna()
 
+                # ── 현재 시점 expanding std (그래프2의 Z-score와 일치) ──
+                expanding_std = log_resid_series.expanding(
+                    min_periods=CFG.EXPANDING_MIN_PERIODS
+                ).std()
+                cur_std = expanding_std.dropna()
+                if len(cur_std) > 0:
+                    sigma_unit = float(cur_std.iloc[-1])
+                    if sigma_unit <= 0 or not np.isfinite(sigma_unit):
+                        sigma_unit = std_resid
+                else:
+                    sigma_unit = std_resid
+
+                # ── σ 기반 가격 (회귀 모델) ──
+                def _price_at_sigma(k: float) -> float:
+                    return trend_price * np.exp(k * sigma_unit)
+
+                # ── 분위 기반 가격 (실증) ──
+                # 과거 log_resid의 분위값 → 그 분위에서의 가격
                 def _price_at_quantile(q: float) -> Optional[float]:
                     """q는 0~1 (예: 0.10 = 하위 10% 분위)."""
                     if len(log_resid_series) < 30:
@@ -2732,11 +2773,11 @@ def render_analytics_panel(
                     pct = (p / ref_price - 1) * 100
                     return signed_str(pct, '{:.1f}') + "%"
 
-                # 표 행에서 σ 표시용 헬퍼
+                # 표 행에서 σ 표시용 헬퍼 (expanding std 기준)
                 def _price_to_sigma(p: float) -> float:
                     if p <= 0 or trend_price <= 0:
                         return 0.0
-                    return float(np.log(p / trend_price) / std_resid)
+                    return float(np.log(p / trend_price) / sigma_unit)
                 cur_sigma = _price_to_sigma(cur_price)
 
                 # ── 통합 매매가 테이블 ──
@@ -2857,8 +2898,9 @@ def render_analytics_panel(
                 tbl.append("</table>")
                 st.markdown("".join(tbl), unsafe_allow_html=True)
                 st.caption(
-                    f"σ가격: 회귀모델 ±σ × 잔차표준편차 / "
-                    f"분위가: 과거 분위 가격 / "
+                    f"σ가격: 회귀모델 × exp(±σ × {sigma_unit:.3f}) "
+                    f"[expanding std, 그래프 Z값과 일치] / "
+                    f"분위가: 과거 잔차 분위 가격 / "
                     f"추천가: 두 값 평균 / "
                     f"★★★ = σ·분위 일치도 높음 (3% 이내)"
                 )
