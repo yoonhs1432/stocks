@@ -2532,12 +2532,14 @@ def build_action_card_html(
             buy_levels.append((label, p_reco, sk, c))
         else:
             sell_levels.append((label, p_reco, sk, c))
-    next_buy = next(
-        ((lbl, p, sk, c) for lbl, p, sk, c in buy_levels if p < cur_price), None,
-    )
-    next_sell = next(
-        ((lbl, p, sk, c) for lbl, p, sk, c in sell_levels if p > cur_price), None,
-    )
+    # 다음 매수 트리거: 현재가보다 낮은 가격 중 "가장 가까운" = 가장 높은 가격
+    # (FB2/FB/B 순으로 점점 더 깊은 매수 영역. 가장 얕은 = 곧 도달할 수 있는 트리거)
+    buy_below = [(lbl, p, sk, c) for lbl, p, sk, c in buy_levels if p < cur_price]
+    next_buy = max(buy_below, key=lambda x: x[1]) if buy_below else None
+
+    # 다음 익절 트리거: 현재가보다 높은 가격 중 "가장 가까운" = 가장 낮은 가격
+    sell_above = [(lbl, p, sk, c) for lbl, p, sk, c in sell_levels if p > cur_price]
+    next_sell = min(sell_above, key=lambda x: x[1]) if sell_above else None
 
     holding = avg_price is not None
     if cur_sigma <= -1.5:
@@ -3046,31 +3048,6 @@ def build_css(selected_option: str, holding_tickers: set) -> str:
         {{ color:inherit!important; }}
     section[data-testid="stMain"] div[data-testid="stColumn"]:first-child button strong
         {{ font-weight:700!important; }}
-    /* #19 줌 라디오 - 가로 5개 버튼 형태로 */
-    div.st-key-zoom_radio div[role="radiogroup"] {{
-        display:flex!important; gap:4px!important; flex-wrap:nowrap!important;
-        width:100%!important;
-    }}
-    div.st-key-zoom_radio div[role="radiogroup"] > label {{
-        flex:1 1 0!important; margin:0!important; padding:10px 0!important;
-        text-align:center!important; cursor:pointer!important;
-        background:#f8fafc!important; border:1px solid #cbd5e1!important;
-        border-radius:6px!important; font-size:1.0rem!important;
-        font-weight:600!important; color:#475569!important;
-        transition:all 0.1s!important; min-height:48px!important;
-        white-space:nowrap!important; overflow:hidden!important;
-    }}
-    div.st-key-zoom_radio div[role="radiogroup"] > label:has(input:checked) {{
-        background:#dc2626!important; border-color:#dc2626!important;
-        color:#fff!important;
-    }}
-    /* 라디오 동그라미 숨기기 */
-    div.st-key-zoom_radio div[role="radiogroup"] > label > div:first-child {{
-        display:none!important;
-    }}
-    div.st-key-zoom_radio div[role="radiogroup"] > label > div {{
-        text-align:center!important; width:100%!important;
-    }}
     {''.join(btn_parts)}
     </style>"""
 
@@ -3300,44 +3277,6 @@ def main() -> None:
                         )
                         if result_raw[0] is not None:
                             df_daily_raw = result_raw[0]
-
-            # ── #19 차트 줌 프리셋 + 마지막 데이터 일자 ──
-            zoom_presets = [('1M', 1), ('3M', 3), ('6M', 6), ('1Y', 12), ('All', 240)]
-            zoom_labels = [p[0] for p in zoom_presets]
-            zoom_map = dict(zoom_presets)
-            current_view = st.session_state.view_months
-            current_label = next(
-                (lbl for lbl, m in zoom_presets if m == current_view),
-                zoom_labels[1],
-            )
-
-            # 마지막 데이터 일자
-            last_data_date = df_daily.index[-1].strftime('%Y-%m-%d')
-            wd_kor = ['월', '화', '수', '목', '금', '토', '일'][df_daily.index[-1].weekday()]
-            data_count = len(df_daily)
-            data_info_html = (
-                f"<div style='text-align:right;font-size:0.62rem;color:#9ca3af;"
-                f"margin:-4px 6px 4px 0;line-height:1.3;'>"
-                f"📅 {last_data_date}({wd_kor}) · {candle_type} · {data_count}개"
-                f"</div>"
-            )
-            st.markdown(data_info_html, unsafe_allow_html=True)
-
-            zoom_choice = st.radio(
-                "차트 기간",
-                zoom_labels,
-                index=zoom_labels.index(current_label),
-                horizontal=True,
-                key="zoom_radio",
-                label_visibility="collapsed",
-            )
-            new_months = zoom_map[zoom_choice]
-            if new_months != current_view:
-                st.session_state.view_months = new_months
-                s = load_settings()
-                s['view_months'] = new_months
-                save_settings(s)
-                st.rerun()
 
             render_chart(
                 df_daily, selected_ticker, beta, std_resid,
