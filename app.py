@@ -2204,6 +2204,8 @@ def render_position_tracker(
     df_daily: pd.DataFrame,
     df_close: pd.DataFrame,
     portfolio_state: dict[str, TickerState],
+    beta: Optional[float] = None,
+    std_resid: Optional[float] = None,
 ) -> None:
     portfolio_pnl = calc_portfolio_total_pnl(portfolio_state, df_close)
     usd_krw, is_fallback = fetch_usd_krw()
@@ -2214,10 +2216,51 @@ def render_position_tracker(
     col_close = f'{selected_ticker}_Close'
     current_price = float(df_daily[col_close].iloc[-1]) if col_close in df_daily.columns else None
 
+    # 회귀선 가격 계산 (가능한 경우)
+    trend_price = None
+    if (df_daily is not None and 'Predicted' in df_daily.columns
+            and f'{selected_ticker}_Norm' in df_daily.columns):
+        try:
+            cur_predicted = float(df_daily['Predicted'].iloc[-1])
+            cur_norm_y = float(df_daily[f'{selected_ticker}_Norm'].iloc[-1])
+            if cur_norm_y > 0 and current_price is not None:
+                trend_price = current_price * (cur_predicted / cur_norm_y)
+        except Exception:
+            trend_price = None
+
     def _fmt_pnl(val: float) -> str:
         sign = '+' if val >= 0 else ''
         color = pnl_color(val)
         return f"<span style='font-weight:700;color:{color};'>{sign}${int(round(val)):,}</span>"
+
+    # ── 종목명 헤더 (항상 표시) ──
+    header_right = ""
+    if beta is not None and std_resid is not None:
+        header_right = (
+            f"<span style='font-size:0.65rem;color:#6b7280;'>"
+            f"σ={std_resid:.3f} · β={beta:.2f}</span>"
+        )
+    header_html = (
+        f"<div style='display:flex;justify-content:space-between;align-items:baseline;"
+        f"padding:4px 12px 2px 12px;margin-top:4px;'>"
+        f"<span style='font-size:1rem;font-weight:800;color:#111827;'>"
+        f"{display_name(selected_ticker)}</span>"
+        f"{header_right}"
+        f"</div>"
+    )
+
+    # 회귀선 메트릭 HTML (있을 때만)
+    if trend_price and current_price:
+        trend_diff_pct = (trend_price / current_price - 1) * 100
+        trend_color = pnl_color(-trend_diff_pct)
+        trend_html = (
+            f"<div><div style='color:#6b7280;font-size:0.68rem;'>회귀선</div>"
+            f"<div style='font-weight:700;color:#374151;'>${trend_price:,.2f}"
+            f" <span style='font-size:0.7rem;color:{trend_color};'>"
+            f"{signed_str(trend_diff_pct, '{:.1f}')}%</span></div></div>"
+        )
+    else:
+        trend_html = ""
 
     ts = portfolio_state.get(selected_ticker)
 
@@ -2227,11 +2270,12 @@ def render_position_tracker(
             html_metric("현재가", f"${current_price:,.2f}")
             if current_price is not None else html_dash_cell("현재가")
         )
-        st.markdown(f"""
-        <div style='display:flex;gap:12px;flex-wrap:wrap;margin:4px 0 8px 0;
+        st.markdown(header_html + f"""
+        <div style='display:flex;gap:12px;flex-wrap:wrap;margin:0 0 8px 0;
                     padding:8px 12px;background:#f3f4f6;
                     border:1px solid #d1d5db;border-radius:8px;font-size:0.78rem;'>
           {price_html}
+          {trend_html if trend_html else html_dash_cell("회귀선")}
           {html_dash_cell("평균단가")}
           {html_dash_cell("보유수량")}
           {html_dash_cell("보유기간")}
@@ -2298,11 +2342,12 @@ def render_position_tracker(
     bg_color = '#f0fdf4' if hold_qty > 0 else '#f3f4f6'
     border_c = '#86efac' if hold_qty > 0 else '#d1d5db'
 
-    st.markdown(f"""
-    <div style='display:flex;gap:12px;flex-wrap:wrap;margin:4px 0 8px 0;
+    st.markdown(header_html + f"""
+    <div style='display:flex;gap:12px;flex-wrap:wrap;margin:0 0 8px 0;
                 padding:8px 12px;background:{bg_color};
                 border:1px solid {border_c};border-radius:8px;font-size:0.78rem;'>
       {price_html}
+      {trend_html}
       {avg_html}
       {qty_html}
       {period_html}
@@ -2484,55 +2529,6 @@ def render_analytics_panel(
                     f"margin-bottom:6px;'>현재 위치: {interp}</div>",
                     unsafe_allow_html=True,
                 )
-
-                # ── 현재가 / 평균단가 정보 카드 ──
-                price_info_html = (
-                    "<div style='padding:8px 10px;background:#f9fafb;"
-                    "border:1px solid #e5e7eb;border-radius:6px;"
-                    "margin-bottom:8px;'>"
-                    # 종목명 헤더
-                    f"<div style='display:flex;justify-content:space-between;"
-                    f"align-items:center;margin-bottom:6px;"
-                    f"padding-bottom:5px;border-bottom:1px solid #e5e7eb;'>"
-                    f"<span style='font-size:0.95rem;font-weight:800;color:#111827;'>"
-                    f"{display_name(selected_ticker)}</span>"
-                    f"<span style='font-size:0.65rem;color:#6b7280;'>"
-                    f"σ={std_resid:.3f} · β={beta:.2f}</span>"
-                    f"</div>"
-                    # 가격 4개 가로 배치
-                    "<div style='display:flex;gap:12px;font-size:0.78rem;'>"
-                    f"<div style='flex:1;'>"
-                    f"<div style='color:#6b7280;font-size:0.65rem;'>★ 현재가</div>"
-                    f"<div style='color:#ec4899;font-weight:700;'>${cur_price:,.2f}</div>"
-                    f"</div>"
-                )
-                if avg_price:
-                    ret_pct = (cur_price - avg_price) / avg_price * 100
-                    ret_color = pnl_color(ret_pct)
-                    price_info_html += (
-                        f"<div style='flex:1;'>"
-                        f"<div style='color:#6b7280;font-size:0.65rem;'>● 평균단가</div>"
-                        f"<div style='color:#374151;font-weight:700;'>${avg_price:,.2f}</div>"
-                        f"</div>"
-                        f"<div style='flex:1;'>"
-                        f"<div style='color:#6b7280;font-size:0.65rem;'>평균대비</div>"
-                        f"<div style='color:{ret_color};font-weight:700;'>"
-                        f"{signed_str(ret_pct, '{:.1f}')}%</div>"
-                        f"</div>"
-                    )
-                # 회귀선(추세) 가격 추가
-                trend_diff_pct = (trend_price / cur_price - 1) * 100
-                trend_color = pnl_color(-trend_diff_pct)
-                price_info_html += (
-                    f"<div style='flex:1;'>"
-                    f"<div style='color:#6b7280;font-size:0.65rem;'>회귀선</div>"
-                    f"<div style='color:#374151;font-weight:700;'>${trend_price:,.2f}</div>"
-                    f"<div style='color:{trend_color};font-size:0.6rem;'>"
-                    f"{signed_str(trend_diff_pct, '{:.1f}')}%</div>"
-                    f"</div>"
-                    f"</div></div>"
-                )
-                st.markdown(price_info_html, unsafe_allow_html=True)
 
                 # ── ⭐ 한눈에 액션 카드 ──
                 # 신호별 가격을 미리 계산
@@ -3278,7 +3274,9 @@ def main() -> None:
 
     with chart_col:
         if df_daily is not None:
-            render_position_tracker(selected_ticker, df_daily, df_close, portfolio_state)
+            render_position_tracker(
+                selected_ticker, df_daily, df_close, portfolio_state, beta, std_resid,
+            )
 
             with st.spinner("캔들 데이터 로드 중..."):
                 df_ohlc = fetch_ohlc(selected_ticker, analysis_start, candle_type)
