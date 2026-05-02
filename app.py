@@ -2487,9 +2487,20 @@ def render_analytics_panel(
 
                 # ── 현재가 / 평균단가 정보 카드 ──
                 price_info_html = (
-                    "<div style='display:flex;gap:12px;padding:6px 10px;"
-                    "background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;"
-                    "margin-bottom:8px;font-size:0.78rem;'>"
+                    "<div style='padding:8px 10px;background:#f9fafb;"
+                    "border:1px solid #e5e7eb;border-radius:6px;"
+                    "margin-bottom:8px;'>"
+                    # 종목명 헤더
+                    f"<div style='display:flex;justify-content:space-between;"
+                    f"align-items:center;margin-bottom:6px;"
+                    f"padding-bottom:5px;border-bottom:1px solid #e5e7eb;'>"
+                    f"<span style='font-size:0.95rem;font-weight:800;color:#111827;'>"
+                    f"{display_name(selected_ticker)}</span>"
+                    f"<span style='font-size:0.65rem;color:#6b7280;'>"
+                    f"σ={std_resid:.3f} · β={beta:.2f}</span>"
+                    f"</div>"
+                    # 가격 4개 가로 배치
+                    "<div style='display:flex;gap:12px;font-size:0.78rem;'>"
                     f"<div style='flex:1;'>"
                     f"<div style='color:#6b7280;font-size:0.65rem;'>★ 현재가</div>"
                     f"<div style='color:#ec4899;font-weight:700;'>${cur_price:,.2f}</div>"
@@ -2511,7 +2522,7 @@ def render_analytics_panel(
                     )
                 # 회귀선(추세) 가격 추가
                 trend_diff_pct = (trend_price / cur_price - 1) * 100
-                trend_color = pnl_color(-trend_diff_pct)  # 추세가 더 높으면 매수 우호=빨강
+                trend_color = pnl_color(-trend_diff_pct)
                 price_info_html += (
                     f"<div style='flex:1;'>"
                     f"<div style='color:#6b7280;font-size:0.65rem;'>회귀선</div>"
@@ -2519,11 +2530,188 @@ def render_analytics_panel(
                     f"<div style='color:{trend_color};font-size:0.6rem;'>"
                     f"{signed_str(trend_diff_pct, '{:.1f}')}%</div>"
                     f"</div>"
-                    f"</div>"
+                    f"</div></div>"
                 )
                 st.markdown(price_info_html, unsafe_allow_html=True)
 
-                # ── 통합 매매가 테이블 ──
+                # ── ⭐ 한눈에 액션 카드 ──
+                # 신호별 가격을 미리 계산
+                price_specs_for_action = [
+                    ("FB2 진입", '#7f1d1d', -2.0, 0.025, 'buy'),
+                    ("FB 진입",  '#dc2626', -1.5, 0.07, 'buy'),
+                    ("B 진입",   '#fca5a5', -1.0, 0.16, 'buy'),
+                    ("S 익절",   '#93c5fd',  1.0, 0.84, 'sell'),
+                    ("FS 익절",  '#2563eb',  1.5, 0.93, 'sell'),
+                    ("FS2 익절", '#1e3a8a',  2.0, 0.975, 'sell'),
+                ]
+                buy_levels = []   # (label, price, sigma, color)
+                sell_levels = []
+                for label, c, sk, qq, side in price_specs_for_action:
+                    p_sigma = trend_price * np.exp(sk * std_resid)
+                    if len(log_resid_series) >= 30:
+                        p_quantile = trend_price * np.exp(
+                            float(log_resid_series.quantile(qq))
+                        )
+                        p_reco = (p_sigma + p_quantile) / 2
+                    else:
+                        p_reco = p_sigma
+                    if side == 'buy':
+                        buy_levels.append((label, p_reco, sk, c))
+                    else:
+                        sell_levels.append((label, p_reco, sk, c))
+
+                # 다음 매수 트리거: 현재가보다 낮은 가격 중 가장 가까운 것
+                next_buy = next(
+                    ((lbl, p, sk, c) for lbl, p, sk, c in buy_levels if p < cur_price),
+                    None,
+                )
+                # 다음 익절 트리거: 현재가보다 높은 가격 중 가장 가까운 것
+                next_sell = next(
+                    ((lbl, p, sk, c) for lbl, p, sk, c in sell_levels if p > cur_price),
+                    None,
+                )
+
+                # ── 추천 액션 결정 ──
+                # cur_sigma 기준
+                # σ < -1.5: 강한 매수
+                # -1.5 ≤ σ < -0.5: 분할매수 / 추가매수
+                # -0.5 ≤ σ < 0.5: 관망
+                # 0.5 ≤ σ < 1.5: 일부 익절 검토
+                # σ ≥ 1.5: 강한 익절
+                # 보유 여부에 따라 액션 톤 조정
+                holding = avg_price is not None
+                if cur_sigma <= -1.5:
+                    if holding:
+                        action_text = "🔥 강한 매수 영역 — 추가매수 적극 검토"
+                    else:
+                        action_text = "🔥 강한 매수 영역 — 신규 진입 검토"
+                    action_bg, action_border = '#fef2f2', '#7f1d1d'
+                elif cur_sigma <= -0.5:
+                    action_text = (
+                        "🟧 매수 영역 — 분할매수 검토" if not holding
+                        else "🟧 매수 영역 — 평균단가 낮출 기회"
+                    )
+                    action_bg, action_border = '#fff7ed', '#dc2626'
+                elif cur_sigma >= 1.5:
+                    if holding:
+                        action_text = "💰 강한 익절 영역 — 일부/전량 매도 검토"
+                    else:
+                        action_text = "🚫 강한 익절 영역 — 신규 진입 부적절"
+                    action_bg, action_border = '#eff6ff', '#1e3a8a'
+                elif cur_sigma >= 0.5:
+                    action_text = (
+                        "🟦 익절 영역 — 일부 매도 검토" if holding
+                        else "⏸ 익절 영역 — 관망"
+                    )
+                    action_bg, action_border = '#eff6ff', '#2563eb'
+                else:
+                    action_text = "⏸ 회귀선 부근 — 관망 (트리거 대기)"
+                    action_bg, action_border = '#f9fafb', '#9ca3af'
+
+                # 액션 카드 HTML
+                action_html = (
+                    f"<div style='padding:10px 12px;background:{action_bg};"
+                    f"border-left:4px solid {action_border};border-radius:6px;"
+                    f"margin-bottom:10px;'>"
+                    f"<div style='font-size:0.85rem;font-weight:700;color:#111827;"
+                    f"margin-bottom:6px;'>{action_text}</div>"
+                )
+
+                # 트리거 박스 (좌: 매수, 우: 익절)
+                action_html += "<div style='display:flex;gap:8px;font-size:0.7rem;'>"
+
+                if next_buy:
+                    lbl, p, sk, c = next_buy
+                    drop_pct = (p / cur_price - 1) * 100  # 음수
+                    action_html += (
+                        f"<div style='flex:1;background:#fff;padding:6px 8px;"
+                        f"border-radius:5px;border:1px solid #fecaca;'>"
+                        f"<div style='color:#9ca3af;font-size:0.6rem;'>다음 매수 트리거</div>"
+                        f"<div style='display:flex;align-items:baseline;gap:4px;'>"
+                        f"<span style='background:{c};color:#fff;padding:1px 4px;"
+                        f"border-radius:3px;font-size:0.58rem;font-weight:700;'>{lbl}</span>"
+                        f"<span style='font-weight:700;color:#111827;'>${p:,.2f}</span>"
+                        f"</div>"
+                        f"<div style='color:#b91c1c;font-size:0.6rem;'>"
+                        f"현재가에서 <b>{drop_pct:.1f}%</b> 더 하락 시</div>"
+                        f"</div>"
+                    )
+                else:
+                    action_html += (
+                        f"<div style='flex:1;background:#fff;padding:6px 8px;"
+                        f"border-radius:5px;border:1px solid #e5e7eb;'>"
+                        f"<div style='color:#9ca3af;font-size:0.6rem;'>다음 매수 트리거</div>"
+                        f"<div style='color:#9ca3af;'>현재가가 -2σ보다 낮음</div>"
+                        f"</div>"
+                    )
+
+                if next_sell:
+                    lbl, p, sk, c = next_sell
+                    rise_pct = (p / cur_price - 1) * 100
+                    action_html += (
+                        f"<div style='flex:1;background:#fff;padding:6px 8px;"
+                        f"border-radius:5px;border:1px solid #bfdbfe;'>"
+                        f"<div style='color:#9ca3af;font-size:0.6rem;'>다음 익절 트리거</div>"
+                        f"<div style='display:flex;align-items:baseline;gap:4px;'>"
+                        f"<span style='background:{c};color:#fff;padding:1px 4px;"
+                        f"border-radius:3px;font-size:0.58rem;font-weight:700;'>{lbl}</span>"
+                        f"<span style='font-weight:700;color:#111827;'>${p:,.2f}</span>"
+                        f"</div>"
+                        f"<div style='color:#1d4ed8;font-size:0.6rem;'>"
+                        f"현재가에서 <b>+{rise_pct:.1f}%</b> 상승 시</div>"
+                        f"</div>"
+                    )
+                else:
+                    action_html += (
+                        f"<div style='flex:1;background:#fff;padding:6px 8px;"
+                        f"border-radius:5px;border:1px solid #e5e7eb;'>"
+                        f"<div style='color:#9ca3af;font-size:0.6rem;'>다음 익절 트리거</div>"
+                        f"<div style='color:#9ca3af;'>현재가가 +2σ보다 높음</div>"
+                        f"</div>"
+                    )
+
+                action_html += "</div></div>"
+
+                # ── 보유 중일 때 평균단가 대비 액션 추가 ──
+                if avg_price:
+                    ret_pct_now = (cur_price - avg_price) / avg_price * 100
+                    if ret_pct_now <= -10 and cur_sigma <= -1.0:
+                        sub_action = (
+                            f"💡 손실 -{abs(ret_pct_now):.0f}% + 과매도 → "
+                            f"평균단가 낮추기 좋은 시점"
+                        )
+                        sub_color = '#b91c1c'
+                    elif ret_pct_now >= 20 and cur_sigma >= 0.5:
+                        sub_action = (
+                            f"💡 수익 +{ret_pct_now:.0f}% + 익절권 → "
+                            f"일부 익절로 리스크 축소"
+                        )
+                        sub_color = '#1d4ed8'
+                    elif ret_pct_now >= 50:
+                        sub_action = (
+                            f"💡 수익 +{ret_pct_now:.0f}% — 트레일링 스톱 고려"
+                        )
+                        sub_color = '#1d4ed8'
+                    else:
+                        sub_action = None
+
+                    if sub_action:
+                        action_html_sub = (
+                            f"<div style='padding:6px 10px;background:#fefce8;"
+                            f"border:1px dashed {sub_color};border-radius:5px;"
+                            f"margin:-6px 0 10px 0;font-size:0.72rem;color:{sub_color};"
+                            f"font-weight:600;'>{sub_action}</div>"
+                        )
+                        action_html += action_html_sub
+
+                st.markdown(action_html, unsafe_allow_html=True)
+
+                # ── 통합 매매가 테이블 (전체 가격대 - 보조 참고) ──
+                st.markdown(
+                    "<div style='font-size:0.7rem;color:#6b7280;font-weight:600;"
+                    "margin:4px 0 4px 0;'>📋 전체 가격대 (참고)</div>",
+                    unsafe_allow_html=True,
+                )
                 # 각 신호별: σ 가격 + 분위 가격 + 추천가(평균) + 신뢰도
                 # 분위 매핑: σ ≈ 정규분포의 분위와 비슷하게 잡음
                 #   -2σ ≈ 2.5%분위, -1.5σ ≈ 7%, -1σ ≈ 16%, +1σ ≈ 84%, +1.5σ ≈ 93%, +2σ ≈ 97.5%
@@ -2861,12 +3049,12 @@ def build_css(selected_option: str, holding_tickers: set) -> str:
         width:100%!important;
     }}
     div.st-key-zoom_radio div[role="radiogroup"] > label {{
-        flex:1 1 0!important; margin:0!important; padding:8px 0!important;
+        flex:1 1 0!important; margin:0!important; padding:10px 0!important;
         text-align:center!important; cursor:pointer!important;
         background:#f8fafc!important; border:1px solid #cbd5e1!important;
-        border-radius:5px!important; font-size:0.85rem!important;
+        border-radius:6px!important; font-size:1.0rem!important;
         font-weight:600!important; color:#475569!important;
-        transition:all 0.1s!important; min-height:36px!important;
+        transition:all 0.1s!important; min-height:48px!important;
         white-space:nowrap!important; overflow:hidden!important;
     }}
     div.st-key-zoom_radio div[role="radiogroup"] > label:has(input:checked) {{
