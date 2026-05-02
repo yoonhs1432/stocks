@@ -1625,7 +1625,7 @@ def render_sidebar(
             y_max = max(portfolio_view.max(), seed_krw) * 1.03
 
             # 기간 라벨 (자산 추이 옆에 작게)
-            zoom_label_map = {1: '1M', 3: '3M', 6: '6M', 12: '1Y', 240: '전체'}
+            zoom_label_map = {1: '1M', 3: '3M', 6: '6M', 12: '1Y', 240: 'All'}
             period_label = zoom_label_map.get(view_months, f'{view_months}M')
 
             fig_eq.update_layout(
@@ -2324,62 +2324,6 @@ def render_analytics_panel(
 ) -> None:
     """차트 아래 expander (세로 stack, 모바일 친화)."""
 
-    # ── #18 역사적 분위 ──
-    if df_daily is not None and not df_daily.empty:
-        with st.expander("📊 역사적 분위", expanded=False):
-            last = df_daily.iloc[-1]
-            cur_rsi = float(last['RSI']) if pd.notna(last['RSI']) else 50.0
-            cur_z = float(last['Z_Score']) if pd.notna(last['Z_Score']) else 0.0
-            cur_mhz = float(last['MACD_Hist_Z']) if pd.notna(last['MACD_Hist_Z']) else 0.0
-
-            rsi_pct = historical_percentile(df_daily['RSI'], cur_rsi, 'low')
-            z_pct = historical_percentile(df_daily['Z_Score'], cur_z, 'low')
-            mhz_pct = historical_percentile(df_daily['MACD_Hist_Z'], cur_mhz, 'low')
-
-            def _pct_bar(pct: float, label: str, value: str, value_color: str = '#374151') -> str:
-                # 과매도(<10%): 빨강, 과매수(>90%): 파랑, 정상: 회색
-                if pct <= 10:
-                    bar_color = '#dc2626'
-                    interp = "매우 과매도"
-                    interp_c = '#b91c1c'
-                elif pct <= 25:
-                    bar_color = '#f87171'
-                    interp = "과매도"
-                    interp_c = '#dc2626'
-                elif pct >= 90:
-                    bar_color = '#1d4ed8'
-                    interp = "매우 과매수"
-                    interp_c = '#1d4ed8'
-                elif pct >= 75:
-                    bar_color = '#60a5fa'
-                    interp = "과매수"
-                    interp_c = '#2563eb'
-                else:
-                    bar_color = '#9ca3af'
-                    interp = "정상"
-                    interp_c = '#6b7280'
-                return (
-                    f"<div style='display:flex;align-items:center;gap:6px;margin-bottom:4px;'>"
-                    f"<div style='width:48px;font-size:0.72rem;color:#374151;font-weight:600;'>{label}</div>"
-                    f"<div style='width:50px;font-size:0.72rem;color:{value_color};'>{value}</div>"
-                    f"<div style='flex:1;background:#e5e7eb;border-radius:3px;height:8px;position:relative;'>"
-                    f"<div style='width:{pct:.1f}%;background:{bar_color};border-radius:3px;height:8px;'></div>"
-                    f"</div>"
-                    f"<div style='width:38px;font-size:0.7rem;font-weight:700;text-align:right;color:#374151;'>{pct:.0f}%</div>"
-                    f"<div style='width:64px;font-size:0.65rem;color:{interp_c};text-align:right;'>{interp}</div>"
-                    f"</div>"
-                )
-
-            html = (
-                f"{_pct_bar(rsi_pct, 'RSI', f'{cur_rsi:.1f}')}"
-                f"{_pct_bar(z_pct, 'Z', f'{cur_z:+.2f}')}"
-                f"{_pct_bar(mhz_pct, 'MACD-Z', f'{cur_mhz:+.2f}')}"
-                f"<div style='font-size:0.65rem;color:#9ca3af;margin-top:4px;'>"
-                f"분위 = 분석 기간 내 현재값 이하의 비율. 낮을수록 과매도, 높을수록 과매수"
-                f"</div>"
-            )
-            st.markdown(html, unsafe_allow_html=True)
-
     # ── #20 진입/익절 가격 제안 (σ + 역사적 분위 통합) ──
     if (df_daily is not None and not df_daily.empty
             and beta is not None and std_resid is not None):
@@ -2426,18 +2370,29 @@ def render_analytics_panel(
                     return signed_str(pct, '{:.1f}') + "%"
 
                 # ── 위치 시각화 bar ──
-                def _price_to_pct(p: float) -> float:
+                def _price_to_sigma(p: float) -> float:
+                    """가격 → σ 단위. clip 없이 실제 sigma 반환."""
                     if p <= 0 or trend_price <= 0:
-                        return 50.0
-                    sigma = np.log(p / trend_price) / std_resid
-                    return float(max(-5, min(105, (sigma + 2) / 4 * 100)))
+                        return 0.0
+                    return float(np.log(p / trend_price) / std_resid)
 
-                cur_pct_bar = _price_to_pct(cur_price)
-                avg_pct_bar = _price_to_pct(avg_price) if avg_price else None
+                def _sigma_to_pct(sigma: float) -> tuple[float, bool]:
+                    """σ → bar 위치 %. clip된 값 + 범위 밖 여부 반환."""
+                    pct = (sigma + 2) / 4 * 100  # -2σ→0%, +2σ→100%
+                    is_outside = pct < 0 or pct > 100
+                    return float(max(0, min(100, pct))), is_outside
+
+                cur_sigma = _price_to_sigma(cur_price)
+                cur_pct_bar, cur_outside = _sigma_to_pct(cur_sigma)
+                avg_sigma = _price_to_sigma(avg_price) if avg_price else None
+                if avg_sigma is not None:
+                    avg_pct_bar, avg_outside = _sigma_to_pct(avg_sigma)
+                else:
+                    avg_pct_bar, avg_outside = None, False
 
                 bar_html = (
-                    "<div style='position:relative;height:32px;margin:6px 0 14px 0;'>"
-                    "<div style='position:absolute;top:13px;left:0;right:0;height:8px;"
+                    "<div style='position:relative;height:38px;margin:6px 8px 16px 8px;'>"
+                    "<div style='position:absolute;top:18px;left:0;right:0;height:8px;"
                     "border-radius:4px;"
                     "background:linear-gradient(to right,"
                     "#7f1d1d 0%,#dc2626 12.5%,#fca5a5 25%,"
@@ -2448,34 +2403,72 @@ def render_analytics_panel(
                                (75, '+1σ'), (100, '+2σ')]
                 for pos, lbl in sigma_marks:
                     bar_html += (
-                        f"<div style='position:absolute;left:{pos}%;top:23px;"
+                        f"<div style='position:absolute;left:{pos}%;top:28px;"
                         f"transform:translateX(-50%);font-size:0.55rem;"
                         f"color:#9ca3af;'>{lbl}</div>"
                     )
+
+                # 라벨 위치 정렬: 좌측 끝(<20%)이면 우측 정렬, 우측 끝(>80%)이면 좌측 정렬
+                def _label_align(pct: float) -> tuple[str, str]:
+                    """반환: (transform, text-align)"""
+                    if pct < 20:
+                        return ("translateX(0%)", "left")        # 라벨이 마커 오른쪽으로
+                    elif pct > 80:
+                        return ("translateX(-100%)", "right")    # 라벨이 마커 왼쪽으로
+                    else:
+                        return ("translateX(-50%)", "center")    # 가운데 정렬
+
                 if avg_pct_bar is not None:
+                    avg_tf, avg_ta = _label_align(avg_pct_bar)
+                    out_arrow = (
+                        " ◀" if avg_sigma is not None and avg_sigma < -2
+                        else " ▶" if avg_sigma is not None and avg_sigma > 2
+                        else ""
+                    )
                     bar_html += (
-                        f"<div style='position:absolute;left:{avg_pct_bar:.1f}%;top:8px;"
+                        # 평균단가 동그라미 마커
+                        f"<div style='position:absolute;left:{avg_pct_bar:.1f}%;top:13px;"
                         f"transform:translateX(-50%);width:18px;height:18px;"
                         f"border-radius:50%;background:#fff;border:2.5px solid #6b7280;"
                         f"box-shadow:0 1px 3px rgba(0,0,0,0.3);z-index:2;' "
                         f"title='평균단가 ${avg_price:.2f}'></div>"
+                        # 평균단가 라벨 (위치 정렬 적용)
                         f"<div style='position:absolute;left:{avg_pct_bar:.1f}%;top:0;"
-                        f"transform:translateX(-50%);font-size:0.58rem;"
-                        f"font-weight:700;color:#374151;white-space:nowrap;'>"
-                        f"평균 ${avg_price:.2f}</div>"
+                        f"transform:{avg_tf};text-align:{avg_ta};font-size:0.6rem;"
+                        f"font-weight:700;color:#374151;white-space:nowrap;"
+                        f"padding:0 3px;background:rgba(255,255,255,0.85);"
+                        f"border-radius:3px;'>"
+                        f"평균 ${avg_price:.2f}{out_arrow}</div>"
                     )
+
+                # 현재가 별표 + 라벨
+                cur_tf, cur_ta = _label_align(cur_pct_bar)
+                cur_out_arrow = (
+                    " ◀" if cur_outside and cur_sigma < -2
+                    else " ▶" if cur_outside and cur_sigma > 2
+                    else ""
+                )
                 bar_html += (
-                    f"<div style='position:absolute;left:{cur_pct_bar:.1f}%;top:6px;"
+                    f"<div style='position:absolute;left:{cur_pct_bar:.1f}%;top:11px;"
                     f"transform:translateX(-50%);width:22px;height:22px;"
                     f"display:flex;align-items:center;justify-content:center;"
                     f"font-size:18px;color:#ec4899;text-shadow:0 0 3px #fff,0 0 3px #fff;"
                     f"z-index:3;' title='현재가 ${cur_price:.2f}'>★</div>"
-                    "</div>"
                 )
+                # 현재가 라벨 (별표 위에 작게)
+                if cur_outside:
+                    bar_html += (
+                        f"<div style='position:absolute;left:{cur_pct_bar:.1f}%;top:0;"
+                        f"transform:{cur_tf};text-align:{cur_ta};font-size:0.6rem;"
+                        f"font-weight:700;color:#ec4899;white-space:nowrap;"
+                        f"padding:0 3px;background:rgba(255,255,255,0.85);"
+                        f"border-radius:3px;'>"
+                        f"${cur_price:.2f}{cur_out_arrow}</div>"
+                    )
+                bar_html += "</div>"
                 st.markdown(bar_html, unsafe_allow_html=True)
 
                 # 위치 해석 한 줄
-                cur_sigma = (cur_pct_bar - 50) / 100 * 4
                 if cur_sigma <= -1.5:
                     interp, interp_c = f"🔴 매우 과매도 ({cur_sigma:+.1f}σ)", '#b91c1c'
                 elif cur_sigma <= -0.5:
@@ -2785,6 +2778,7 @@ def build_css(selected_option: str, holding_tickers: set) -> str:
         border-radius:5px!important; font-size:0.85rem!important;
         font-weight:600!important; color:#475569!important;
         transition:all 0.1s!important; min-height:36px!important;
+        white-space:nowrap!important; overflow:hidden!important;
     }}
     div.st-key-zoom_radio div[role="radiogroup"] > label:has(input:checked) {{
         background:#dc2626!important; border-color:#dc2626!important;
@@ -3026,7 +3020,7 @@ def main() -> None:
                             df_daily_raw = result_raw[0]
 
             # ── #19 차트 줌 프리셋 (horizontal radio로 처리) ──
-            zoom_presets = [('1M', 1), ('3M', 3), ('6M', 6), ('1Y', 12), ('전체', 240)]
+            zoom_presets = [('1M', 1), ('3M', 3), ('6M', 6), ('1Y', 12), ('All', 240)]
             zoom_labels = [p[0] for p in zoom_presets]
             zoom_map = dict(zoom_presets)
             current_view = st.session_state.view_months
