@@ -3511,66 +3511,68 @@ def main() -> None:
         unsafe_allow_html=True,
     )
 
-    btn_col, chart_col = st.columns([1, 6])
-    with btn_col:
-        # #1 보유 우선 → 신호 강도순 → 원본 순서 정렬
-        def _ticker_sort_key(tk: str) -> tuple:
-            sig = st.session_state.ticker_signals.get(tk, 'H')
-            is_holding = tk in holding_tickers
-            return (
-                0 if is_holding else 1,         # 보유 먼저
-                signal_sort_key(sig),            # 신호 강도 (FB2 → ... → FS2)
-                TARGET_TICKERS.index(tk),        # 동률은 원본 순서
-            )
+    # ── sorted_tickers 미리 계산 (탭 1, 탭 2 모두 사용) ──
+    def _ticker_sort_key(tk: str) -> tuple:
+        sig = st.session_state.ticker_signals.get(tk, 'H')
+        is_holding = tk in holding_tickers
+        return (
+            0 if is_holding else 1,
+            signal_sort_key(sig),
+            TARGET_TICKERS.index(tk),
+        )
+    sorted_tickers = sorted(TARGET_TICKERS, key=_ticker_sort_key)
 
-        sorted_tickers = sorted(TARGET_TICKERS, key=_ticker_sort_key)
+    # ── 메인 영역 전체를 감싸는 탭 ──
+    tab1, tab2 = st.tabs(["📊 상세", "🗺️ 한눈에 보기"])
 
-        for ticker in sorted_tickers:
-            pct = pct_changes.get(ticker, 0)
-            star = "★ " if ticker in holding_tickers else ""
-            if st.button(
-                f"{star}**{display_name(ticker)}**   {pct:+.1f}%",
-                key=f"ticker_btn_{safe_key(ticker)}", use_container_width=True,
-            ):
-                st.session_state.selected_option = ticker
-                st.session_state.custom_ticker_input = ''
+    # ====================================================
+    # 탭 1: 기존 화면 (종목버튼 + 차트 + 분석패널 + 메모)
+    # ====================================================
+    with tab1:
+        btn_col, chart_col = st.columns([1, 6])
+        with btn_col:
+            for ticker in sorted_tickers:
+                pct = pct_changes.get(ticker, 0)
+                star = "★ " if ticker in holding_tickers else ""
+                if st.button(
+                    f"{star}**{display_name(ticker)}**   {pct:+.1f}%",
+                    key=f"ticker_btn_{safe_key(ticker)}", use_container_width=True,
+                ):
+                    st.session_state.selected_option = ticker
+                    st.session_state.custom_ticker_input = ''
+                    st.rerun()
+            if st.button(DIRECT_INPUT_LABEL, key="ticker_btn_direct", use_container_width=True):
+                st.session_state.selected_option = DIRECT_INPUT_LABEL
                 st.rerun()
-        if st.button(DIRECT_INPUT_LABEL, key="ticker_btn_direct", use_container_width=True):
-            st.session_state.selected_option = DIRECT_INPUT_LABEL
-            st.rerun()
-        if selected_option == DIRECT_INPUT_LABEL:
-            custom_input = st.text_input(
-                "티커", value=st.session_state.get('custom_ticker_input', ''),
-                placeholder="NVDA", label_visibility="collapsed",
-            )
-            new_val = custom_input.strip().upper()
-            if new_val != st.session_state.get('custom_ticker_input', ''):
-                st.session_state.custom_ticker_input = new_val
+            if selected_option == DIRECT_INPUT_LABEL:
+                custom_input = st.text_input(
+                    "티커", value=st.session_state.get('custom_ticker_input', ''),
+                    placeholder="NVDA", label_visibility="collapsed",
+                )
+                new_val = custom_input.strip().upper()
+                if new_val != st.session_state.get('custom_ticker_input', ''):
+                    st.session_state.custom_ticker_input = new_val
+                    st.rerun()
+            if st.button("🔄 refresh", key="full_refresh_btn", use_container_width=True):
+                with st.spinner("데이터 갱신 중..."):
+                    st.cache_data.clear()
+                    st.session_state['last_refresh'] = datetime.datetime.now(
+                        datetime.timezone(datetime.timedelta(hours=9))
+                    ).strftime('%H:%M:%S')
                 st.rerun()
-        if st.button("🔄 refresh", key="full_refresh_btn", use_container_width=True):
-            with st.spinner("데이터 갱신 중..."):
-                st.cache_data.clear()
-                st.session_state['last_refresh'] = datetime.datetime.now(
-                    datetime.timezone(datetime.timedelta(hours=9))
-                ).strftime('%H:%M:%S')
-            st.rerun()
-        last_refresh = st.session_state.get('last_refresh')
-        if last_refresh:
-            st.markdown(
-                f"<div style='font-size:0.65rem;color:#9ca3af;text-align:center;"
-                f"margin-top:-4px;'>updated {last_refresh}</div>",
-                unsafe_allow_html=True,
-            )
+            last_refresh = st.session_state.get('last_refresh')
+            if last_refresh:
+                st.markdown(
+                    f"<div style='font-size:0.65rem;color:#9ca3af;text-align:center;"
+                    f"margin-top:-4px;'>updated {last_refresh}</div>",
+                    unsafe_allow_html=True,
+                )
 
-    with chart_col:
-        tab1, tab2 = st.tabs(["📊 상세", "🗺️ 한눈에 보기"])
-
-        with tab1:
+        with chart_col:
             if df_daily is not None:
                 render_position_tracker(
                     selected_ticker, df_daily, df_close, portfolio_state, beta, std_resid,
                 )
-
                 with st.spinner("캔들 데이터 로드 중..."):
                     df_ohlc = fetch_ohlc(selected_ticker, analysis_start, candle_type)
                 df_daily_raw = None
@@ -3586,7 +3588,6 @@ def main() -> None:
                             )
                             if result_raw[0] is not None:
                                 df_daily_raw = result_raw[0]
-
                 render_chart(
                     df_daily, selected_ticker, beta, std_resid,
                     cfg['guide_n'], st.session_state.view_months, df_ohlc, df_daily_raw,
@@ -3599,101 +3600,96 @@ def main() -> None:
             elif selected_ticker:
                 st.error("분석에 필요한 데이터가 부족합니다.")
 
-        with tab2:
-            # ── 헤더: σ 눈금 라벨 ──
+        # 분석 패널 + 메모 (탭1 안)
+        if df_daily is not None and selected_ticker:
             st.markdown(
-                "<div style='display:flex;align-items:center;gap:8px;"
-                "padding:6px 4px 4px 4px;font-size:0.55rem;color:#9ca3af;"
-                "border-bottom:1px solid #e5e7eb;margin-bottom:4px;'>"
-                "<div style='width:80px;font-weight:700;color:#6b7280;font-size:0.65rem;'>"
-                "종목</div>"
-                "<div style='flex:1;position:relative;height:14px;'>"
-                "<span style='position:absolute;left:0%;transform:translateX(-50%);'>-3σ</span>"
-                "<span style='position:absolute;left:16.67%;transform:translateX(-50%);'>-2σ</span>"
-                "<span style='position:absolute;left:33.33%;transform:translateX(-50%);'>-1σ</span>"
-                "<span style='position:absolute;left:50%;transform:translateX(-50%);'>추세</span>"
-                "<span style='position:absolute;left:66.67%;transform:translateX(-50%);'>+1σ</span>"
-                "<span style='position:absolute;left:83.33%;transform:translateX(-50%);'>+2σ</span>"
-                "<span style='position:absolute;left:100%;transform:translateX(-50%);'>+3σ</span>"
-                "</div>"
-                "</div>",
+                "<div data-analytics-panel style='margin-top:8px;'></div>",
+                unsafe_allow_html=True,
+            )
+            render_analytics_panel(
+                selected_ticker, df_daily, df_close, portfolio_state, beta, std_resid,
+            )
+        if selected_ticker:
+            render_memo_section(selected_ticker)
+
+    # ====================================================
+    # 탭 2: 한눈에 보기 (풀폭 22개 종목 미니바 리스트)
+    # ====================================================
+    with tab2:
+        # ── 헤더: σ 눈금 라벨 ──
+        st.markdown(
+            "<div style='display:flex;align-items:center;gap:8px;"
+            "padding:6px 4px 4px 4px;font-size:0.6rem;color:#9ca3af;"
+            "border-bottom:1px solid #e5e7eb;margin-bottom:4px;'>"
+            "<div style='width:90px;font-weight:700;color:#6b7280;font-size:0.7rem;'>"
+            "종목</div>"
+            "<div style='flex:1;position:relative;height:14px;'>"
+            "<span style='position:absolute;left:0%;transform:translateX(-50%);'>-3σ</span>"
+            "<span style='position:absolute;left:16.67%;transform:translateX(-50%);'>-2σ</span>"
+            "<span style='position:absolute;left:33.33%;transform:translateX(-50%);'>-1σ</span>"
+            "<span style='position:absolute;left:50%;transform:translateX(-50%);'>추세</span>"
+            "<span style='position:absolute;left:66.67%;transform:translateX(-50%);'>+1σ</span>"
+            "<span style='position:absolute;left:83.33%;transform:translateX(-50%);'>+2σ</span>"
+            "<span style='position:absolute;left:100%;transform:translateX(-50%);'>+3σ</span>"
+            "</div>"
+            "</div>",
+            unsafe_allow_html=True,
+        )
+
+        # ── 22개 종목 행 (탭1과 동일 정렬) ──
+        for ticker in sorted_tickers:
+            t_result = all_analyses.get(ticker)
+            if not t_result or t_result[0] is None:
+                continue
+            t_df, t_beta, t_std = t_result
+            if t_df.empty:
+                continue
+
+            t_col = f'{ticker}_Close'
+            if t_col not in df_close.columns:
+                continue
+            t_cur_price = float(df_close[t_col].iloc[-1])
+
+            t_avg_price = None
+            t_ts = portfolio_state.get(ticker)
+            if (t_ts and t_ts['cycle']['hold_qty'] > 0
+                    and t_ts['cycle']['buy_qty'] > 0):
+                t_avg_price = t_ts['cycle']['buy_cost'] / t_ts['cycle']['buy_qty']
+
+            t_records = st.session_state.trade_history.get(ticker, [])
+
+            mini_bar = build_mini_gradient_bar(
+                t_df, ticker, t_cur_price, t_avg_price, t_beta, t_std,
+                trade_records=t_records, bar_height=36,
+            )
+            if mini_bar is None:
+                continue
+
+            is_holding = ticker in holding_tickers
+            row_bg = '#f0fdf4' if is_holding else '#ffffff'
+            star = "★ " if is_holding else ""
+            pct_chg = pct_changes.get(ticker, 0)
+            pct_color = pnl_color(pct_chg)
+
+            st.markdown(
+                f"<div style='display:flex;align-items:center;gap:8px;"
+                f"padding:3px 4px;background:{row_bg};"
+                f"border-bottom:1px solid #f3f4f6;'>"
+                f"<div style='width:90px;font-size:0.78rem;font-weight:600;"
+                f"color:#111827;flex-shrink:0;line-height:1.15;'>"
+                f"{star}{display_name(ticker)}<br>"
+                f"<span style='font-size:0.65rem;color:{pct_color};font-weight:500;'>"
+                f"{signed_str(pct_chg, '{:.1f}')}%</span>"
+                f"</div>"
+                f"<div style='flex:1;'>{mini_bar}</div>"
+                f"</div>",
                 unsafe_allow_html=True,
             )
 
-            # ── 22개 종목 행 (탭1과 동일 정렬) ──
-            for ticker in sorted_tickers:
-                t_result = all_analyses.get(ticker)
-                if not t_result or t_result[0] is None:
-                    continue
-                t_df, t_beta, t_std = t_result
-                if t_df.empty:
-                    continue
-
-                t_col = f'{ticker}_Close'
-                if t_col not in df_close.columns:
-                    continue
-                t_cur_price = float(df_close[t_col].iloc[-1])
-
-                # 평균단가 (보유 시)
-                t_avg_price = None
-                t_ts = portfolio_state.get(ticker)
-                if (t_ts and t_ts['cycle']['hold_qty'] > 0
-                        and t_ts['cycle']['buy_qty'] > 0):
-                    t_avg_price = (
-                        t_ts['cycle']['buy_cost'] / t_ts['cycle']['buy_qty']
-                    )
-
-                # 매매 기록
-                t_records = st.session_state.trade_history.get(ticker, [])
-
-                # 미니바
-                mini_bar = build_mini_gradient_bar(
-                    t_df, ticker, t_cur_price, t_avg_price, t_beta, t_std,
-                    trade_records=t_records, bar_height=32,
-                )
-                if mini_bar is None:
-                    continue
-
-                # 행 배경 (보유 vs 미보유)
-                is_holding = ticker in holding_tickers
-                row_bg = '#f0fdf4' if is_holding else '#ffffff'
-                star = "★ " if is_holding else ""
-                pct_chg = pct_changes.get(ticker, 0)
-                pct_color = pnl_color(pct_chg)
-
-                # 행 출력 (Streamlit 컬럼 대신 단일 markdown)
-                st.markdown(
-                    f"<div style='display:flex;align-items:center;gap:8px;"
-                    f"padding:2px 4px;background:{row_bg};"
-                    f"border-bottom:1px solid #f3f4f6;'>"
-                    f"<div style='width:80px;font-size:0.7rem;font-weight:600;"
-                    f"color:#111827;flex-shrink:0;'>"
-                    f"{star}{display_name(ticker)}<br>"
-                    f"<span style='font-size:0.6rem;color:{pct_color};font-weight:500;'>"
-                    f"{signed_str(pct_chg, '{:.1f}')}%</span>"
-                    f"</div>"
-                    f"<div style='flex:1;'>{mini_bar}</div>"
-                    f"</div>",
-                    unsafe_allow_html=True,
-                )
-
-            st.caption(
-                "■ 현재가 (색=신호: FB2 짙은빨강 → H 회색 → FS2 짙은파랑) · "
-                "● 매수 ● 매도 (당시 σ 기준)"
-            )
-
-    # 분석 패널 (#1, #2, #5) — chart_col 밖 별도 행, 80px 첫 컬럼 제약 회피
-    if df_daily is not None and selected_ticker:
-        st.markdown(
-            "<div data-analytics-panel style='margin-top:8px;'></div>",
-            unsafe_allow_html=True,
+        st.caption(
+            "■ 현재가 (색=신호: FB2 짙은빨강 → H 회색 → FS2 짙은파랑) · "
+            "● 매수 ● 매도 (당시 σ 기준)"
         )
-        render_analytics_panel(
-            selected_ticker, df_daily, df_close, portfolio_state, beta, std_resid,
-        )
-
-    if selected_ticker:
-        render_memo_section(selected_ticker)
 
     st.markdown("<div style='height:80px;'></div>", unsafe_allow_html=True)
 
