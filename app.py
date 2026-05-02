@@ -165,6 +165,55 @@ def signed_str(val: float, fmt: str = "{:,.0f}") -> str:
     return f"{sign}{fmt.format(val)}"
 
 
+# ── #2 sparkline ──
+SPARK_BLOCKS = '▁▂▃▄▅▆▇█'
+
+
+def sparkline(values: list, width: int = 8) -> str:
+    """리스트 → unicode block sparkline 문자열."""
+    if not values or len(values) < 2:
+        return ' ' * width
+    vals = [v for v in values if v is not None and not pd.isna(v)]
+    if not vals:
+        return ' ' * width
+    # 끝에서 width개만
+    vals = vals[-width:]
+    lo, hi = min(vals), max(vals)
+    if hi == lo:
+        return SPARK_BLOCKS[len(SPARK_BLOCKS) // 2] * len(vals)
+    out = []
+    for v in vals:
+        idx = int((v - lo) / (hi - lo) * (len(SPARK_BLOCKS) - 1))
+        out.append(SPARK_BLOCKS[idx])
+    return ''.join(out)
+
+
+# ── #1 신호 정렬 우선순위 ──
+SIGNAL_PRIORITY = {
+    'FB2': 0, 'FB': 1, 'B': 2, 'H': 3, 'S': 4, 'FS': 5, 'FS2': 6,
+}
+
+
+def signal_sort_key(signal: str) -> int:
+    return SIGNAL_PRIORITY.get(signal, 99)
+
+
+# ── #18 percentile (역사적 분위) ──
+def historical_percentile(series: pd.Series, current_value: float,
+                           direction: str = 'low') -> float:
+    """
+    series 내에서 current_value의 분위를 % 단위로 반환.
+    direction='low': 작은 값 기준 분위 (예: RSI가 낮을수록 1~10%)
+    direction='high': 큰 값 기준 분위 (예: RSI가 높을수록 90~100%)
+    """
+    arr = series.dropna().values
+    if len(arr) < 5 or pd.isna(current_value):
+        return 50.0
+    if direction == 'low':
+        return float((arr <= current_value).mean() * 100)
+    return float((arr >= current_value).mean() * 100)
+
+
 # ====================================================
 # 4. HTML 빌더 헬퍼 (인라인 스타일 중복 제거)
 # ====================================================
@@ -557,17 +606,31 @@ def fetch_all_data(tickers: list, start_date_str: str, candle_type: str = '일�
 
 
 @st.cache_data(show_spinner=False, ttl=CFG.DATA_TTL_SEC)
-def fetch_usd_krw() -> float:
-    """USD/KRW 실시간 환율. 실패 시 fallback."""
+def fetch_usd_krw() -> tuple[float, bool]:
+    """USD/KRW 실시간 환율. 반환: (값, fallback 사용 여부)."""
     try:
         today = datetime.date.today().strftime('%Y-%m-%d')
         week_ago = (datetime.date.today() - datetime.timedelta(days=7)).strftime('%Y-%m-%d')
         data = fdr.DataReader('USD/KRW', week_ago, today)
         if not data.empty:
-            return float(data['Close'].iloc[-1])
+            return float(data['Close'].iloc[-1]), False
     except Exception as e:
         log.warning(f"USD/KRW fetch failed: {e}")
-    return CFG.USD_KRW_FALLBACK
+    return CFG.USD_KRW_FALLBACK, True
+
+
+@st.cache_data(show_spinner=False, ttl=CFG.DATA_TTL_SEC)
+def fetch_vix() -> Optional[float]:
+    """VIX 현재값 — 변동성 레짐 표시용 (#17 미적용이지만 대비)."""
+    try:
+        today = datetime.date.today().strftime('%Y-%m-%d')
+        week_ago = (datetime.date.today() - datetime.timedelta(days=7)).strftime('%Y-%m-%d')
+        data = fdr.DataReader('VIX', week_ago, today)
+        if not data.empty:
+            return float(data['Close'].iloc[-1])
+    except Exception as e:
+        log.debug(f"VIX fetch failed: {e}")
+    return None
 
 
 @st.cache_data(show_spinner=False, ttl=CFG.DATA_TTL_SEC)
@@ -798,7 +861,7 @@ def compute_drawdown(equity: pd.Series) -> dict:
         return {'current_dd': 0.0, 'mdd': 0.0, 'mdd_date': None}
 
     # 누적 평가액의 cummax 대비 하락률 (단, 시드 대비 절대값으로 계산)
-    seed = CFG.SEED_KRW / fetch_usd_krw()  # USD 환산 시드 (근사)
+    seed = CFG.SEED_KRW / fetch_usd_krw()[0]  # USD 환산 시드 (근사)
     portfolio_value = equity + seed         # 평가 자산 = 시드 + 누적손익
     running_max = portfolio_value.cummax()
     dd = (portfolio_value - running_max) / running_max * 100
@@ -1128,7 +1191,8 @@ def _build_calendar_html(
     fw = _cal_mod.monthrange(cal_month.year, cal_month.month)[0]
 
     daily_pnl: dict[int, float] = {}
-    daily_buy: set[int] = set()
+    daily_buy: set[int] = set()    # 매수 발생일
+    daily_sell: set[int] = set()   # 매도 발생일 (전량/일부 무관)
     for tk in TARGET_TICKERS:
         records = trade_history.get(tk, [])
         valid = [r for r in records if r.get('qty', 0) > 0 and r.get('price', 0) > 0]
@@ -1139,10 +1203,11 @@ def _build_calendar_html(
         for r in sorted(valid, key=lambda r: r['date']):
             rd = datetime.date.fromisoformat(r['date'])
             qty = int(r['qty'])
+            in_month = (rd.year == cal_month.year and rd.month == cal_month.month)
             if r['type'] == 'buy':
                 avg_p = (avg_p * hqty + r['price'] * qty) / (hqty + qty)
                 hqty += qty
-                if rd.year == cal_month.year and rd.month == cal_month.month:
+                if in_month:
                     daily_buy.add(rd.day)
             elif r['type'] == 'sell' and hqty > 0:
                 sq = min(qty, hqty)
@@ -1150,9 +1215,9 @@ def _build_calendar_html(
                 hqty -= sq
                 if hqty == 0:
                     avg_p = 0.0
-                if rd.year == cal_month.year and rd.month == cal_month.month:
+                if in_month:
+                    daily_sell.add(rd.day)
                     daily_pnl[rd.day] = daily_pnl.get(rd.day, 0.0) + pnl_d
-    daily_buy -= set(daily_pnl.keys())
 
     month_total = sum(daily_pnl.values())
     header = (
@@ -1189,20 +1254,32 @@ def _build_calendar_html(
         do = datetime.date(cal_month.year, cal_month.month, day)
         wkd = do.weekday()
         bdr = '1.5px solid #f59e0b' if do == today else '1px solid transparent'
+        has_buy = day in daily_buy
+        has_sell = day in daily_sell
+        is_mixed = has_buy and has_sell
+
         if day in daily_pnl:
+            # 매도가 있는 날 (손익 표시)
             p = daily_pnl[day]
             bg = '#fef2f2' if p >= 0 else '#eff6ff'
             fc = pnl_color(p)
             abs_p = abs(p)
             sign = '+' if p >= 0 else '-'
             lbl = f"{sign}${int(abs_p / 1000)}k" if abs_p >= 1000 else f"{sign}${int(abs_p)}"
+            # 매수+매도 같은 날: 좌측 빨간 막대 추가
+            mix_bar = (
+                "border-left:3px solid #dc2626;"
+                if is_mixed else ""
+            )
             grid += (
-                f"<div style='background:{bg};border-radius:3px;border:{bdr};line-height:1.2;padding:1px;'>"
+                f"<div style='background:{bg};border-radius:3px;border:{bdr};"
+                f"{mix_bar}line-height:1.2;padding:1px;'>"
                 f"<div style='color:{COLOR_TEXT};font-size:0.58rem;'>{day}</div>"
                 f"<div style='color:{fc};font-weight:700;font-size:0.52rem;'>{lbl}</div>"
                 f"</div>"
             )
-        elif day in daily_buy:
+        elif has_buy:
+            # 매수만 있는 날
             fc_d = COLOR_TEXT if wkd < 5 else '#d1d5db'
             grid += (
                 f"<div style='border-radius:3px;border:{bdr};line-height:1.2;padding:1px;'>"
@@ -1226,6 +1303,7 @@ def _build_calendar_html(
         "<span><span style='background:#eff6ff;color:#1d4ed8;padding:0 2px;"
         "border-radius:2px;font-size:0.55rem;'>-</span> 손실</span>"
         "<span><span style='color:#dc2626;'>●</span> 매수</span>"
+        "<span><span style='border-left:3px solid #dc2626;padding-left:2px;'>┃</span> 매수+매도</span>"
         "</div></div>"
     )
     return header + grid + legend
@@ -1241,7 +1319,65 @@ def render_sidebar(
     with st.sidebar:
         portfolio_pnl = st.session_state.get('portfolio_pnl_cache')
         usd_krw = st.session_state.get('usd_krw_cache', CFG.USD_KRW_FALLBACK)
+        usd_krw_fallback = st.session_state.get('usd_krw_fallback', False)
         df_close_last = st.session_state.get('df_close_last', {})
+
+        # ── #19 시장 상황 (전 종목 신호 분포) ──
+        signals = st.session_state.get('ticker_signals', {})
+        sig_counts = {'buy': 0, 'hold': 0, 'sell': 0}
+        for tk in TARGET_TICKERS:
+            s = signals.get(tk, 'H')
+            if s in ('FB2', 'FB', 'B'):
+                sig_counts['buy'] += 1
+            elif s in ('FS2', 'FS', 'S'):
+                sig_counts['sell'] += 1
+            else:
+                sig_counts['hold'] += 1
+        # 시장 분위기 해석
+        total = sum(sig_counts.values()) or 1
+        buy_ratio = sig_counts['buy'] / total
+        sell_ratio = sig_counts['sell'] / total
+        if buy_ratio > 0.6:
+            market_mood = "🔥 패닉 (매수 기회?)"
+            mood_color = '#b91c1c'
+        elif sell_ratio > 0.6:
+            market_mood = "🚀 과열 (익절 검토)"
+            mood_color = '#1d4ed8'
+        elif buy_ratio > 0.4:
+            market_mood = "🟢 약세 (분할매수)"
+            mood_color = '#16a34a'
+        elif sell_ratio > 0.4:
+            market_mood = "🟡 강세 (관망)"
+            mood_color = '#ca8a04'
+        else:
+            market_mood = "⚪ 중립"
+            mood_color = '#6b7280'
+
+        market_html = (
+            f"<div style='padding:8px 10px;background:#f9fafb;"
+            f"border:1px solid #e5e7eb;border-radius:8px;margin-bottom:8px;'>"
+            f"<div style='font-size:0.62rem;color:{COLOR_LABEL};margin-bottom:3px;'>"
+            f"📡 시장 상황</div>"
+            f"<div style='display:flex;justify-content:space-between;align-items:center;'>"
+            f"<span style='font-size:0.78rem;font-weight:700;color:{mood_color};'>{market_mood}</span>"
+            f"<span style='font-size:0.65rem;color:#6b7280;'>"
+            f"<span style='color:#b91c1c;font-weight:700;'>매수 {sig_counts['buy']}</span> · "
+            f"<span style='color:#6b7280;'>중립 {sig_counts['hold']}</span> · "
+            f"<span style='color:#1d4ed8;font-weight:700;'>매도 {sig_counts['sell']}</span>"
+            f"</span></div>"
+        )
+        # #23 환율 fallback 경고
+        if usd_krw_fallback:
+            market_html += (
+                f"<div style='margin-top:5px;padding:4px 6px;background:#fef3c7;"
+                f"border:1px solid #fbbf24;border-radius:4px;"
+                f"font-size:0.6rem;color:#92400e;'>"
+                f"⚠️ 환율 가져오기 실패 — fallback ${usd_krw:,.0f}/$ 사용 중. "
+                f"수익률 정확도 낮음."
+                f"</div>"
+            )
+        market_html += "</div>"
+        st.markdown(market_html, unsafe_allow_html=True)
 
         dd_info = st.session_state.get('dd_info_cache')
         seed_html = _build_seed_html(portfolio_pnl, usd_krw, dd_info)
@@ -1315,137 +1451,146 @@ def render_sidebar(
             else "💾 로컬 저장 (Gist 미설정)"
         )
 
-        # 매매 기록
-        st.markdown("### 📈 매매 기록")
-        ticker_options = (
-            TARGET_TICKERS if selected_ticker in TARGET_TICKERS
-            else [selected_ticker] + TARGET_TICKERS
-        )
-        t_ticker = st.selectbox("종목", ticker_options, index=ticker_options.index(selected_ticker))
-        t_date = st.date_input("날짜", datetime.date.today())
-        t_type = st.radio("종류", ['buy', 'sell'], horizontal=True)
-        t_col1, t_col2 = st.columns(2)
-        t_qty = t_col1.number_input("수량", min_value=0, value=0, step=1, format="%d")
-        t_price = t_col2.number_input("단가($)", min_value=0.0, value=0.0, step=0.01, format="%.4f")
-        if st.button("기록 저장", key="trade_save_btn"):
-            record = {'date': t_date.strftime("%Y-%m-%d"), 'type': t_type}
-            if t_qty > 0:
-                record['qty'] = int(t_qty)
-            if t_price > 0:
-                record['price'] = t_price
-            st.session_state.trade_history.setdefault(t_ticker, []).append(record)
-            save_trade_history(st.session_state.trade_history)
-            st.success("저장 완료!")
-            st.rerun()
+        # 매매 기록 / 메모를 탭으로 분리 (#4)
+        tab_trade, tab_memo = st.tabs(["📈 매매 기록", "📝 메모"])
 
-        st.markdown("**🗑️ 기존 기록 삭제**")
-        history = st.session_state.trade_history
-        if selected_ticker in history and history[selected_ticker]:
-            for i, record in enumerate(history[selected_ticker]):
-                qty_str = f" {record['qty']}주" if record.get('qty') else ""
-                prc_str = f" @${record['price']:.2f}" if record.get('price') else ""
-                label = f"✕  {record['date']}  {record['type'].upper()}{qty_str}{prc_str}"
-                if st.button(label, key=f"del_{selected_ticker}_{i}"):
-                    st.session_state.trade_history[selected_ticker].pop(i)
-                    save_trade_history(st.session_state.trade_history)
-                    st.rerun()
-        else:
-            st.caption("매매 기록이 없습니다.")
-
-        # 메모
-        st.markdown("---")
-        st.markdown("### 📝 메모 관리")
-        st.caption(f"현재 종목: **{display_name(selected_ticker)}**")
-        memo_date = st.date_input("날짜 ", datetime.date.today(), key="sb_memo_date")
-        memo_text = st.text_area(
-            "메모 내용", value="",
-            key=f"sb_memo_text_{st.session_state.memo_input_key}",
-            placeholder="메모를 입력하세요...", height=80,
-        )
-        if st.button("메모 저장", key="memo_save_btn"):
-            text = memo_text.strip()
-            if text:
-                mh = st.session_state.memo_history
-                mh.setdefault(selected_ticker, []).append(
-                    {'date': memo_date.strftime("%Y-%m-%d"), 'text': text}
-                )
-                mh[selected_ticker].sort(key=lambda x: x['date'], reverse=True)
-                save_memo_history(mh)
-                st.session_state.memo_input_key += 1
-                st.rerun()
-            else:
-                st.warning("메모 내용을 입력해 주세요.")
-
-        st.markdown("**📋 메모 목록**")
-        mh = st.session_state.memo_history
-        ticker_memos = mh.get(selected_ticker, [])
-        for i, memo in enumerate(ticker_memos):
-            preview = f"{memo['date']} {memo['text'][:12]}{'…' if len(memo['text']) > 12 else ''}"
-            c1, c2 = st.columns(2)
-            if c1.button(
-                f"✏️ {preview}",
-                key=f"memo_edit_btn_{safe_key(selected_ticker)}_{i}",
-                use_container_width=True,
-            ):
-                st.session_state.memo_editing_idx = i
-                st.rerun()
-            if c2.button(
-                f"✕ {preview}",
-                key=f"memo_del_{safe_key(selected_ticker)}_{i}",
-                use_container_width=True,
-            ):
-                st.session_state.memo_history[selected_ticker].pop(i)
-                if st.session_state.memo_editing_idx == i:
-                    st.session_state.memo_editing_idx = None
-                save_memo_history(st.session_state.memo_history)
-                st.rerun()
-            if st.session_state.memo_editing_idx == i:
+        with tab_trade:
+            ticker_options = (
+                TARGET_TICKERS if selected_ticker in TARGET_TICKERS
+                else [selected_ticker] + TARGET_TICKERS
+            )
+            t_ticker = st.selectbox("종목", ticker_options, index=ticker_options.index(selected_ticker))
+            t_date = st.date_input("날짜", datetime.date.today())
+            t_type = st.radio("종류", ['buy', 'sell'], horizontal=True)
+            t_col1, t_col2 = st.columns(2)
+            t_qty = t_col1.number_input("수량", min_value=0, value=0, step=1, format="%d")
+            t_price = t_col2.number_input("단가($)", min_value=0.0, value=0.0, step=0.01, format="%.4f")
+            if st.button("기록 저장", key="trade_save_btn"):
+                record = {'date': t_date.strftime("%Y-%m-%d"), 'type': t_type}
+                if t_qty > 0:
+                    record['qty'] = int(t_qty)
+                if t_price > 0:
+                    record['price'] = t_price
+                st.session_state.trade_history.setdefault(t_ticker, []).append(record)
+                save_trade_history(st.session_state.trade_history)
+                # #14 햅틱 피드백 (모바일에서 진동)
                 st.markdown(
-                    "<div style='background:#f3f4f6;padding:6px;"
-                    "border-radius:6px;margin:2px 0 6px 0;'>",
+                    "<script>if(navigator.vibrate){navigator.vibrate(50);}</script>",
                     unsafe_allow_html=True,
                 )
-                try:
-                    edit_date_default = datetime.date.fromisoformat(memo['date'])
-                except ValueError:
-                    edit_date_default = datetime.date.today()
-                edit_date = st.date_input(
-                    "날짜 수정", value=edit_date_default,
-                    key=f"memo_edit_date_{safe_key(selected_ticker)}_{i}",
-                )
-                edit_text = st.text_area(
-                    "내용 수정", value=memo['text'],
-                    key=f"memo_edit_text_{safe_key(selected_ticker)}_{i}", height=70,
-                )
-                ecols = st.columns(2)
-                if ecols[0].button(
-                    "💾 저장",
-                    key=f"memo_edit_save_{safe_key(selected_ticker)}_{i}",
+                st.success("저장 완료!")
+                st.rerun()
+
+            st.markdown("**🗑️ 기존 기록 삭제**")
+            history = st.session_state.trade_history
+            if selected_ticker in history and history[selected_ticker]:
+                for i, record in enumerate(history[selected_ticker]):
+                    qty_str = f" {record['qty']}주" if record.get('qty') else ""
+                    prc_str = f" @${record['price']:.2f}" if record.get('price') else ""
+                    label = f"✕  {record['date']}  {record['type'].upper()}{qty_str}{prc_str}"
+                    if st.button(label, key=f"del_{selected_ticker}_{i}"):
+                        st.session_state.trade_history[selected_ticker].pop(i)
+                        save_trade_history(st.session_state.trade_history)
+                        st.rerun()
+            else:
+                st.caption("매매 기록이 없습니다.")
+
+        with tab_memo:
+            st.caption(f"현재 종목: **{display_name(selected_ticker)}**")
+            memo_date = st.date_input("날짜 ", datetime.date.today(), key="sb_memo_date")
+            memo_text = st.text_area(
+                "메모 내용", value="",
+                key=f"sb_memo_text_{st.session_state.memo_input_key}",
+                placeholder="메모를 입력하세요...", height=80,
+            )
+            if st.button("메모 저장", key="memo_save_btn"):
+                text = memo_text.strip()
+                if text:
+                    mh = st.session_state.memo_history
+                    mh.setdefault(selected_ticker, []).append(
+                        {'date': memo_date.strftime("%Y-%m-%d"), 'text': text}
+                    )
+                    mh[selected_ticker].sort(key=lambda x: x['date'], reverse=True)
+                    save_memo_history(mh)
+                    st.session_state.memo_input_key += 1
+                    st.markdown(
+                        "<script>if(navigator.vibrate){navigator.vibrate(50);}</script>",
+                        unsafe_allow_html=True,
+                    )
+                    st.rerun()
+                else:
+                    st.warning("메모 내용을 입력해 주세요.")
+
+            st.markdown("**📋 메모 목록**")
+            mh = st.session_state.memo_history
+            ticker_memos = mh.get(selected_ticker, [])
+            for i, memo in enumerate(ticker_memos):
+                preview = f"{memo['date']} {memo['text'][:12]}{'…' if len(memo['text']) > 12 else ''}"
+                c1, c2 = st.columns(2)
+                if c1.button(
+                    f"✏️ {preview}",
+                    key=f"memo_edit_btn_{safe_key(selected_ticker)}_{i}",
                     use_container_width=True,
                 ):
-                    new_text = edit_text.strip()
-                    if new_text:
-                        st.session_state.memo_history[selected_ticker][i] = {
-                            'date': edit_date.strftime("%Y-%m-%d"), 'text': new_text,
-                        }
-                        st.session_state.memo_history[selected_ticker].sort(
-                            key=lambda x: x['date'], reverse=True
-                        )
-                        save_memo_history(st.session_state.memo_history)
+                    st.session_state.memo_editing_idx = i
+                    st.rerun()
+                if c2.button(
+                    f"✕ {preview}",
+                    key=f"memo_del_{safe_key(selected_ticker)}_{i}",
+                    use_container_width=True,
+                ):
+                    st.session_state.memo_history[selected_ticker].pop(i)
+                    if st.session_state.memo_editing_idx == i:
+                        st.session_state.memo_editing_idx = None
+                    save_memo_history(st.session_state.memo_history)
+                    st.rerun()
+                if st.session_state.memo_editing_idx == i:
+                    st.markdown(
+                        "<div style='background:#f3f4f6;padding:6px;"
+                        "border-radius:6px;margin:2px 0 6px 0;'>",
+                        unsafe_allow_html=True,
+                    )
+                    try:
+                        edit_date_default = datetime.date.fromisoformat(memo['date'])
+                    except ValueError:
+                        edit_date_default = datetime.date.today()
+                    edit_date = st.date_input(
+                        "날짜 수정", value=edit_date_default,
+                        key=f"memo_edit_date_{safe_key(selected_ticker)}_{i}",
+                    )
+                    edit_text = st.text_area(
+                        "내용 수정", value=memo['text'],
+                        key=f"memo_edit_text_{safe_key(selected_ticker)}_{i}", height=70,
+                    )
+                    ecols = st.columns(2)
+                    if ecols[0].button(
+                        "💾 저장",
+                        key=f"memo_edit_save_{safe_key(selected_ticker)}_{i}",
+                        use_container_width=True,
+                    ):
+                        new_text = edit_text.strip()
+                        if new_text:
+                            st.session_state.memo_history[selected_ticker][i] = {
+                                'date': edit_date.strftime("%Y-%m-%d"), 'text': new_text,
+                            }
+                            st.session_state.memo_history[selected_ticker].sort(
+                                key=lambda x: x['date'], reverse=True
+                            )
+                            save_memo_history(st.session_state.memo_history)
+                            st.session_state.memo_editing_idx = None
+                            st.rerun()
+                        else:
+                            st.warning("내용을 입력해 주세요.")
+                    if ecols[1].button(
+                        "✖ 취소",
+                        key=f"memo_edit_cancel_{safe_key(selected_ticker)}_{i}",
+                        use_container_width=True,
+                    ):
                         st.session_state.memo_editing_idx = None
                         st.rerun()
-                    else:
-                        st.warning("내용을 입력해 주세요.")
-                if ecols[1].button(
-                    "✖ 취소",
-                    key=f"memo_edit_cancel_{safe_key(selected_ticker)}_{i}",
-                    use_container_width=True,
-                ):
-                    st.session_state.memo_editing_idx = None
-                    st.rerun()
-                st.markdown("</div>", unsafe_allow_html=True)
-        if not ticker_memos:
-            st.caption("메모가 없습니다.")
+                    st.markdown("</div>", unsafe_allow_html=True)
+            if not ticker_memos:
+                st.caption("메모가 없습니다.")
 
     return {
         'analysis_start': analysis_start.strip(),
@@ -1813,9 +1958,10 @@ def render_position_tracker(
     portfolio_state: dict[str, TickerState],
 ) -> None:
     portfolio_pnl = calc_portfolio_total_pnl(portfolio_state, df_close)
-    usd_krw = fetch_usd_krw()
+    usd_krw, is_fallback = fetch_usd_krw()
     st.session_state['portfolio_pnl_cache'] = portfolio_pnl
     st.session_state['usd_krw_cache'] = usd_krw
+    st.session_state['usd_krw_fallback'] = is_fallback
 
     col_close = f'{selected_ticker}_Close'
     current_price = float(df_daily[col_close].iloc[-1]) if col_close in df_daily.columns else None
@@ -1925,11 +2071,142 @@ def render_analytics_panel(
     df_daily: Optional[pd.DataFrame],
     df_close: pd.DataFrame,
     portfolio_state: dict[str, TickerState],
+    beta: Optional[float] = None,
+    std_resid: Optional[float] = None,
 ) -> None:
-    """차트 아래 expander 3개 (세로 stack, 모바일 친화)."""
+    """차트 아래 expander (세로 stack, 모바일 친화)."""
+
+    # ── #18 역사적 분위 ──
+    if df_daily is not None and not df_daily.empty:
+        with st.expander("📊 역사적 분위", expanded=False):
+            last = df_daily.iloc[-1]
+            cur_rsi = float(last['RSI']) if pd.notna(last['RSI']) else 50.0
+            cur_z = float(last['Z_Score']) if pd.notna(last['Z_Score']) else 0.0
+            cur_mhz = float(last['MACD_Hist_Z']) if pd.notna(last['MACD_Hist_Z']) else 0.0
+
+            rsi_pct = historical_percentile(df_daily['RSI'], cur_rsi, 'low')
+            z_pct = historical_percentile(df_daily['Z_Score'], cur_z, 'low')
+            mhz_pct = historical_percentile(df_daily['MACD_Hist_Z'], cur_mhz, 'low')
+
+            def _pct_bar(pct: float, label: str, value: str, value_color: str = '#374151') -> str:
+                # 과매도(<10%): 빨강, 과매수(>90%): 파랑, 정상: 회색
+                if pct <= 10:
+                    bar_color = '#dc2626'
+                    interp = "매우 과매도"
+                    interp_c = '#b91c1c'
+                elif pct <= 25:
+                    bar_color = '#f87171'
+                    interp = "과매도"
+                    interp_c = '#dc2626'
+                elif pct >= 90:
+                    bar_color = '#1d4ed8'
+                    interp = "매우 과매수"
+                    interp_c = '#1d4ed8'
+                elif pct >= 75:
+                    bar_color = '#60a5fa'
+                    interp = "과매수"
+                    interp_c = '#2563eb'
+                else:
+                    bar_color = '#9ca3af'
+                    interp = "정상"
+                    interp_c = '#6b7280'
+                return (
+                    f"<div style='display:flex;align-items:center;gap:6px;margin-bottom:4px;'>"
+                    f"<div style='width:48px;font-size:0.72rem;color:#374151;font-weight:600;'>{label}</div>"
+                    f"<div style='width:50px;font-size:0.72rem;color:{value_color};'>{value}</div>"
+                    f"<div style='flex:1;background:#e5e7eb;border-radius:3px;height:8px;position:relative;'>"
+                    f"<div style='width:{pct:.1f}%;background:{bar_color};border-radius:3px;height:8px;'></div>"
+                    f"</div>"
+                    f"<div style='width:38px;font-size:0.7rem;font-weight:700;text-align:right;color:#374151;'>{pct:.0f}%</div>"
+                    f"<div style='width:64px;font-size:0.65rem;color:{interp_c};text-align:right;'>{interp}</div>"
+                    f"</div>"
+                )
+
+            html = (
+                f"{_pct_bar(rsi_pct, 'RSI', f'{cur_rsi:.1f}')}"
+                f"{_pct_bar(z_pct, 'Z', f'{cur_z:+.2f}')}"
+                f"{_pct_bar(mhz_pct, 'MACD-Z', f'{cur_mhz:+.2f}')}"
+                f"<div style='font-size:0.65rem;color:#9ca3af;margin-top:4px;'>"
+                f"분위 = 분석 기간 내 현재값 이하의 비율. 낮을수록 과매도, 높을수록 과매수"
+                f"</div>"
+            )
+            st.markdown(html, unsafe_allow_html=True)
+
+    # ── #20 진입/익절 가격 제안 ──
+    if (df_daily is not None and not df_daily.empty
+            and beta is not None and std_resid is not None):
+        with st.expander("🎯 매매가 제안", expanded=False):
+            close_col = f'{selected_ticker}_Close'
+            if close_col not in df_daily.columns:
+                st.caption("데이터 부족")
+            else:
+                cur_price = float(df_daily[close_col].iloc[-1])
+                cur_predicted = float(df_daily['Predicted'].iloc[-1])
+                # 현재 시점의 회귀선 + 표준편차 밴드 (선형이 아닌 로그 잔차 기준)
+                # log_y_predicted ± k*std → exp 변환
+                base_close = df_daily[close_col].iloc[0]
+                base_norm_pred = cur_predicted  # already normalized
+                # 가격 변환: norm * base_close = price. base_y는 첫 값이 1
+                # cur_predicted가 norm space의 예측값.
+                # 실제 가격 = norm_pred * close_at_t0
+                # 더 간단: 회귀선 가격 = close * (predicted / current_norm)
+                cur_norm_y = float(df_daily[f'{selected_ticker}_Norm'].iloc[-1])
+                trend_price = cur_price * (cur_predicted / cur_norm_y)
+
+                def _price_at_sigma(k: float) -> float:
+                    return trend_price * np.exp(k * std_resid)
+
+                buy_2 = _price_at_sigma(-2.0)
+                buy_15 = _price_at_sigma(-1.5)
+                buy_1 = _price_at_sigma(-1.0)
+                sell_1 = _price_at_sigma(1.0)
+                sell_15 = _price_at_sigma(1.5)
+                sell_2 = _price_at_sigma(2.0)
+
+                # 현재가 대비 % 표시
+                def _pct_from_cur(p: float) -> str:
+                    pct = (p / cur_price - 1) * 100
+                    return signed_str(pct, '{:.1f}') + "%"
+
+                rows = [
+                    ("FB2 진입", buy_2, '#7f1d1d', '−2σ'),
+                    ("FB 진입",  buy_15, '#dc2626', '−1.5σ'),
+                    ("B 진입",   buy_1, '#fca5a5', '−1σ'),
+                    ("회귀선",   trend_price, '#6b7280', '추세'),
+                    ("S 익절",   sell_1, '#93c5fd', '+1σ'),
+                    ("FS 익절",  sell_15, '#2563eb', '+1.5σ'),
+                    ("FS2 익절", sell_2, '#1e3a8a', '+2σ'),
+                ]
+                tbl = ["<table style='width:100%;font-size:0.72rem;border-collapse:collapse;'>"]
+                tbl.append(
+                    "<tr style='color:#6b7280;border-bottom:1px solid #e5e7eb;'>"
+                    "<th style='text-align:left;padding:3px;'>구간</th>"
+                    "<th style='padding:3px;'>가격</th>"
+                    "<th style='padding:3px;'>현재가 대비</th></tr>"
+                )
+                for label, p, c, sigma in rows:
+                    is_current = (label == "회귀선")
+                    bg = "background:#fef3c7;" if is_current else ""
+                    tbl.append(
+                        f"<tr style='{bg}'>"
+                        f"<td style='padding:3px;'>"
+                        f"<span style='background:{c};color:#fff;padding:1px 5px;"
+                        f"border-radius:3px;font-size:0.65rem;font-weight:700;'>{label}</span>"
+                        f"<span style='color:#9ca3af;font-size:0.6rem;'> {sigma}</span></td>"
+                        f"<td style='padding:3px;text-align:center;font-weight:700;'>"
+                        f"${p:,.2f}</td>"
+                        f"<td style='padding:3px;text-align:center;color:#6b7280;'>"
+                        f"{_pct_from_cur(p)}</td>"
+                        f"</tr>"
+                    )
+                tbl.append("</table>")
+                st.markdown("".join(tbl), unsafe_allow_html=True)
+                st.caption(
+                    f"회귀선 ${trend_price:,.2f} 기준 ±σ 가격대. β={beta:.2f}, σ={std_resid:.3f}"
+                )
 
     # ── #1 사이클 통계 ──
-    with st.expander("📊 사이클 통계", expanded=False):
+    with st.expander("📈 사이클 통계", expanded=False):
         records = st.session_state.trade_history.get(selected_ticker, [])
         stats = compute_cycle_stats(records)
         if stats is None:
@@ -1964,6 +2241,60 @@ def render_analytics_panel(
                 f"</div>",
                 unsafe_allow_html=True,
             )
+
+    # ── #11 신호 발생 히트맵 (요일 × 월) ──
+    if df_daily is not None and not df_daily.empty and 'Combined_Score' in df_daily.columns:
+        with st.expander("🗓️ 신호 발생 패턴", expanded=False):
+            sig_series = df_daily['Combined_Score'].apply(score_to_signal)
+            df_pat = pd.DataFrame({
+                'signal': sig_series,
+                'weekday': df_daily.index.weekday,    # 0=Mon
+                'month': df_daily.index.month,
+            })
+            # 매수 신호(B/FB/FB2)와 매도 신호(S/FS/FS2) 빈도 집계
+            df_pat['is_buy'] = df_pat['signal'].isin(['FB2', 'FB', 'B'])
+            df_pat['is_sell'] = df_pat['signal'].isin(['FS2', 'FS', 'S'])
+
+            mode_choice = st.radio(
+                "신호 종류", ['매수', '매도'], horizontal=True,
+                key=f"heatmap_mode_{safe_key(selected_ticker)}", label_visibility="collapsed",
+            )
+            target_col = 'is_buy' if mode_choice == '매수' else 'is_sell'
+
+            # 요일 × 월 피벗 (count)
+            pivot = df_pat.groupby(['weekday', 'month'])[target_col].sum().unstack(fill_value=0)
+            # 0~12월 정렬
+            for m in range(1, 13):
+                if m not in pivot.columns:
+                    pivot[m] = 0
+            pivot = pivot.reindex(columns=range(1, 13), fill_value=0)
+            # 0~6 요일 (월~일) — 캔들이 일/주봉이라 토일은 거의 없음
+            pivot = pivot.reindex(index=range(0, 7), fill_value=0)
+
+            wd_labels = ['월', '화', '수', '목', '금', '토', '일']
+            mo_labels = [f'{m}월' for m in range(1, 13)]
+            color_scale = 'Reds' if mode_choice == '매수' else 'Blues'
+
+            fig_h = go.Figure(data=go.Heatmap(
+                z=pivot.values,
+                x=mo_labels, y=wd_labels,
+                colorscale=color_scale, showscale=False,
+                text=pivot.values,
+                texttemplate="%{text}",
+                textfont={"size": 10},
+                hovertemplate=f"{mode_choice} 신호: %{{z}}회<br>%{{y}}요일 %{{x}}<extra></extra>",
+            ))
+            fig_h.update_layout(
+                height=180,
+                margin=dict(l=2, r=2, t=10, b=2),
+                xaxis=dict(tickfont=dict(size=10), side='top'),
+                yaxis=dict(tickfont=dict(size=10)),
+                paper_bgcolor='white', plot_bgcolor='white',
+            )
+            st.plotly_chart(fig_h, use_container_width=True,
+                            config={'displayModeBar': False})
+            total = int(pivot.values.sum())
+            st.caption(f"분석 기간 내 {mode_choice} 신호 총 {total}회 발생")
 
 
 # ====================================================
@@ -2012,10 +2343,11 @@ def build_css(selected_option: str, holding_tickers: set) -> str:
         div.st-key-{k} button {{
             background:{bg}!important; border-color:{bg}!important;
             color:{fg}!important; font-weight:500!important;
-            height:1.7rem!important; font-size:0.62rem!important;
-            padding:0 2px!important; line-height:1!important;
+            height:2.4rem!important; font-size:0.62rem!important;
+            padding:1px 2px!important; line-height:1.05!important;
             min-height:0!important; border-radius:3px!important;
-            width:100%!important; text-align:left!important; {sel_extra}
+            width:100%!important; text-align:left!important;
+            white-space:pre-line!important; {sel_extra}
         }}
         div.st-key-{k} button p, div.st-key-{k} button strong,
         div.st-key-{k} button span {{ color:{fg}!important; }}
@@ -2218,11 +2550,38 @@ def main() -> None:
 
     btn_col, chart_col = st.columns([1, 6])
     with btn_col:
-        for ticker in TARGET_TICKERS:
+        # #1 보유 우선 → 신호 강도순 → 원본 순서 정렬
+        def _ticker_sort_key(tk: str) -> tuple:
+            sig = st.session_state.ticker_signals.get(tk, 'H')
+            is_holding = tk in holding_tickers
+            return (
+                0 if is_holding else 1,         # 보유 먼저
+                signal_sort_key(sig),            # 신호 강도 (FB2 → ... → FS2)
+                TARGET_TICKERS.index(tk),        # 동률은 원본 순서
+            )
+
+        sorted_tickers = sorted(TARGET_TICKERS, key=_ticker_sort_key)
+
+        # #2 sparkline 미리 생성 (최근 8캔들)
+        spark_map: dict[str, str] = {}
+        for tk in TARGET_TICKERS:
+            col = f'{tk}_Close'
+            if col in df_close.columns and len(df_close) >= 2:
+                tail = df_close[col].dropna().tail(8).tolist()
+                spark_map[tk] = sparkline(tail, width=8)
+            else:
+                spark_map[tk] = ''
+
+        for ticker in sorted_tickers:
             pct = pct_changes.get(ticker, 0)
             star = "★ " if ticker in holding_tickers else ""
+            spark = spark_map.get(ticker, '')
+            label = (
+                f"{star}**{display_name(ticker)}**  {pct:+.1f}%\n{spark}"
+                if spark else f"{star}**{display_name(ticker)}**   {pct:+.1f}%"
+            )
             if st.button(
-                f"{star}**{display_name(ticker)}**   {pct:+.1f}%",
+                label,
                 key=f"ticker_btn_{safe_key(ticker)}", use_container_width=True,
             ):
                 st.session_state.selected_option = ticker
@@ -2257,6 +2616,35 @@ def main() -> None:
 
     with chart_col:
         if df_daily is not None:
+            # #13 차트 상단 종목 칩 — 시장 한눈에 보기 (보유+강한 신호 상위 10개)
+            chip_tickers = sorted(
+                TARGET_TICKERS,
+                key=lambda tk: (
+                    0 if tk in holding_tickers else 1,
+                    signal_sort_key(st.session_state.ticker_signals.get(tk, 'H')),
+                ),
+            )[:10]
+            chip_html = (
+                "<div style='display:flex;gap:4px;overflow-x:auto;"
+                "padding:4px 0 8px 0;scroll-behavior:smooth;"
+                "-webkit-overflow-scrolling:touch;'>"
+            )
+            for tk in chip_tickers:
+                sig = st.session_state.ticker_signals.get(tk, 'H')
+                bg, fg = SIGNAL_STYLE.get(sig, ('#9ca3af', '#fff'))
+                pct = pct_changes.get(tk, 0)
+                star = "★" if tk in holding_tickers else ""
+                is_sel = tk == selected_ticker
+                border = "border:2px solid #111;" if is_sel else "border:1px solid transparent;"
+                chip_html += (
+                    f"<div style='background:{bg};color:{fg};padding:4px 8px;border-radius:14px;"
+                    f"font-size:0.7rem;font-weight:600;white-space:nowrap;flex-shrink:0;"
+                    f"{border}'>"
+                    f"{star}{display_name(tk)} {pct:+.1f}%</div>"
+                )
+            chip_html += "</div>"
+            st.markdown(chip_html, unsafe_allow_html=True)
+
             render_position_tracker(selected_ticker, df_daily, df_close, portfolio_state)
 
             with st.spinner("캔들 데이터 로드 중..."):
@@ -2292,7 +2680,9 @@ def main() -> None:
             "<div data-analytics-panel style='margin-top:8px;'></div>",
             unsafe_allow_html=True,
         )
-        render_analytics_panel(selected_ticker, df_daily, df_close, portfolio_state)
+        render_analytics_panel(
+            selected_ticker, df_daily, df_close, portfolio_state, beta, std_resid,
+        )
 
     if selected_ticker:
         render_memo_section(selected_ticker)
