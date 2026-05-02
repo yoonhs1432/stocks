@@ -761,6 +761,68 @@ def compute_cycle_stats(records: list) -> Optional[dict]:
     }
 
 
+def compute_cycle_avg_prices(records: list) -> list:
+    """
+    종목의 매매 기록에서 모든 사이클의 가중평균 매수/매도가를 반환.
+    완료된 사이클뿐 아니라 진행 중인 사이클(매도 미완료)도 포함.
+
+    반환: [{'idx': 사이클번호, 'avg_buy': 평균매수가, 'avg_sell': 평균매도가 or None,
+            'is_active': 진행중여부, 'start': 시작일}]
+    오래된 → 최근 순
+    """
+    valid = [r for r in records if r.get('qty', 0) > 0 and r.get('price', 0) > 0]
+    if not valid:
+        return []
+    sorted_recs = sorted(valid, key=lambda r: r['date'])
+
+    cycles = []
+    hold_qty = 0
+    buy_qty = 0
+    buy_cost = 0.0
+    sell_qty = 0
+    sell_proceeds = 0.0
+    cycle_start: Optional[datetime.date] = None
+
+    def _close_cycle(end_date: Optional[datetime.date], is_active: bool):
+        if buy_qty == 0:
+            return
+        cycles.append({
+            'idx': len(cycles) + 1,
+            'avg_buy': buy_cost / buy_qty,
+            'avg_sell': (sell_proceeds / sell_qty) if sell_qty > 0 else None,
+            'is_active': is_active,
+            'start': cycle_start,
+            'end': end_date,
+        })
+
+    for r in sorted_recs:
+        date = datetime.date.fromisoformat(r['date'])
+        qty = int(r['qty'])
+        if r['type'] == 'buy':
+            if hold_qty == 0:
+                # 새 사이클 시작 — 이전 데이터 초기화
+                cycle_start = date
+                buy_qty = 0
+                buy_cost = 0.0
+                sell_qty = 0
+                sell_proceeds = 0.0
+            hold_qty += qty
+            buy_qty += qty
+            buy_cost += qty * r['price']
+        elif r['type'] == 'sell' and hold_qty > 0:
+            sell_qty += qty
+            sell_proceeds += qty * r['price']
+            hold_qty = max(hold_qty - qty, 0)
+            if hold_qty == 0 and buy_qty > 0:
+                _close_cycle(date, is_active=False)
+
+    # 진행 중 사이클 (마지막 매수 후 청산 안 됨)
+    if hold_qty > 0 and buy_qty > 0:
+        _close_cycle(None, is_active=True)
+
+    return cycles
+
+
 # ====================================================
 # 9-C. 드로다운 (#6)
 # ====================================================
@@ -1429,130 +1491,18 @@ def render_sidebar(
         usd_krw_fallback = st.session_state.get('usd_krw_fallback', False)
         df_close_last = st.session_state.get('df_close_last', {})
 
-        # ── #19 시장 상황 (전 종목 신호 분포) ──
-        signals = st.session_state.get('ticker_signals', {})
-        sig_counts = {'buy': 0, 'hold': 0, 'sell': 0}
-        for tk in TARGET_TICKERS:
-            s = signals.get(tk, 'H')
-            if s in ('FB2', 'FB', 'B'):
-                sig_counts['buy'] += 1
-            elif s in ('FS2', 'FS', 'S'):
-                sig_counts['sell'] += 1
-            else:
-                sig_counts['hold'] += 1
-        # 시장 분위기 해석
-        total = sum(sig_counts.values()) or 1
-        buy_ratio = sig_counts['buy'] / total
-        sell_ratio = sig_counts['sell'] / total
-        if buy_ratio > 0.6:
-            market_mood = "🔥 패닉 (매수 기회?)"
-            mood_color = '#b91c1c'
-        elif sell_ratio > 0.6:
-            market_mood = "🚀 과열 (익절 검토)"
-            mood_color = '#1d4ed8'
-        elif buy_ratio > 0.4:
-            market_mood = "🟢 약세 (분할매수)"
-            mood_color = '#16a34a'
-        elif sell_ratio > 0.4:
-            market_mood = "🟡 강세 (관망)"
-            mood_color = '#ca8a04'
-        else:
-            market_mood = "⚪ 중립"
-            mood_color = '#6b7280'
-
-        market_html = (
-            f"<div style='padding:8px 10px;background:#f9fafb;"
-            f"border:1px solid #e5e7eb;border-radius:8px;margin-bottom:8px;'>"
-            f"<div style='font-size:0.62rem;color:{COLOR_LABEL};margin-bottom:3px;'>"
-            f"📡 시장 상황</div>"
-            f"<div style='display:flex;justify-content:space-between;align-items:center;'>"
-            f"<span style='font-size:0.78rem;font-weight:700;color:{mood_color};'>{market_mood}</span>"
-            f"<span style='font-size:0.65rem;color:#6b7280;'>"
-            f"<span style='color:#b91c1c;font-weight:700;'>매수 {sig_counts['buy']}</span> · "
-            f"<span style='color:#6b7280;'>중립 {sig_counts['hold']}</span> · "
-            f"<span style='color:#1d4ed8;font-weight:700;'>매도 {sig_counts['sell']}</span>"
-            f"</span></div>"
-        )
-        # #23 환율 fallback 경고
+        # 환율 fallback 경고만 (시장 상황 카드 제거됨)
         if usd_krw_fallback:
-            market_html += (
-                f"<div style='margin-top:5px;padding:4px 6px;background:#fef3c7;"
+            st.markdown(
+                f"<div style='margin-bottom:6px;padding:4px 8px;background:#fef3c7;"
                 f"border:1px solid #fbbf24;border-radius:4px;"
-                f"font-size:0.6rem;color:#92400e;'>"
-                f"⚠️ 환율 가져오기 실패 — fallback ${usd_krw:,.0f}/$ 사용 중. "
-                f"수익률 정확도 낮음."
-                f"</div>"
-            )
-        market_html += "</div>"
-        st.markdown(market_html, unsafe_allow_html=True)
-
-        # ── #1, #2 매수/매도 추천 카드 ──
-        buy_cands = st.session_state.get('buy_candidates', [])
-        sell_cands = st.session_state.get('sell_candidates', [])
-
-        if buy_cands or sell_cands:
-            reco_html = (
-                "<div style='padding:8px 10px;background:#fafafa;"
-                "border:1px solid #e5e7eb;border-radius:8px;margin-bottom:8px;'>"
+                f"font-size:0.62rem;color:#92400e;'>"
+                f"⚠️ 환율 fallback ${usd_krw:,.0f}/$ 사용 중"
+                f"</div>",
+                unsafe_allow_html=True,
             )
 
-            # 매수 추천
-            if buy_cands:
-                reco_html += (
-                    f"<div style='font-size:0.62rem;color:{COLOR_LABEL};margin-bottom:4px;'>"
-                    f"🎯 매수 후보 <b style='color:#b91c1c;'>{len(buy_cands)}개</b>"
-                    f" <span style='color:#9ca3af;'>· FB/FB2 + 분위 ≤20%</span></div>"
-                )
-                for c in buy_cands[:5]:  # 최대 5개
-                    sig = c['signal']
-                    bg, _ = SIGNAL_STYLE.get(sig, ('#9ca3af', '#fff'))
-                    reco_html += (
-                        f"<div style='display:flex;align-items:center;gap:5px;"
-                        f"margin-bottom:3px;font-size:0.68rem;'>"
-                        f"<span style='background:{bg};color:#fff;padding:1px 5px;"
-                        f"border-radius:3px;font-weight:700;font-size:0.6rem;"
-                        f"width:30px;text-align:center;flex-shrink:0;'>{sig}</span>"
-                        f"<span style='color:{COLOR_TEXT};font-weight:700;width:46px;flex-shrink:0;'>"
-                        f"{display_name(c['ticker'])}</span>"
-                        f"<span style='color:#6b7280;font-size:0.62rem;width:50px;flex-shrink:0;'>"
-                        f"${c['price']:.2f}</span>"
-                        f"<span style='color:#b91c1c;font-size:0.62rem;flex:1;text-align:right;'>"
-                        f"Z {c['z_score']:+.2f} <span style='color:#9ca3af;'>"
-                        f"({c['z_pct']:.0f}%분위)</span></span>"
-                        f"</div>"
-                    )
 
-            # 매도 추천
-            if sell_cands:
-                if buy_cands:
-                    reco_html += (
-                        "<div style='border-top:1px dashed #e5e7eb;margin:5px 0;'></div>"
-                    )
-                reco_html += (
-                    f"<div style='font-size:0.62rem;color:{COLOR_LABEL};margin-bottom:4px;'>"
-                    f"💰 익절 검토 <b style='color:#1d4ed8;'>{len(sell_cands)}개</b>"
-                    f" <span style='color:#9ca3af;'>· FS/FS2 또는 +20%</span></div>"
-                )
-                for c in sell_cands[:5]:
-                    sig = c['signal']
-                    bg, _ = SIGNAL_STYLE.get(sig, ('#9ca3af', '#fff'))
-                    ret_color = pnl_color(c['ret_pct'])
-                    reco_html += (
-                        f"<div style='display:flex;align-items:center;gap:5px;"
-                        f"margin-bottom:3px;font-size:0.68rem;'>"
-                        f"<span style='background:{bg};color:#fff;padding:1px 5px;"
-                        f"border-radius:3px;font-weight:700;font-size:0.6rem;"
-                        f"width:30px;text-align:center;flex-shrink:0;'>{sig}</span>"
-                        f"<span style='color:{COLOR_TEXT};font-weight:700;width:46px;flex-shrink:0;'>"
-                        f"{display_name(c['ticker'])}</span>"
-                        f"<span style='color:{ret_color};font-weight:700;font-size:0.62rem;"
-                        f"width:50px;flex-shrink:0;'>{signed_str(c['ret_pct'], '{:.1f}')}%</span>"
-                        f"<span style='color:#9ca3af;font-size:0.6rem;flex:1;text-align:right;'>"
-                        f"{c['reason']}</span>"
-                        f"</div>"
-                    )
-            reco_html += "</div>"
-            st.markdown(reco_html, unsafe_allow_html=True)
 
         dd_info = st.session_state.get('dd_info_cache')
         seed_html = _build_seed_html(portfolio_pnl, usd_krw, dd_info)
@@ -2275,17 +2225,21 @@ def render_position_tracker(
                     padding:8px 12px;background:#f3f4f6;
                     border:1px solid #d1d5db;border-radius:8px;font-size:0.78rem;'>
           {price_html}
-          {trend_html if trend_html else html_dash_cell("회귀선")}
           {html_dash_cell("평균단가")}
           {html_dash_cell("보유수량")}
           {html_dash_cell("보유기간")}
           {html_dash_cell("평가손익")}
           {html_dash_cell("누적실현손익")}
         </div>""", unsafe_allow_html=True)
-        # 액션 카드 (미보유)
+        # 액션 카드 (미보유 — 단, 과거 매매 이력은 있을 수 있음)
         if (current_price is not None and beta is not None and std_resid is not None):
+            records_for_card = (
+                st.session_state.trade_history.get(selected_ticker, [])
+                if hasattr(st, 'session_state') else None
+            )
             action_card = build_action_card_html(
                 df_daily, selected_ticker, current_price, None, beta, std_resid,
+                trade_records=records_for_card,
             )
             if action_card:
                 st.markdown(action_card, unsafe_allow_html=True)
@@ -2354,7 +2308,6 @@ def render_position_tracker(
                 padding:8px 12px;background:{bg_color};
                 border:1px solid {border_c};border-radius:8px;font-size:0.78rem;'>
       {price_html}
-      {trend_html}
       {avg_html}
       {qty_html}
       {period_html}
@@ -2364,9 +2317,11 @@ def render_position_tracker(
 
     # 액션 카드 (보유 중)
     if current_price is not None and beta is not None and std_resid is not None:
+        records_for_card = st.session_state.trade_history.get(selected_ticker, [])
         action_card = build_action_card_html(
             df_daily, selected_ticker, current_price,
             avg_price if hold_qty > 0 else None, beta, std_resid,
+            trade_records=records_for_card,
         )
         if action_card:
             st.markdown(action_card, unsafe_allow_html=True)
@@ -2382,6 +2337,7 @@ def build_action_card_html(
     avg_price: Optional[float],
     beta: float,
     std_resid: float,
+    trade_records: Optional[list] = None,
 ) -> Optional[str]:
     """그래프 위에 표시할 위치 bar + 액션 카드 통합 HTML.
 
@@ -2487,6 +2443,44 @@ def build_action_card_html(
         f"font-size:18px;color:#ec4899;text-shadow:0 0 3px #fff,0 0 3px #fff;"
         f"z-index:3;' title='현재가 ${cur_price:.2f}'>★</div>"
     )
+    # ── 사이클별 평균 매매가 마커 ──
+    if trade_records:
+        cycle_list = compute_cycle_avg_prices(trade_records)
+        # 최근 5개만 (가장 오래된 → 최근 순으로 정렬되어 있음)
+        cycle_list = cycle_list[-5:]
+        n_cycles = len(cycle_list)
+        for i, cyc in enumerate(cycle_list):
+            # 최근일수록 진하게: opacity 0.5 → 1.0
+            opacity = 0.5 + 0.5 * ((i + 1) / max(n_cycles, 1))
+
+            # 매수 마커 (빨강 점)
+            buy_sigma = _price_to_sigma(cyc['avg_buy'])
+            buy_pct, buy_outside = _sigma_to_pct(buy_sigma)
+            if not buy_outside or (-2.5 <= buy_sigma <= 2.5):
+                # 약간 범위 밖이라도 표시. ± 2.5σ 초과는 생략
+                bar_html += (
+                    f"<div style='position:absolute;left:{buy_pct:.1f}%;top:17px;"
+                    f"transform:translateX(-50%);width:10px;height:10px;"
+                    f"border-radius:50%;background:#dc2626;border:2px solid #fff;"
+                    f"box-shadow:0 0 0 1px #7f1d1d,0 1px 2px rgba(0,0,0,0.3);"
+                    f"opacity:{opacity:.2f};z-index:2;cursor:help;' "
+                    f"title='사이클 {cyc['idx']} 평균매수 ${cyc['avg_buy']:.2f}'></div>"
+                )
+
+            # 매도 마커 (파랑 점, 매도 완료된 경우만)
+            if cyc['avg_sell'] is not None:
+                sell_sigma = _price_to_sigma(cyc['avg_sell'])
+                sell_pct, sell_outside = _sigma_to_pct(sell_sigma)
+                if not sell_outside or (-2.5 <= sell_sigma <= 2.5):
+                    bar_html += (
+                        f"<div style='position:absolute;left:{sell_pct:.1f}%;top:17px;"
+                        f"transform:translateX(-50%);width:10px;height:10px;"
+                        f"border-radius:50%;background:#1d4ed8;border:2px solid #fff;"
+                        f"box-shadow:0 0 0 1px #1e3a8a,0 1px 2px rgba(0,0,0,0.3);"
+                        f"opacity:{opacity:.2f};z-index:2;cursor:help;' "
+                        f"title='사이클 {cyc['idx']} 평균매도 ${cyc['avg_sell']:.2f}'></div>"
+                    )
+
     if cur_outside:
         bar_html += (
             f"<div style='position:absolute;left:{cur_pct_bar:.1f}%;top:0;"
@@ -2509,9 +2503,31 @@ def build_action_card_html(
         interp, interp_c = f"🟦 과매수 ({cur_sigma:+.1f}σ)", '#2563eb'
     else:
         interp, interp_c = f"⚪ 회귀선 부근 ({cur_sigma:+.1f}σ)", '#6b7280'
+    # 사이클 마커 범례 (사이클 있을 때만)
+    legend_html = ""
+    if trade_records:
+        cyc_count = len(compute_cycle_avg_prices(trade_records))
+        if cyc_count > 0:
+            shown = min(cyc_count, 5)
+            legend_html = (
+                f"<span style='font-size:0.6rem;color:#9ca3af;font-weight:400;'>"
+                f"<span style='display:inline-block;width:8px;height:8px;"
+                f"border-radius:50%;background:#dc2626;border:1.5px solid #fff;"
+                f"box-shadow:0 0 0 1px #7f1d1d;vertical-align:middle;'></span>"
+                f" 평균매수&nbsp;&nbsp;"
+                f"<span style='display:inline-block;width:8px;height:8px;"
+                f"border-radius:50%;background:#1d4ed8;border:1.5px solid #fff;"
+                f"box-shadow:0 0 0 1px #1e3a8a;vertical-align:middle;'></span>"
+                f" 평균매도 (최근 {shown}/{cyc_count}사이클)</span>"
+            )
+
     interp_html = (
-        f"<div style='font-size:0.72rem;color:{interp_c};font-weight:600;"
-        f"margin:0 8px 8px 8px;'>현재 위치: {interp}</div>"
+        f"<div style='display:flex;justify-content:space-between;align-items:center;"
+        f"margin:0 8px 8px 8px;flex-wrap:wrap;gap:6px;'>"
+        f"<span style='font-size:0.72rem;color:{interp_c};font-weight:600;'>"
+        f"현재 위치: {interp}</span>"
+        f"{legend_html}"
+        f"</div>"
     )
 
     # ── 액션 카드 ──
@@ -3166,14 +3182,6 @@ def main() -> None:
     holding_tickers = {
         tk for tk, ts in portfolio_state.items() if ts['cycle']['hold_qty'] > 0
     }
-
-    # ── #1, #2 매수/매도 추천 후보 계산 ──
-    st.session_state['buy_candidates'] = compute_buy_candidates(
-        all_analyses, holding_tickers, pct_changes, df_close,
-    )
-    st.session_state['sell_candidates'] = compute_sell_candidates(
-        all_analyses, portfolio_state, df_close,
-    )
 
     # 드로다운 계산 (#6) + 자산 시계열 캐싱 (#15)
     if portfolio_state and not df_close.empty:
