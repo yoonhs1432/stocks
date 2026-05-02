@@ -2814,6 +2814,145 @@ def build_action_card_html(
 
 
 # ====================================================
+# 15-C. 탭2용 미니 그라디언트 바 빌더 (종목별 한눈에 보기)
+# ====================================================
+def build_mini_gradient_bar(
+    df_daily: pd.DataFrame,
+    selected_ticker: str,
+    cur_price: float,
+    avg_price: Optional[float],
+    beta: float,
+    std_resid: float,
+    trade_records: Optional[list] = None,
+    bar_height: int = 32,
+) -> Optional[str]:
+    """탭2용 컴팩트 그라디언트 바.
+    - σ 눈금 라벨 없음 (헤더에서 한번만 표시)
+    - 현재가 사각형 마커 (매매 신호 색)
+    - 사이클 매수/매도 마커 (작게)
+    """
+    if 'Predicted' not in df_daily.columns:
+        return None
+    norm_col = f'{selected_ticker}_Norm'
+    if norm_col not in df_daily.columns:
+        return None
+    cur_predicted = float(df_daily['Predicted'].iloc[-1])
+    cur_norm_y = float(df_daily[norm_col].iloc[-1])
+    if cur_norm_y <= 0:
+        return None
+    trend_price = cur_price * (cur_predicted / cur_norm_y)
+
+    log_resid_series = (
+        np.log(df_daily[norm_col]) - np.log(df_daily['Predicted'])
+    ).dropna()
+    expanding_std = log_resid_series.expanding(
+        min_periods=CFG.EXPANDING_MIN_PERIODS
+    ).std().dropna()
+    if len(expanding_std) > 0:
+        sigma_unit = float(expanding_std.iloc[-1])
+        if sigma_unit <= 0 or not np.isfinite(sigma_unit):
+            sigma_unit = std_resid
+    else:
+        sigma_unit = std_resid
+
+    def _price_to_sigma(p: float) -> float:
+        if p <= 0 or trend_price <= 0:
+            return 0.0
+        return float(np.log(p / trend_price) / sigma_unit)
+
+    def _sigma_to_pct(sigma: float) -> tuple[float, bool]:
+        pct = (sigma + 3) / 6 * 100
+        is_outside = pct < 0 or pct > 100
+        return float(max(0, min(100, pct))), is_outside
+
+    cur_sigma = _price_to_sigma(cur_price)
+    cur_pct_bar, cur_outside = _sigma_to_pct(cur_sigma)
+
+    # ── 신호 색 ──
+    SIGNAL_MARKER_COLOR = {
+        'FB2': '#7f1d1d', 'FB': '#dc2626', 'B': '#fca5a5',
+        'H':   '#9ca3af',
+        'S':   '#93c5fd', 'FS': '#2563eb', 'FS2': '#1e3a8a',
+    }
+    cur_signal = 'H'
+    if 'Combined_Score' in df_daily.columns:
+        last_score_val = df_daily['Combined_Score'].iloc[-1]
+        if pd.notna(last_score_val):
+            cur_signal = score_to_signal(int(last_score_val))
+    marker_bg = SIGNAL_MARKER_COLOR.get(cur_signal, '#9ca3af')
+
+    # ── bar HTML ──
+    # 컨테이너 높이 = bar_height; 그라디언트 두께 6px; 마커 14px
+    grad_top = (bar_height - 6) // 2  # 그라디언트 vertical center
+    marker_top = (bar_height - 14) // 2  # 마커 vertical center
+    bar_html = (
+        f"<div style='position:relative;height:{bar_height}px;"
+        f"width:100%;'>"
+        # 그라디언트
+        f"<div style='position:absolute;top:{grad_top}px;left:0;right:0;height:6px;"
+        f"border-radius:3px;"
+        f"background:linear-gradient(to right,"
+        f"#450a0a 0%,#7f1d1d 16.67%,#dc2626 25%,#fca5a5 33.33%,"
+        f"#e5e7eb 50%,"
+        f"#93c5fd 66.67%,#2563eb 75%,#1e3a8a 83.33%,#172554 100%);'></div>"
+    )
+
+    # ── 사이클별 마커 (작게) ──
+    if trade_records:
+        cycle_list = compute_cycle_avg_prices(trade_records, df_daily=df_daily)
+        cycle_list = cycle_list[-5:]
+        n_cycles = len(cycle_list)
+        cyc_marker_top = (bar_height - 8) // 2
+
+        for i, cyc in enumerate(cycle_list):
+            opacity = 0.5 + 0.5 * ((i + 1) / max(n_cycles, 1))
+
+            if cyc.get('avg_buy_sigma') is not None:
+                sigma_val = float(cyc['avg_buy_sigma'])
+                pct, outside = _sigma_to_pct(sigma_val)
+                edge_pct = pct if not outside else (0 if sigma_val < -3 else 100)
+                bar_html += (
+                    f"<div style='position:absolute;left:{edge_pct:.1f}%;"
+                    f"top:{cyc_marker_top}px;"
+                    f"transform:translateX(-50%);width:8px;height:8px;"
+                    f"border-radius:50%;background:#dc2626;border:1.5px solid #fff;"
+                    f"box-shadow:0 0 0 1px #7f1d1d;"
+                    f"opacity:{opacity:.2f};z-index:2;cursor:help;' "
+                    f"title='사이클 {cyc['idx']} 매수 ${cyc['avg_buy']:.2f} "
+                    f"(당시 σ {sigma_val:+.2f})'></div>"
+                )
+
+            if (cyc.get('avg_sell_sigma') is not None
+                    and cyc['avg_sell'] is not None):
+                sigma_val = float(cyc['avg_sell_sigma'])
+                pct, outside = _sigma_to_pct(sigma_val)
+                edge_pct = pct if not outside else (0 if sigma_val < -3 else 100)
+                bar_html += (
+                    f"<div style='position:absolute;left:{edge_pct:.1f}%;"
+                    f"top:{cyc_marker_top}px;"
+                    f"transform:translateX(-50%);width:8px;height:8px;"
+                    f"border-radius:50%;background:#1d4ed8;border:1.5px solid #fff;"
+                    f"box-shadow:0 0 0 1px #1e3a8a;"
+                    f"opacity:{opacity:.2f};z-index:2;cursor:help;' "
+                    f"title='사이클 {cyc['idx']} 매도 ${cyc['avg_sell']:.2f} "
+                    f"(당시 σ {sigma_val:+.2f})'></div>"
+                )
+
+    # ── 현재가 사각형 마커 (매매 신호 색) ──
+    bar_html += (
+        f"<div style='position:absolute;left:{cur_pct_bar:.1f}%;top:{marker_top}px;"
+        f"transform:translateX(-50%);width:14px;height:14px;"
+        f"background:{marker_bg};border:1.5px solid #000;"
+        f"box-shadow:0 1px 2px rgba(0,0,0,0.3);"
+        f"z-index:3;cursor:help;' "
+        f"title='현재가 ${cur_price:.2f} · 신호 {cur_signal} · {cur_sigma:+.2f}σ'></div>"
+    )
+
+    bar_html += "</div>"
+    return bar_html
+
+
+# ====================================================
 # 16. 분석 패널 (#1 사이클 통계 + #2 신호 백테스트 + #5 상관관계)
 # ====================================================
 def render_analytics_panel(
@@ -3424,38 +3563,124 @@ def main() -> None:
             )
 
     with chart_col:
-        if df_daily is not None:
-            render_position_tracker(
-                selected_ticker, df_daily, df_close, portfolio_state, beta, std_resid,
+        tab1, tab2 = st.tabs(["📊 상세", "🗺️ 한눈에 보기"])
+
+        with tab1:
+            if df_daily is not None:
+                render_position_tracker(
+                    selected_ticker, df_daily, df_close, portfolio_state, beta, std_resid,
+                )
+
+                with st.spinner("캔들 데이터 로드 중..."):
+                    df_ohlc = fetch_ohlc(selected_ticker, analysis_start, candle_type)
+                df_daily_raw = None
+                if candle_type == '주봉':
+                    df_raw = fetch_all_data(TARGET_TICKERS, analysis_start, '일봉')
+                    if not df_raw.empty:
+                        df_raw = df_raw[df_raw.index <= last_trading_date]
+                        col_raw = f'{selected_ticker}_Close'
+                        if col_raw in df_raw.columns:
+                            result_raw = process_asset_data(
+                                df_raw[[f'{X_ASSET_FIXED}_Close']],
+                                df_raw[[col_raw]], X_ASSET_FIXED, selected_ticker,
+                            )
+                            if result_raw[0] is not None:
+                                df_daily_raw = result_raw[0]
+
+                render_chart(
+                    df_daily, selected_ticker, beta, std_resid,
+                    cfg['guide_n'], st.session_state.view_months, df_ohlc, df_daily_raw,
+                )
+            elif selected_option == DIRECT_INPUT_LABEL:
+                if not st.session_state.get('custom_ticker_input', ''):
+                    st.info("왼쪽에서 티커를 입력해 주세요. (예: NVDA, 000660)")
+                else:
+                    st.error(f"'{st.session_state.custom_ticker_input}' 데이터를 가져올 수 없습니다.")
+            elif selected_ticker:
+                st.error("분석에 필요한 데이터가 부족합니다.")
+
+        with tab2:
+            # ── 헤더: σ 눈금 라벨 ──
+            st.markdown(
+                "<div style='display:flex;align-items:center;gap:8px;"
+                "padding:6px 4px 4px 4px;font-size:0.55rem;color:#9ca3af;"
+                "border-bottom:1px solid #e5e7eb;margin-bottom:4px;'>"
+                "<div style='width:80px;font-weight:700;color:#6b7280;font-size:0.65rem;'>"
+                "종목</div>"
+                "<div style='flex:1;position:relative;height:14px;'>"
+                "<span style='position:absolute;left:0%;transform:translateX(-50%);'>-3σ</span>"
+                "<span style='position:absolute;left:16.67%;transform:translateX(-50%);'>-2σ</span>"
+                "<span style='position:absolute;left:33.33%;transform:translateX(-50%);'>-1σ</span>"
+                "<span style='position:absolute;left:50%;transform:translateX(-50%);'>추세</span>"
+                "<span style='position:absolute;left:66.67%;transform:translateX(-50%);'>+1σ</span>"
+                "<span style='position:absolute;left:83.33%;transform:translateX(-50%);'>+2σ</span>"
+                "<span style='position:absolute;left:100%;transform:translateX(-50%);'>+3σ</span>"
+                "</div>"
+                "</div>",
+                unsafe_allow_html=True,
             )
 
-            with st.spinner("캔들 데이터 로드 중..."):
-                df_ohlc = fetch_ohlc(selected_ticker, analysis_start, candle_type)
-            df_daily_raw = None
-            if candle_type == '주봉':
-                df_raw = fetch_all_data(TARGET_TICKERS, analysis_start, '일봉')
-                if not df_raw.empty:
-                    df_raw = df_raw[df_raw.index <= last_trading_date]
-                    col_raw = f'{selected_ticker}_Close'
-                    if col_raw in df_raw.columns:
-                        result_raw = process_asset_data(
-                            df_raw[[f'{X_ASSET_FIXED}_Close']],
-                            df_raw[[col_raw]], X_ASSET_FIXED, selected_ticker,
-                        )
-                        if result_raw[0] is not None:
-                            df_daily_raw = result_raw[0]
+            # ── 22개 종목 행 (탭1과 동일 정렬) ──
+            for ticker in sorted_tickers:
+                t_result = all_analyses.get(ticker)
+                if not t_result or t_result[0] is None:
+                    continue
+                t_df, t_beta, t_std = t_result
+                if t_df.empty:
+                    continue
 
-            render_chart(
-                df_daily, selected_ticker, beta, std_resid,
-                cfg['guide_n'], st.session_state.view_months, df_ohlc, df_daily_raw,
+                t_col = f'{ticker}_Close'
+                if t_col not in df_close.columns:
+                    continue
+                t_cur_price = float(df_close[t_col].iloc[-1])
+
+                # 평균단가 (보유 시)
+                t_avg_price = None
+                t_ts = portfolio_state.get(ticker)
+                if (t_ts and t_ts['cycle']['hold_qty'] > 0
+                        and t_ts['cycle']['buy_qty'] > 0):
+                    t_avg_price = (
+                        t_ts['cycle']['buy_cost'] / t_ts['cycle']['buy_qty']
+                    )
+
+                # 매매 기록
+                t_records = st.session_state.trade_history.get(ticker, [])
+
+                # 미니바
+                mini_bar = build_mini_gradient_bar(
+                    t_df, ticker, t_cur_price, t_avg_price, t_beta, t_std,
+                    trade_records=t_records, bar_height=32,
+                )
+                if mini_bar is None:
+                    continue
+
+                # 행 배경 (보유 vs 미보유)
+                is_holding = ticker in holding_tickers
+                row_bg = '#f0fdf4' if is_holding else '#ffffff'
+                star = "★ " if is_holding else ""
+                pct_chg = pct_changes.get(ticker, 0)
+                pct_color = pnl_color(pct_chg)
+
+                # 행 출력 (Streamlit 컬럼 대신 단일 markdown)
+                st.markdown(
+                    f"<div style='display:flex;align-items:center;gap:8px;"
+                    f"padding:2px 4px;background:{row_bg};"
+                    f"border-bottom:1px solid #f3f4f6;'>"
+                    f"<div style='width:80px;font-size:0.7rem;font-weight:600;"
+                    f"color:#111827;flex-shrink:0;'>"
+                    f"{star}{display_name(ticker)}<br>"
+                    f"<span style='font-size:0.6rem;color:{pct_color};font-weight:500;'>"
+                    f"{signed_str(pct_chg, '{:.1f}')}%</span>"
+                    f"</div>"
+                    f"<div style='flex:1;'>{mini_bar}</div>"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+
+            st.caption(
+                "■ 현재가 (색=신호: FB2 짙은빨강 → H 회색 → FS2 짙은파랑) · "
+                "● 매수 ● 매도 (당시 σ 기준)"
             )
-        elif selected_option == DIRECT_INPUT_LABEL:
-            if not st.session_state.get('custom_ticker_input', ''):
-                st.info("왼쪽에서 티커를 입력해 주세요. (예: NVDA, 000660)")
-            else:
-                st.error(f"'{st.session_state.custom_ticker_input}' 데이터를 가져올 수 없습니다.")
-        elif selected_ticker:
-            st.error("분석에 필요한 데이터가 부족합니다.")
 
     # 분석 패널 (#1, #2, #5) — chart_col 밖 별도 행, 80px 첫 컬럼 제약 회피
     if df_daily is not None and selected_ticker:
