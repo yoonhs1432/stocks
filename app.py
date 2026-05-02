@@ -2524,12 +2524,32 @@ def build_action_card_html(
         else " ▶" if cur_outside and cur_sigma > 3
         else ""
     )
+
+    # ── 현재가 마커 색상 = 매매 신호 색 (Z+MACD+RSI 종합) ──
+    SIGNAL_MARKER_COLOR = {
+        'FB2': '#7f1d1d',  # 짙은 빨강 (강한 매수)
+        'FB':  '#dc2626',  # 빨강
+        'B':   '#fca5a5',  # 연빨강
+        'H':   '#9ca3af',  # 회색 (중립)
+        'S':   '#93c5fd',  # 연파랑
+        'FS':  '#2563eb',  # 파랑
+        'FS2': '#1e3a8a',  # 짙은 파랑 (강한 매도)
+    }
+    cur_signal = 'H'
+    if 'Combined_Score' in df_daily.columns:
+        last_score_val = df_daily['Combined_Score'].iloc[-1]
+        if pd.notna(last_score_val):
+            cur_signal = score_to_signal(int(last_score_val))
+    marker_bg = SIGNAL_MARKER_COLOR.get(cur_signal, '#9ca3af')
+
+    # 현재가 ■ 사각형 마커 (매매 신호 색 + 검은 테두리)
     bar_html += (
-        f"<div style='position:absolute;left:{cur_pct_bar:.1f}%;top:11px;"
-        f"transform:translateX(-50%);width:22px;height:22px;"
-        f"display:flex;align-items:center;justify-content:center;"
-        f"font-size:18px;color:#ec4899;text-shadow:0 0 3px #fff,0 0 3px #fff;"
-        f"z-index:3;' title='현재가 ${cur_price:.2f}'>★</div>"
+        f"<div style='position:absolute;left:{cur_pct_bar:.1f}%;top:13px;"
+        f"transform:translateX(-50%);width:18px;height:18px;"
+        f"background:{marker_bg};border:2px solid #000;"
+        f"box-shadow:0 1px 3px rgba(0,0,0,0.3);"
+        f"z-index:3;cursor:help;' "
+        f"title='현재가 ${cur_price:.2f} · 신호 {cur_signal}'></div>"
     )
     # ── 사이클별 평균 매매가 마커 (매매 시점 Z-score 기반) ──
     if trade_records:
@@ -2611,7 +2631,7 @@ def build_action_card_html(
         bar_html += (
             f"<div style='position:absolute;left:{cur_pct_bar:.1f}%;top:0;"
             f"transform:{cur_tf};text-align:{cur_ta};font-size:0.6rem;"
-            f"font-weight:700;color:#ec4899;white-space:nowrap;"
+            f"font-weight:700;color:#000;white-space:nowrap;"
             f"padding:0 3px;background:rgba(255,255,255,0.85);"
             f"border-radius:3px;'>"
             f"${cur_price:.2f}{cur_out_arrow}</div>"
