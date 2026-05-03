@@ -56,7 +56,7 @@ class Config:
     RSI_OVERBOUGHT: float = 70.0
     RSI_OVERSOLD: float = 30.0
     Z_HIGH: float = 1.5
-    MACD_HIGH: float = 1.0
+    MACD_HIGH: float = 2.0
     DATA_TTL_SEC: int = 300
     HTTP_TIMEOUT_SEC: int = 6
     MAX_PARALLEL_FETCH: int = 8
@@ -353,15 +353,15 @@ def init_session_state() -> None:
         'selected_option':     lambda: TARGET_TICKERS[0],
         'custom_ticker_input': str,
         'last_data_date':      str,
-        'view_months':         lambda: load_settings().get('view_months', 12),
+        'view_months':         lambda: load_settings().get('view_months', 3),
         'overview_view_months': lambda: 12,
         'analysis_start':      lambda: load_settings().get(
             'analysis_start',
-            (datetime.date.today() - datetime.timedelta(days=548)).strftime('%y-%m')
+            (datetime.date.today() - datetime.timedelta(days=365)).strftime('%y-%m')
         ),
         'memo_editing_idx':    lambda: None,
         'memo_input_key':      int,
-        'candle_type':         lambda: '주봉',
+        'candle_type':         lambda: '일봉',
     }
     for key, factory in defaults.items():
         if key not in st.session_state:
@@ -486,6 +486,54 @@ def get_price_fill_color_combined(score: int) -> str:
     if score <= -3: return 'rgba(37,99,235,0.30)'
     if score <= -1: return 'rgba(147,197,253,0.20)'
     return 'rgba(156,163,175,0.10)'
+
+
+# ────────────────────────────────────────────────
+# 모멘텀 점수 (MACD-Z + RSI 만, Z 제외)
+# 위치(σ)와 독립적인 모멘텀 정보를 마커 색으로 표시하기 위함
+# ────────────────────────────────────────────────
+def compute_momentum_score(mhz: float, rsi: float) -> int:
+    """MACD-Z + RSI 합산 모멘텀 점수 (-4 ~ +4).
+
+    + : 매수 모멘텀 (MACD 음수 + RSI 30 이하)
+    - : 매도 모멘텀 (MACD 양수 + RSI 70 이상)
+    """
+    s = 0
+    s += (
+        2 if mhz <= -CFG.MACD_HIGH else
+        1 if mhz < 0 else
+        -2 if mhz >= CFG.MACD_HIGH else
+        -1
+    )
+    s += (
+        2 if rsi <= CFG.RSI_OVERSOLD else
+        1 if rsi < 50 else
+        -2 if rsi >= CFG.RSI_OVERBOUGHT else
+        -1
+    )
+    return s
+
+
+def momentum_score_to_signal(score: int) -> str:
+    """모멘텀 점수 → 신호 라벨 (Z 제외라 임계값 다름)."""
+    if score >= 4:  return 'FB2'   # 강 + 강
+    if score >= 2:  return 'FB'    # 강 + 약 또는 약 + 강
+    if score >= 1:  return 'B'     # 약 + 중립
+    if score <= -4: return 'FS2'
+    if score <= -2: return 'FS'
+    if score <= -1: return 'S'
+    return 'H'
+
+
+def momentum_to_color(score: int) -> str:
+    """모멘텀 점수 (-4 ~ +4) → 마커 테두리 색."""
+    if score >= 4:  return '#7f1d1d'  # 짙은 빨강 — 강 매수 모멘텀
+    if score >= 2:  return '#dc2626'  # 빨강
+    if score >= 1:  return '#fca5a5'  # 연빨강
+    if score <= -4: return '#1e3a8a'  # 짙은 파랑 — 강 매도 모멘텀
+    if score <= -2: return '#2563eb'  # 파랑
+    if score <= -1: return '#93c5fd'  # 연파랑
+    return '#9ca3af'                   # 회색 (중립)
 
 
 def get_time_grid_dtick_ms(start: pd.Timestamp, end: pd.Timestamp, target_grids: int = 8) -> int:
@@ -2416,22 +2464,18 @@ def build_action_card_html(
         else ""
     )
 
-    # ── 현재가 마커 색상 = 매매 신호 색 (Z+MACD+RSI 종합) ──
-    SIGNAL_MARKER_COLOR = {
-        'FB2': '#7f1d1d',  # 짙은 빨강 (강한 매수)
-        'FB':  '#dc2626',  # 빨강
-        'B':   '#fca5a5',  # 연빨강
-        'H':   '#9ca3af',  # 회색 (중립)
-        'S':   '#93c5fd',  # 연파랑
-        'FS':  '#2563eb',  # 파랑
-        'FS2': '#1e3a8a',  # 짙은 파랑 (강한 매도)
-    }
+    # ── 현재가 마커 색상 = 모멘텀 점수 (MACD-Z + RSI 만, Z 제외) ──
+    # 위치(σ)와 독립된 모멘텀 정보를 색으로 표시
+    cur_momentum_score = 0
     cur_signal = 'H'
-    if 'Combined_Score' in df_daily.columns:
-        last_score_val = df_daily['Combined_Score'].iloc[-1]
-        if pd.notna(last_score_val):
-            cur_signal = score_to_signal(int(last_score_val))
-    marker_color = SIGNAL_MARKER_COLOR.get(cur_signal, '#9ca3af')
+    if ('MACD_Hist_Z' in df_daily.columns and 'RSI' in df_daily.columns):
+        last_mhz = df_daily['MACD_Hist_Z'].iloc[-1]
+        last_rsi = df_daily['RSI'].iloc[-1]
+        mhz_v = float(last_mhz) if pd.notna(last_mhz) else 0.0
+        rsi_v = float(last_rsi) if pd.notna(last_rsi) else 50.0
+        cur_momentum_score = compute_momentum_score(mhz_v, rsi_v)
+        cur_signal = momentum_score_to_signal(cur_momentum_score)
+    marker_color = momentum_to_color(cur_momentum_score)
 
     # 현재가 ■ 사각형 마커 — 투명 + 신호색 굵은 테두리 + 검정 외곽선
     bar_html += (
@@ -2761,18 +2805,17 @@ def build_mini_gradient_bar(
     cur_sigma = _price_to_sigma(cur_price)
     cur_pct_bar, cur_outside = _sigma_to_pct(cur_sigma)
 
-    # ── 신호 색 ──
-    SIGNAL_MARKER_COLOR = {
-        'FB2': '#7f1d1d', 'FB': '#dc2626', 'B': '#fca5a5',
-        'H':   '#9ca3af',
-        'S':   '#93c5fd', 'FS': '#2563eb', 'FS2': '#1e3a8a',
-    }
+    # ── 현재 모멘텀 점수 (MACD + RSI만, Z 제외) ──
+    cur_momentum_score = 0
     cur_signal = 'H'
-    if 'Combined_Score' in df_daily.columns:
-        last_score_val = df_daily['Combined_Score'].iloc[-1]
-        if pd.notna(last_score_val):
-            cur_signal = score_to_signal(int(last_score_val))
-    marker_color = SIGNAL_MARKER_COLOR.get(cur_signal, '#9ca3af')
+    if ('MACD_Hist_Z' in df_daily.columns and 'RSI' in df_daily.columns):
+        last_mhz = df_daily['MACD_Hist_Z'].iloc[-1]
+        last_rsi = df_daily['RSI'].iloc[-1]
+        mhz_v = float(last_mhz) if pd.notna(last_mhz) else 0.0
+        rsi_v = float(last_rsi) if pd.notna(last_rsi) else 50.0
+        cur_momentum_score = compute_momentum_score(mhz_v, rsi_v)
+        cur_signal = momentum_score_to_signal(cur_momentum_score)
+    marker_color = momentum_to_color(cur_momentum_score)
 
     # ── bar HTML ──
     # 컨테이너 높이 = bar_height; 그라디언트 두께 6px; 마커 14px
@@ -3790,7 +3833,7 @@ def main() -> None:
             )
 
         st.caption(
-            "■ 현재가 (테두리색=신호: FB2 짙은빨강 → H 회색 → FS2 짙은파랑) · "
+            "■ 현재가 (위치=σ, 테두리색=모멘텀: 짙은빨강 매수↑ → 회색 중립 → 짙은파랑 매도↑) · "
             "▪ 평균단가 (보유 시) · "
             "● 매수 ● 매도 (당시 σ 기준)"
         )
