@@ -3206,7 +3206,18 @@ def render_overview_panel(
         unsafe_allow_html=True,
     )
 
-    # ── 3. 자산 추이 차트 (탭3 자체 기간 토글) ──
+    # ── 3. 종목별 비중 ──
+    alloc_html = _build_alloc_html(portfolio_state, df_close_last, usd_krw)
+    st.markdown(
+        f"<div style='padding:10px 12px;background:#ffffff;"
+        f"border:1px solid #e2e8f0;border-radius:10px;margin-bottom:10px;"
+        f"box-shadow:0 1px 3px rgba(0,0,0,0.06);'>"
+        f"{alloc_html}"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+
+    # ── 4. 자산 추이 차트 (탭3 자체 기간 토글) ──
     equity_series = st.session_state.get('equity_series_cache')
     if equity_series is not None and not equity_series.empty:
         seed_usd = CFG.SEED_KRW / usd_krw
@@ -3274,17 +3285,17 @@ def render_overview_panel(
         y_max = max(portfolio_view.max(), seed_krw) * 1.03
 
         fig_eq.update_layout(
-            height=280,
-            margin=dict(l=4, r=8, t=30, b=4),
-            xaxis=dict(showgrid=False, tickfont=dict(size=10),
-                       tickformat='%y.%m', nticks=6,
+            height=200,
+            margin=dict(l=4, r=8, t=28, b=4),
+            xaxis=dict(showgrid=False, tickfont=dict(size=9),
+                       tickformat='%y.%m', nticks=5,
                        range=[portfolio_view.index[0], portfolio_view.index[-1]]),
             yaxis=dict(showgrid=True, gridcolor='rgba(156,163,175,0.2)',
-                       tickfont=dict(size=10), range=[y_min, y_max],
+                       tickfont=dict(size=9), range=[y_min, y_max],
                        ticksuffix='만'),
             paper_bgcolor='white', plot_bgcolor='white',
             title=dict(text=f'💼 자산 추이 ({ov_choice})', x=0.02, y=0.97,
-                       font=dict(size=13, color='#374151')),
+                       font=dict(size=12, color='#374151')),
         )
         st.plotly_chart(fig_eq, use_container_width=True,
                         config={'displayModeBar': False, 'staticPlot': True})
@@ -3293,17 +3304,6 @@ def render_overview_panel(
             "<div style='height:8px;'></div>",
             unsafe_allow_html=True,
         )
-
-    # ── 4. 종목별 비중 ──
-    alloc_html = _build_alloc_html(portfolio_state, df_close_last, usd_krw)
-    st.markdown(
-        f"<div style='padding:10px 12px;background:#ffffff;"
-        f"border:1px solid #e2e8f0;border-radius:10px;margin-bottom:10px;"
-        f"box-shadow:0 1px 3px rgba(0,0,0,0.06);'>"
-        f"{alloc_html}"
-        f"</div>",
-        unsafe_allow_html=True,
-    )
 
     # ── 5. 매매 달력 ──
     cal_month = st.session_state.get('cal_month', datetime.date.today().replace(day=1))
@@ -3316,24 +3316,26 @@ def render_overview_panel(
         f"</div>",
         unsafe_allow_html=True,
     )
-    nc1, nc2, nc3 = st.columns([1, 3, 1])
-    if nc1.button("◀", key="ov_cal_prev"):
-        pm = cal_month.month - 1
-        py = cal_month.year + (pm - 1) // 12
-        pm = (pm - 1) % 12 + 1
-        st.session_state['cal_month'] = datetime.date(py, pm, 1)
-        st.rerun()
-    nc2.markdown(
-        f"<div style='text-align:center;font-size:0.85rem;color:#6b7280;"
-        f"padding-top:5px;'>{cal_month.strftime('%Y. %m')}</div>",
-        unsafe_allow_html=True,
-    )
-    if nc3.button("▶", key="ov_cal_next"):
-        nm = cal_month.month + 1
-        ny = cal_month.year + (nm - 1) // 12
-        nm = (nm - 1) % 12 + 1
-        st.session_state['cal_month'] = datetime.date(ny, nm, 1)
-        st.rerun()
+    # 컨테이너 키로 첫컬럼 88px CSS 회피 (build_css에서 별도 처리)
+    with st.container(key="ov_cal_nav"):
+        nc1, nc2, nc3 = st.columns([1, 4, 1])
+        if nc1.button("◀", key="ov_cal_prev", use_container_width=True):
+            pm = cal_month.month - 1
+            py = cal_month.year + (pm - 1) // 12
+            pm = (pm - 1) % 12 + 1
+            st.session_state['cal_month'] = datetime.date(py, pm, 1)
+            st.rerun()
+        nc2.markdown(
+            f"<div style='text-align:center;font-size:0.85rem;color:#6b7280;"
+            f"padding-top:5px;'>{cal_month.strftime('%Y. %m')}</div>",
+            unsafe_allow_html=True,
+        )
+        if nc3.button("▶", key="ov_cal_next", use_container_width=True):
+            nm = cal_month.month + 1
+            ny = cal_month.year + (nm - 1) // 12
+            nm = (nm - 1) % 12 + 1
+            st.session_state['cal_month'] = datetime.date(ny, nm, 1)
+            st.rerun()
 
 
 # ====================================================
@@ -3440,6 +3442,28 @@ def build_css(selected_option: str, holding_tickers: set) -> str:
         {{ color:inherit!important; }}
     section[data-testid="stMain"] div[data-testid="stColumn"]:first-child button strong
         {{ font-weight:700!important; }}
+    /* 탭3 달력 네비 — 88px 첫 컬럼 룰 무력화 */
+    div.st-key-ov_cal_nav div[data-testid="stHorizontalBlock"] {{
+        gap:2px!important; flex-wrap:nowrap!important;
+    }}
+    div.st-key-ov_cal_nav div[data-testid="stHorizontalBlock"]
+        > div[data-testid="stColumn"] {{
+        flex:initial!important; min-width:0!important;
+        max-width:none!important; padding:0!important;
+    }}
+    div.st-key-ov_cal_nav div[data-testid="stHorizontalBlock"]
+        > div[data-testid="stColumn"]:first-child,
+    div.st-key-ov_cal_nav div[data-testid="stHorizontalBlock"]
+        > div[data-testid="stColumn"]:last-child {{
+        flex:0 0 60px!important; min-width:60px!important; max-width:60px!important;
+    }}
+    div.st-key-ov_cal_nav div[data-testid="stHorizontalBlock"]
+        > div[data-testid="stColumn"]:nth-child(2) {{
+        flex:1 1 auto!important;
+    }}
+    div.st-key-ov_cal_nav button {{
+        min-height:32px!important; padding:4px!important; font-size:0.85rem!important;
+    }}
     {''.join(btn_parts)}
     </style>"""
 
@@ -3699,7 +3723,7 @@ def main() -> None:
             "<div style='display:flex;align-items:center;gap:8px;"
             "padding:6px 4px 4px 4px;font-size:0.6rem;color:#9ca3af;"
             "border-bottom:1px solid #e5e7eb;margin-bottom:4px;'>"
-            "<div style='width:90px;font-weight:700;color:#6b7280;font-size:0.7rem;'>"
+            "<div style='width:110px;font-weight:700;color:#6b7280;font-size:0.7rem;'>"
             "종목</div>"
             "<div style='flex:1;position:relative;height:14px;'>"
             "<span style='position:absolute;left:0%;transform:translateX(-50%);'>-3σ</span>"
@@ -3753,9 +3777,10 @@ def main() -> None:
                 f"<div style='display:flex;align-items:center;gap:8px;"
                 f"padding:3px 4px;background:{row_bg};"
                 f"border-bottom:1px solid #f3f4f6;'>"
-                f"<div style='width:90px;font-size:0.78rem;font-weight:600;"
-                f"color:#111827;flex-shrink:0;line-height:1.15;'>"
-                f"{star}{display_name(ticker)}<br>"
+                f"<div style='width:110px;font-size:0.75rem;font-weight:600;"
+                f"color:#111827;flex-shrink:0;display:flex;align-items:baseline;"
+                f"gap:5px;'>"
+                f"<span>{star}{display_name(ticker)}</span>"
                 f"<span style='font-size:0.65rem;color:{pct_color};font-weight:500;'>"
                 f"{signed_str(pct_chg, '{:.1f}')}%</span>"
                 f"</div>"
