@@ -354,6 +354,7 @@ def init_session_state() -> None:
         'custom_ticker_input': str,
         'last_data_date':      str,
         'view_months':         lambda: load_settings().get('view_months', 12),
+        'overview_view_months': lambda: 12,
         'analysis_start':      lambda: load_settings().get(
             'analysis_start',
             (datetime.date.today() - datetime.timedelta(days=548)).strftime('%y-%m')
@@ -1553,117 +1554,6 @@ def render_sidebar(
                 f"</div>",
                 unsafe_allow_html=True,
             )
-
-
-
-        dd_info = st.session_state.get('dd_info_cache')
-        seed_html = _build_seed_html(portfolio_pnl, usd_krw, dd_info)
-        real_html = _build_realized_html(portfolio_state, usd_krw)
-        alloc_html = _build_alloc_html(portfolio_state, df_close_last, usd_krw)
-
-        cal_month = st.session_state.get('cal_month', datetime.date.today().replace(day=1))
-        cal_html = _build_calendar_html(st.session_state.trade_history, cal_month, usd_krw)
-
-        st.markdown(
-            f"<div style='padding:10px 12px;background:#ffffff;"
-            f"border:1px solid #e2e8f0;border-radius:10px;margin-bottom:10px;"
-            f"box-shadow:0 1px 3px rgba(0,0,0,0.06);'>"
-            f"{seed_html}{real_html}{alloc_html}{cal_html}"
-            f"</div>",
-            unsafe_allow_html=True,
-        )
-
-        # ── #15 포트폴리오 자산 시계열 미니 차트 (view_months와 동기화) ──
-        equity_series = st.session_state.get('equity_series_cache')
-        if equity_series is not None and not equity_series.empty:
-            seed_usd = CFG.SEED_KRW / usd_krw
-            portfolio_value = equity_series + seed_usd  # 시드 + 누적손익 = 평가자산
-
-            # KRW 환산
-            portfolio_krw = portfolio_value * usd_krw / 10000  # 만원 단위
-            seed_krw = CFG.SEED_KRW / 10000
-
-            # ── 메인 차트 view_months와 동기화 ──
-            view_months = st.session_state.get('view_months', 12)
-            view_start = portfolio_krw.index[-1] - pd.DateOffset(months=view_months)
-            portfolio_view = portfolio_krw[portfolio_krw.index >= view_start]
-            # 데이터가 너무 적으면 전체 사용
-            if len(portfolio_view) < 2:
-                portfolio_view = portfolio_krw
-
-            # 색상: 현재 시드 대비 수익/손실
-            cur_val = float(portfolio_view.iloc[-1])
-            line_color = '#b91c1c' if cur_val >= seed_krw else '#1d4ed8'
-            fill_color = (
-                'rgba(185,28,28,0.1)' if cur_val >= seed_krw
-                else 'rgba(29,78,216,0.1)'
-            )
-
-            fig_eq = go.Figure()
-            # 자산 시계열
-            fig_eq.add_trace(go.Scatter(
-                x=portfolio_view.index, y=portfolio_view.values,
-                mode='lines', line=dict(color=line_color, width=1.5),
-                fill='tozeroy', fillcolor=fill_color,
-                hovertemplate='%{x|%y.%m.%d}<br>%{y:.0f}만원<extra></extra>',
-                showlegend=False,
-            ))
-            # 시드 라인 (점선)
-            fig_eq.add_hline(
-                y=seed_krw, line_dash="dot", line_color='#9ca3af',
-                line_width=1, annotation_text=f"시드 {seed_krw:.0f}만",
-                annotation_position="bottom right",
-                annotation_font=dict(size=9, color='#6b7280'),
-            )
-            # 고점 라인 (MDD 시각화) - view 범위 내에서만
-            running_max = portfolio_view.cummax()
-            fig_eq.add_trace(go.Scatter(
-                x=running_max.index, y=running_max.values,
-                mode='lines', line=dict(color='#9ca3af', width=0.8, dash='dash'),
-                hoverinfo='skip', showlegend=False,
-            ))
-
-            y_min = min(portfolio_view.min(), seed_krw) * 0.97
-            y_max = max(portfolio_view.max(), seed_krw) * 1.03
-
-            # 기간 라벨 (자산 추이 옆에 작게)
-            zoom_label_map = {1: '1M', 3: '3M', 6: '6M', 12: '1Y', 240: 'All'}
-            period_label = zoom_label_map.get(view_months, f'{view_months}M')
-
-            fig_eq.update_layout(
-                height=110,
-                margin=dict(l=2, r=4, t=20, b=2),
-                xaxis=dict(showgrid=False, tickfont=dict(size=8),
-                           tickformat='%y.%m', nticks=4,
-                           range=[portfolio_view.index[0], portfolio_view.index[-1]]),
-                yaxis=dict(showgrid=True, gridcolor='rgba(156,163,175,0.2)',
-                           tickfont=dict(size=8), range=[y_min, y_max],
-                           ticksuffix='만'),
-                paper_bgcolor='white', plot_bgcolor='white',
-                title=dict(text=f'💼 자산 추이 ({period_label})', x=0.02, y=0.95,
-                           font=dict(size=10, color='#6b7280')),
-            )
-            st.plotly_chart(fig_eq, use_container_width=True,
-                            config={'displayModeBar': False, 'staticPlot': True})
-
-        nc1, nc2, nc3 = st.columns([1, 3, 1])
-        if nc1.button("◀", key="cal_prev"):
-            pm = cal_month.month - 1
-            py = cal_month.year + (pm - 1) // 12
-            pm = (pm - 1) % 12 + 1
-            st.session_state['cal_month'] = datetime.date(py, pm, 1)
-            st.rerun()
-        nc2.markdown(
-            f"<div style='text-align:center;font-size:0.75rem;color:#6b7280;"
-            f"padding-top:5px;'>{cal_month.strftime('%Y. %m')}</div>",
-            unsafe_allow_html=True,
-        )
-        if nc3.button("▶", key="cal_next"):
-            nm = cal_month.month + 1
-            ny = cal_month.year + (nm - 1) // 12
-            nm = (nm - 1) % 12 + 1
-            st.session_state['cal_month'] = datetime.date(ny, nm, 1)
-            st.rerun()
 
         st.markdown("### ⚙️ 분석 파라미터")
         candle_type = st.radio(
@@ -3279,6 +3169,174 @@ def render_analytics_panel(
 
 
 # ====================================================
+# 17-B. 전체 통계 패널 (메인 탭3)
+# ====================================================
+def render_overview_panel(
+    portfolio_state: dict[str, TickerState],
+    df_close: pd.DataFrame,
+) -> None:
+    """전체 포트폴리오 통계 — 시드/실현/비중/달력/자산 추이.
+
+    이전엔 사이드바에 있던 영역을 메인 탭3로 이동.
+    """
+    portfolio_pnl = st.session_state.get('portfolio_pnl_cache')
+    usd_krw = st.session_state.get('usd_krw_cache', CFG.USD_KRW_FALLBACK)
+    df_close_last = st.session_state.get('df_close_last', {})
+    dd_info = st.session_state.get('dd_info_cache')
+
+    # ── 1. 시드 카드 (세로 stack) ──
+    seed_html = _build_seed_html(portfolio_pnl, usd_krw, dd_info)
+    st.markdown(
+        f"<div style='padding:10px 12px;background:#ffffff;"
+        f"border:1px solid #e2e8f0;border-radius:10px;margin-bottom:10px;"
+        f"box-shadow:0 1px 3px rgba(0,0,0,0.06);'>"
+        f"{seed_html}"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+
+    # ── 2. 실현손익 카드 ──
+    real_html = _build_realized_html(portfolio_state, usd_krw)
+    st.markdown(
+        f"<div style='padding:10px 12px;background:#ffffff;"
+        f"border:1px solid #e2e8f0;border-radius:10px;margin-bottom:10px;"
+        f"box-shadow:0 1px 3px rgba(0,0,0,0.06);'>"
+        f"{real_html}"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+
+    # ── 3. 자산 추이 차트 (탭3 자체 기간 토글) ──
+    equity_series = st.session_state.get('equity_series_cache')
+    if equity_series is not None and not equity_series.empty:
+        seed_usd = CFG.SEED_KRW / usd_krw
+        portfolio_value = equity_series + seed_usd
+        portfolio_krw = portfolio_value * usd_krw / 10000  # 만원 단위
+        seed_krw = CFG.SEED_KRW / 10000
+
+        # 자체 기간 토글 (메인 차트 view_months와 별개)
+        ov_zoom_presets = [('1M', 1), ('3M', 3), ('6M', 6), ('1Y', 12), ('All', 240)]
+        ov_zoom_labels = [p[0] for p in ov_zoom_presets]
+        ov_zoom_map = dict(ov_zoom_presets)
+        ov_current = st.session_state.get('overview_view_months', 12)
+        ov_current_label = next(
+            (lbl for lbl, m in ov_zoom_presets if m == ov_current),
+            'All',
+        )
+        ov_choice = st.radio(
+            "자산 추이 기간",
+            ov_zoom_labels,
+            index=ov_zoom_labels.index(ov_current_label),
+            horizontal=True,
+            key="overview_zoom_radio",
+            label_visibility="collapsed",
+        )
+        ov_months = ov_zoom_map[ov_choice]
+        if ov_months != ov_current:
+            st.session_state['overview_view_months'] = ov_months
+            st.rerun()
+
+        view_start = portfolio_krw.index[-1] - pd.DateOffset(months=ov_months)
+        portfolio_view = portfolio_krw[portfolio_krw.index >= view_start]
+        if len(portfolio_view) < 2:
+            portfolio_view = portfolio_krw
+
+        cur_val = float(portfolio_view.iloc[-1])
+        line_color = '#b91c1c' if cur_val >= seed_krw else '#1d4ed8'
+        fill_color = (
+            'rgba(185,28,28,0.1)' if cur_val >= seed_krw
+            else 'rgba(29,78,216,0.1)'
+        )
+
+        fig_eq = go.Figure()
+        fig_eq.add_trace(go.Scatter(
+            x=portfolio_view.index, y=portfolio_view.values,
+            mode='lines', line=dict(color=line_color, width=2),
+            fill='tozeroy', fillcolor=fill_color,
+            hovertemplate='%{x|%y.%m.%d}<br>%{y:.0f}만원<extra></extra>',
+            showlegend=False, name='자산',
+        ))
+        fig_eq.add_hline(
+            y=seed_krw, line_dash="dot", line_color='#9ca3af',
+            line_width=1.2,
+            annotation_text=f"시드 {seed_krw:.0f}만",
+            annotation_position="bottom right",
+            annotation_font=dict(size=11, color='#6b7280'),
+        )
+        running_max = portfolio_view.cummax()
+        fig_eq.add_trace(go.Scatter(
+            x=running_max.index, y=running_max.values,
+            mode='lines', line=dict(color='#9ca3af', width=1, dash='dash'),
+            hoverinfo='skip', showlegend=False, name='고점',
+        ))
+
+        y_min = min(portfolio_view.min(), seed_krw) * 0.97
+        y_max = max(portfolio_view.max(), seed_krw) * 1.03
+
+        fig_eq.update_layout(
+            height=280,
+            margin=dict(l=4, r=8, t=30, b=4),
+            xaxis=dict(showgrid=False, tickfont=dict(size=10),
+                       tickformat='%y.%m', nticks=6,
+                       range=[portfolio_view.index[0], portfolio_view.index[-1]]),
+            yaxis=dict(showgrid=True, gridcolor='rgba(156,163,175,0.2)',
+                       tickfont=dict(size=10), range=[y_min, y_max],
+                       ticksuffix='만'),
+            paper_bgcolor='white', plot_bgcolor='white',
+            title=dict(text=f'💼 자산 추이 ({ov_choice})', x=0.02, y=0.97,
+                       font=dict(size=13, color='#374151')),
+        )
+        st.plotly_chart(fig_eq, use_container_width=True,
+                        config={'displayModeBar': False, 'staticPlot': True})
+
+        st.markdown(
+            "<div style='height:8px;'></div>",
+            unsafe_allow_html=True,
+        )
+
+    # ── 4. 종목별 비중 ──
+    alloc_html = _build_alloc_html(portfolio_state, df_close_last, usd_krw)
+    st.markdown(
+        f"<div style='padding:10px 12px;background:#ffffff;"
+        f"border:1px solid #e2e8f0;border-radius:10px;margin-bottom:10px;"
+        f"box-shadow:0 1px 3px rgba(0,0,0,0.06);'>"
+        f"{alloc_html}"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+
+    # ── 5. 매매 달력 ──
+    cal_month = st.session_state.get('cal_month', datetime.date.today().replace(day=1))
+    cal_html = _build_calendar_html(st.session_state.trade_history, cal_month, usd_krw)
+    st.markdown(
+        f"<div style='padding:10px 12px;background:#ffffff;"
+        f"border:1px solid #e2e8f0;border-radius:10px;margin-bottom:6px;"
+        f"box-shadow:0 1px 3px rgba(0,0,0,0.06);'>"
+        f"{cal_html}"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+    nc1, nc2, nc3 = st.columns([1, 3, 1])
+    if nc1.button("◀", key="ov_cal_prev"):
+        pm = cal_month.month - 1
+        py = cal_month.year + (pm - 1) // 12
+        pm = (pm - 1) % 12 + 1
+        st.session_state['cal_month'] = datetime.date(py, pm, 1)
+        st.rerun()
+    nc2.markdown(
+        f"<div style='text-align:center;font-size:0.85rem;color:#6b7280;"
+        f"padding-top:5px;'>{cal_month.strftime('%Y. %m')}</div>",
+        unsafe_allow_html=True,
+    )
+    if nc3.button("▶", key="ov_cal_next"):
+        nm = cal_month.month + 1
+        ny = cal_month.year + (nm - 1) // 12
+        nm = (nm - 1) % 12 + 1
+        st.session_state['cal_month'] = datetime.date(ny, nm, 1)
+        st.rerun()
+
+
+# ====================================================
 # 18. 메모 섹션
 # ====================================================
 def render_memo_section(selected_ticker: str) -> None:
@@ -3543,7 +3601,7 @@ def main() -> None:
     sorted_tickers = sorted(TARGET_TICKERS, key=_ticker_sort_key)
 
     # ── 메인 영역 전체를 감싸는 탭 ──
-    tab1, tab2 = st.tabs(["📊 상세", "🗺️ 한눈에 보기"])
+    tab1, tab2, tab3 = st.tabs(["📊 상세", "🗺️ 한눈에 보기", "📈 전체 통계"])
 
     # ====================================================
     # 탭 1: 기존 화면 (종목버튼 + 차트 + 분석패널 + 메모)
@@ -3711,6 +3769,12 @@ def main() -> None:
             "▪ 평균단가 (보유 시) · "
             "● 매수 ● 매도 (당시 σ 기준)"
         )
+
+    # ====================================================
+    # 탭 3: 전체 통계 (시드/실현/비중/달력/자산추이)
+    # ====================================================
+    with tab3:
+        render_overview_panel(portfolio_state, df_close)
 
     st.markdown("<div style='height:80px;'></div>", unsafe_allow_html=True)
 
