@@ -495,30 +495,46 @@ def get_price_fill_color_combined(score: int) -> str:
 def compute_momentum_score(mhz: float, rsi: float) -> int:
     """MACD-Z + RSI 합산 모멘텀 점수 (-4 ~ +4).
 
-    + : 매수 모멘텀 (MACD 음수 + RSI 30 이하)
-    - : 매도 모멘텀 (MACD 양수 + RSI 70 이상)
+    RSI:
+      ≤30: +2  / 30~40: +1  / 40~60: 0  / 60~70: -1  / ≥70: -2
+    MACD-Z:
+      ≤-2: +2  / -2~-1: +1  / -1~+1: 0  / +1~+2: -1  / ≥+2: -2
+
+    + : 매수 모멘텀 (과매도 신호)
+    - : 매도 모멘텀 (과매수 신호)
     """
-    s = 0
-    s += (
-        2 if mhz <= -CFG.MACD_HIGH else
-        1 if mhz < 0 else
-        -2 if mhz >= CFG.MACD_HIGH else
-        -1
-    )
-    s += (
-        2 if rsi <= CFG.RSI_OVERSOLD else
-        1 if rsi < 50 else
-        -2 if rsi >= CFG.RSI_OVERBOUGHT else
-        -1
-    )
-    return s
+    # RSI 점수
+    if rsi <= CFG.RSI_OVERSOLD:        # 30
+        s_rsi = 2
+    elif rsi <= 40:
+        s_rsi = 1
+    elif rsi < 60:
+        s_rsi = 0
+    elif rsi < CFG.RSI_OVERBOUGHT:     # 70
+        s_rsi = -1
+    else:
+        s_rsi = -2
+
+    # MACD-Z 점수
+    if mhz <= -CFG.MACD_HIGH:          # -2
+        s_mhz = 2
+    elif mhz <= -1:
+        s_mhz = 1
+    elif mhz < 1:
+        s_mhz = 0
+    elif mhz < CFG.MACD_HIGH:          # +2
+        s_mhz = -1
+    else:
+        s_mhz = -2
+
+    return s_rsi + s_mhz
 
 
 def momentum_score_to_signal(score: int) -> str:
     """모멘텀 점수 → 신호 라벨 (Z 제외라 임계값 다름)."""
-    if score >= 4:  return 'FB2'   # 강 + 강
-    if score >= 2:  return 'FB'    # 강 + 약 또는 약 + 강
-    if score >= 1:  return 'B'     # 약 + 중립
+    if score >= 4:  return 'FB2'
+    if score >= 2:  return 'FB'
+    if score >= 1:  return 'B'
     if score <= -4: return 'FS2'
     if score <= -2: return 'FS'
     if score <= -1: return 'S'
