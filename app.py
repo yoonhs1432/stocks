@@ -68,7 +68,7 @@ CFG = Config()
 X_ASSET_FIXED = 'SPY'
 TARGET_TICKERS = [
     'SPYU', 'SOXL', 'TQQQ', 'FNGU', 'HIBL', 'TARK', 'QPUX', 'BNKU',
-    'URTY', 'TECL', 'LABU', 'DFEN','TNA','DPST',
+    'URTY', 'TECL', 'LABU', 'DFEN', 'TNA', 'DPST',
     'GDXU', 'KORU', '005930', 'BITU', 'ETHT', 'AVXX',
 ]
 TICKER_DISPLAY_NAMES = {'BTC-USD': 'BTC', 'ETH-USD': 'ETH', '005930': '삼전', '000660': '하닉'}
@@ -88,11 +88,13 @@ _C = {
 }
 TICKER_COLOR = {
     'SPYU': _C['index'], 'TQQQ': _C['index'], 'QPUX': _C['index'], 'URTY': _C['index'],
+    'TNA':  _C['index'],
     'FNGU': _C['tech'],  'TECL': _C['tech'],  'TARK': _C['tech'],  'HIBL': _C['tech'],
     'SOXL': _C['tech'],  'LABU': _C['tech'],
     'DFEN': _C['defense'], 'AVXX': _C['defense'],
-    'EDC':  _C['em'],  'INDL': _C['em'],  'EURL': _C['em'],  'KORU': _C['em'],
-    'BNKU': _C['crypto'], 'GDXU': _C['crypto'],
+    'KORU': _C['em'],
+    'BNKU': _C['fin'],   'DPST': _C['fin'],
+    'GDXU': _C['commod'],
     'BITU': _C['crypto'], 'ETHT': _C['crypto'],
     '005930': _C['other'],
 }
@@ -3779,12 +3781,12 @@ def main() -> None:
     with tab2:
         # ── 헤더: σ 눈금 라벨 ──
         st.markdown(
-            "<div style='display:flex;align-items:center;gap:8px;"
+            "<div style='display:flex;align-items:center;gap:6px;"
             "padding:6px 4px 4px 4px;font-size:0.6rem;color:#9ca3af;"
             "border-bottom:1px solid #e5e7eb;margin-bottom:4px;'>"
             "<div style='width:110px;font-weight:700;color:#6b7280;font-size:0.7rem;'>"
             "종목</div>"
-            "<div style='flex:1;position:relative;height:14px;'>"
+            "<div style='flex:1;position:relative;height:14px;min-width:0;'>"
             "<span style='position:absolute;left:0%;transform:translateX(-50%);'>-3σ</span>"
             "<span style='position:absolute;left:16.67%;transform:translateX(-50%);'>-2σ</span>"
             "<span style='position:absolute;left:33.33%;transform:translateX(-50%);'>-1σ</span>"
@@ -3793,11 +3795,15 @@ def main() -> None:
             "<span style='position:absolute;left:83.33%;transform:translateX(-50%);'>+2σ</span>"
             "<span style='position:absolute;left:100%;transform:translateX(-50%);'>+3σ</span>"
             "</div>"
+            "<div style='width:90px;font-weight:700;color:#6b7280;font-size:0.65rem;"
+            "flex-shrink:0;text-align:right;'>"
+            "변동성/추세</div>"
             "</div>",
             unsafe_allow_html=True,
         )
 
         # ── 22개 종목 행 (탭1과 동일 정렬) ──
+        TREND_DAYS = 30  # β 기반 추세 기간 (일)
         for ticker in sorted_tickers:
             t_result = all_analyses.get(ticker)
             if not t_result or t_result[0] is None:
@@ -3826,6 +3832,31 @@ def main() -> None:
             if mini_bar is None:
                 continue
 
+            # ── σ당 % (변동성) ──
+            t_norm_col = f'{ticker}_Norm'
+            sigma_pct_str = "—"
+            if 'Predicted' in t_df.columns and t_norm_col in t_df.columns:
+                t_log_resid = (np.log(t_df[t_norm_col]) - np.log(t_df['Predicted'])).dropna()
+                t_exp_std = t_log_resid.expanding(
+                    min_periods=CFG.EXPANDING_MIN_PERIODS
+                ).std().dropna()
+                if len(t_exp_std) > 0:
+                    t_sigma_unit = float(t_exp_std.iloc[-1])
+                    if t_sigma_unit > 0 and np.isfinite(t_sigma_unit):
+                        t_sigma_pct = (np.exp(t_sigma_unit) - 1) * 100
+                        sigma_pct_str = f"±{t_sigma_pct:.1f}%"
+
+            # ── β·30일 추세 % (Predicted 시계열 변화율) ──
+            trend_pct_str = "—"
+            trend_color = '#9ca3af'
+            if 'Predicted' in t_df.columns and len(t_df) > TREND_DAYS:
+                p_recent = float(t_df['Predicted'].iloc[-1])
+                p_past = float(t_df['Predicted'].iloc[-(TREND_DAYS + 1)])
+                if p_past > 0 and np.isfinite(p_recent) and np.isfinite(p_past):
+                    trend_pct = (p_recent / p_past - 1) * 100
+                    trend_pct_str = signed_str(trend_pct, '{:.1f}') + "%"
+                    trend_color = pnl_color(trend_pct)
+
             is_holding = ticker in holding_tickers
             row_bg = '#f0fdf4' if is_holding else '#ffffff'
             star = "★ " if is_holding else ""
@@ -3833,7 +3864,7 @@ def main() -> None:
             pct_color = pnl_color(pct_chg)
 
             st.markdown(
-                f"<div style='display:flex;align-items:center;gap:8px;"
+                f"<div style='display:flex;align-items:center;gap:6px;"
                 f"padding:3px 4px;background:{row_bg};"
                 f"border-bottom:1px solid #f3f4f6;'>"
                 f"<div style='width:110px;font-size:0.75rem;font-weight:600;"
@@ -3843,15 +3874,21 @@ def main() -> None:
                 f"<span style='font-size:0.65rem;color:{pct_color};font-weight:500;'>"
                 f"{signed_str(pct_chg, '{:.1f}')}%</span>"
                 f"</div>"
-                f"<div style='flex:1;'>{mini_bar}</div>"
+                f"<div style='flex:1;min-width:0;'>{mini_bar}</div>"
+                f"<div style='width:90px;font-size:0.6rem;color:#6b7280;"
+                f"flex-shrink:0;line-height:1.15;text-align:right;'>"
+                f"<span title='1σ 변동 시 가격 변화율 (변동성)'>σ:{sigma_pct_str}</span><br>"
+                f"<span style='color:{trend_color};font-weight:500;' "
+                f"title='최근 {TREND_DAYS}일 회귀선(추세) 변화율 — β 효과 반영'>"
+                f"β·{TREND_DAYS}d:{trend_pct_str}</span>"
+                f"</div>"
                 f"</div>",
                 unsafe_allow_html=True,
             )
 
         st.caption(
-            "■ 현재가 (위치=σ, 테두리색=모멘텀: 짙은빨강 매수↑ → 회색 중립 → 짙은파랑 매도↑) · "
-            "▪ 평균단가 (보유 시) · "
-            "● 매수 ● 매도 (당시 σ 기준)"
+            "■ 위치=σ · 테두리색=모멘텀 (MACD+RSI) · ▪ 평균단가 · ● 매수 ● 매도 (당시 σ) · "
+            f"σ:1σ당 ±% (변동성) · β·{TREND_DAYS}d:최근 {TREND_DAYS}일 추세선 변화율"
         )
 
     # ====================================================
