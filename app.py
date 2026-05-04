@@ -438,41 +438,48 @@ def get_market_status() -> dict:
 # 7. 신호 계산 (벡터화)
 # ====================================================
 def compute_combined_score(cz: float, mhz: float, rsi: float) -> int:
-    """단일 시점 스코어 (스칼라용)."""
+    """단일 시점 스코어 (스칼라용).
+
+    부호 컨벤션: 음수 = 매수 신호, 양수 = 매도 신호 (Z, MACD, RSI 부호와 일치)
+    """
     s = 0
-    s += 2 if cz <= -CFG.Z_HIGH else 1 if cz < 0 else -2 if cz >= CFG.Z_HIGH else -1
-    s += 2 if mhz <= -CFG.MACD_HIGH else 1 if mhz < 0 else -2 if mhz >= CFG.MACD_HIGH else -1
-    s += 2 if rsi <= CFG.RSI_OVERSOLD else 1 if rsi < 50 else -2 if rsi >= CFG.RSI_OVERBOUGHT else -1
+    s += -2 if cz <= -CFG.Z_HIGH else -1 if cz < 0 else 2 if cz >= CFG.Z_HIGH else 1
+    s += -2 if mhz <= -CFG.MACD_HIGH else -1 if mhz < 0 else 2 if mhz >= CFG.MACD_HIGH else 1
+    s += -2 if rsi <= CFG.RSI_OVERSOLD else -1 if rsi < 50 else 2 if rsi >= CFG.RSI_OVERBOUGHT else 1
     return s
 
 
 def compute_combined_score_vec(
     cz: pd.Series, mhz: pd.Series, rsi: pd.Series
 ) -> np.ndarray:
-    """벡터화 버전 — 전체 시계열을 한 번에 계산."""
+    """벡터화 버전 — 전체 시계열을 한 번에 계산.
+
+    부호 컨벤션: 음수 = 매수 신호, 양수 = 매도 신호
+    """
     cz_v = cz.fillna(0).values
     mhz_v = mhz.fillna(0).values
     rsi_v = rsi.fillna(50).values
 
-    s_cz = np.where(cz_v <= -CFG.Z_HIGH, 2,
-            np.where(cz_v < 0, 1,
-            np.where(cz_v >= CFG.Z_HIGH, -2, -1)))
-    s_mhz = np.where(mhz_v <= -CFG.MACD_HIGH, 2,
-             np.where(mhz_v < 0, 1,
-             np.where(mhz_v >= CFG.MACD_HIGH, -2, -1)))
-    s_rsi = np.where(rsi_v <= CFG.RSI_OVERSOLD, 2,
-             np.where(rsi_v < 50, 1,
-             np.where(rsi_v >= CFG.RSI_OVERBOUGHT, -2, -1)))
+    s_cz = np.where(cz_v <= -CFG.Z_HIGH, -2,
+            np.where(cz_v < 0, -1,
+            np.where(cz_v >= CFG.Z_HIGH, 2, 1)))
+    s_mhz = np.where(mhz_v <= -CFG.MACD_HIGH, -2,
+             np.where(mhz_v < 0, -1,
+             np.where(mhz_v >= CFG.MACD_HIGH, 2, 1)))
+    s_rsi = np.where(rsi_v <= CFG.RSI_OVERSOLD, -2,
+             np.where(rsi_v < 50, -1,
+             np.where(rsi_v >= CFG.RSI_OVERBOUGHT, 2, 1)))
     return s_cz + s_mhz + s_rsi
 
 
 def score_to_signal(score: int) -> str:
-    if score >= 5:  return 'FB2'
-    if score >= 3:  return 'FB'
-    if score >= 1:  return 'B'
-    if score <= -5: return 'FS2'
-    if score <= -3: return 'FS'
-    if score <= -1: return 'S'
+    """음수 = 매수, 양수 = 매도, 0 = 중립."""
+    if score <= -5: return 'FB2'   # 강한 매수
+    if score <= -3: return 'FB'    # 매수
+    if score <= -1: return 'B'     # 약 매수
+    if score >= 5:  return 'FS2'   # 강한 매도
+    if score >= 3:  return 'FS'    # 매도
+    if score >= 1:  return 'S'     # 약 매도
     return 'H'
 
 
@@ -481,12 +488,13 @@ def get_signal_combined(cz: float, mhz: float, rsi: float) -> str:
 
 
 def get_price_fill_color_combined(score: int) -> str:
-    if score >= 5:  return 'rgba(127,29,29,0.40)'
-    if score >= 3:  return 'rgba(220,38,38,0.30)'
-    if score >= 1:  return 'rgba(252,165,165,0.20)'
-    if score <= -5: return 'rgba(30,58,138,0.40)'
-    if score <= -3: return 'rgba(37,99,235,0.30)'
-    if score <= -1: return 'rgba(147,197,253,0.20)'
+    """음수 = 매수 (빨강 음영), 양수 = 매도 (파랑 음영)."""
+    if score <= -5: return 'rgba(127,29,29,0.40)'   # 강 매수
+    if score <= -3: return 'rgba(220,38,38,0.30)'
+    if score <= -1: return 'rgba(252,165,165,0.20)'
+    if score >= 5:  return 'rgba(30,58,138,0.40)'   # 강 매도
+    if score >= 3:  return 'rgba(37,99,235,0.30)'
+    if score >= 1:  return 'rgba(147,197,253,0.20)'
     return 'rgba(156,163,175,0.10)'
 
 
@@ -497,60 +505,63 @@ def get_price_fill_color_combined(score: int) -> str:
 def compute_momentum_score(mhz: float, rsi: float) -> int:
     """MACD-Z + RSI 합산 모멘텀 점수 (-4 ~ +4).
 
-    RSI:
-      ≤30: +2  / 30~40: +1  / 40~60: 0  / 60~70: -1  / ≥70: -2
-    MACD-Z:
-      ≤-2: +2  / -2~-1: +1  / -1~+1: 0  / +1~+2: -1  / ≥+2: -2
+    부호 컨벤션: 음수 = 매수 모멘텀, 양수 = 매도 모멘텀
+    (Z, MACD, RSI 부호와 일치)
 
-    + : 매수 모멘텀 (과매도 신호)
-    - : 매도 모멘텀 (과매수 신호)
+    RSI:
+      ≤30: -2  / 30~40: -1  / 40~60: 0  / 60~70: +1  / ≥70: +2
+    MACD-Z:
+      ≤-2: -2  / -2~-1: -1  / -1~+1: 0  / +1~+2: +1  / ≥+2: +2
     """
-    # RSI 점수
+    # RSI 점수 (음수=과매도/매수)
     if rsi <= CFG.RSI_OVERSOLD:        # 30
-        s_rsi = 2
+        s_rsi = -2
     elif rsi <= 40:
-        s_rsi = 1
+        s_rsi = -1
     elif rsi < 60:
         s_rsi = 0
     elif rsi < CFG.RSI_OVERBOUGHT:     # 70
-        s_rsi = -1
+        s_rsi = 1
     else:
-        s_rsi = -2
+        s_rsi = 2
 
-    # MACD-Z 점수
+    # MACD-Z 점수 (음수=매수 영역)
     if mhz <= -CFG.MACD_HIGH:          # -2
-        s_mhz = 2
+        s_mhz = -2
     elif mhz <= -1:
-        s_mhz = 1
+        s_mhz = -1
     elif mhz < 1:
         s_mhz = 0
     elif mhz < CFG.MACD_HIGH:          # +2
-        s_mhz = -1
+        s_mhz = 1
     else:
-        s_mhz = -2
+        s_mhz = 2
 
     return s_rsi + s_mhz
 
 
 def momentum_score_to_signal(score: int) -> str:
-    """모멘텀 점수 → 신호 라벨 (Z 제외라 임계값 다름)."""
-    if score >= 4:  return 'FB2'
-    if score >= 2:  return 'FB'
-    if score >= 1:  return 'B'
-    if score <= -4: return 'FS2'
-    if score <= -2: return 'FS'
-    if score <= -1: return 'S'
+    """모멘텀 점수 → 신호 라벨 (음수=매수, 양수=매도)."""
+    if score <= -4: return 'FB2'   # 강 매수
+    if score <= -2: return 'FB'
+    if score <= -1: return 'B'
+    if score >= 4:  return 'FS2'   # 강 매도
+    if score >= 2:  return 'FS'
+    if score >= 1:  return 'S'
     return 'H'
 
 
 def momentum_to_color(score: int) -> str:
-    """모멘텀 점수 (-4 ~ +4) → 마커 테두리 색."""
-    if score >= 4:  return '#7f1d1d'  # 짙은 빨강 — 강 매수 모멘텀
-    if score >= 2:  return '#dc2626'  # 빨강
-    if score >= 1:  return '#fca5a5'  # 연빨강
-    if score <= -4: return '#1e3a8a'  # 짙은 파랑 — 강 매도 모멘텀
-    if score <= -2: return '#2563eb'  # 파랑
-    if score <= -1: return '#93c5fd'  # 연파랑
+    """모멘텀 점수 (-4 ~ +4) → 마커 테두리 색.
+
+    음수 = 매수 (빨강), 양수 = 매도 (파랑), 0 = 중립 (회색)
+    """
+    if score <= -4: return '#7f1d1d'  # 짙은 빨강 — 강 매수 모멘텀
+    if score <= -2: return '#dc2626'  # 빨강
+    if score <= -1: return '#fca5a5'  # 연빨강
+    if score >= 4:  return '#1e3a8a'  # 짙은 파랑 — 강 매도 모멘텀
+    if score >= 2:  return '#2563eb'  # 파랑
+    if score >= 1:  return '#93c5fd'  # 연파랑
     return '#9ca3af'                   # 회색 (중립)
 
 
@@ -2014,20 +2025,21 @@ def render_chart(
         # ── Z 패널에만 모멘텀 라인 오버레이 (보조 Y축) ──
         if col_name == 'Z_Score':
             # 모멘텀 점수 시계열 계산 (벡터화)
+            # 부호 컨벤션: 음수=매수, 양수=매도 (Z, MACD, RSI와 일치)
             mhz_v = df_daily['MACD_Hist_Z'].fillna(0).values
             rsi_v = df_daily['RSI'].fillna(50).values
-            # RSI 점수 (-2~+2)
+            # RSI 점수 (음수=과매도/매수)
             s_rsi = np.where(
-                rsi_v <= CFG.RSI_OVERSOLD, 2,
-                np.where(rsi_v <= 40, 1,
+                rsi_v <= CFG.RSI_OVERSOLD, -2,
+                np.where(rsi_v <= 40, -1,
                 np.where(rsi_v < 60, 0,
-                np.where(rsi_v < CFG.RSI_OVERBOUGHT, -1, -2))))
-            # MACD-Z 점수 (-2~+2)
+                np.where(rsi_v < CFG.RSI_OVERBOUGHT, 1, 2))))
+            # MACD-Z 점수 (음수=매수 영역)
             s_mhz = np.where(
-                mhz_v <= -CFG.MACD_HIGH, 2,
-                np.where(mhz_v <= -1, 1,
+                mhz_v <= -CFG.MACD_HIGH, -2,
+                np.where(mhz_v <= -1, -1,
                 np.where(mhz_v < 1, 0,
-                np.where(mhz_v < CFG.MACD_HIGH, -1, -2))))
+                np.where(mhz_v < CFG.MACD_HIGH, 1, 2))))
             momentum = s_rsi + s_mhz   # -4 ~ +4
             momentum_series = pd.Series(momentum, index=df_daily.index)
 
