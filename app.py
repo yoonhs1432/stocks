@@ -545,15 +545,18 @@ def compute_momentum_score(mhz: float, rsi: float) -> int:
 def compute_momentum_score_smooth(mhz: float, rsi: float) -> float:
     """모멘텀 점수의 연속 버전 (시각화용).
 
-    tanh 기반으로 매끄러운 곡선 생성.
-    동일한 가중치/부호 컨벤션 사용. 점근 ±4.
+    선형 무제한 — 임계값 이상의 강도 차이도 그대로 보존.
+    saturation 없음. 동일 가중치/부호 컨벤션 사용.
 
-    - MACD-Z 분모 1.0, 가중 1.2: 점근 ±1.2 (강 매수/매도 신호)
-    - RSI 50 중심, 분모 10, 가중 0.8: 점근 ±0.8
-    - 최종 ×2 스케일링: 점근 ±4
+    - MACD-Z를 ±2 단위로 정규화, 가중 1.2
+      (MACD ±2 → s_mhz ±1.2, MACD ±4 → s_mhz ±2.4)
+    - RSI를 ±20 단위 (50 중심)로 정규화, 가중 0.8
+      (RSI 30/70 → s_rsi ±0.8, RSI 10/90 → s_rsi ±1.6)
+    - 합산 × 2 = 정수 척도와 일치
+      (정상 범위 ±4, 극단 ±8까지 표현 가능)
     """
-    s_mhz = 1.2 * np.tanh(mhz / 1.0)
-    s_rsi = 0.8 * np.tanh((rsi - 50) / 10.0)
+    s_mhz = 1.2 * (mhz / CFG.MACD_HIGH)
+    s_rsi = 0.8 * ((rsi - 50) / 20.0)
     return 2.0 * (s_mhz + s_rsi)
 
 
@@ -2041,13 +2044,13 @@ def render_chart(
 
         # ── Z 패널에만 모멘텀 라인 오버레이 (보조 Y축) ──
         if col_name == 'Z_Score':
-            # 모멘텀 점수 시계열 (tanh 부드러운 곡선, 가중치 MACD 1.2 / RSI 0.8)
+            # 모멘텀 점수 시계열 (선형 무제한, 가중치 MACD 1.2 / RSI 0.8)
             # 부호 컨벤션: 음수=매수, 양수=매도
+            # 임계값 이상의 강도 차이 보존 (saturation 없음)
             mhz_v = df_daily['MACD_Hist_Z'].fillna(0).values
             rsi_v = df_daily['RSI'].fillna(50).values
-            # tanh 기반 연속값 (점근 ±4)
-            s_mhz_smooth = 1.2 * np.tanh(mhz_v / 1.0)
-            s_rsi_smooth = 0.8 * np.tanh((rsi_v - 50) / 10.0)
+            s_mhz_smooth = 1.2 * (mhz_v / CFG.MACD_HIGH)
+            s_rsi_smooth = 0.8 * ((rsi_v - 50) / 20.0)
             momentum_smooth = 2.0 * (s_mhz_smooth + s_rsi_smooth)
             momentum_series = pd.Series(momentum_smooth, index=df_daily.index)
 
@@ -2103,7 +2106,7 @@ def render_chart(
             fig.update_yaxes(
                 range=[-mom_axis_max, mom_axis_max],
                 autorange=False, fixedrange=True,
-                tickvals=[-4, -2, 0, 2, 4],
+                tickvals=[-6, -4, -2, 0, 2, 4, 6],
                 tickfont=dict(size=8, color='#7c3aed'),
                 row=row, col=1, secondary_y=True,
             )
