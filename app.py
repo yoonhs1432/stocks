@@ -49,7 +49,7 @@ st.set_page_config(page_title="퀀트 트레이딩 대시보드", layout="wide")
 @dataclass(frozen=True)
 class Config:
     """매직 넘버 모음. frozen으로 불변 보장."""
-    SEED_KRW: int = 21_000_000
+    SEED_KRW: int = 30_000_000
     BETA_WARN: float = 4.0
     BETA_HIGH: float = 6.0
     USD_KRW_FALLBACK: float = 1400.0
