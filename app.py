@@ -1214,7 +1214,14 @@ def compute_sell_candidates(
 # 10. 포트폴리오 사이클 계산 (단일 호출 최적화)
 # ====================================================
 def _resolve_all_cycles(valid: list) -> tuple[CycleInfo, float]:
-    """매매 기록 → 현재 사이클 + 누적 실현손익."""
+    """매매 기록 → 현재 사이클 + 누적 실현손익.
+
+    current_pnl 의미:
+      - 사이클 완료 (cycle_end != None, 전량 매도): 사이클 전체 손익
+      - 사이클 진행 중 (hold_qty > 0): 지금까지 부분 매도로 실현된 손익
+        (보유분의 미실현은 제외, 평균단가 대비 매도가)
+      - 매수만 있고 매도 없음: None
+    """
     sorted_records = sorted(valid, key=lambda r: r['date'])
 
     cycle_start: Optional[datetime.date] = None
@@ -1224,6 +1231,8 @@ def _resolve_all_cycles(valid: list) -> tuple[CycleInfo, float]:
     buy_cost = 0.0
     sell_proceeds = 0.0
     cumulative_pnl = 0.0
+    realized_partial = 0.0  # 현재 사이클의 부분 매도 실현 손익 (평균단가 대비)
+    has_any_sell = False    # 현재 사이클에 매도가 한 번이라도 있었나
 
     for r in sorted_records:
         date = datetime.date.fromisoformat(r['date'])
@@ -1238,17 +1247,34 @@ def _resolve_all_cycles(valid: list) -> tuple[CycleInfo, float]:
                 buy_qty = 0
                 buy_cost = 0.0
                 sell_proceeds = 0.0
+                realized_partial = 0.0
+                has_any_sell = False
             hold_qty += qty
             buy_qty += qty
             buy_cost += qty * r['price']
 
         elif r['type'] == 'sell' and hold_qty > 0:
+            # 부분 매도 손익 누적 (평균단가 대비 매도가)
+            avg_buy = buy_cost / buy_qty if buy_qty > 0 else 0
+            realized_partial += qty * (r['price'] - avg_buy)
+            has_any_sell = True
+
             sell_proceeds += qty * r['price']
             hold_qty = max(hold_qty - qty, 0)
             if hold_qty == 0:
                 cycle_end = date
 
-    current_pnl = (sell_proceeds - buy_cost) if cycle_end else None
+    # current_pnl 결정
+    if cycle_end is not None:
+        # 사이클 완료
+        current_pnl = sell_proceeds - buy_cost
+    elif has_any_sell:
+        # 부분 매도 진행 중 (보유 중)
+        current_pnl = realized_partial
+    else:
+        # 매수만 있음
+        current_pnl = None
+
     cyc: CycleInfo = {
         'cycle_start': cycle_start,
         'cycle_end':   cycle_end,
@@ -2404,8 +2430,12 @@ def render_position_tracker(
         f"<div>{_fmt_pnl(pnl_dollar)}</div></div>"
     )
 
-    total_realized = cumulative_pnl + (cyc['current_pnl'] if is_closed else 0.0)
-    has_cumulative = (cumulative_pnl != 0.0) or is_closed
+    # current_pnl이 None이 아니면(매도 한 번 이상 발생) 누적에 포함
+    has_realized_in_cycle = cyc['current_pnl'] is not None
+    total_realized = cumulative_pnl + (
+        cyc['current_pnl'] if has_realized_in_cycle else 0.0
+    )
+    has_cumulative = (cumulative_pnl != 0.0) or has_realized_in_cycle
     cumulative_html = (
         f"<div><div style='color:#6b7280;font-size:0.68rem;'>누적실현손익</div>"
         f"<div>{_fmt_pnl(total_realized)}</div></div>"
