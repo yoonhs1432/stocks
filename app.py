@@ -1828,10 +1828,15 @@ def render_chart(
     plot_order = ['main', 'spacer', 'price', 'zscore', 'macd', 'rsi']
     total_rows = len(plot_order)
     total_h = sum(PX[p] for p in plot_order)
+    # zscore 패널만 secondary_y 활성화 (Z + 모멘텀 dual-axis)
+    specs = [
+        [{"secondary_y": (p == 'zscore')}] for p in plot_order
+    ]
     fig = make_subplots(
         rows=total_rows, cols=1,
         row_heights=[PX[p] / total_h for p in plot_order],
         vertical_spacing=0.02,
+        specs=specs,
     )
     row = 1
 
@@ -2005,14 +2010,63 @@ def render_chart(
             )
         last_v = df_daily[col_name].iloc[-1]
         val = float(last_v) if pd.notna(last_v) else 0.0
-        fig.add_annotation(
-            x=0, y=1, xref='x domain', yref='y domain',
-            text=f"<b>{label}  {val:+.2f}</b>", showarrow=False,
-            font=dict(size=11, color=color_fn(val)),
-            xanchor='left', yanchor='top',
-            bgcolor='white', bordercolor='black', borderwidth=1, borderpad=2,
-            row=row, col=1,
-        )
+
+        # ── Z 패널에만 모멘텀 라인 오버레이 (보조 Y축) ──
+        if col_name == 'Z_Score':
+            # 모멘텀 점수 시계열 계산 (벡터화)
+            mhz_v = df_daily['MACD_Hist_Z'].fillna(0).values
+            rsi_v = df_daily['RSI'].fillna(50).values
+            # RSI 점수 (-2~+2)
+            s_rsi = np.where(
+                rsi_v <= CFG.RSI_OVERSOLD, 2,
+                np.where(rsi_v <= 40, 1,
+                np.where(rsi_v < 60, 0,
+                np.where(rsi_v < CFG.RSI_OVERBOUGHT, -1, -2))))
+            # MACD-Z 점수 (-2~+2)
+            s_mhz = np.where(
+                mhz_v <= -CFG.MACD_HIGH, 2,
+                np.where(mhz_v <= -1, 1,
+                np.where(mhz_v < 1, 0,
+                np.where(mhz_v < CFG.MACD_HIGH, -1, -2))))
+            momentum = s_rsi + s_mhz   # -4 ~ +4
+            momentum_series = pd.Series(momentum, index=df_daily.index)
+
+            fig.add_trace(go.Scatter(
+                x=df_daily.index, y=momentum_series,
+                mode='lines',
+                line=dict(color='#7c3aed', width=1.8, shape='hv'),  # 보라, step
+                name='Momentum', hoverinfo='skip',
+            ), row=row, col=1, secondary_y=True)
+
+            # 보조 Y축 범위 고정 + 가이드
+            fig.update_yaxes(
+                range=[-4.5, 4.5], autorange=False, fixedrange=True,
+                tickvals=[-4, -2, 0, 2, 4], tickfont=dict(size=8, color='#7c3aed'),
+                row=row, col=1, secondary_y=True,
+            )
+
+            # 라벨: Z + 모멘텀 마지막 값
+            mom_last = int(momentum_series.iloc[-1]) if len(momentum_series) > 0 else 0
+            label_text = f"<b>Z {val:+.2f} · M {mom_last:+d}</b>"
+            mom_color = momentum_to_color(mom_last)
+            fig.add_annotation(
+                x=0, y=1, xref='x domain', yref='y domain',
+                text=label_text, showarrow=False,
+                font=dict(size=11, color=color_fn(val)),
+                xanchor='left', yanchor='top',
+                bgcolor='white', bordercolor=mom_color, borderwidth=1.5, borderpad=2,
+                row=row, col=1,
+            )
+        else:
+            fig.add_annotation(
+                x=0, y=1, xref='x domain', yref='y domain',
+                text=f"<b>{label}  {val:+.2f}</b>", showarrow=False,
+                font=dict(size=11, color=color_fn(val)),
+                xanchor='left', yanchor='top',
+                bgcolor='white', bordercolor='black', borderwidth=1, borderpad=2,
+                row=row, col=1,
+            )
+
         view_abs = abs(df_daily.loc[df_daily.index >= view_start, col_name].dropna())
         rng = max(hi, view_abs.max() if not view_abs.empty else hi)
         fig.update_yaxes(
