@@ -69,7 +69,7 @@ X_ASSET_FIXED = 'SPY'
 TARGET_TICKERS = [
     'SPYU', 'SOXL', 'TQQQ', 'FNGU', 'HIBL', 'TARK', 'QPUX', 'BNKU',
     'URTY', 'TECL', 'LABU', 'DFEN', 'TNA', 'DPST',
-    'GDXU', 'KORU', '005930', 'BITU', 'ETHT', 'AVXX','AVAV','BTC-USD','ETH-USD',
+    'GDXU', 'KORU', '005930', 'BITU', 'ETHT', 'AVXX',
 ]
 TICKER_DISPLAY_NAMES = {'BTC-USD': 'BTC', 'ETH-USD': 'ETH', '005930': '삼전', '000660': '하닉'}
 
@@ -3336,6 +3336,35 @@ def render_overview_panel(
     df_close_last = st.session_state.get('df_close_last', {})
     dd_info = st.session_state.get('dd_info_cache')
 
+    # ── 0. 새로고침 버튼 + 마지막 갱신 시간 ──
+    with st.container(key="ov_refresh_row"):
+        rc1, rc2 = st.columns([1, 3])
+        if rc1.button("🔄 새로고침", key="ov_refresh_btn",
+                      use_container_width=True):
+            with st.spinner("데이터 갱신 중..."):
+                st.cache_data.clear()
+                # 통계 관련 캐시 무효화
+                for k in [
+                    'portfolio_pnl_cache', 'equity_series_cache',
+                    'dd_info_cache', 'df_close_last',
+                ]:
+                    if k in st.session_state:
+                        del st.session_state[k]
+                st.session_state['overview_last_refresh'] = (
+                    datetime.datetime.now(
+                        datetime.timezone(datetime.timedelta(hours=9))
+                    ).strftime('%H:%M:%S')
+                )
+            st.rerun()
+
+        ov_last = st.session_state.get('overview_last_refresh')
+        if ov_last:
+            rc2.markdown(
+                f"<div style='font-size:0.7rem;color:#9ca3af;"
+                f"padding-top:8px;'>마지막 갱신 {ov_last}</div>",
+                unsafe_allow_html=True,
+            )
+
     # ── 1. 시드 카드 (세로 stack) ──
     seed_html = _build_seed_html(portfolio_pnl, usd_krw, dd_info)
     st.markdown(
@@ -3615,6 +3644,27 @@ def build_css(selected_option: str, holding_tickers: set) -> str:
     }}
     div.st-key-ov_cal_nav button {{
         min-height:32px!important; padding:4px!important; font-size:0.85rem!important;
+    }}
+    /* 탭3 새로고침 행 — 88px 첫 컬럼 룰 무력화 */
+    div.st-key-ov_refresh_row div[data-testid="stHorizontalBlock"] {{
+        gap:8px!important; flex-wrap:nowrap!important; margin-bottom:8px!important;
+    }}
+    div.st-key-ov_refresh_row div[data-testid="stHorizontalBlock"]
+        > div[data-testid="stColumn"] {{
+        flex:initial!important; min-width:0!important;
+        max-width:none!important; padding:0!important;
+    }}
+    div.st-key-ov_refresh_row div[data-testid="stHorizontalBlock"]
+        > div[data-testid="stColumn"]:first-child {{
+        flex:0 0 120px!important; min-width:120px!important; max-width:120px!important;
+    }}
+    div.st-key-ov_refresh_row div[data-testid="stHorizontalBlock"]
+        > div[data-testid="stColumn"]:nth-child(2) {{
+        flex:1 1 auto!important;
+    }}
+    div.st-key-ov_refresh_row button {{
+        min-height:32px!important; padding:4px 8px!important;
+        font-size:0.8rem!important;
     }}
     {''.join(btn_parts)}
     </style>"""
