@@ -1462,69 +1462,129 @@ def _build_alloc_html(
     df_close_last: dict,
     usd_krw: float,
 ) -> str:
+    """💼 보유 종목 평가 — 수익/손실 분리 표시.
+
+    수익 종목: [원금(연빨강)][수익(초록)] = 평가금액 길이
+    손실 종목: [남은 평가(연빨강)][손실(파랑)] = 원금 길이
+    """
     rows = []
     for tk, ts in portfolio_state.items():
         cyc = ts['cycle']
         if cyc['hold_qty'] <= 0:
             continue
-        inv_krw = cyc['buy_cost'] * usd_krw
+        inv_usd = cyc['buy_cost']
         avg = cyc['buy_cost'] / cyc['buy_qty']
         cur = df_close_last.get(f'{tk}_Close')
-        ret = (cur - avg) / avg * 100 if cur else None
-        eval_krw = (cur * cyc['hold_qty'] * usd_krw) if cur else inv_krw
-        rows.append((tk, inv_krw, ret, eval_krw))
+        if cur is None:
+            cur = avg  # fallback
+        eval_usd = cur * cyc['hold_qty']
+        pnl_usd = eval_usd - inv_usd
+        ret_pct = (pnl_usd / inv_usd * 100) if inv_usd > 0 else 0
+        rows.append({
+            'tk': tk, 'inv': inv_usd, 'eval': eval_usd, 'pnl': pnl_usd, 'ret': ret_pct,
+        })
 
     if not rows:
         return ""
 
-    total_inv_krw = sum(r[1] for r in rows)
-    used_pct = min(total_inv_krw / CFG.SEED_KRW * 100, 100)
-    bar_c = '#b91c1c' if used_pct >= 90 else '#f59e0b' if used_pct >= 70 else '#16a34a'
+    # 평가금액 내림차순
+    rows.sort(key=lambda r: -r['eval'])
+
+    total_inv_krw = sum(r['inv'] for r in rows) * usd_krw
+    total_eval_krw = sum(r['eval'] for r in rows) * usd_krw
+    total_pnl_krw = total_eval_krw - total_inv_krw
+    total_ret = (total_pnl_krw / total_inv_krw * 100) if total_inv_krw > 0 else 0
+    total_pnl_color = pnl_color(total_pnl_krw)
+
+    # 바 길이 기준: 모든 종목의 max(원금, 평가금액)을 100%로
+    max_bar_value = max(max(r['inv'], r['eval']) for r in rows)
+
+    # 수익/손실 색상
+    C_PRINCIPAL = '#fca5a5'  # 연빨강 — 원금/남은평가
+    C_PROFIT    = '#16a34a'  # 초록  — 수익
+    C_LOSS      = '#2563eb'  # 파랑  — 손실
 
     html = (
         f"{html_section_divider()}"
-        f"<div style='display:flex;justify-content:space-between;"
-        f"font-size:0.62rem;color:{COLOR_LABEL};margin-bottom:4px;'>"
-        f"<span>📊 배분 현황</span>"
-        f"<span style='color:{bar_c};font-weight:700;'>{used_pct:.1f}% 사용"
-        f"&nbsp;<span style='color:{COLOR_LABEL};font-weight:400;'>"
-        f"({int(round(total_inv_krw / 10000)):,}만원)</span></span></div>"
+        f"<div style='display:flex;justify-content:space-between;align-items:baseline;"
+        f"font-size:0.62rem;color:{COLOR_LABEL};margin-bottom:6px;'>"
+        f"<span style='font-weight:700;'>💼 보유 종목 평가</span>"
+        f"<span style='color:{total_pnl_color};font-weight:700;'>"
+        f"{signed_str(int(round(total_pnl_krw / 10000)), '{:,}')}만원 "
+        f"({signed_str(round(total_ret), '{:d}')}%)</span></div>"
     )
-    max_eval = max(r[3] for r in rows)
-    for tk, inv_krw, ret, eval_krw in sorted(rows, key=lambda x: -x[1]):
-        tc = ticker_color(tk)
-        cost_pct = inv_krw / CFG.SEED_KRW * 100
-        pnl_c = pnl_color(ret or 0)
-        eval_w = max(eval_krw / max_eval * 100, 1) if max_eval else 1
-        cost_w = max(inv_krw / max_eval * 100, 1) if max_eval else 1
-        cost_w = min(cost_w, eval_w)
-        pnl_w = max(eval_w - cost_w, 0)
 
-        ret_str = (
-            f"<span style='color:{pnl_c};font-weight:700;'>{signed_str(ret, '{:.0f}')}%</span>"
-            if ret is not None else f"<span style='color:{COLOR_LABEL};'>-</span>"
+    for r in rows:
+        tk = r['tk']
+        inv_w = (r['inv'] / max_bar_value) * 100 if max_bar_value > 0 else 0
+        eval_w = (r['eval'] / max_bar_value) * 100 if max_bar_value > 0 else 0
+        pnl_w = abs(eval_w - inv_w)
+
+        is_profit = r['pnl'] >= 0
+        pnl_int = int(round(r['pnl']))   # USD
+        ret_int = int(round(r['ret']))
+        inv_int = int(round(r['inv']))
+        pnl_color_v = pnl_color(r['pnl'])
+
+        if is_profit:
+            # 수익 종목: [원금 inv_w][수익 pnl_w] = eval_w
+            seg1_w = inv_w
+            seg1_c = C_PRINCIPAL
+            seg2_w = pnl_w
+            seg2_c = C_PROFIT
+        else:
+            # 손실 종목: [남은평가 eval_w][손실 pnl_w] = inv_w
+            seg1_w = eval_w
+            seg1_c = C_PRINCIPAL
+            seg2_w = pnl_w
+            seg2_c = C_LOSS
+
+        bar_inner = (
+            f"<div style='width:{seg1_w:.1f}%;background:{seg1_c};height:7px;"
+            f"flex-shrink:0;border-radius:3px 0 0 3px;'></div>"
         )
-        bar_html = (
-            f"<div style='flex:1;background:#e5e7eb;border-radius:3px;height:7px;"
-            f"display:flex;align-items:center;overflow:hidden;'>"
-            f"<div style='width:{cost_w:.1f}%;background:{tc};height:7px;"
-            f"border-radius:3px 0 0 3px;flex-shrink:0;'></div>"
-        )
-        if pnl_w > 0.5:
-            bar_html += (
-                f"<div style='width:{pnl_w:.1f}%;background:{pnl_c};height:7px;"
-                f"border-radius:0 3px 3px 0;flex-shrink:0;opacity:0.85;'></div>"
+        if seg2_w > 0.3:
+            bar_inner += (
+                f"<div style='width:{seg2_w:.1f}%;background:{seg2_c};height:7px;"
+                f"flex-shrink:0;border-radius:0 3px 3px 0;'></div>"
             )
-        bar_html += "</div>"
+
         html += (
             f"<div style='display:flex;align-items:center;gap:5px;margin-bottom:3px;'>"
-            f"<div style='font-size:0.67rem;color:{COLOR_TEXT};width:40px;flex-shrink:0;'>{display_name(tk)}</div>"
-            f"{bar_html}"
-            f"<div style='font-size:0.63rem;color:#6b7280;width:28px;text-align:right;flex-shrink:0;'>{cost_pct:.1f}%</div>"
-            f"<div style='font-size:0.63rem;width:32px;text-align:right;flex-shrink:0;'>{ret_str}</div>"
+            f"<div style='font-size:0.67rem;color:{COLOR_TEXT};width:42px;"
+            f"flex-shrink:0;font-weight:600;'>{display_name(tk)}</div>"
+            f"<div style='flex:1;background:#f3f4f6;border-radius:3px;height:7px;"
+            f"display:flex;align-items:center;overflow:hidden;min-width:0;'>"
+            f"{bar_inner}"
+            f"</div>"
+            # 우측: 원금 / 손익금($) / 손익률
+            f"<div style='font-size:0.6rem;color:#6b7280;width:46px;text-align:right;"
+            f"flex-shrink:0;line-height:1.15;'>"
+            f"<div>${inv_int:,}</div>"
+            f"<div style='color:{pnl_color_v};font-weight:600;'>"
+            f"{signed_str(pnl_int, '{:,}')}</div>"
+            f"</div>"
+            f"<div style='font-size:0.62rem;width:34px;text-align:right;flex-shrink:0;"
+            f"color:{pnl_color_v};font-weight:700;'>"
+            f"{signed_str(ret_int, '{:d}')}%</div>"
             f"</div>"
         )
-    html += "</div>"
+
+    # 사용률 표시 (시드 대비)
+    used_pct = total_inv_krw / CFG.SEED_KRW * 100
+    use_color = (
+        '#b91c1c' if used_pct >= 90
+        else '#f59e0b' if used_pct >= 70
+        else '#16a34a'
+    )
+    html += (
+        f"<div style='font-size:0.6rem;color:{COLOR_LABEL};margin-top:6px;"
+        f"padding-top:4px;border-top:1px dashed #e5e7eb;display:flex;"
+        f"justify-content:space-between;'>"
+        f"<span>총 원금 {int(round(total_inv_krw/10000)):,}만원</span>"
+        f"<span style='color:{use_color};font-weight:700;'>"
+        f"시드 대비 {used_pct:.0f}% 사용</span></div>"
+    )
     return html
 
 
@@ -2321,16 +2381,60 @@ def render_position_tracker(
         color = pnl_color(val)
         return f"<span style='font-weight:700;color:{color};'>{sign}${int(round(val)):,}</span>"
 
-    # ── 종목명 헤더 (항상 표시) — σ는 expanding std (그래프2 Z와 일치) ──
-    header_right = ""
-    if beta is not None and std_resid is not None:
-        header_right = (
-            f"<span style='font-size:0.65rem;color:#6b7280;'>"
-            f"σ={sigma_unit:.3f} · β={beta:.2f}</span>"
-        )
+    # ── 종목명 헤더 — 한눈에 보기와 동일 정보 ──
+    # σ% (변동성), β·30d (추세), 수익% (보유 시)
+    TREND_DAYS_HDR = 30
+    sigma_pct_int = None
+    if df_daily is not None and sigma_unit > 0 and np.isfinite(sigma_unit):
+        sigma_pct_int = int(round((np.exp(sigma_unit) - 1) * 100))
+
+    trend_pct_int = None
+    trend_color_hdr = '#6b7280'
+    if (df_daily is not None and 'Predicted' in df_daily.columns
+            and len(df_daily) > TREND_DAYS_HDR):
+        try:
+            p_recent = float(df_daily['Predicted'].iloc[-1])
+            p_past = float(df_daily['Predicted'].iloc[-(TREND_DAYS_HDR + 1)])
+            if p_past > 0 and np.isfinite(p_recent) and np.isfinite(p_past):
+                trend_pct_v = (p_recent / p_past - 1) * 100
+                trend_pct_int = int(round(trend_pct_v))
+                trend_color_hdr = pnl_color(trend_pct_v)
+        except Exception:
+            pass
+
+    # 평가수익률 (보유 시만)
+    avg_price_hdr = None
+    ts_hdr = portfolio_state.get(selected_ticker)
+    if (ts_hdr and ts_hdr['cycle']['hold_qty'] > 0
+            and ts_hdr['cycle']['buy_qty'] > 0):
+        avg_price_hdr = ts_hdr['cycle']['buy_cost'] / ts_hdr['cycle']['buy_qty']
+
+    ret_pct_str_hdr = "—"
+    ret_color_hdr = '#9ca3af'
+    if avg_price_hdr is not None and current_price is not None:
+        ret_pct_v = (current_price / avg_price_hdr - 1) * 100
+        ret_pct_int = int(round(ret_pct_v))
+        ret_pct_str_hdr = signed_str(ret_pct_int, '{:d}') + "%"
+        ret_color_hdr = pnl_color(ret_pct_v)
+
+    sigma_str_hdr = f"±{sigma_pct_int}%" if sigma_pct_int is not None else "—"
+    trend_str_hdr = (
+        signed_str(trend_pct_int, '{:d}') + "%"
+        if trend_pct_int is not None else "—"
+    )
+
+    header_right = (
+        f"<span style='font-size:0.7rem;color:#6b7280;'>"
+        f"<span title='1σ 변동성'>σ {sigma_str_hdr}</span>"
+        f" · <span title='30일 추세' style='color:{trend_color_hdr};font-weight:600;'>"
+        f"β·30d {trend_str_hdr}</span>"
+        f" · <span title='평가수익률' style='color:{ret_color_hdr};font-weight:600;'>"
+        f"수익 {ret_pct_str_hdr}</span>"
+        f"</span>"
+    )
     header_html = (
         f"<div style='display:flex;justify-content:space-between;align-items:baseline;"
-        f"padding:4px 12px 2px 12px;margin-top:4px;'>"
+        f"padding:4px 12px 2px 12px;margin-top:4px;flex-wrap:wrap;gap:6px;'>"
         f"<span style='font-size:1rem;font-weight:800;color:#111827;'>"
         f"{display_name(selected_ticker)}</span>"
         f"{header_right}"
@@ -2885,7 +2989,7 @@ def build_action_card_html(
                 f"font-weight:600;'>{sub_action}</div>"
             )
 
-    return bar_html + interp_html + action_html + sub_html
+    return bar_html
 
 
 # ====================================================
@@ -2960,6 +3064,9 @@ def build_mini_gradient_bar(
     # 컨테이너 높이 = bar_height; 그라디언트 두께 6px; 마커 14px
     grad_top = (bar_height - 6) // 2  # 그라디언트 vertical center
     marker_top = (bar_height - 14) // 2  # 마커 vertical center
+    # σ 세로선용: 그라디언트보다 약간 길게 (위아래 2px씩 더)
+    line_top = grad_top - 2
+    line_height = 6 + 4
     bar_html = (
         f"<div style='position:relative;height:{bar_height}px;"
         f"width:100%;'>"
@@ -2971,6 +3078,23 @@ def build_mini_gradient_bar(
         f"#e5e7eb 50%,"
         f"#93c5fd 66.67%,#2563eb 75%,#1e3a8a 83.33%,#172554 100%);'></div>"
     )
+    # σ 위치 세로선 (-3, -2, -1, 0(강조), +1, +2, +3)
+    sigma_marks = [
+        (0.00,    'rgba(255,255,255,0.5)', 1),   # -3σ
+        (16.67,   'rgba(255,255,255,0.5)', 1),   # -2σ
+        (33.33,   'rgba(255,255,255,0.5)', 1),   # -1σ
+        (50.00,   'rgba(255,255,255,0.9)', 2),   # 0σ (강조)
+        (66.67,   'rgba(255,255,255,0.5)', 1),   # +1σ
+        (83.33,   'rgba(255,255,255,0.5)', 1),   # +2σ
+        (100.00,  'rgba(255,255,255,0.5)', 1),   # +3σ
+    ]
+    for pos_pct, line_color, line_w in sigma_marks:
+        bar_html += (
+            f"<div style='position:absolute;left:{pos_pct:.2f}%;"
+            f"top:{line_top}px;width:{line_w}px;height:{line_height}px;"
+            f"background:{line_color};transform:translateX(-50%);"
+            f"z-index:1;'></div>"
+        )
 
     # ── 사이클별 마커 (작게) ──
     if trade_records:
@@ -3395,48 +3519,82 @@ def render_overview_panel(
                 unsafe_allow_html=True,
             )
 
-    # ── 1. 시드 카드 (세로 stack) ──
-    seed_html = _build_seed_html(portfolio_pnl, usd_krw, dd_info)
-    st.markdown(
-        f"<div style='padding:10px 12px;background:#ffffff;"
-        f"border:1px solid #e2e8f0;border-radius:10px;margin-bottom:10px;"
-        f"box-shadow:0 1px 3px rgba(0,0,0,0.06);'>"
-        f"{seed_html}"
-        f"</div>",
-        unsafe_allow_html=True,
-    )
-
-    # ── 2. 실현손익 카드 ──
-    real_html = _build_realized_html(portfolio_state, usd_krw)
-    st.markdown(
-        f"<div style='padding:10px 12px;background:#ffffff;"
-        f"border:1px solid #e2e8f0;border-radius:10px;margin-bottom:10px;"
-        f"box-shadow:0 1px 3px rgba(0,0,0,0.06);'>"
-        f"{real_html}"
-        f"</div>",
-        unsafe_allow_html=True,
-    )
-
-    # ── 3. 종목별 비중 ──
-    alloc_html = _build_alloc_html(portfolio_state, df_close_last, usd_krw)
-    st.markdown(
-        f"<div style='padding:10px 12px;background:#ffffff;"
-        f"border:1px solid #e2e8f0;border-radius:10px;margin-bottom:10px;"
-        f"box-shadow:0 1px 3px rgba(0,0,0,0.06);'>"
-        f"{alloc_html}"
-        f"</div>",
-        unsafe_allow_html=True,
-    )
-
-    # ── 4. 자산 추이 차트 (탭3 자체 기간 토글) ──
+    # ── 1. 자산 추이 통합 카드 (시드 정보 + DD/MDD + 그래프) ──
     equity_series = st.session_state.get('equity_series_cache')
+    seed_krw = CFG.SEED_KRW / 10000  # 만원
+
+    # 카드 헤더 텍스트 준비
+    if portfolio_pnl is not None:
+        # portfolio_pnl = equity 마지막 값 (USD 누적손익)
+        cur_value_krw = (CFG.SEED_KRW + portfolio_pnl * usd_krw) / 10000
+        ret_pct = portfolio_pnl * usd_krw / CFG.SEED_KRW * 100
+        ret_color = pnl_color(ret_pct)
+        pnl_krw_man = portfolio_pnl * usd_krw / 10000
+
+        header_summary = (
+            f"<div style='font-size:0.7rem;color:#6b7280;margin-bottom:2px;'>"
+            f"시드 {int(round(seed_krw)):,}만 → 평가 "
+            f"<span style='color:{ret_color};font-weight:700;'>"
+            f"{int(round(cur_value_krw)):,}만원</span></div>"
+            f"<div style='font-size:1rem;color:{ret_color};font-weight:800;"
+            f"margin-bottom:6px;'>"
+            f"{signed_str(int(round(pnl_krw_man)), '{:,}')}만원 "
+            f"<span style='font-size:0.85rem;'>({signed_str(round(ret_pct), '{:d}')}%)</span>"
+            f"</div>"
+        )
+    else:
+        header_summary = (
+            f"<div style='font-size:0.85rem;color:#6b7280;margin-bottom:6px;'>"
+            f"시드 {int(round(seed_krw)):,}만원</div>"
+        )
+
+    # DD/MDD 정보 (A: 텍스트 표시)
+    dd_text = ""
+    if dd_info and dd_info.get('mdd', 0) < 0:
+        cur_dd = dd_info.get('current_dd', 0)
+        mdd = dd_info.get('mdd', 0)
+        mdd_date = dd_info.get('mdd_date')
+        cur_dd_color = '#b91c1c' if cur_dd < -3 else '#6b7280'
+        mdd_str = f"{mdd:.1f}%"
+        if mdd_date is not None:
+            try:
+                mdd_d = pd.Timestamp(mdd_date).strftime('%y.%m.%d')
+                mdd_str += f" ({mdd_d})"
+            except Exception:
+                pass
+        dd_text = (
+            f"<div style='font-size:0.62rem;color:#9ca3af;margin-bottom:8px;"
+            f"display:flex;gap:10px;'>"
+            f"<span title='최대 낙폭'>MDD <span style='color:#b91c1c;"
+            f"font-weight:600;'>{mdd_str}</span></span>"
+            f"<span title='현재 고점 대비 낙폭'>현재 DD "
+            f"<span style='color:{cur_dd_color};font-weight:600;'>"
+            f"{cur_dd:.1f}%</span></span>"
+            f"</div>"
+        )
+
+    # 카드 시작
+    st.markdown(
+        f"<div style='padding:10px 12px;background:#ffffff;"
+        f"border:1px solid #e2e8f0;border-radius:10px;margin-bottom:10px;"
+        f"box-shadow:0 1px 3px rgba(0,0,0,0.06);'>"
+        f"<div style='display:flex;justify-content:space-between;align-items:baseline;"
+        f"font-size:0.65rem;color:{COLOR_LABEL};margin-bottom:4px;'>"
+        f"<span style='font-weight:700;'>💼 자산 추이</span>"
+        f"</div>"
+        f"{header_summary}"
+        f"{dd_text}"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+
+    # 자산 추이 그래프 (있을 때)
     if equity_series is not None and not equity_series.empty:
         seed_usd = CFG.SEED_KRW / usd_krw
         portfolio_value = equity_series + seed_usd
-        portfolio_krw = portfolio_value * usd_krw / 10000  # 만원 단위
-        seed_krw = CFG.SEED_KRW / 10000
+        portfolio_krw = portfolio_value * usd_krw / 10000  # 만원
 
-        # 자체 기간 토글 (메인 차트 view_months와 별개)
+        # 자체 기간 토글
         ov_zoom_presets = [('1M', 1), ('3M', 3), ('6M', 6), ('1Y', 12), ('All', 240)]
         ov_zoom_labels = [p[0] for p in ov_zoom_presets]
         ov_zoom_map = dict(ov_zoom_presets)
@@ -3492,12 +3650,68 @@ def render_overview_panel(
             hoverinfo='skip', showlegend=False, name='고점',
         ))
 
+        # ── B: 자산추이 그래프 위에 MDD/현재DD 시각화 ──
+        if dd_info and dd_info.get('mdd', 0) < 0:
+            mdd_date = dd_info.get('mdd_date')
+            if mdd_date is not None:
+                try:
+                    mdd_ts = pd.Timestamp(mdd_date)
+                    if (mdd_ts >= portfolio_view.index[0]
+                            and mdd_ts <= portfolio_view.index[-1]):
+                        # MDD 시점 빨간 점 + 라벨
+                        mdd_y = float(portfolio_view.loc[mdd_ts]) \
+                            if mdd_ts in portfolio_view.index else None
+                        if mdd_y is None:
+                            # 가까운 날짜
+                            nearest_idx = portfolio_view.index.get_indexer(
+                                [mdd_ts], method='nearest'
+                            )[0]
+                            mdd_ts = portfolio_view.index[nearest_idx]
+                            mdd_y = float(portfolio_view.iloc[nearest_idx])
+                        fig_eq.add_trace(go.Scatter(
+                            x=[mdd_ts], y=[mdd_y],
+                            mode='markers',
+                            marker=dict(color='#b91c1c', size=8,
+                                        line=dict(color='white', width=1.5)),
+                            hoverinfo='skip', showlegend=False,
+                        ))
+                        fig_eq.add_annotation(
+                            x=mdd_ts, y=mdd_y,
+                            text=f"MDD {dd_info['mdd']:.1f}%",
+                            showarrow=True, arrowhead=2, arrowsize=0.8,
+                            arrowwidth=1, arrowcolor='#b91c1c',
+                            ax=0, ay=25,
+                            font=dict(size=9, color='#b91c1c'),
+                            bgcolor='rgba(255,255,255,0.85)',
+                            bordercolor='#b91c1c', borderwidth=0.8,
+                            borderpad=2,
+                        )
+                except Exception:
+                    pass
+
+            # 현재 DD: 그래프 끝점에 표시
+            cur_dd = dd_info.get('current_dd', 0)
+            if cur_dd < -1:  # -1% 이하만 표시
+                last_x = portfolio_view.index[-1]
+                last_y = float(portfolio_view.iloc[-1])
+                fig_eq.add_annotation(
+                    x=last_x, y=last_y,
+                    text=f"DD {cur_dd:.1f}%",
+                    showarrow=True, arrowhead=2, arrowsize=0.8,
+                    arrowwidth=1, arrowcolor='#dc2626',
+                    ax=-30, ay=-20,
+                    font=dict(size=9, color='#dc2626'),
+                    bgcolor='rgba(255,255,255,0.85)',
+                    bordercolor='#dc2626', borderwidth=0.8,
+                    borderpad=2,
+                )
+
         y_min = min(portfolio_view.min(), seed_krw) * 0.97
         y_max = max(portfolio_view.max(), seed_krw) * 1.03
 
         fig_eq.update_layout(
             height=200,
-            margin=dict(l=4, r=8, t=28, b=4),
+            margin=dict(l=4, r=8, t=12, b=4),
             xaxis=dict(showgrid=False, tickfont=dict(size=9),
                        tickformat='%y.%m', nticks=5,
                        range=[portfolio_view.index[0], portfolio_view.index[-1]]),
@@ -3505,8 +3719,6 @@ def render_overview_panel(
                        tickfont=dict(size=9), range=[y_min, y_max],
                        ticksuffix='만'),
             paper_bgcolor='white', plot_bgcolor='white',
-            title=dict(text=f'💼 자산 추이 ({ov_choice})', x=0.02, y=0.97,
-                       font=dict(size=12, color='#374151')),
         )
         st.plotly_chart(fig_eq, use_container_width=True,
                         config={'displayModeBar': False, 'staticPlot': True})
@@ -3515,6 +3727,28 @@ def render_overview_panel(
             "<div style='height:8px;'></div>",
             unsafe_allow_html=True,
         )
+
+    # ── 2. 실현손익 카드 ──
+    real_html = _build_realized_html(portfolio_state, usd_krw)
+    st.markdown(
+        f"<div style='padding:10px 12px;background:#ffffff;"
+        f"border:1px solid #e2e8f0;border-radius:10px;margin-bottom:10px;"
+        f"box-shadow:0 1px 3px rgba(0,0,0,0.06);'>"
+        f"{real_html}"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+
+    # ── 3. 보유 종목 평가 ──
+    alloc_html = _build_alloc_html(portfolio_state, df_close_last, usd_krw)
+    st.markdown(
+        f"<div style='padding:10px 12px;background:#ffffff;"
+        f"border:1px solid #e2e8f0;border-radius:10px;margin-bottom:10px;"
+        f"box-shadow:0 1px 3px rgba(0,0,0,0.06);'>"
+        f"{alloc_html}"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
 
     # ── 5. 매매 달력 ──
     cal_month = st.session_state.get('cal_month', datetime.date.today().replace(day=1))
@@ -3823,6 +4057,8 @@ def main() -> None:
         if equity is not None and not equity.empty:
             st.session_state['dd_info_cache'] = compute_drawdown(equity)
             st.session_state['equity_series_cache'] = equity
+            # portfolio_pnl을 equity 마지막 값으로 통일 (시드 카드와 자산추이 일치)
+            st.session_state['portfolio_pnl_cache'] = float(equity.iloc[-1])
         else:
             st.session_state['dd_info_cache'] = None
             st.session_state['equity_series_cache'] = None
@@ -3950,31 +4186,35 @@ def main() -> None:
     # 탭 2: 한눈에 보기 (풀폭 22개 종목 미니바 리스트)
     # ====================================================
     with tab2:
-        # ── 헤더: σ 눈금 라벨 ──
+        # ── 헤더: 라벨명 + σ 눈금 ──
+        # 좌측 (110px): 종목 σ% β·30d 수익%
+        # 우측 (flex): σ 위치 라벨
         st.markdown(
             "<div style='display:flex;align-items:center;gap:6px;"
-            "padding:6px 4px 4px 4px;font-size:0.6rem;color:#9ca3af;"
+            "padding:6px 4px 4px 4px;font-size:0.55rem;color:#9ca3af;"
             "border-bottom:1px solid #e5e7eb;margin-bottom:4px;'>"
-            "<div style='width:110px;font-weight:700;color:#6b7280;font-size:0.7rem;'>"
-            "종목</div>"
+            "<div style='width:110px;font-weight:700;color:#6b7280;font-size:0.6rem;"
+            "flex-shrink:0;line-height:1.2;'>"
+            "<div style='display:flex;justify-content:space-between;'>"
+            "<span>종목</span><span title='1σ 변동성'>σ%</span></div>"
+            "<div style='display:flex;justify-content:space-between;'>"
+            "<span title='30일 추세'>β·30d</span><span title='평가수익률'>수익</span></div>"
+            "</div>"
             "<div style='flex:1;position:relative;height:14px;min-width:0;'>"
             "<span style='position:absolute;left:0%;transform:translateX(-50%);'>-3σ</span>"
             "<span style='position:absolute;left:16.67%;transform:translateX(-50%);'>-2σ</span>"
             "<span style='position:absolute;left:33.33%;transform:translateX(-50%);'>-1σ</span>"
-            "<span style='position:absolute;left:50%;transform:translateX(-50%);'>추세</span>"
+            "<span style='position:absolute;left:50%;transform:translateX(-50%);font-weight:700;'>추세</span>"
             "<span style='position:absolute;left:66.67%;transform:translateX(-50%);'>+1σ</span>"
             "<span style='position:absolute;left:83.33%;transform:translateX(-50%);'>+2σ</span>"
             "<span style='position:absolute;left:100%;transform:translateX(-50%);'>+3σ</span>"
             "</div>"
-            "<div style='width:90px;font-weight:700;color:#6b7280;font-size:0.65rem;"
-            "flex-shrink:0;text-align:right;'>"
-            "변동성/추세</div>"
             "</div>",
             unsafe_allow_html=True,
         )
 
         # ── 22개 종목 행 (탭1과 동일 정렬) ──
-        TREND_DAYS = 30  # β 기반 추세 기간 (일)
+        TREND_DAYS = 30
         for ticker in sorted_tickers:
             t_result = all_analyses.get(ticker)
             if not t_result or t_result[0] is None:
@@ -4005,7 +4245,7 @@ def main() -> None:
 
             # ── σ당 % (변동성) ──
             t_norm_col = f'{ticker}_Norm'
-            sigma_pct_str = "—"
+            sigma_pct_int = None
             if 'Predicted' in t_df.columns and t_norm_col in t_df.columns:
                 t_log_resid = (np.log(t_df[t_norm_col]) - np.log(t_df['Predicted'])).dropna()
                 t_exp_std = t_log_resid.expanding(
@@ -4014,52 +4254,71 @@ def main() -> None:
                 if len(t_exp_std) > 0:
                     t_sigma_unit = float(t_exp_std.iloc[-1])
                     if t_sigma_unit > 0 and np.isfinite(t_sigma_unit):
-                        t_sigma_pct = (np.exp(t_sigma_unit) - 1) * 100
-                        sigma_pct_str = f"±{t_sigma_pct:.1f}%"
+                        sigma_pct_int = int(round((np.exp(t_sigma_unit) - 1) * 100))
 
-            # ── β·30일 추세 % (Predicted 시계열 변화율) ──
-            trend_pct_str = "—"
-            trend_color = '#9ca3af'
+            sigma_pct_str = f"±{sigma_pct_int}%" if sigma_pct_int is not None else "—"
+
+            # ── β·30일 추세 % ──
+            trend_pct_int = None
+            trend_color = '#6b7280'
             if 'Predicted' in t_df.columns and len(t_df) > TREND_DAYS:
                 p_recent = float(t_df['Predicted'].iloc[-1])
                 p_past = float(t_df['Predicted'].iloc[-(TREND_DAYS + 1)])
                 if p_past > 0 and np.isfinite(p_recent) and np.isfinite(p_past):
                     trend_pct = (p_recent / p_past - 1) * 100
-                    trend_pct_str = signed_str(trend_pct, '{:.1f}') + "%"
+                    trend_pct_int = int(round(trend_pct))
                     trend_color = pnl_color(trend_pct)
+
+            trend_pct_str = (
+                signed_str(trend_pct_int, '{:d}') + "%"
+                if trend_pct_int is not None else "—"
+            )
+
+            # ── 평가수익률 (보유 시만) ──
+            ret_pct_str = "—"
+            ret_color = '#9ca3af'
+            if t_avg_price is not None and t_cur_price > 0:
+                ret_pct = (t_cur_price / t_avg_price - 1) * 100
+                ret_pct_int = int(round(ret_pct))
+                ret_pct_str = signed_str(ret_pct_int, '{:d}') + "%"
+                ret_color = pnl_color(ret_pct)
 
             is_holding = ticker in holding_tickers
             row_bg = '#f0fdf4' if is_holding else '#ffffff'
             star = "★ " if is_holding else ""
-            pct_chg = pct_changes.get(ticker, 0)
-            pct_color = pnl_color(pct_chg)
 
+            # 좌측 110px 통합 표시 — 2x2 그리드
+            #   상단: [티커]    [σ%]
+            #   하단: [β·30d]   [수익%]
             st.markdown(
                 f"<div style='display:flex;align-items:center;gap:6px;"
                 f"padding:3px 4px;background:{row_bg};"
                 f"border-bottom:1px solid #f3f4f6;'>"
-                f"<div style='width:110px;font-size:0.75rem;font-weight:600;"
-                f"color:#111827;flex-shrink:0;display:flex;align-items:baseline;"
-                f"gap:5px;'>"
-                f"<span>{star}{display_name(ticker)}</span>"
-                f"<span style='font-size:0.65rem;color:{pct_color};font-weight:500;'>"
-                f"{signed_str(pct_chg, '{:.1f}')}%</span>"
+                # 좌측 통합 컬럼
+                f"<div style='width:110px;flex-shrink:0;line-height:1.2;'>"
+                # 1행: 티커 + σ%
+                f"<div style='display:flex;justify-content:space-between;align-items:baseline;'>"
+                f"<span style='font-size:0.75rem;font-weight:600;color:#111827;'>"
+                f"{star}{display_name(ticker)}</span>"
+                f"<span style='font-size:0.62rem;color:#6b7280;'>{sigma_pct_str}</span>"
                 f"</div>"
+                # 2행: β·30d + 수익%
+                f"<div style='display:flex;justify-content:space-between;align-items:baseline;'>"
+                f"<span style='font-size:0.62rem;color:{trend_color};font-weight:500;'>"
+                f"{trend_pct_str}</span>"
+                f"<span style='font-size:0.62rem;color:{ret_color};font-weight:600;'>"
+                f"{ret_pct_str}</span>"
+                f"</div>"
+                f"</div>"
+                # 우측 σ 바
                 f"<div style='flex:1;min-width:0;'>{mini_bar}</div>"
-                f"<div style='width:90px;font-size:0.6rem;color:#6b7280;"
-                f"flex-shrink:0;line-height:1.15;text-align:right;'>"
-                f"<span title='1σ 변동 시 가격 변화율 (변동성)'>σ:{sigma_pct_str}</span><br>"
-                f"<span style='color:{trend_color};font-weight:500;' "
-                f"title='최근 {TREND_DAYS}일 회귀선(추세) 변화율 — β 효과 반영'>"
-                f"β·{TREND_DAYS}d:{trend_pct_str}</span>"
-                f"</div>"
                 f"</div>",
                 unsafe_allow_html=True,
             )
 
         st.caption(
-            "■ 위치=σ · 테두리색=모멘텀 (MACD+RSI) · ▪ 평균단가 · ● 매수 ● 매도 (당시 σ) · "
-            f"σ:1σ당 ±% (변동성) · β·{TREND_DAYS}d:최근 {TREND_DAYS}일 추세선 변화율"
+            f"■ 현재가 위치=σ · 테두리색=모멘텀 (MACD+RSI) · ▪ 평균단가 · ● 매수 ● 매도 (당시 σ) "
+            f"· σ%=변동성 · β·{TREND_DAYS}d=최근 {TREND_DAYS}일 추세 · 수익=평가수익률"
         )
 
     # ====================================================
