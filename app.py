@@ -503,8 +503,9 @@ def get_price_fill_color_combined(score: int) -> str:
 # 위치(σ)와 독립적인 모멘텀 정보를 마커 색으로 표시하기 위함
 # ────────────────────────────────────────────────
 def compute_momentum_score(mhz: float, rsi: float) -> int:
-    """MACD-Z + RSI 합산 모멘텀 점수 (-4 ~ +4).
+    """MACD-Z + RSI 가중합산 모멘텀 점수 (-4 ~ +4 정수).
 
+    가중치: MACD 1.2 / RSI 0.8 (MACD 60% 비중, 더 안정적)
     부호 컨벤션: 음수 = 매수 모멘텀, 양수 = 매도 모멘텀
     (Z, MACD, RSI 부호와 일치)
 
@@ -537,7 +538,23 @@ def compute_momentum_score(mhz: float, rsi: float) -> int:
     else:
         s_mhz = 2
 
-    return s_rsi + s_mhz
+    # 가중합 (MACD 1.2 / RSI 0.8) → 합 ±4 보존
+    return int(round(1.2 * s_mhz + 0.8 * s_rsi))
+
+
+def compute_momentum_score_smooth(mhz: float, rsi: float) -> float:
+    """모멘텀 점수의 연속 버전 (시각화용).
+
+    tanh 기반으로 매끄러운 곡선 생성.
+    동일한 가중치/부호 컨벤션 사용. 점근 ±4.
+
+    - MACD-Z 분모 1.0, 가중 1.2: 점근 ±1.2 (강 매수/매도 신호)
+    - RSI 50 중심, 분모 10, 가중 0.8: 점근 ±0.8
+    - 최종 ×2 스케일링: 점근 ±4
+    """
+    s_mhz = 1.2 * np.tanh(mhz / 1.0)
+    s_rsi = 0.8 * np.tanh((rsi - 50) / 10.0)
+    return 2.0 * (s_mhz + s_rsi)
 
 
 def momentum_score_to_signal(score: int) -> str:
@@ -2024,29 +2041,22 @@ def render_chart(
 
         # ── Z 패널에만 모멘텀 라인 오버레이 (보조 Y축) ──
         if col_name == 'Z_Score':
-            # 모멘텀 점수 시계열 계산 (벡터화)
-            # 부호 컨벤션: 음수=매수, 양수=매도 (Z, MACD, RSI와 일치)
+            # 모멘텀 점수 시계열 (tanh 부드러운 곡선, 가중치 MACD 1.2 / RSI 0.8)
+            # 부호 컨벤션: 음수=매수, 양수=매도
             mhz_v = df_daily['MACD_Hist_Z'].fillna(0).values
             rsi_v = df_daily['RSI'].fillna(50).values
-            # RSI 점수 (음수=과매도/매수)
-            s_rsi = np.where(
-                rsi_v <= CFG.RSI_OVERSOLD, -2,
-                np.where(rsi_v <= 40, -1,
-                np.where(rsi_v < 60, 0,
-                np.where(rsi_v < CFG.RSI_OVERBOUGHT, 1, 2))))
-            # MACD-Z 점수 (음수=매수 영역)
-            s_mhz = np.where(
-                mhz_v <= -CFG.MACD_HIGH, -2,
-                np.where(mhz_v <= -1, -1,
-                np.where(mhz_v < 1, 0,
-                np.where(mhz_v < CFG.MACD_HIGH, 1, 2))))
-            momentum = s_rsi + s_mhz   # -4 ~ +4
-            momentum_series = pd.Series(momentum, index=df_daily.index)
+            # tanh 기반 연속값 (점근 ±4)
+            s_mhz_smooth = 1.2 * np.tanh(mhz_v / 1.0)
+            s_rsi_smooth = 0.8 * np.tanh((rsi_v - 50) / 10.0)
+            momentum_smooth = 2.0 * (s_mhz_smooth + s_rsi_smooth)
+            momentum_series = pd.Series(momentum_smooth, index=df_daily.index)
 
+            # 0 이하/이상 fill로 매수/매도 영역 강조
             fig.add_trace(go.Scatter(
                 x=df_daily.index, y=momentum_series,
                 mode='lines',
-                line=dict(color='#7c3aed', width=1.8, shape='hv'),  # 보라, step
+                line=dict(color='#7c3aed', width=1.8, shape='spline', smoothing=0.5),
+                fill='tozeroy', fillcolor='rgba(124,58,237,0.08)',
                 name='Momentum', hoverinfo='skip',
             ), row=row, col=1, secondary_y=True)
 
@@ -2057,10 +2067,11 @@ def render_chart(
                 row=row, col=1, secondary_y=True,
             )
 
-            # 라벨: Z + 모멘텀 마지막 값
-            mom_last = int(momentum_series.iloc[-1]) if len(momentum_series) > 0 else 0
-            label_text = f"<b>Z {val:+.2f} · M {mom_last:+d}</b>"
-            mom_color = momentum_to_color(mom_last)
+            # 라벨: Z + 모멘텀 마지막 값 (소수점 1자리로 미세 변화 가시화)
+            mom_last_f = float(momentum_series.iloc[-1]) if len(momentum_series) > 0 else 0.0
+            mom_last_int = int(round(mom_last_f))
+            label_text = f"<b>Z {val:+.2f} · M {mom_last_f:+.1f}</b>"
+            mom_color = momentum_to_color(mom_last_int)
             fig.add_annotation(
                 x=0, y=1, xref='x domain', yref='y domain',
                 text=label_text, showarrow=False,
