@@ -68,7 +68,7 @@ CFG = Config()
 X_ASSET_FIXED = 'SPY'
 TARGET_TICKERS = [
    'TQQQ','SOXL', 'FNGU', 'HIBL', 'TARK', 'QPUX', 'BNKU', 'TECL', 'LABU', 'DFEN', 'DPST',
-    'GDXU', 'KORU', '005930', 'BITU', 'ETHT', 'AVXX','BTC-USD','BTC-ETH','AVAV',
+    'GDXU', 'KORU', '005930', 'BITU', 'ETHT', 'AVXX','BTC-USD','USD-ETH','AVAV',
 ]
 TICKER_DISPLAY_NAMES = {'BTC-USD': 'BTC', 'ETH-USD': 'ETH', '005930': '삼전', '000660': '하닉'}
 
