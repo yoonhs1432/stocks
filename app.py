@@ -2060,13 +2060,6 @@ def render_chart(
                 name='Momentum', hoverinfo='skip',
             ), row=row, col=1, secondary_y=True)
 
-            # 보조 Y축 범위 고정 + 가이드
-            fig.update_yaxes(
-                range=[-4.5, 4.5], autorange=False, fixedrange=True,
-                tickvals=[-4, -2, 0, 2, 4], tickfont=dict(size=8, color='#7c3aed'),
-                row=row, col=1, secondary_y=True,
-            )
-
             # 라벨: Z + 모멘텀 마지막 값 (소수점 1자리로 미세 변화 가시화)
             mom_last_f = float(momentum_series.iloc[-1]) if len(momentum_series) > 0 else 0.0
             mom_last_int = int(round(mom_last_f))
@@ -2092,10 +2085,28 @@ def render_chart(
 
         view_abs = abs(df_daily.loc[df_daily.index >= view_start, col_name].dropna())
         rng = max(hi, view_abs.max() if not view_abs.empty else hi)
+        # Z 축 범위 (좌측, 주 Y축)
+        z_axis_max = rng + 0.3
         fig.update_yaxes(
-            range=[-(rng + 0.3), rng + 0.3], autorange=False, fixedrange=True,
+            range=[-z_axis_max, z_axis_max], autorange=False, fixedrange=True,
             row=row, col=1,
         )
+
+        # 모멘텀 축 동기화 (Z 패널일 때만)
+        # 기본 매핑: Z 축 ±N → 모멘텀 축 ±2N
+        # 의미: Z=±k 위치와 모멘텀=±2k 위치가 시각적으로 동일 → 신호 일치/발산을 위치로 비교
+        # 단, 모멘텀 데이터가 동기화 범위를 넘으면 모멘텀 축을 확장 (잘림 방지)
+        if col_name == 'Z_Score':
+            mom_view = momentum_series.loc[momentum_series.index >= view_start]
+            mom_data_max = float(abs(mom_view).max()) if not mom_view.empty else 0.0
+            mom_axis_max = max(z_axis_max * 2, mom_data_max + 0.3)
+            fig.update_yaxes(
+                range=[-mom_axis_max, mom_axis_max],
+                autorange=False, fixedrange=True,
+                tickvals=[-4, -2, 0, 2, 4],
+                tickfont=dict(size=8, color='#7c3aed'),
+                row=row, col=1, secondary_y=True,
+            )
         row += 1
 
     # RSI
