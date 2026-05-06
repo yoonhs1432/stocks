@@ -351,11 +351,12 @@ def init_session_state() -> None:
         'memo_history':        load_memo_history,
         'ticker_signals':      dict,
         'ticker_betas':        dict,
+        'ticker_momentum_scores': dict,
         'selected_option':     lambda: TARGET_TICKERS[0],
         'custom_ticker_input': str,
         'last_data_date':      str,
         'view_months':         lambda: load_settings().get('view_months', 3),
-        'overview_view_months': lambda: 12,
+        'overview_view_months': lambda: 3,
         'analysis_start':      lambda: load_settings().get(
             'analysis_start',
             (datetime.date.today() - datetime.timedelta(days=365)).strftime('%y-%m')
@@ -1770,6 +1771,29 @@ def render_sidebar(
         )
         guide_n = 4
 
+        # ── 자산 추이 기간 (탭3에서 사용) ──
+        st.caption("자산 추이 기간")
+        ov_zoom_presets = [('1M', 1), ('3M', 3), ('6M', 6), ('1Y', 12), ('All', 240)]
+        ov_zoom_labels = [p[0] for p in ov_zoom_presets]
+        ov_zoom_map = dict(ov_zoom_presets)
+        ov_current = st.session_state.get('overview_view_months', 3)
+        ov_current_label = next(
+            (lbl for lbl, m in ov_zoom_presets if m == ov_current),
+            '3M',
+        )
+        ov_choice = st.radio(
+            "자산 추이 기간",
+            ov_zoom_labels,
+            index=ov_zoom_labels.index(ov_current_label),
+            horizontal=True,
+            key="overview_zoom_radio_sidebar",
+            label_visibility="collapsed",
+        )
+        ov_months_new = ov_zoom_map[ov_choice]
+        if ov_months_new != ov_current:
+            st.session_state['overview_view_months'] = ov_months_new
+            st.rerun()
+
         st.markdown("---")
         tok, gid = _gist_cfg()
         st.caption(
@@ -2428,11 +2452,9 @@ def render_position_tracker(
 
     header_right = (
         f"<span style='font-size:0.7rem;color:#6b7280;'>"
-        f"<span title='1σ 변동성'>σ {sigma_str_hdr}</span>"
+        f"<span title='1σ 변동성' style='font-weight:600;'>σ {sigma_str_hdr}</span>"
         f" · <span title='30일 추세' style='color:{trend_color_hdr};font-weight:600;'>"
         f"β·30d {trend_str_hdr}</span>"
-        f" · <span title='평가수익률' style='color:{ret_color_hdr};font-weight:600;'>"
-        f"수익 {ret_pct_str_hdr}</span>"
         f"</span>"
     )
     header_html = (
@@ -3790,9 +3812,14 @@ def render_memo_section(selected_ticker: str) -> None:
 def build_css(selected_option: str, holding_tickers: set) -> str:
     btn_parts = []
     for ticker in TARGET_TICKERS:
-        sig = st.session_state.ticker_signals.get(ticker, 'H')
-        bg, _ = SIGNAL_STYLE.get(sig, ('#9ca3af', '#fff'))
-        fg = BUTTON_TEXT_STYLE.get(sig, '#111827')
+        # 모멘텀 점수 → 마커 안 색 (탭2 마커와 동일)
+        mom_score = st.session_state.ticker_momentum_scores.get(ticker, 0)
+        bg = momentum_to_color(mom_score)
+        # 짙은 색이면 흰 글씨, 연한 색이면 진한 글씨
+        # 짙은: 7f1d1d, dc2626, 2563eb, 1e3a8a → 흰글씨
+        # 연한: fca5a5, 93c5fd, 9ca3af → 검은글씨
+        dark_bg = bg in ('#7f1d1d', '#dc2626', '#2563eb', '#1e3a8a')
+        fg = '#ffffff' if dark_bg else '#1a1a1a'
         k = f"ticker_btn_{safe_key(ticker)}"
         sel_extra = (
             f"box-shadow:0 0 0 2px #fff,0 0 0 4px {bg}!important;"
@@ -3994,8 +4021,11 @@ def main() -> None:
             rsi = float(df_t['RSI'].iloc[-1]) if pd.notna(df_t['RSI'].iloc[-1]) else 50.0
             st.session_state.ticker_signals[ticker] = get_signal_combined(cz, mhz, rsi)
             st.session_state.ticker_betas[ticker] = round(beta_t, 2)
+            # 모멘텀 점수 (네모 마커 색 결정용)
+            st.session_state.ticker_momentum_scores[ticker] = compute_momentum_score(mhz, rsi)
         else:
             st.session_state.ticker_signals.setdefault(ticker, 'H')
+            st.session_state.ticker_momentum_scores.setdefault(ticker, 0)
 
     df_daily = beta = std_resid = None
     if selected_ticker:
@@ -4017,6 +4047,7 @@ def main() -> None:
             mhz = float(df_daily['MACD_Hist_Z'].iloc[-1]) if pd.notna(df_daily['MACD_Hist_Z'].iloc[-1]) else 0.0
             rsi = float(df_daily['RSI'].iloc[-1]) if pd.notna(df_daily['RSI'].iloc[-1]) else 50.0
             st.session_state.ticker_signals[selected_ticker] = get_signal_combined(cz, mhz, rsi)
+            st.session_state.ticker_momentum_scores[selected_ticker] = compute_momentum_score(mhz, rsi)
 
     holding_tickers = {
         tk for tk, ts in portfolio_state.items() if ts['cycle']['hold_qty'] > 0
@@ -4160,19 +4191,25 @@ def main() -> None:
     # ====================================================
     with tab2:
         # ── 헤더: 라벨명 + σ 눈금 ──
-        # 좌측 (110px): 종목 σ% β·30d 수익%
+        # 좌측 (110px): col1=종목/수익, col2=σ%/β·30d
         # 우측 (flex): σ 위치 라벨
         st.markdown(
             "<div style='display:flex;align-items:center;gap:6px;"
             "padding:6px 4px 4px 4px;font-size:0.55rem;color:#9ca3af;"
             "border-bottom:1px solid #e5e7eb;margin-bottom:4px;'>"
-            "<div style='width:110px;font-weight:700;color:#6b7280;font-size:0.6rem;"
-            "flex-shrink:0;line-height:1.2;'>"
-            "<div style='display:flex;justify-content:space-between;'>"
-            "<span>종목</span><span title='1σ 변동성'>σ%</span></div>"
-            "<div style='display:flex;justify-content:space-between;'>"
-            "<span title='30일 추세'>β·30d</span><span title='평가수익률'>수익</span></div>"
+            # 좌측 110px = 2 서브 컬럼
+            "<div style='width:110px;flex-shrink:0;display:flex;gap:4px;'>"
+            # col1: 종목/수익
+            "<div style='flex:1;font-weight:700;color:#6b7280;font-size:0.6rem;line-height:1.2;'>"
+            "<div>종목</div><div title='평가수익률'>수익</div>"
             "</div>"
+            # col2: σ%/β·30d
+            "<div style='flex:0 0 auto;font-weight:700;color:#6b7280;font-size:0.6rem;"
+            "line-height:1.2;text-align:right;'>"
+            "<div title='1σ 변동성'>σ%</div><div title='30일 추세'>β·30d</div>"
+            "</div>"
+            "</div>"
+            # σ 위치 라벨
             "<div style='flex:1;position:relative;height:14px;min-width:0;'>"
             "<span style='position:absolute;left:0%;transform:translateX(-50%);'>-3σ</span>"
             "<span style='position:absolute;left:16.67%;transform:translateX(-50%);'>-2σ</span>"
@@ -4260,27 +4297,28 @@ def main() -> None:
             row_bg = '#f0fdf4' if is_holding else '#ffffff'
             star = "★ " if is_holding else ""
 
-            # 좌측 110px 통합 표시 — 2x2 그리드
-            #   상단: [티커]    [σ%]
-            #   하단: [β·30d]   [수익%]
+            # 좌측 110px 통합 — 2-컬럼 레이아웃
+            #   col1 (좌): 티커 위 / 수익 아래
+            #   col2 (우): σ% 위 / β·30d 아래
             st.markdown(
                 f"<div style='display:flex;align-items:center;gap:6px;"
                 f"padding:3px 4px;background:{row_bg};"
                 f"border-bottom:1px solid #f3f4f6;'>"
-                # 좌측 통합 컬럼
-                f"<div style='width:110px;flex-shrink:0;line-height:1.2;'>"
-                # 1행: 티커 + σ%
-                f"<div style='display:flex;justify-content:space-between;align-items:baseline;'>"
-                f"<span style='font-size:0.75rem;font-weight:600;color:#111827;'>"
-                f"{star}{display_name(ticker)}</span>"
-                f"<span style='font-size:0.62rem;color:#6b7280;'>{sigma_pct_str}</span>"
+                # 좌측 110px = 두 서브 컬럼 (display:flex)
+                f"<div style='width:110px;flex-shrink:0;display:flex;gap:4px;'>"
+                # col1: 티커 / 수익
+                f"<div style='flex:1;line-height:1.2;min-width:0;'>"
+                f"<div style='font-size:0.74rem;font-weight:600;color:#111827;"
+                f"white-space:nowrap;overflow:hidden;text-overflow:ellipsis;'>"
+                f"{star}{display_name(ticker)}</div>"
+                f"<div style='font-size:0.62rem;color:{ret_color};font-weight:600;'>"
+                f"{ret_pct_str}</div>"
                 f"</div>"
-                # 2행: β·30d + 수익%
-                f"<div style='display:flex;justify-content:space-between;align-items:baseline;'>"
-                f"<span style='font-size:0.62rem;color:{trend_color};font-weight:500;'>"
-                f"{trend_pct_str}</span>"
-                f"<span style='font-size:0.62rem;color:{ret_color};font-weight:600;'>"
-                f"{ret_pct_str}</span>"
+                # col2: σ% / β·30d
+                f"<div style='flex:0 0 auto;line-height:1.2;text-align:right;'>"
+                f"<div style='font-size:0.62rem;color:#6b7280;'>{sigma_pct_str}</div>"
+                f"<div style='font-size:0.62rem;color:{trend_color};font-weight:500;'>"
+                f"{trend_pct_str}</div>"
                 f"</div>"
                 f"</div>"
                 # 우측 σ 바
