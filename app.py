@@ -1837,7 +1837,7 @@ def render_sidebar(
         guide_n = 4
 
         # ── 통계 막대 단위 (탭3 일별손익 + 자산추이 공통) ──
-        st.caption("통계 단위 (일별손익/자산추이)")
+        st.caption("자산 추이 단위")
         bar_units = ['일', '주', '월']
         ov_unit = st.session_state.get('overview_bar_unit', '일')
         if ov_unit not in bar_units:
@@ -3626,89 +3626,7 @@ def render_overview_panel(
         unsafe_allow_html=True,
     )
 
-    # ── 3. 손익 막대 그래프 (일/주/월) ──
-    bar_unit = st.session_state.get('overview_bar_unit', '일')
-    daily_pnl_series = compute_daily_realized_pnl(st.session_state.trade_history)
-    pnl_bars = aggregate_pnl_bars(daily_pnl_series, bar_unit, n_bars=20)
-
-    # 카드 헤더
-    pnl_total_bars = float(pnl_bars.sum()) if not pnl_bars.empty else 0.0
-    pnl_color_v = pnl_color(pnl_total_bars)
-    bar_unit_label = {'일': '일별', '주': '주별', '월': '월별'}[bar_unit]
-    pnl_header = (
-        f"<div style='display:flex;justify-content:space-between;align-items:baseline;"
-        f"font-size:0.62rem;color:{COLOR_LABEL};margin-bottom:6px;'>"
-        f"<span style='font-weight:700;'>📊 {bar_unit_label} 손익 (최근 20{bar_unit})</span>"
-    )
-    if pnl_total_bars != 0:
-        pnl_header += (
-            f"<span style='color:{pnl_color_v};font-weight:700;'>"
-            f"{signed_str(pnl_total_bars, '${:,.0f}'.replace('$',''))[0]}"
-            f"${int(round(abs(pnl_total_bars))):,}"
-            f"&nbsp;<span style='font-weight:400;color:{COLOR_LABEL};'>"
-            f"({signed_str(round(pnl_total_bars * usd_krw / 10000))}만원)</span></span>"
-        )
-    pnl_header += "</div>"
-
-    st.markdown(
-        f"<div style='padding:10px 12px;background:#ffffff;"
-        f"border:1px solid #e2e8f0;border-radius:10px;margin-bottom:10px;"
-        f"box-shadow:0 1px 3px rgba(0,0,0,0.06);'>"
-        f"{pnl_header}"
-        f"</div>",
-        unsafe_allow_html=True,
-    )
-
-    # 막대 그래프 (Plotly)
-    if not pnl_bars.empty:
-        bar_colors = ['#dc2626' if v >= 0 else '#2563eb' for v in pnl_bars.values]
-        # X축 라벨
-        if bar_unit == '일':
-            x_labels = [d.strftime('%m/%d') for d in pnl_bars.index]
-        elif bar_unit == '주':
-            x_labels = [d.strftime('%m/%d') for d in pnl_bars.index]   # 주 시작일
-        else:  # 월
-            x_labels = [d.strftime('%y.%m') for d in pnl_bars.index]
-
-        fig_pnl = go.Figure()
-        fig_pnl.add_trace(go.Bar(
-            x=x_labels,
-            y=pnl_bars.values,
-            marker_color=bar_colors,
-            hovertemplate='%{x}<br>$%{y:,.0f}<extra></extra>',
-            showlegend=False,
-        ))
-        fig_pnl.add_hline(y=0, line_color='#9ca3af', line_width=0.8)
-        # x축 tick: 너무 많으면 5~6개만 표시
-        max_ticks = 6
-        if len(x_labels) > max_ticks:
-            step = max(1, len(x_labels) // max_ticks)
-            tick_idx = list(range(0, len(x_labels), step))
-            tick_vals = [x_labels[i] for i in tick_idx]
-        else:
-            tick_vals = x_labels
-
-        fig_pnl.update_layout(
-            height=180,
-            margin=dict(l=4, r=8, t=4, b=4),
-            xaxis=dict(showgrid=False, tickfont=dict(size=9),
-                       tickmode='array', tickvals=tick_vals),
-            yaxis=dict(showgrid=True, gridcolor='rgba(156,163,175,0.2)',
-                       tickfont=dict(size=9), zeroline=True,
-                       zerolinecolor='#9ca3af', zerolinewidth=0.8),
-            paper_bgcolor='white', plot_bgcolor='white',
-            bargap=0.15,
-        )
-        st.plotly_chart(fig_pnl, use_container_width=True,
-                        config={'displayModeBar': False, 'staticPlot': True})
-    else:
-        st.markdown(
-            "<div style='text-align:center;color:#9ca3af;font-size:0.7rem;"
-            "padding:20px;'>매매 기록 없음</div>",
-            unsafe_allow_html=True,
-        )
-
-    # ── 4. 자산 추이 통합 카드 (시드 대비 누적 막대) ──
+    # ── 3. 자산 추이 통합 카드 (시드 대비 누적 막대) ──
     equity_series = st.session_state.get('equity_series_cache')
     seed_krw = CFG.SEED_KRW / 10000
 
@@ -3761,6 +3679,7 @@ def render_overview_panel(
         )
 
     # 카드 시작 (헤더에 환율 정보 추가)
+    bar_unit = st.session_state.get('overview_bar_unit', '일')
     bar_unit_label = {'일': '일별', '주': '주별', '월': '월별'}[bar_unit]
     st.markdown(
         f"<div style='padding:10px 12px;background:#ffffff;"
@@ -4094,6 +4013,24 @@ def main() -> None:
             log.warning(f"Custom ticker fetch empty: {selected_ticker}")
             selected_ticker = None
 
+    # 매매 이력은 있지만 df_close에 없는 종목 (TARGET_TICKERS 외) 추가 fetch
+    # → 보유 종목 평가 카드 + 자산 추이 정확성 확보
+    extra_tickers = [
+        tk for tk in st.session_state.trade_history.keys()
+        if tk and f'{tk}_Close' not in df_close.columns
+    ]
+    if extra_tickers:
+        with st.spinner(f"매매 이력 종목 {len(extra_tickers)}개 추가 로드..."):
+            for tk in extra_tickers:
+                try:
+                    df_extra = fetch_single_ticker(tk, analysis_start)
+                    if not df_extra.empty:
+                        if candle_type == '주봉':
+                            df_extra = _resample_weekly(df_extra)
+                        df_close = pd.concat([df_close, df_extra], axis=1).ffill()
+                except Exception as e:
+                    log.warning(f"Extra ticker fetch failed: {tk}: {e}")
+
     mkt = get_market_status()
     last_trading_date = pd.Timestamp(mkt['last_trading_date'])
     if not df_close.empty:
@@ -4186,17 +4123,12 @@ def main() -> None:
 
     # ── sorted_tickers 미리 계산 (탭 1, 탭 2 모두 사용) ──
     # 정렬 우선순위:
-    #   1. 보유 종목 우선 (★)
-    #   2. 모멘텀 점수 (음수=매수, 양수=매도) — 매수 강한 게 위로
-    #   3. 원래 순서 (TARGET_TICKERS index)
+    #   1. 모멘텀 점수 (음수=매수, 양수=매도) — 매수 강한 게 위로
+    #   2. 원래 순서 (TARGET_TICKERS index)
+    # 보유 여부는 별표(★)로 시각적 구분만.
     def _ticker_sort_key(tk: str) -> tuple:
-        is_holding = tk in holding_tickers
         mom = st.session_state.ticker_momentum_scores.get(tk, 0)
-        return (
-            0 if is_holding else 1,
-            mom,                           # 음수가 작으니 위로
-            TARGET_TICKERS.index(tk),
-        )
+        return (mom, TARGET_TICKERS.index(tk))
     sorted_tickers = sorted(TARGET_TICKERS, key=_ticker_sort_key)
 
     # ── 메인 영역 전체를 감싸는 탭 ──
@@ -4308,7 +4240,7 @@ def main() -> None:
             "</div>"
             # col2: σ%/β·30d (바와 10px 겹침)
             "<div style='flex:0 0 auto;font-weight:700;color:#6b7280;font-size:0.6rem;"
-            "line-height:1.2;text-align:right;margin-right:-10px;position:relative;z-index:2;'>"
+            "line-height:1.2;text-align:right;'>"
             "<div title='1σ 변동성'>σ%</div><div title='30일 추세'>β·30d</div>"
             "</div>"
             "</div>"
@@ -4417,10 +4349,8 @@ def main() -> None:
                 f"<div style='font-size:0.62rem;color:{ret_color};font-weight:600;'>"
                 f"{ret_pct_str}</div>"
                 f"</div>"
-                # col2: σ% / β·30d (바와 10px 겹침)
-                f"<div style='flex:0 0 auto;line-height:1.2;text-align:right;"
-                f"margin-right:-10px;position:relative;z-index:2;"
-                f"text-shadow:0 0 2px rgba(255,255,255,0.9);'>"
+                # col2: σ% / β·30d
+                f"<div style='flex:0 0 auto;line-height:1.2;text-align:right;'>"
                 f"<div style='font-size:0.62rem;color:#6b7280;'>{sigma_pct_str}</div>"
                 f"<div style='font-size:0.62rem;color:{trend_color};font-weight:500;'>"
                 f"{trend_pct_str}</div>"
