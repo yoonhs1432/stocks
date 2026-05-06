@@ -49,7 +49,7 @@ st.set_page_config(page_title="퀀트 트레이딩 대시보드", layout="wide")
 @dataclass(frozen=True)
 class Config:
     """매직 넘버 모음. frozen으로 불변 보장."""
-    SEED_KRW: int = 21_000_000
+    SEED_KRW: int = 30_000_000
     BETA_WARN: float = 4.0
     BETA_HIGH: float = 6.0
     USD_KRW_FALLBACK: float = 1400.0
@@ -357,6 +357,7 @@ def init_session_state() -> None:
         'last_data_date':      str,
         'view_months':         lambda: load_settings().get('view_months', 3),
         'overview_view_months': lambda: 3,
+        'overview_bar_unit':    lambda: '일',
         'analysis_start':      lambda: load_settings().get(
             'analysis_start',
             (datetime.date.today() - datetime.timedelta(days=365)).strftime('%y-%m')
@@ -1592,6 +1593,70 @@ def _build_alloc_html(
     return html
 
 
+def compute_daily_realized_pnl(trade_history: dict) -> pd.Series:
+    """모든 매도 시점의 (price - 가중평균단가) × qty를 일자별로 합산.
+
+    달력 로직과 동일하지만 전체 기간 시계열로 반환.
+    부분 매도 시 hold_qty의 가중평균 업데이트.
+    """
+    daily: dict[datetime.date, float] = {}
+    for tk in TARGET_TICKERS + list(set(trade_history.keys()) - set(TARGET_TICKERS)):
+        records = trade_history.get(tk, [])
+        valid = [r for r in records if r.get('qty', 0) > 0 and r.get('price', 0) > 0]
+        if not valid:
+            continue
+        avg_p = 0.0
+        hqty = 0
+        for r in sorted(valid, key=lambda r: r['date']):
+            rd = datetime.date.fromisoformat(r['date'])
+            qty = int(r['qty'])
+            if r['type'] == 'buy':
+                if hqty + qty > 0:
+                    avg_p = (avg_p * hqty + r['price'] * qty) / (hqty + qty)
+                hqty += qty
+            elif r['type'] == 'sell' and hqty > 0:
+                sq = min(qty, hqty)
+                pnl_d = (r['price'] - avg_p) * sq
+                hqty -= sq
+                if hqty == 0:
+                    avg_p = 0.0
+                daily[rd] = daily.get(rd, 0.0) + pnl_d
+
+    if not daily:
+        return pd.Series(dtype=float)
+    s = pd.Series(daily).sort_index()
+    s.index = pd.to_datetime(s.index)
+    return s
+
+
+def aggregate_pnl_bars(
+    daily_pnl: pd.Series, unit: str, n_bars: int = 20
+) -> pd.Series:
+    """일/주/월 단위로 손익 시계열 집계 (마지막 n_bars개 반환).
+
+    unit: '일', '주', '월'
+    """
+    if daily_pnl.empty:
+        return daily_pnl
+
+    if unit == '일':
+        # 마지막 거래일부터 n_bars 영업일 (단순히 daily 시계열 마지막 n_bars)
+        # 거래 없는 날은 0으로 채워 연속 표시
+        last = daily_pnl.index.max()
+        first = last - pd.Timedelta(days=n_bars * 2)  # 여유롭게 2배
+        full_idx = pd.date_range(first, last, freq='D')
+        s = daily_pnl.reindex(full_idx, fill_value=0.0)
+        return s.iloc[-n_bars:]
+    elif unit == '주':
+        # 주 시작 월요일 기준 합산
+        weekly = daily_pnl.resample('W-MON', label='left', closed='left').sum()
+        return weekly.iloc[-n_bars:]
+    elif unit == '월':
+        monthly = daily_pnl.resample('MS').sum()
+        return monthly.iloc[-n_bars:]
+    return daily_pnl.iloc[-n_bars:]
+
+
 def _build_calendar_html(
     trade_history: dict, cal_month: datetime.date, usd_krw: float
 ) -> str:
@@ -1771,27 +1836,22 @@ def render_sidebar(
         )
         guide_n = 4
 
-        # ── 자산 추이 기간 (탭3에서 사용) ──
-        st.caption("자산 추이 기간")
-        ov_zoom_presets = [('1M', 1), ('3M', 3), ('6M', 6), ('1Y', 12), ('All', 240)]
-        ov_zoom_labels = [p[0] for p in ov_zoom_presets]
-        ov_zoom_map = dict(ov_zoom_presets)
-        ov_current = st.session_state.get('overview_view_months', 3)
-        ov_current_label = next(
-            (lbl for lbl, m in ov_zoom_presets if m == ov_current),
-            '3M',
-        )
-        ov_choice = st.radio(
-            "자산 추이 기간",
-            ov_zoom_labels,
-            index=ov_zoom_labels.index(ov_current_label),
+        # ── 통계 막대 단위 (탭3 일별손익 + 자산추이 공통) ──
+        st.caption("통계 단위 (일별손익/자산추이)")
+        bar_units = ['일', '주', '월']
+        ov_unit = st.session_state.get('overview_bar_unit', '일')
+        if ov_unit not in bar_units:
+            ov_unit = '일'
+        ov_unit_choice = st.radio(
+            "통계 단위",
+            bar_units,
+            index=bar_units.index(ov_unit),
             horizontal=True,
-            key="overview_zoom_radio_sidebar",
+            key="overview_unit_radio_sidebar",
             label_visibility="collapsed",
         )
-        ov_months_new = ov_zoom_map[ov_choice]
-        if ov_months_new != ov_current:
-            st.session_state['overview_view_months'] = ov_months_new
+        if ov_unit_choice != ov_unit:
+            st.session_state['overview_bar_unit'] = ov_unit_choice
             st.rerun()
 
         st.markdown("---")
@@ -3544,18 +3604,7 @@ def render_overview_panel(
                 unsafe_allow_html=True,
             )
 
-    # ── 1. 실현손익 카드 ──
-    real_html = _build_realized_html(portfolio_state, usd_krw)
-    st.markdown(
-        f"<div style='padding:10px 12px;background:#ffffff;"
-        f"border:1px solid #e2e8f0;border-radius:10px;margin-bottom:10px;"
-        f"box-shadow:0 1px 3px rgba(0,0,0,0.06);'>"
-        f"{real_html}"
-        f"</div>",
-        unsafe_allow_html=True,
-    )
-
-    # ── 3. 보유 종목 평가 ──
+    # ── 1. 보유 종목 평가 ──
     alloc_html = _build_alloc_html(portfolio_state, df_close_last, usd_krw)
     st.markdown(
         f"<div style='padding:10px 12px;background:#ffffff;"
@@ -3566,43 +3615,104 @@ def render_overview_panel(
         unsafe_allow_html=True,
     )
 
-    # ── 5. 매매 달력 ──
-    cal_month = st.session_state.get('cal_month', datetime.date.today().replace(day=1))
-    cal_html = _build_calendar_html(st.session_state.trade_history, cal_month, usd_krw)
+    # ── 2. 실현손익 카드 ──
+    real_html = _build_realized_html(portfolio_state, usd_krw)
     st.markdown(
         f"<div style='padding:10px 12px;background:#ffffff;"
-        f"border:1px solid #e2e8f0;border-radius:10px;margin-bottom:6px;"
+        f"border:1px solid #e2e8f0;border-radius:10px;margin-bottom:10px;"
         f"box-shadow:0 1px 3px rgba(0,0,0,0.06);'>"
-        f"{cal_html}"
+        f"{real_html}"
         f"</div>",
         unsafe_allow_html=True,
     )
-    # 컨테이너 키로 첫컬럼 88px CSS 회피 (build_css에서 별도 처리)
-    with st.container(key="ov_cal_nav"):
-        nc1, nc2, nc3 = st.columns([1, 4, 1])
-        if nc1.button("◀", key="ov_cal_prev", use_container_width=True):
-            pm = cal_month.month - 1
-            py = cal_month.year + (pm - 1) // 12
-            pm = (pm - 1) % 12 + 1
-            st.session_state['cal_month'] = datetime.date(py, pm, 1)
-            st.rerun()
-        nc2.markdown(
-            f"<div style='text-align:center;font-size:0.85rem;color:#6b7280;"
-            f"padding-top:5px;'>{cal_month.strftime('%Y. %m')}</div>",
+
+    # ── 3. 손익 막대 그래프 (일/주/월) ──
+    bar_unit = st.session_state.get('overview_bar_unit', '일')
+    daily_pnl_series = compute_daily_realized_pnl(st.session_state.trade_history)
+    pnl_bars = aggregate_pnl_bars(daily_pnl_series, bar_unit, n_bars=20)
+
+    # 카드 헤더
+    pnl_total_bars = float(pnl_bars.sum()) if not pnl_bars.empty else 0.0
+    pnl_color_v = pnl_color(pnl_total_bars)
+    bar_unit_label = {'일': '일별', '주': '주별', '월': '월별'}[bar_unit]
+    pnl_header = (
+        f"<div style='display:flex;justify-content:space-between;align-items:baseline;"
+        f"font-size:0.62rem;color:{COLOR_LABEL};margin-bottom:6px;'>"
+        f"<span style='font-weight:700;'>📊 {bar_unit_label} 손익 (최근 20{bar_unit})</span>"
+    )
+    if pnl_total_bars != 0:
+        pnl_header += (
+            f"<span style='color:{pnl_color_v};font-weight:700;'>"
+            f"{signed_str(pnl_total_bars, '${:,.0f}'.replace('$',''))[0]}"
+            f"${int(round(abs(pnl_total_bars))):,}"
+            f"&nbsp;<span style='font-weight:400;color:{COLOR_LABEL};'>"
+            f"({signed_str(round(pnl_total_bars * usd_krw / 10000))}만원)</span></span>"
+        )
+    pnl_header += "</div>"
+
+    st.markdown(
+        f"<div style='padding:10px 12px;background:#ffffff;"
+        f"border:1px solid #e2e8f0;border-radius:10px;margin-bottom:10px;"
+        f"box-shadow:0 1px 3px rgba(0,0,0,0.06);'>"
+        f"{pnl_header}"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+
+    # 막대 그래프 (Plotly)
+    if not pnl_bars.empty:
+        bar_colors = ['#dc2626' if v >= 0 else '#2563eb' for v in pnl_bars.values]
+        # X축 라벨
+        if bar_unit == '일':
+            x_labels = [d.strftime('%m/%d') for d in pnl_bars.index]
+        elif bar_unit == '주':
+            x_labels = [d.strftime('%m/%d') for d in pnl_bars.index]   # 주 시작일
+        else:  # 월
+            x_labels = [d.strftime('%y.%m') for d in pnl_bars.index]
+
+        fig_pnl = go.Figure()
+        fig_pnl.add_trace(go.Bar(
+            x=x_labels,
+            y=pnl_bars.values,
+            marker_color=bar_colors,
+            hovertemplate='%{x}<br>$%{y:,.0f}<extra></extra>',
+            showlegend=False,
+        ))
+        fig_pnl.add_hline(y=0, line_color='#9ca3af', line_width=0.8)
+        # x축 tick: 너무 많으면 5~6개만 표시
+        max_ticks = 6
+        if len(x_labels) > max_ticks:
+            step = max(1, len(x_labels) // max_ticks)
+            tick_idx = list(range(0, len(x_labels), step))
+            tick_vals = [x_labels[i] for i in tick_idx]
+        else:
+            tick_vals = x_labels
+
+        fig_pnl.update_layout(
+            height=180,
+            margin=dict(l=4, r=8, t=4, b=4),
+            xaxis=dict(showgrid=False, tickfont=dict(size=9),
+                       tickmode='array', tickvals=tick_vals),
+            yaxis=dict(showgrid=True, gridcolor='rgba(156,163,175,0.2)',
+                       tickfont=dict(size=9), zeroline=True,
+                       zerolinecolor='#9ca3af', zerolinewidth=0.8),
+            paper_bgcolor='white', plot_bgcolor='white',
+            bargap=0.15,
+        )
+        st.plotly_chart(fig_pnl, use_container_width=True,
+                        config={'displayModeBar': False, 'staticPlot': True})
+    else:
+        st.markdown(
+            "<div style='text-align:center;color:#9ca3af;font-size:0.7rem;"
+            "padding:20px;'>매매 기록 없음</div>",
             unsafe_allow_html=True,
         )
-        if nc3.button("▶", key="ov_cal_next", use_container_width=True):
-            nm = cal_month.month + 1
-            ny = cal_month.year + (nm - 1) // 12
-            nm = (nm - 1) % 12 + 1
-            st.session_state['cal_month'] = datetime.date(ny, nm, 1)
-            st.rerun()
 
-    # ── 5. 자산 추이 통합 카드 (가장 아래) ──
+    # ── 4. 자산 추이 통합 카드 (시드 대비 누적 막대) ──
     equity_series = st.session_state.get('equity_series_cache')
     seed_krw = CFG.SEED_KRW / 10000
 
-    # 카드 헤더
+    # 카드 헤더 - 시드/평가/손익률
     if portfolio_pnl is not None:
         cur_value_krw = (CFG.SEED_KRW + portfolio_pnl * usd_krw) / 10000
         ret_pct = portfolio_pnl * usd_krw / CFG.SEED_KRW * 100
@@ -3650,16 +3760,17 @@ def render_overview_panel(
             f"</div>"
         )
 
-    # 카드 시작
-    ov_months = st.session_state.get('overview_view_months', 3)
-    period_label = {1:'1M', 3:'3M', 6:'6M', 12:'1Y', 240:'All'}.get(ov_months, '3M')
+    # 카드 시작 (헤더에 환율 정보 추가)
+    bar_unit_label = {'일': '일별', '주': '주별', '월': '월별'}[bar_unit]
     st.markdown(
         f"<div style='padding:10px 12px;background:#ffffff;"
         f"border:1px solid #e2e8f0;border-radius:10px;margin-bottom:10px;"
         f"margin-top:10px;box-shadow:0 1px 3px rgba(0,0,0,0.06);'>"
         f"<div style='display:flex;justify-content:space-between;align-items:baseline;"
         f"font-size:0.65rem;color:{COLOR_LABEL};margin-bottom:4px;'>"
-        f"<span style='font-weight:700;'>💼 자산 추이 ({period_label})</span>"
+        f"<span style='font-weight:700;'>💼 자산 추이 ({bar_unit_label})</span>"
+        f"<span style='font-size:0.6rem;color:#6b7280;font-weight:500;'>"
+        f"💲 {usd_krw:,.0f}원</span>"
         f"</div>"
         f"{header_summary}"
         f"{dd_text}"
@@ -3667,115 +3778,103 @@ def render_overview_panel(
         unsafe_allow_html=True,
     )
 
-    # 자산 추이 그래프
+    # 시드 대비 누적 손익 막대 그래프
     if equity_series is not None and not equity_series.empty:
         seed_usd = CFG.SEED_KRW / usd_krw
-        portfolio_value = equity_series + seed_usd
-        portfolio_krw = portfolio_value * usd_krw / 10000
+        # 시드 대비 누적 손익 (KRW 만원)
+        pnl_krw_series = (equity_series * usd_krw) / 10000  # equity = USD 누적손익
 
-        view_start = portfolio_krw.index[-1] - pd.DateOffset(months=ov_months)
-        portfolio_view = portfolio_krw[portfolio_krw.index >= view_start]
-        if len(portfolio_view) < 2:
-            portfolio_view = portfolio_krw
+        # 일/주/월 단위로 마지막 값 추출 (누적값이라 resample.last())
+        if bar_unit == '일':
+            last_idx = pnl_krw_series.index.max()
+            first_idx = last_idx - pd.Timedelta(days=20 * 2)
+            full_idx = pd.date_range(first_idx, last_idx, freq='D')
+            equity_resampled = pnl_krw_series.reindex(
+                full_idx, method='ffill'
+            ).iloc[-20:]
+        elif bar_unit == '주':
+            equity_resampled = pnl_krw_series.resample(
+                'W-MON', label='left', closed='left'
+            ).last().dropna().iloc[-20:]
+        else:  # 월
+            equity_resampled = pnl_krw_series.resample('MS').last().dropna().iloc[-20:]
 
-        cur_val = float(portfolio_view.iloc[-1])
-        line_color = '#b91c1c' if cur_val >= seed_krw else '#1d4ed8'
-        fill_color = (
-            'rgba(185,28,28,0.1)' if cur_val >= seed_krw
-            else 'rgba(29,78,216,0.1)'
-        )
+        if not equity_resampled.empty:
+            # 막대 색: 양수=빨강 (시드 위), 음수=파랑 (시드 아래)
+            bar_colors_eq = [
+                '#dc2626' if v >= 0 else '#2563eb'
+                for v in equity_resampled.values
+            ]
+            # X축 라벨
+            if bar_unit == '일':
+                x_labels_eq = [d.strftime('%m/%d') for d in equity_resampled.index]
+            elif bar_unit == '주':
+                x_labels_eq = [d.strftime('%m/%d') for d in equity_resampled.index]
+            else:
+                x_labels_eq = [d.strftime('%y.%m') for d in equity_resampled.index]
 
-        fig_eq = go.Figure()
-        fig_eq.add_trace(go.Scatter(
-            x=portfolio_view.index, y=portfolio_view.values,
-            mode='lines', line=dict(color=line_color, width=2),
-            fill='tozeroy', fillcolor=fill_color,
-            hovertemplate='%{x|%y.%m.%d}<br>%{y:.0f}만원<extra></extra>',
-            showlegend=False, name='자산',
-        ))
-        fig_eq.add_hline(
-            y=seed_krw, line_dash="dot", line_color='#9ca3af',
-            line_width=1.2,
-            annotation_text=f"시드 {seed_krw:.0f}만",
-            annotation_position="bottom right",
-            annotation_font=dict(size=11, color='#6b7280'),
-        )
-        running_max = portfolio_view.cummax()
-        fig_eq.add_trace(go.Scatter(
-            x=running_max.index, y=running_max.values,
-            mode='lines', line=dict(color='#9ca3af', width=1, dash='dash'),
-            hoverinfo='skip', showlegend=False, name='고점',
-        ))
+            fig_eq = go.Figure()
+            fig_eq.add_trace(go.Bar(
+                x=x_labels_eq,
+                y=equity_resampled.values,
+                marker_color=bar_colors_eq,
+                hovertemplate='%{x}<br>%{y:,.0f}만원<extra></extra>',
+                showlegend=False,
+            ))
+            fig_eq.add_hline(y=0, line_color='#9ca3af', line_width=0.8)
 
-        # MDD/현재DD 시각화
-        if dd_info and dd_info.get('mdd', 0) < 0:
-            mdd_date = dd_info.get('mdd_date')
-            if mdd_date is not None:
-                try:
-                    mdd_ts = pd.Timestamp(mdd_date)
-                    if (mdd_ts >= portfolio_view.index[0]
-                            and mdd_ts <= portfolio_view.index[-1]):
-                        mdd_y = float(portfolio_view.loc[mdd_ts]) \
-                            if mdd_ts in portfolio_view.index else None
-                        if mdd_y is None:
-                            nearest_idx = portfolio_view.index.get_indexer(
+            # MDD 마커 (시점이 표시 범위 안일 때만)
+            if dd_info and dd_info.get('mdd', 0) < 0:
+                mdd_date = dd_info.get('mdd_date')
+                if mdd_date is not None:
+                    try:
+                        mdd_ts = pd.Timestamp(mdd_date)
+                        # 가장 가까운 표시 인덱스
+                        if len(equity_resampled) > 0:
+                            nearest = equity_resampled.index.get_indexer(
                                 [mdd_ts], method='nearest'
                             )[0]
-                            mdd_ts = portfolio_view.index[nearest_idx]
-                            mdd_y = float(portfolio_view.iloc[nearest_idx])
-                        fig_eq.add_trace(go.Scatter(
-                            x=[mdd_ts], y=[mdd_y],
-                            mode='markers',
-                            marker=dict(color='#b91c1c', size=8,
-                                        line=dict(color='white', width=1.5)),
-                            hoverinfo='skip', showlegend=False,
-                        ))
-                        fig_eq.add_annotation(
-                            x=mdd_ts, y=mdd_y,
-                            text=f"MDD {dd_info['mdd']:.1f}%",
-                            showarrow=True, arrowhead=2, arrowsize=0.8,
-                            arrowwidth=1, arrowcolor='#b91c1c',
-                            ax=0, ay=25,
-                            font=dict(size=9, color='#b91c1c'),
-                            bgcolor='rgba(255,255,255,0.85)',
-                            bordercolor='#b91c1c', borderwidth=0.8,
-                            borderpad=2,
-                        )
-                except Exception:
-                    pass
+                            if 0 <= nearest < len(equity_resampled):
+                                mdd_x = x_labels_eq[nearest]
+                                mdd_y = float(equity_resampled.iloc[nearest])
+                                fig_eq.add_annotation(
+                                    x=mdd_x, y=mdd_y,
+                                    text=f"MDD {dd_info['mdd']:.1f}%",
+                                    showarrow=True, arrowhead=2, arrowsize=0.8,
+                                    arrowwidth=1, arrowcolor='#b91c1c',
+                                    ax=0, ay=20,
+                                    font=dict(size=9, color='#b91c1c'),
+                                    bgcolor='rgba(255,255,255,0.85)',
+                                    bordercolor='#b91c1c', borderwidth=0.8,
+                                    borderpad=2,
+                                )
+                    except Exception:
+                        pass
 
-            cur_dd = dd_info.get('current_dd', 0)
-            if cur_dd < -1:
-                last_x = portfolio_view.index[-1]
-                last_y = float(portfolio_view.iloc[-1])
-                fig_eq.add_annotation(
-                    x=last_x, y=last_y,
-                    text=f"DD {cur_dd:.1f}%",
-                    showarrow=True, arrowhead=2, arrowsize=0.8,
-                    arrowwidth=1, arrowcolor='#dc2626',
-                    ax=-30, ay=-20,
-                    font=dict(size=9, color='#dc2626'),
-                    bgcolor='rgba(255,255,255,0.85)',
-                    bordercolor='#dc2626', borderwidth=0.8,
-                    borderpad=2,
-                )
+            # X축 tick: 5~6개만
+            max_ticks_eq = 6
+            if len(x_labels_eq) > max_ticks_eq:
+                step = max(1, len(x_labels_eq) // max_ticks_eq)
+                tick_idx = list(range(0, len(x_labels_eq), step))
+                tick_vals_eq = [x_labels_eq[i] for i in tick_idx]
+            else:
+                tick_vals_eq = x_labels_eq
 
-        y_min = min(portfolio_view.min(), seed_krw) * 0.97
-        y_max = max(portfolio_view.max(), seed_krw) * 1.03
-
-        fig_eq.update_layout(
-            height=200,
-            margin=dict(l=4, r=8, t=12, b=4),
-            xaxis=dict(showgrid=False, tickfont=dict(size=9),
-                       tickformat='%y.%m', nticks=5,
-                       range=[portfolio_view.index[0], portfolio_view.index[-1]]),
-            yaxis=dict(showgrid=True, gridcolor='rgba(156,163,175,0.2)',
-                       tickfont=dict(size=9), range=[y_min, y_max],
-                       ticksuffix='만'),
-            paper_bgcolor='white', plot_bgcolor='white',
-        )
-        st.plotly_chart(fig_eq, use_container_width=True,
-                        config={'displayModeBar': False, 'staticPlot': True})
+            fig_eq.update_layout(
+                height=200,
+                margin=dict(l=4, r=8, t=4, b=4),
+                xaxis=dict(showgrid=False, tickfont=dict(size=9),
+                           tickmode='array', tickvals=tick_vals_eq),
+                yaxis=dict(showgrid=True, gridcolor='rgba(156,163,175,0.2)',
+                           tickfont=dict(size=9),
+                           ticksuffix='만',
+                           zeroline=True, zerolinecolor='#9ca3af',
+                           zerolinewidth=0.8),
+                paper_bgcolor='white', plot_bgcolor='white',
+                bargap=0.15,
+            )
+            st.plotly_chart(fig_eq, use_container_width=True,
+                            config={'displayModeBar': False, 'staticPlot': True})
 
 
 # ====================================================
@@ -4086,12 +4185,16 @@ def main() -> None:
     )
 
     # ── sorted_tickers 미리 계산 (탭 1, 탭 2 모두 사용) ──
+    # 정렬 우선순위:
+    #   1. 보유 종목 우선 (★)
+    #   2. 모멘텀 점수 (음수=매수, 양수=매도) — 매수 강한 게 위로
+    #   3. 원래 순서 (TARGET_TICKERS index)
     def _ticker_sort_key(tk: str) -> tuple:
-        sig = st.session_state.ticker_signals.get(tk, 'H')
         is_holding = tk in holding_tickers
+        mom = st.session_state.ticker_momentum_scores.get(tk, 0)
         return (
             0 if is_holding else 1,
-            signal_sort_key(sig),
+            mom,                           # 음수가 작으니 위로
             TARGET_TICKERS.index(tk),
         )
     sorted_tickers = sorted(TARGET_TICKERS, key=_ticker_sort_key)
@@ -4203,9 +4306,9 @@ def main() -> None:
             "<div style='flex:1;font-weight:700;color:#6b7280;font-size:0.6rem;line-height:1.2;'>"
             "<div>종목</div><div title='평가수익률'>수익</div>"
             "</div>"
-            # col2: σ%/β·30d
+            # col2: σ%/β·30d (바와 10px 겹침)
             "<div style='flex:0 0 auto;font-weight:700;color:#6b7280;font-size:0.6rem;"
-            "line-height:1.2;text-align:right;'>"
+            "line-height:1.2;text-align:right;margin-right:-10px;position:relative;z-index:2;'>"
             "<div title='1σ 변동성'>σ%</div><div title='30일 추세'>β·30d</div>"
             "</div>"
             "</div>"
@@ -4314,8 +4417,10 @@ def main() -> None:
                 f"<div style='font-size:0.62rem;color:{ret_color};font-weight:600;'>"
                 f"{ret_pct_str}</div>"
                 f"</div>"
-                # col2: σ% / β·30d
-                f"<div style='flex:0 0 auto;line-height:1.2;text-align:right;'>"
+                # col2: σ% / β·30d (바와 10px 겹침)
+                f"<div style='flex:0 0 auto;line-height:1.2;text-align:right;"
+                f"margin-right:-10px;position:relative;z-index:2;"
+                f"text-shadow:0 0 2px rgba(255,255,255,0.9);'>"
                 f"<div style='font-size:0.62rem;color:#6b7280;'>{sigma_pct_str}</div>"
                 f"<div style='font-size:0.62rem;color:{trend_color};font-weight:500;'>"
                 f"{trend_pct_str}</div>"
