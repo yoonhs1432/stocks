@@ -4519,19 +4519,37 @@ def main() -> None:
             sizes = []
             for d in scatter_data:
                 if d['holding'] and max_eval > 0:
-                    # 보유: 평가금액 비례 (12 ~ 30)
-                    size = 12 + (d['eval'] / max_eval) * 18
+                    size = 14 + (d['eval'] / max_eval) * 18
                 else:
-                    # 미보유: 작게 (8)
-                    size = 8
+                    size = 9
                 sizes.append(size)
 
-            # 색상: 보유 빨강, 미보유 회색
+            # 색상
             colors = [
                 '#dc2626' if d['holding'] else '#9ca3af'
                 for d in scatter_data
             ]
-            opacities = [0.85 if d['holding'] else 0.5 for d in scatter_data]
+            opacities = [0.85 if d['holding'] else 0.55 for d in scatter_data]
+
+            # 라벨 위치 자동 분산 (밀집 영역의 라벨 겹침 방지)
+            # σ 작고 β 양수 영역에 종목이 몰려 있으니
+            # 점마다 textposition을 다르게 배치
+            sigma_vals = [d['sigma'] for d in scatter_data]
+            beta_vals = [d['beta'] for d in scatter_data]
+            sigma_med = float(np.median(sigma_vals))
+            beta_med = float(np.median(beta_vals))
+
+            text_positions = []
+            # 같은 σ 영역 (분포 클러스터) 안에서 인덱스로 위/아래 번갈아
+            for i, d in enumerate(scatter_data):
+                # 좌측 (σ 작음) 클러스터: 우측 라벨, 우측 (σ 큼) 클러스터: 좌측 라벨
+                if d['sigma'] < sigma_med * 0.7:
+                    # 짝수: 우측 위, 홀수: 우측 아래
+                    text_positions.append('middle right' if i % 2 == 0 else 'middle right')
+                elif d['sigma'] > sigma_med * 1.5:
+                    text_positions.append('middle left')
+                else:
+                    text_positions.append('top center' if i % 2 == 0 else 'bottom center')
 
             fig_sc = go.Figure()
             fig_sc.add_trace(go.Scatter(
@@ -4542,25 +4560,21 @@ def main() -> None:
                     size=sizes,
                     color=colors,
                     opacity=opacities,
-                    line=dict(color='white', width=1),
+                    line=dict(color='white', width=1.5),
                 ),
                 text=[display_name(d['ticker']) for d in scatter_data],
-                textposition='top center',
-                textfont=dict(size=9, color='#374151'),
+                textposition=text_positions,
+                textfont=dict(size=10, color='#1f2937'),
                 hovertemplate=(
                     '<b>%{text}</b><br>'
-                    'σ: ±%{x:.0f}%<br>'
-                    'β·SPY: %{y:+.2f}×<extra></extra>'
+                    'sigma: %{x:.0f}%<br>'
+                    'beta: %{y:+.2f}x<extra></extra>'
                 ),
                 showlegend=False,
+                cliponaxis=False,   # 마커가 축 밖으로 나가도 안 잘리게
             ))
 
             # 사분면 가이드선 (중앙값)
-            sigma_vals = [d['sigma'] for d in scatter_data]
-            beta_vals = [d['beta'] for d in scatter_data]
-            sigma_med = float(np.median(sigma_vals))
-            beta_med = float(np.median(beta_vals))
-
             fig_sc.add_hline(
                 y=beta_med, line_dash="dot", line_color='#d1d5db',
                 line_width=1,
@@ -4570,30 +4584,32 @@ def main() -> None:
                 line_width=1,
             )
 
-            # 축 범위
-            sigma_min = min(sigma_vals) * 0.85
-            sigma_max = max(sigma_vals) * 1.15
-            beta_min = min(beta_vals) - 0.5
-            beta_max = max(beta_vals) + 0.5
+            # X축은 로그 스케일 (σ 분포가 5%~100%로 넓음)
+            sigma_log_min = max(min(sigma_vals) * 0.7, 1)
+            sigma_log_max = max(sigma_vals) * 1.3
+            beta_min = min(beta_vals) - 0.8
+            beta_max = max(beta_vals) + 1.2
 
+            # 한글 폰트 회피: 영문 라벨 사용
             fig_sc.update_layout(
-                height=400,
-                margin=dict(l=4, r=4, t=10, b=4),
+                height=420,
+                margin=dict(l=44, r=24, t=20, b=44),
                 xaxis=dict(
-                    title=dict(text='σ% (변동성)', font=dict(size=11)),
+                    title=dict(text='Volatility (sigma %)', font=dict(size=11, color='#6b7280')),
+                    type='log',
                     showgrid=True, gridcolor='rgba(156,163,175,0.15)',
-                    tickfont=dict(size=9),
-                    range=[sigma_min, sigma_max],
+                    tickfont=dict(size=9, color='#6b7280'),
+                    range=[np.log10(sigma_log_min), np.log10(sigma_log_max)],
                     ticksuffix='%',
                 ),
                 yaxis=dict(
-                    title=dict(text='β·SPY (SPY 대비 로그회귀 슬로프)',
-                               font=dict(size=11)),
+                    title=dict(text='beta vs SPY (log slope)',
+                               font=dict(size=11, color='#6b7280')),
                     showgrid=True, gridcolor='rgba(156,163,175,0.15)',
-                    tickfont=dict(size=9),
+                    tickfont=dict(size=9, color='#6b7280'),
                     range=[beta_min, beta_max],
-                    ticksuffix='×',
-                    zeroline=True, zerolinecolor='#9ca3af', zerolinewidth=1,
+                    ticksuffix='x',
+                    zeroline=True, zerolinecolor='#9ca3af', zerolinewidth=1.2,
                 ),
                 paper_bgcolor='white', plot_bgcolor='white',
             )
@@ -4602,7 +4618,7 @@ def main() -> None:
 
             st.caption(
                 "● 빨강=보유 (점 크기=평가금액) · ● 회색=미보유 · "
-                "점선=중앙값 (4분면 가이드)"
+                "점선=중앙값 · X축 로그스케일"
             )
 
     # ====================================================
