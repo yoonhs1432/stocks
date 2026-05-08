@@ -4470,6 +4470,7 @@ def main() -> None:
         # 데이터 수집
         scatter_data = []
         spy_betas_sc = st.session_state.get('spy_betas', {})
+        df_close_last_sc = st.session_state.get('df_close_last', {})
         for ticker in TARGET_TICKERS:
             t_result = all_analyses.get(ticker)
             if not t_result or t_result[0] is None:
@@ -4500,7 +4501,7 @@ def main() -> None:
             t_ts = portfolio_state.get(ticker)
             if t_ts and t_ts['cycle']['hold_qty'] > 0 and t_ts['cycle']['buy_qty'] > 0:
                 t_avg = t_ts['cycle']['buy_cost'] / t_ts['cycle']['buy_qty']
-                t_cur = df_close_last.get(f'{ticker}_Close', t_avg)
+                t_cur = df_close_last_sc.get(f'{ticker}_Close', t_avg)
                 eval_usd = t_cur * t_ts['cycle']['hold_qty']
                 is_holding = True
             else:
