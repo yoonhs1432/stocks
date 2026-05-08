@@ -66,7 +66,10 @@ class Config:
 CFG = Config()
 
 X_ASSET_FIXED = 'SPY'
-TARGET_TICKERS = ['FNGU','TQQQ', 'SOXL', 'HIBL','QPUX', 'LABU', 'DFEN', 'DPST', 'GDXU','KORU', '005930','AVXX','SPYU','TARK','URTY','TNA','BNKU','BTC-USD','ETH-USD','GLD'
+TARGET_TICKERS = [
+    'FNGU', 'TQQQ', 'SOXL', 'HIBL', 'QPUX', 'LABU', 'DFEN', 'DPST',
+    'GDXU', 'KORU', '005930', 'AVXX', 'SPYU', 'TARK', 'URTY', 'TNA',
+    'BNKU', 'BTC-USD', 'ETH-USD', 'GLD',
 ]
 TICKER_DISPLAY_NAMES = {'BTC-USD': 'BTC', 'ETH-USD': 'ETH', '005930': '삼전', '000660': '하닉'}
 
@@ -85,13 +88,13 @@ _C = {
 }
 TICKER_COLOR = {
     'TQQQ': _C['index'], 'QPUX': _C['index'],
+    'SPYU': _C['index'], 'URTY': _C['index'], 'TNA': _C['index'],
     'FNGU': _C['tech'],  'HIBL': _C['tech'],
-    'SOXL': _C['tech'],  'LABU': _C['tech'],
-    'DFEN': _C['defense'], 'AVXX': _C['defense'], 'AVAV': _C['defense'],
+    'SOXL': _C['tech'],  'LABU': _C['tech'], 'TARK': _C['tech'],
+    'DFEN': _C['defense'], 'AVXX': _C['defense'],
     'KORU': _C['em'],
-    'DPST': _C['fin'],
-    'GDXU': _C['commod'],
-    'BITU': _C['crypto'], 'ETHT': _C['crypto'],
+    'DPST': _C['fin'],   'BNKU': _C['fin'],
+    'GDXU': _C['commod'], 'GLD':  _C['commod'],
     'BTC-USD': _C['crypto'], 'ETH-USD': _C['crypto'],
     '005930': _C['other'],
 }
@@ -1409,6 +1412,7 @@ def _build_seed_html(
 def _build_realized_html(
     portfolio_state: dict[str, TickerState], usd_krw: float
 ) -> str:
+    """💵 실현손익 — 합계 헤더 + 종목별 막대 (달러 주, 원화 보조)."""
     rows = []
     for tk, ts in portfolio_state.items():
         cyc = ts['cycle']
@@ -1426,34 +1430,54 @@ def _build_realized_html(
     net_col = pnl_color(net_sum)
     max_abs = max(abs(v) for _, v in rows)
 
+    net_krw_man = net_sum * usd_krw / 10000
+
+    # ── 라벨 ──
     html = (
         f"{html_section_divider()}"
-        f"<div style='display:flex;justify-content:space-between;"
-        f"font-size:0.62rem;color:{COLOR_LABEL};margin-bottom:4px;'>"
-        f"<span>💵 실현손익</span>"
-        f"<span style='color:{net_col};font-weight:700;'>"
-        f"{signed_str(net_sum, '${:,.0f}'.replace('$',''))[0]}"
-        f"${int(round(abs(net_sum))):,}"
-        f"&nbsp;<span style='font-weight:400;color:{COLOR_LABEL};'>"
-        f"({signed_str(round(net_sum * usd_krw / 10000))}만원)</span></span></div>"
+        f"<div style='font-size:0.62rem;font-weight:700;color:{COLOR_LABEL};"
+        f"margin-bottom:6px;'>💵 실현손익</div>"
     )
+
+    # ── 합계 헤더 ──
+    html += (
+        f"<div style='display:flex;justify-content:flex-end;align-items:flex-end;"
+        f"padding:6px 4px 8px 4px;border-bottom:1px solid #f3f4f6;margin-bottom:8px;'>"
+        f"<div style='text-align:right;'>"
+        f"<div style='font-size:0.55rem;color:{COLOR_LABEL};margin-bottom:2px;'>합계</div>"
+        f"<div style='font-size:0.92rem;color:{net_col};font-weight:700;'>"
+        f"{signed_str(int(round(net_sum)), '{:,}')}</div>"
+        f"<div style='font-size:0.55rem;color:#9ca3af;'>"
+        f"({signed_str(int(round(net_krw_man)), '{:,}')}만원)</div>"
+        f"</div>"
+        f"</div>"
+    )
+
+    # ── 종목별 막대 ──
     for tk, real in sorted(rows, key=lambda x: -abs(x[1])):
         ratio = abs(real) / total_abs * 100 if total_abs else 0
         w = max(abs(real) / max_abs * 100, 2) if max_abs else 2
-        # 수익=빨강, 손실=파랑
         bar_c = '#dc2626' if real >= 0 else '#2563eb'
         vc = pnl_color(real)
+        real_krw_man = real * usd_krw / 10000
+
         html += (
-            f"<div style='display:flex;align-items:center;gap:5px;margin-bottom:3px;'>"
-            f"<div style='font-size:0.67rem;color:{COLOR_TEXT};width:40px;flex-shrink:0;'>{display_name(tk)}</div>"
+            f"<div style='display:flex;align-items:center;gap:5px;margin-bottom:4px;'>"
+            f"<div style='font-size:0.7rem;color:{COLOR_TEXT};width:42px;"
+            f"flex-shrink:0;font-weight:600;'>{display_name(tk)}</div>"
             f"{html_progress_bar(w, bar_c)}"
-            f"<div style='font-size:0.63rem;color:#6b7280;width:28px;text-align:right;flex-shrink:0;'>{ratio:.0f}%</div>"
-            f"<div style='font-size:0.63rem;font-weight:700;color:{vc};"
-            f"width:40px;text-align:right;flex-shrink:0;'>"
-            f"{signed_str(real, '${:,.0f}'.replace('$',''))[0]}${int(round(abs(real))):,}</div>"
+            # 비율%
+            f"<div style='font-size:0.6rem;color:#9ca3af;width:30px;text-align:right;"
+            f"flex-shrink:0;'>{ratio:.0f}%</div>"
+            # 손익 ($, 만원)
+            f"<div style='font-size:0.7rem;font-weight:700;color:{vc};"
+            f"width:54px;text-align:right;flex-shrink:0;line-height:1.15;'>"
+            f"<div>{signed_str(int(round(real)), '{:,}')}</div>"
+            f"<div style='font-size:0.5rem;color:#9ca3af;font-weight:400;'>"
+            f"{signed_str(int(round(real_krw_man)), '{:,}')}만</div>"
+            f"</div>"
             f"</div>"
         )
-    html += "</div>"
     return html
 
 
@@ -1462,61 +1486,89 @@ def _build_alloc_html(
     df_close_last: dict,
     usd_krw: float,
 ) -> str:
-    """💼 보유 종목 평가 — 수익/손실 분리 표시.
-
-    수익 종목: [원금(연빨강)][수익(초록)] = 평가금액 길이
-    손실 종목: [남은 평가(연빨강)][손실(파랑)] = 원금 길이
-    """
+    """💼 보유 종목 평가 — 3숫자 헤더 (원금→평가, 손익) + 달러 주, 원화 보조."""
     rows = []
     for tk, ts in portfolio_state.items():
         cyc = ts['cycle']
         if cyc['hold_qty'] <= 0 or cyc['buy_qty'] <= 0:
             continue
-        # 평균단가 (전체 매수 평균)
         avg = cyc['buy_cost'] / cyc['buy_qty']
-        # 남은 보유분의 원가 (탭1 정보카드와 일치)
-        # 부분 매도 후 buy_cost는 줄지 않으므로 hold_qty × avg로 재계산
         inv_usd = avg * cyc['hold_qty']
         cur = df_close_last.get(f'{tk}_Close')
         if cur is None:
-            cur = avg  # fallback
+            cur = avg
         eval_usd = cur * cyc['hold_qty']
         pnl_usd = eval_usd - inv_usd
         ret_pct = (cur / avg - 1) * 100 if avg > 0 else 0
         rows.append({
-            'tk': tk, 'inv': inv_usd, 'eval': eval_usd, 'pnl': pnl_usd, 'ret': ret_pct,
+            'tk': tk, 'inv': inv_usd, 'eval': eval_usd,
+            'pnl': pnl_usd, 'ret': ret_pct,
         })
 
     if not rows:
         return ""
 
-    # 평가금액 내림차순
     rows.sort(key=lambda r: -r['eval'])
 
-    total_inv_krw = sum(r['inv'] for r in rows) * usd_krw
-    total_eval_krw = sum(r['eval'] for r in rows) * usd_krw
-    total_pnl_krw = total_eval_krw - total_inv_krw
-    total_ret = (total_pnl_krw / total_inv_krw * 100) if total_inv_krw > 0 else 0
-    total_pnl_color = pnl_color(total_pnl_krw)
+    total_inv = sum(r['inv'] for r in rows)
+    total_eval = sum(r['eval'] for r in rows)
+    total_pnl = total_eval - total_inv
+    total_ret = (total_pnl / total_inv * 100) if total_inv > 0 else 0
+    total_pnl_color = pnl_color(total_pnl)
 
-    # 바 길이 기준: 모든 종목의 max(원금, 평가금액)을 100%로
+    inv_krw_man = total_inv * usd_krw / 10000
+    eval_krw_man = total_eval * usd_krw / 10000
+    pnl_krw_man = total_pnl * usd_krw / 10000
+
     max_bar_value = max(max(r['inv'], r['eval']) for r in rows)
 
-    # 색상: 원금=회색, 수익=빨강, 손실=파랑
-    C_PRINCIPAL = '#d1d5db'  # 회색 — 원금/남은평가
-    C_PROFIT    = '#dc2626'  # 빨강 — 수익
-    C_LOSS      = '#2563eb'  # 파랑 — 손실
+    C_PRINCIPAL = '#d1d5db'
+    C_PROFIT    = '#dc2626'
+    C_LOSS      = '#2563eb'
 
+    # ── 라벨 ──
     html = (
         f"{html_section_divider()}"
-        f"<div style='display:flex;justify-content:space-between;align-items:baseline;"
-        f"font-size:0.62rem;color:{COLOR_LABEL};margin-bottom:6px;'>"
-        f"<span style='font-weight:700;'>💼 보유 종목 평가</span>"
-        f"<span style='color:{total_pnl_color};font-weight:700;'>"
-        f"{signed_str(int(round(total_pnl_krw / 10000)), '{:,}')}만원 "
-        f"({signed_str(round(total_ret), '{:d}')}%)</span></div>"
+        f"<div style='font-size:0.62rem;font-weight:700;color:{COLOR_LABEL};"
+        f"margin-bottom:6px;'>💼 보유 종목 평가</div>"
     )
 
+    # ── 3숫자 헤더 (원금 → 평가, 손익) ──
+    html += (
+        f"<div style='display:flex;justify-content:space-between;align-items:flex-end;"
+        f"padding:6px 4px 8px 4px;border-bottom:1px solid #f3f4f6;margin-bottom:8px;'>"
+
+        f"<div style='text-align:left;flex:1;'>"
+        f"<div style='font-size:0.55rem;color:{COLOR_LABEL};margin-bottom:2px;'>원금</div>"
+        f"<div style='font-size:0.92rem;color:#374151;font-weight:700;'>"
+        f"${int(round(total_inv)):,}</div>"
+        f"<div style='font-size:0.55rem;color:#9ca3af;'>"
+        f"({int(round(inv_krw_man)):,}만원)</div>"
+        f"</div>"
+
+        f"<div style='color:#9ca3af;font-size:0.85rem;padding:0 4px 8px 4px;'>→</div>"
+
+        f"<div style='text-align:center;flex:1;'>"
+        f"<div style='font-size:0.55rem;color:{COLOR_LABEL};margin-bottom:2px;'>평가</div>"
+        f"<div style='font-size:0.92rem;color:{total_pnl_color};font-weight:700;'>"
+        f"${int(round(total_eval)):,}</div>"
+        f"<div style='font-size:0.55rem;color:#9ca3af;'>"
+        f"({int(round(eval_krw_man)):,}만원)</div>"
+        f"</div>"
+
+        f"<div style='text-align:right;flex:1;'>"
+        f"<div style='font-size:0.55rem;color:{COLOR_LABEL};margin-bottom:2px;'>"
+        f"손익 ({signed_str(round(total_ret), '{:d}')}%)</div>"
+        f"<div style='font-size:0.92rem;color:{total_pnl_color};font-weight:700;'>"
+        f"{signed_str(int(round(total_pnl)), '{:,}')}</div>"
+        f"<div style='font-size:0.55rem;color:#9ca3af;'>"
+        f"({signed_str(int(round(pnl_krw_man)), '{:,}')}만원)</div>"
+        f"</div>"
+
+        f"</div>"
+    )
+
+    # ── 종목별 막대 ──
     for r in rows:
         tk = r['tk']
         inv_w = (r['inv'] / max_bar_value) * 100 if max_bar_value > 0 else 0
@@ -1524,23 +1576,14 @@ def _build_alloc_html(
         pnl_w = abs(eval_w - inv_w)
 
         is_profit = r['pnl'] >= 0
-        pnl_int = int(round(r['pnl']))   # USD
-        ret_int = int(round(r['ret']))
-        inv_int = int(round(r['inv']))
         pnl_color_v = pnl_color(r['pnl'])
 
         if is_profit:
-            # 수익 종목: [원금 inv_w][수익 pnl_w] = eval_w
-            seg1_w = inv_w
-            seg1_c = C_PRINCIPAL
-            seg2_w = pnl_w
-            seg2_c = C_PROFIT
+            seg1_w = inv_w; seg1_c = C_PRINCIPAL
+            seg2_w = pnl_w; seg2_c = C_PROFIT
         else:
-            # 손실 종목: [남은평가 eval_w][손실 pnl_w] = inv_w
-            seg1_w = eval_w
-            seg1_c = C_PRINCIPAL
-            seg2_w = pnl_w
-            seg2_c = C_LOSS
+            seg1_w = eval_w; seg1_c = C_PRINCIPAL
+            seg2_w = pnl_w; seg2_c = C_LOSS
 
         bar_inner = (
             f"<div style='width:{seg1_w:.1f}%;background:{seg1_c};height:7px;"
@@ -1552,29 +1595,29 @@ def _build_alloc_html(
                 f"flex-shrink:0;border-radius:0 3px 3px 0;'></div>"
             )
 
+        inv_krw_man_t = r['inv'] * usd_krw / 10000
+
         html += (
-            f"<div style='display:flex;align-items:center;gap:5px;margin-bottom:3px;'>"
-            f"<div style='font-size:0.67rem;color:{COLOR_TEXT};width:42px;"
+            f"<div style='display:flex;align-items:center;gap:5px;margin-bottom:4px;'>"
+            f"<div style='font-size:0.7rem;color:{COLOR_TEXT};width:42px;"
             f"flex-shrink:0;font-weight:600;'>{display_name(tk)}</div>"
             f"<div style='flex:1;background:#f3f4f6;border-radius:3px;height:7px;"
             f"display:flex;align-items:center;overflow:hidden;min-width:0;'>"
             f"{bar_inner}"
             f"</div>"
-            # 우측: 원금 / 손익금($) / 손익률
-            f"<div style='font-size:0.6rem;color:#6b7280;width:46px;text-align:right;"
+            f"<div style='font-size:0.6rem;color:#9ca3af;width:50px;text-align:right;"
             f"flex-shrink:0;line-height:1.15;'>"
-            f"<div>${inv_int:,}</div>"
-            f"<div style='color:{pnl_color_v};font-weight:600;'>"
-            f"{signed_str(pnl_int, '{:,}')}</div>"
+            f"<div>${int(round(r['inv'])):,}</div>"
+            f"<div style='font-size:0.5rem;'>{int(round(inv_krw_man_t)):,}만</div>"
             f"</div>"
-            f"<div style='font-size:0.62rem;width:34px;text-align:right;flex-shrink:0;"
+            f"<div style='font-size:0.7rem;width:38px;text-align:right;flex-shrink:0;"
             f"color:{pnl_color_v};font-weight:700;'>"
-            f"{signed_str(ret_int, '{:d}')}%</div>"
+            f"{signed_str(int(round(r['ret'])), '{:d}')}%</div>"
             f"</div>"
         )
 
-    # 사용률 표시 (시드 대비)
-    used_pct = total_inv_krw / CFG.SEED_KRW * 100
+    # 시드 사용률
+    used_pct = total_inv * usd_krw / CFG.SEED_KRW * 100
     use_color = (
         '#b91c1c' if used_pct >= 90
         else '#f59e0b' if used_pct >= 70
@@ -1584,7 +1627,7 @@ def _build_alloc_html(
         f"<div style='font-size:0.6rem;color:{COLOR_LABEL};margin-top:6px;"
         f"padding-top:4px;border-top:1px dashed #e5e7eb;display:flex;"
         f"justify-content:space-between;'>"
-        f"<span>총 원금 {int(round(total_inv_krw/10000)):,}만원</span>"
+        f"<span>총 원금 ${int(round(total_inv)):,}</span>"
         f"<span style='color:{use_color};font-weight:700;'>"
         f"시드 대비 {used_pct:.0f}% 사용</span></div>"
     )
@@ -4029,6 +4072,17 @@ def main() -> None:
                 except Exception as e:
                     log.warning(f"Extra ticker fetch failed: {tk}: {e}")
 
+    # SPY fetch (CAPM β 계산용 - 한눈에 보기 β·SPY 표시에 사용)
+    if 'SPY_Close' not in df_close.columns:
+        try:
+            df_spy = fetch_single_ticker('SPY', analysis_start)
+            if not df_spy.empty:
+                if candle_type == '주봉':
+                    df_spy = _resample_weekly(df_spy)
+                df_close = pd.concat([df_close, df_spy], axis=1).ffill()
+        except Exception as e:
+            log.warning(f"SPY fetch failed: {e}")
+
     mkt = get_market_status()
     last_trading_date = pd.Timestamp(mkt['last_trading_date'])
     if not df_close.empty:
@@ -4039,6 +4093,32 @@ def main() -> None:
 
     with st.spinner("전체 종목 분석 중..."):
         all_analyses = compute_all_analyses(df_close, _version=8, candle_type=candle_type)
+
+    # ── CAPM β 계산 (SPY 대비) - 한눈에 보기에 사용 ──
+    # 분석 시작일부터 현재까지의 일별 수익률 기반
+    spy_betas: dict[str, float] = {}
+    spy_col = 'SPY_Close'
+    if spy_col in df_close.columns:
+        spy_returns = df_close[spy_col].pct_change().dropna()
+        spy_var = spy_returns.var()
+        if spy_var > 0 and len(spy_returns) > 10:
+            for tk in TARGET_TICKERS:
+                col = f'{tk}_Close'
+                if col not in df_close.columns:
+                    continue
+                tk_returns = df_close[col].pct_change().dropna()
+                # 공통 인덱스
+                common = spy_returns.index.intersection(tk_returns.index)
+                if len(common) < 10:
+                    continue
+                cov = np.cov(
+                    tk_returns.loc[common].values,
+                    spy_returns.loc[common].values,
+                )[0, 1]
+                beta_spy = cov / spy_var
+                if np.isfinite(beta_spy):
+                    spy_betas[tk] = float(beta_spy)
+    st.session_state['spy_betas'] = spy_betas
 
     pct_changes = {}
     for ticker in TARGET_TICKERS:
@@ -4224,23 +4304,23 @@ def main() -> None:
     # ====================================================
     with tab2:
         # ── 헤더: 라벨명 + σ 눈금 ──
-        # 좌측 (110px): 1행 [종목 σ% β·30d DD], 2행 [수익]
+        # 좌측 (140px): 1행 [종목 σ% β·SPY DD], 2행 [수익]
         # 우측 (flex): σ 위치 라벨
         st.markdown(
             "<div style='display:flex;align-items:center;gap:6px;"
-            "padding:6px 4px 4px 4px;font-size:0.55rem;color:#9ca3af;"
+            "padding:6px 4px 4px 4px;font-size:0.6rem;color:#9ca3af;"
             "border-bottom:1px solid #e5e7eb;margin-bottom:4px;'>"
-            # 좌측 110px
-            "<div style='width:110px;flex-shrink:0;line-height:1.2;'>"
-            # 1행: 종목 σ% β·30d DD (간격 좁음)
-            "<div style='display:flex;align-items:baseline;gap:3px;font-weight:700;color:#6b7280;'>"
-            "<span style='font-size:0.6rem;'>종목</span>"
-            "<span title='1σ 변동성' style='font-size:0.55rem;'>σ%</span>"
-            "<span title='30일 추세' style='font-size:0.55rem;'>β·30d</span>"
-            "<span title='역대 고점 대비 드로다운' style='font-size:0.55rem;'>DD</span>"
+            # 좌측 140px
+            "<div style='width:140px;flex-shrink:0;line-height:1.25;'>"
+            # 1행: 종목 σ% β·SPY DD
+            "<div style='display:flex;align-items:baseline;gap:4px;font-weight:700;color:#6b7280;'>"
+            "<span style='font-size:0.7rem;'>종목</span>"
+            "<span title='1σ 변동성' style='font-size:0.6rem;'>σ%</span>"
+            "<span title='SPY +10% 시 종목 변화율' style='font-size:0.6rem;'>β·SPY</span>"
+            "<span title='역대 고점 대비 드로다운' style='font-size:0.6rem;'>DD</span>"
             "</div>"
             # 2행: 수익
-            "<div title='평가수익률' style='font-weight:700;color:#6b7280;font-size:0.6rem;'>수익</div>"
+            "<div title='평가수익률' style='font-weight:700;color:#6b7280;font-size:0.65rem;'>수익</div>"
             "</div>"
             # σ 위치 라벨
             "<div style='flex:1;position:relative;height:14px;min-width:0;'>"
@@ -4301,16 +4381,19 @@ def main() -> None:
 
             sigma_pct_str = f"±{sigma_pct_int}%" if sigma_pct_int is not None else "—"
 
-            # ── β·30일 추세 % ──
+            # ── β·SPY (SPY +10% 시 종목 변화율) ──
+            spy_betas = st.session_state.get('spy_betas', {})
+            beta_spy = spy_betas.get(ticker)
             trend_pct_int = None
-            trend_color = '#6b7280'
-            if 'Predicted' in t_df.columns and len(t_df) > TREND_DAYS:
-                p_recent = float(t_df['Predicted'].iloc[-1])
-                p_past = float(t_df['Predicted'].iloc[-(TREND_DAYS + 1)])
-                if p_past > 0 and np.isfinite(p_recent) and np.isfinite(p_past):
-                    trend_pct = (p_recent / p_past - 1) * 100
-                    trend_pct_int = int(round(trend_pct))
-                    trend_color = pnl_color(trend_pct)
+            if beta_spy is not None and np.isfinite(beta_spy):
+                # SPY +10% 변동 시 종목 변화율 = β × 10
+                trend_pct_int = int(round(beta_spy * 10))
+
+            trend_pct_str = (
+                signed_str(trend_pct_int, '{:d}') + "%"
+                if trend_pct_int is not None else "—"
+            )
+            trend_color = '#6b7280'   # 단색
 
             trend_pct_str = (
                 signed_str(trend_pct_int, '{:d}') + "%"
@@ -4356,26 +4439,26 @@ def main() -> None:
             row_bg = '#f0fdf4' if is_holding else '#ffffff'
             star = "★ " if is_holding else ""
 
-            # 좌측 110px 통합 — 1행 [티커 σ% β·30d DD%], 2행 [수익]
+            # 좌측 140px 통합 — 1행 [티커 σ% β·SPY DD%], 2행 [수익]
             st.markdown(
                 f"<div style='display:flex;align-items:center;gap:6px;"
-                f"padding:3px 4px;background:{row_bg};"
+                f"padding:4px 4px;background:{row_bg};"
                 f"border-bottom:1px solid #f3f4f6;'>"
-                # 좌측 110px
-                f"<div style='width:110px;flex-shrink:0;line-height:1.2;'>"
-                # 1행: 티커 σ% β·30d DD% (한 줄, 작은 간격)
-                f"<div style='display:flex;align-items:baseline;gap:3px;'>"
-                f"<span style='font-size:0.7rem;font-weight:600;color:#111827;"
+                # 좌측 140px
+                f"<div style='width:140px;flex-shrink:0;line-height:1.25;'>"
+                # 1행: 티커 σ% β·SPY DD% (한 줄, 작은 간격)
+                f"<div style='display:flex;align-items:baseline;gap:4px;'>"
+                f"<span style='font-size:0.85rem;font-weight:700;color:#111827;"
                 f"white-space:nowrap;'>{star}{display_name(ticker)}</span>"
-                f"<span style='font-size:0.55rem;color:#6b7280;'>"
+                f"<span style='font-size:0.65rem;color:#6b7280;'>"
                 f"{sigma_pct_str}</span>"
-                f"<span style='font-size:0.55rem;color:{trend_color};font-weight:500;'>"
+                f"<span style='font-size:0.65rem;color:{trend_color};font-weight:500;'>"
                 f"{trend_pct_str}</span>"
-                f"<span style='font-size:0.55rem;color:{dd_color};font-weight:500;'>"
+                f"<span style='font-size:0.65rem;color:{dd_color};font-weight:500;'>"
                 f"{dd_pct_str}</span>"
                 f"</div>"
-                # 2행: 수익 (좌측 정렬)
-                f"<div style='font-size:0.62rem;color:{ret_color};font-weight:600;'>"
+                # 2행: 수익
+                f"<div style='font-size:0.75rem;color:{ret_color};font-weight:600;'>"
                 f"{ret_pct_str}</div>"
                 f"</div>"
                 # 우측 σ 바
@@ -4386,7 +4469,7 @@ def main() -> None:
 
         st.caption(
             f"■ 현재가 위치=σ · 테두리색=모멘텀 (MACD+RSI) · ▪ 평균단가 · ● 매수 ● 매도 (당시 σ) "
-            f"· σ%=변동성 · β·{TREND_DAYS}d=최근 {TREND_DAYS}일 추세 · DD=역대 고점 대비 · 수익=평가수익률"
+            f"· σ%=변동성 · β·SPY=SPY +10% 시 종목 변화율 · DD=역대 고점 대비 · 수익=평가수익률"
         )
 
     # ====================================================
