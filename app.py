@@ -4293,25 +4293,15 @@ def main() -> None:
     # 탭 2: 한눈에 보기 (풀폭 22개 종목 미니바 리스트)
     # ====================================================
     with tab2:
-        # ── 헤더: 라벨명 + σ 눈금 ──
-        # 좌측 (140px): 1행 [종목 σ% β·SPY DD], 2행 [수익]
-        # 우측 (flex): σ 위치 라벨
+        # ── 헤더 ──
+        # [종목 70px] [σ 위치 라벨 flex] [기간 위치 라벨 flex]
         st.markdown(
             "<div style='display:flex;align-items:center;gap:6px;"
-            "padding:6px 4px 4px 4px;font-size:0.6rem;color:#9ca3af;"
-            "border-bottom:1px solid #e5e7eb;margin-bottom:4px;'>"
-            # 좌측 140px
-            "<div style='width:140px;flex-shrink:0;line-height:1.25;'>"
-            # 1행: 종목 σ% β·SPY DD
-            "<div style='display:flex;align-items:baseline;gap:4px;font-weight:700;color:#6b7280;'>"
-            "<span style='font-size:0.7rem;'>종목</span>"
-            "<span title='1σ 변동성' style='font-size:0.6rem;'>σ%</span>"
-            "<span title='SPY +10% 시 종목 변화율' style='font-size:0.6rem;'>β·SPY</span>"
-            "<span title='역대 고점 대비 드로다운' style='font-size:0.6rem;'>DD</span>"
-            "</div>"
-            # 2행: 수익
-            "<div title='평가수익률' style='font-weight:700;color:#6b7280;font-size:0.65rem;'>수익</div>"
-            "</div>"
+            "padding:6px 4px 4px 4px;font-size:0.55rem;color:#9ca3af;"
+            "border-bottom:1px solid #e5e7eb;margin-bottom:2px;'>"
+            # 좌측 70px
+            "<div style='width:70px;flex-shrink:0;font-weight:700;color:#6b7280;"
+            "font-size:0.65rem;'>종목</div>"
             # σ 위치 라벨
             "<div style='flex:1;position:relative;height:14px;min-width:0;'>"
             "<span style='position:absolute;left:0%;transform:translateX(-50%);'>-3σ</span>"
@@ -4322,12 +4312,17 @@ def main() -> None:
             "<span style='position:absolute;left:83.33%;transform:translateX(-50%);'>+2σ</span>"
             "<span style='position:absolute;left:100%;transform:translateX(-50%);'>+3σ</span>"
             "</div>"
+            # 기간 위치 라벨
+            "<div style='flex:1;position:relative;height:14px;min-width:0;'>"
+            "<span style='position:absolute;left:0%;transform:translateX(-50%);'>저점</span>"
+            "<span style='position:absolute;left:50%;transform:translateX(-50%);font-weight:700;'>중간</span>"
+            "<span style='position:absolute;left:100%;transform:translateX(-50%);'>고점</span>"
+            "</div>"
             "</div>",
             unsafe_allow_html=True,
         )
 
-        # ── 22개 종목 행 (탭1과 동일 정렬) ──
-        TREND_DAYS = 30
+        # ── 종목 행 (탭1과 동일 정렬) ──
         for ticker in sorted_tickers:
             t_result = all_analyses.get(ticker)
             if not t_result or t_result[0] is None:
@@ -4351,108 +4346,75 @@ def main() -> None:
 
             mini_bar = build_mini_gradient_bar(
                 t_df, ticker, t_cur_price, t_avg_price, t_beta, t_std,
-                trade_records=t_records, bar_height=36,
+                trade_records=t_records, bar_height=22,
             )
             if mini_bar is None:
                 continue
 
-            # ── σ당 % (변동성) ──
-            t_norm_col = f'{ticker}_Norm'
-            sigma_pct_int = None
-            if 'Predicted' in t_df.columns and t_norm_col in t_df.columns:
-                t_log_resid = (np.log(t_df[t_norm_col]) - np.log(t_df['Predicted'])).dropna()
-                t_exp_std = t_log_resid.expanding(
-                    min_periods=CFG.EXPANDING_MIN_PERIODS
-                ).std().dropna()
-                if len(t_exp_std) > 0:
-                    t_sigma_unit = float(t_exp_std.iloc[-1])
-                    if t_sigma_unit > 0 and np.isfinite(t_sigma_unit):
-                        sigma_pct_int = int(round((np.exp(t_sigma_unit) - 1) * 100))
+            # ── 분석기간 최저~최고 대비 현재 위치 바 ──
+            range_bar_html = ""
+            t_close = df_close[t_col].dropna()
+            if len(t_close) > 1:
+                p_min = float(t_close.min())
+                p_max = float(t_close.max())
+                if p_max > p_min:
+                    pos_pct = (t_cur_price - p_min) / (p_max - p_min) * 100
+                    pos_pct = max(0, min(100, pos_pct))
+                else:
+                    pos_pct = 50
 
-            sigma_pct_str = f"±{sigma_pct_int}%" if sigma_pct_int is not None else "—"
-
-            # ── β·SPY (SPY 대비 로그 회귀 슬로프, 배수) ──
-            spy_betas = st.session_state.get('spy_betas', {})
-            beta_spy = spy_betas.get(ticker)
-            beta_str = "—"
-            trend_color = '#6b7280'   # 단색
-            if beta_spy is not None and np.isfinite(beta_spy):
-                # 배수 그대로 표시 (소수점 1자리)
-                sign = '+' if beta_spy >= 0 else ''
-                beta_str = f"{sign}{beta_spy:.1f}×"
-
-            trend_pct_str = beta_str
-
-            # ── DD% (역대 고점 대비 드로다운) ──
-            # 종목 Norm 시계열 cummax 대비 현재 위치
-            dd_pct_int = None
-            dd_color = '#9ca3af'
-            if t_norm_col in t_df.columns:
-                t_norm = t_df[t_norm_col].dropna()
-                if len(t_norm) > 0:
-                    cummax_v = t_norm.cummax().iloc[-1]
-                    cur_v = t_norm.iloc[-1]
-                    if cummax_v > 0 and np.isfinite(cummax_v) and np.isfinite(cur_v):
-                        dd_v = (cur_v / cummax_v - 1) * 100
-                        dd_pct_int = int(round(dd_v))
-                        # DD는 음수 또는 0. 가까울수록 위험 (회색→빨강 강도)
-                        if dd_v >= -3:
-                            dd_color = '#dc2626'   # 거의 고점, 매수 위험
-                        elif dd_v >= -10:
-                            dd_color = '#f59e0b'   # 약간 떨어짐
-                        elif dd_v >= -25:
-                            dd_color = '#6b7280'   # 적당히 조정
-                        else:
-                            dd_color = '#2563eb'   # 크게 떨어짐, 매수 기회
-
-            dd_pct_str = (
-                f"{dd_pct_int}%" if dd_pct_int is not None else "—"
-            )
-
-            # ── 평가수익률 (보유 시만) ──
-            ret_pct_str = "—"
-            ret_color = '#9ca3af'
-            if t_avg_price is not None and t_cur_price > 0:
-                ret_pct = (t_cur_price / t_avg_price - 1) * 100
-                ret_pct_int = int(round(ret_pct))
-                ret_pct_str = signed_str(ret_pct_int, '{:d}') + "%"
-                ret_color = pnl_color(ret_pct)
+                # 그라디언트 바: 빨강(저점) → 회색 → 파랑(고점)
+                # 마커: 현재 위치
+                marker_color = (
+                    '#7f1d1d' if pos_pct < 20 else
+                    '#dc2626' if pos_pct < 35 else
+                    '#6b7280' if pos_pct < 65 else
+                    '#2563eb' if pos_pct < 80 else
+                    '#1e3a8a'
+                )
+                range_bar_html = (
+                    f"<div style='position:relative;height:22px;width:100%;'>"
+                    # 그라디언트 바
+                    f"<div style='position:absolute;top:8px;left:0;right:0;height:6px;"
+                    f"border-radius:3px;"
+                    f"background:linear-gradient(to right,"
+                    f"#7f1d1d 0%,#dc2626 20%,#fca5a5 35%,"
+                    f"#e5e7eb 50%,"
+                    f"#93c5fd 65%,#2563eb 80%,#1e3a8a 100%);'></div>"
+                    # 현재 위치 마커
+                    f"<div style='position:absolute;left:{pos_pct:.1f}%;"
+                    f"top:4px;width:10px;height:14px;background:{marker_color};"
+                    f"border:1.5px solid white;border-radius:2px;"
+                    f"box-shadow:0 0 0 1px {marker_color};"
+                    f"transform:translateX(-50%);z-index:2;'></div>"
+                    f"</div>"
+                )
 
             is_holding = ticker in holding_tickers
             row_bg = '#f0fdf4' if is_holding else '#ffffff'
             star = "★ " if is_holding else ""
 
-            # 좌측 140px 통합 — 1행 [티커 σ% β·SPY DD%], 2행 [수익]
+            # 행: [티커 70px] [σ 바 flex] [위치 바 flex]
             st.markdown(
                 f"<div style='display:flex;align-items:center;gap:6px;"
-                f"padding:4px 4px;background:{row_bg};"
+                f"padding:2px 4px;background:{row_bg};"
                 f"border-bottom:1px solid #f3f4f6;'>"
-                # 좌측 140px
-                f"<div style='width:140px;flex-shrink:0;line-height:1.25;'>"
-                # 1행: 티커 σ% β·SPY DD% (한 줄, 작은 간격)
-                f"<div style='display:flex;align-items:baseline;gap:4px;'>"
-                f"<span style='font-size:0.85rem;font-weight:700;color:#111827;"
-                f"white-space:nowrap;'>{star}{display_name(ticker)}</span>"
-                f"<span style='font-size:0.65rem;color:#6b7280;'>"
-                f"{sigma_pct_str}</span>"
-                f"<span style='font-size:0.65rem;color:{trend_color};font-weight:500;'>"
-                f"{trend_pct_str}</span>"
-                f"<span style='font-size:0.65rem;color:{dd_color};font-weight:500;'>"
-                f"{dd_pct_str}</span>"
-                f"</div>"
-                # 2행: 수익
-                f"<div style='font-size:0.75rem;color:{ret_color};font-weight:600;'>"
-                f"{ret_pct_str}</div>"
-                f"</div>"
-                # 우측 σ 바
+                # 좌측 70px - 티커만
+                f"<div style='width:70px;flex-shrink:0;font-size:0.78rem;"
+                f"font-weight:700;color:#111827;white-space:nowrap;"
+                f"overflow:hidden;text-overflow:ellipsis;'>"
+                f"{star}{display_name(ticker)}</div>"
+                # σ 바
                 f"<div style='flex:1;min-width:0;'>{mini_bar}</div>"
+                # 위치 바
+                f"<div style='flex:1;min-width:0;'>{range_bar_html}</div>"
                 f"</div>",
                 unsafe_allow_html=True,
             )
 
         st.caption(
-            f"■ 현재가 위치=σ · 테두리색=모멘텀 (MACD+RSI) · ▪ 평균단가 · ● 매수 ● 매도 (당시 σ) "
-            f"· σ%=변동성 · β·SPY=SPY 대비 로그회귀 슬로프 (배수) · DD=역대 고점 대비 · 수익=평가수익률"
+            "■ σ 바: 현재가 추세선 대비 위치 (테두리=모멘텀) · ▪ 평균단가 · ● 매수 ● 매도 · "
+            "■ 기간 바: 분석 기간 최저~최고 대비 현재 위치"
         )
 
         # ── σ vs β 산점도 ──
