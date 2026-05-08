@@ -4224,23 +4224,23 @@ def main() -> None:
     # ====================================================
     with tab2:
         # ── 헤더: 라벨명 + σ 눈금 ──
-        # 좌측 (110px): col1=종목/수익, col2=σ%/β·30d
+        # 좌측 (110px): 1행 [종목 σ% β·30d DD], 2행 [수익]
         # 우측 (flex): σ 위치 라벨
         st.markdown(
             "<div style='display:flex;align-items:center;gap:6px;"
             "padding:6px 4px 4px 4px;font-size:0.55rem;color:#9ca3af;"
             "border-bottom:1px solid #e5e7eb;margin-bottom:4px;'>"
-            # 좌측 110px = 2 서브 컬럼
-            "<div style='width:110px;flex-shrink:0;display:flex;gap:4px;'>"
-            # col1: 종목/수익
-            "<div style='flex:1;font-weight:700;color:#6b7280;font-size:0.6rem;line-height:1.2;'>"
-            "<div>종목</div><div title='평가수익률'>수익</div>"
+            # 좌측 110px
+            "<div style='width:110px;flex-shrink:0;line-height:1.2;'>"
+            # 1행: 종목 σ% β·30d DD (간격 좁음)
+            "<div style='display:flex;align-items:baseline;gap:3px;font-weight:700;color:#6b7280;'>"
+            "<span style='font-size:0.6rem;'>종목</span>"
+            "<span title='1σ 변동성' style='font-size:0.55rem;'>σ%</span>"
+            "<span title='30일 추세' style='font-size:0.55rem;'>β·30d</span>"
+            "<span title='역대 고점 대비 드로다운' style='font-size:0.55rem;'>DD</span>"
             "</div>"
-            # col2: σ%/β·30d (바와 10px 겹침)
-            "<div style='flex:0 0 auto;font-weight:700;color:#6b7280;font-size:0.6rem;"
-            "line-height:1.2;text-align:right;'>"
-            "<div title='1σ 변동성'>σ%</div><div title='30일 추세'>β·30d</div>"
-            "</div>"
+            # 2행: 수익
+            "<div title='평가수익률' style='font-weight:700;color:#6b7280;font-size:0.6rem;'>수익</div>"
             "</div>"
             # σ 위치 라벨
             "<div style='flex:1;position:relative;height:14px;min-width:0;'>"
@@ -4317,6 +4317,32 @@ def main() -> None:
                 if trend_pct_int is not None else "—"
             )
 
+            # ── DD% (역대 고점 대비 드로다운) ──
+            # 종목 Norm 시계열 cummax 대비 현재 위치
+            dd_pct_int = None
+            dd_color = '#9ca3af'
+            if t_norm_col in t_df.columns:
+                t_norm = t_df[t_norm_col].dropna()
+                if len(t_norm) > 0:
+                    cummax_v = t_norm.cummax().iloc[-1]
+                    cur_v = t_norm.iloc[-1]
+                    if cummax_v > 0 and np.isfinite(cummax_v) and np.isfinite(cur_v):
+                        dd_v = (cur_v / cummax_v - 1) * 100
+                        dd_pct_int = int(round(dd_v))
+                        # DD는 음수 또는 0. 가까울수록 위험 (회색→빨강 강도)
+                        if dd_v >= -3:
+                            dd_color = '#dc2626'   # 거의 고점, 매수 위험
+                        elif dd_v >= -10:
+                            dd_color = '#f59e0b'   # 약간 떨어짐
+                        elif dd_v >= -25:
+                            dd_color = '#6b7280'   # 적당히 조정
+                        else:
+                            dd_color = '#2563eb'   # 크게 떨어짐, 매수 기회
+
+            dd_pct_str = (
+                f"{dd_pct_int}%" if dd_pct_int is not None else "—"
+            )
+
             # ── 평가수익률 (보유 시만) ──
             ret_pct_str = "—"
             ret_color = '#9ca3af'
@@ -4330,29 +4356,27 @@ def main() -> None:
             row_bg = '#f0fdf4' if is_holding else '#ffffff'
             star = "★ " if is_holding else ""
 
-            # 좌측 110px 통합 — 2-컬럼 레이아웃
-            #   col1 (좌): 티커 위 / 수익 아래
-            #   col2 (우): σ% 위 / β·30d 아래
+            # 좌측 110px 통합 — 1행 [티커 σ% β·30d DD%], 2행 [수익]
             st.markdown(
                 f"<div style='display:flex;align-items:center;gap:6px;"
                 f"padding:3px 4px;background:{row_bg};"
                 f"border-bottom:1px solid #f3f4f6;'>"
-                # 좌측 110px = 두 서브 컬럼 (display:flex)
-                f"<div style='width:110px;flex-shrink:0;display:flex;gap:4px;'>"
-                # col1: 티커 / 수익
-                f"<div style='flex:1;line-height:1.2;min-width:0;'>"
-                f"<div style='font-size:0.74rem;font-weight:600;color:#111827;"
-                f"white-space:nowrap;overflow:hidden;text-overflow:ellipsis;'>"
-                f"{star}{display_name(ticker)}</div>"
+                # 좌측 110px
+                f"<div style='width:110px;flex-shrink:0;line-height:1.2;'>"
+                # 1행: 티커 σ% β·30d DD% (한 줄, 작은 간격)
+                f"<div style='display:flex;align-items:baseline;gap:3px;'>"
+                f"<span style='font-size:0.7rem;font-weight:600;color:#111827;"
+                f"white-space:nowrap;'>{star}{display_name(ticker)}</span>"
+                f"<span style='font-size:0.55rem;color:#6b7280;'>"
+                f"{sigma_pct_str}</span>"
+                f"<span style='font-size:0.55rem;color:{trend_color};font-weight:500;'>"
+                f"{trend_pct_str}</span>"
+                f"<span style='font-size:0.55rem;color:{dd_color};font-weight:500;'>"
+                f"{dd_pct_str}</span>"
+                f"</div>"
+                # 2행: 수익 (좌측 정렬)
                 f"<div style='font-size:0.62rem;color:{ret_color};font-weight:600;'>"
                 f"{ret_pct_str}</div>"
-                f"</div>"
-                # col2: σ% / β·30d
-                f"<div style='flex:0 0 auto;line-height:1.2;text-align:right;'>"
-                f"<div style='font-size:0.62rem;color:#6b7280;'>{sigma_pct_str}</div>"
-                f"<div style='font-size:0.62rem;color:{trend_color};font-weight:500;'>"
-                f"{trend_pct_str}</div>"
-                f"</div>"
                 f"</div>"
                 # 우측 σ 바
                 f"<div style='flex:1;min-width:0;'>{mini_bar}</div>"
@@ -4362,7 +4386,7 @@ def main() -> None:
 
         st.caption(
             f"■ 현재가 위치=σ · 테두리색=모멘텀 (MACD+RSI) · ▪ 평균단가 · ● 매수 ● 매도 (당시 σ) "
-            f"· σ%=변동성 · β·{TREND_DAYS}d=최근 {TREND_DAYS}일 추세 · 수익=평가수익률"
+            f"· σ%=변동성 · β·{TREND_DAYS}d=최근 {TREND_DAYS}일 추세 · DD=역대 고점 대비 · 수익=평가수익률"
         )
 
     # ====================================================
