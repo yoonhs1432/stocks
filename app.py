@@ -2500,12 +2500,13 @@ def render_position_tracker(
     if df_daily is not None and sigma_unit > 0 and np.isfinite(sigma_unit):
         sigma_pct_int = int(round((np.exp(sigma_unit) - 1) * 100))
 
-    # β·SPY (한눈에 보기와 동일 - main()에서 계산된 값 사용)
+    # β·SPY (SPY 대비 로그 회귀 슬로프, 배수)
     spy_betas_hdr = st.session_state.get('spy_betas', {})
     beta_spy_hdr = spy_betas_hdr.get(selected_ticker)
-    trend_pct_int = None
+    beta_str_hdr = "—"
     if beta_spy_hdr is not None and np.isfinite(beta_spy_hdr):
-        trend_pct_int = int(round(beta_spy_hdr * 10))   # SPY +10% 시 변화율
+        sign = '+' if beta_spy_hdr >= 0 else ''
+        beta_str_hdr = f"{sign}{beta_spy_hdr:.1f}×"
 
     # DD (역대 고점 대비)
     dd_pct_int = None
@@ -2530,17 +2531,13 @@ def render_position_tracker(
                         dd_color_hdr = '#2563eb'
 
     sigma_str_hdr = f"±{sigma_pct_int}%" if sigma_pct_int is not None else "—"
-    trend_str_hdr = (
-        signed_str(trend_pct_int, '{:d}') + "%"
-        if trend_pct_int is not None else "—"
-    )
     dd_str_hdr = f"{dd_pct_int}%" if dd_pct_int is not None else "—"
 
     header_right = (
         f"<span style='font-size:0.7rem;color:#6b7280;'>"
         f"<span title='1σ 변동성' style='font-weight:600;'>σ {sigma_str_hdr}</span>"
-        f" · <span title='SPY +10% 시 종목 변화율' style='font-weight:600;'>"
-        f"β·SPY {trend_str_hdr}</span>"
+        f" · <span title='SPY 대비 로그회귀 슬로프 (장기 가격 관계)' style='font-weight:600;'>"
+        f"β·SPY {beta_str_hdr}</span>"
         f" · <span title='역대 고점 대비 드로다운' style='color:{dd_color_hdr};font-weight:600;'>"
         f"DD {dd_str_hdr}</span>"
         f"</span>"
@@ -4081,30 +4078,36 @@ def main() -> None:
     with st.spinner("전체 종목 분석 중..."):
         all_analyses = compute_all_analyses(df_close, _version=8, candle_type=candle_type)
 
-    # ── CAPM β 계산 (SPY 대비) - 한눈에 보기에 사용 ──
-    # 분석 시작일부터 현재까지의 일별 수익률 기반
+    # ── β·SPY 계산 (SPY 대비 로그 회귀) ──
+    # log(ticker_price) = α + β × log(spy_price)
+    # 분석 시작일 ~ 현재 전체 기간의 장기 가격 관계
+    # 선형회귀 슬로프 = β
     spy_betas: dict[str, float] = {}
     spy_col = 'SPY_Close'
     if spy_col in df_close.columns:
-        spy_returns = df_close[spy_col].pct_change().dropna()
-        spy_var = spy_returns.var()
-        if spy_var > 0 and len(spy_returns) > 10:
+        spy_price = df_close[spy_col].dropna()
+        if len(spy_price) > 10:
+            log_spy = np.log(spy_price)
             for tk in TARGET_TICKERS:
                 col = f'{tk}_Close'
                 if col not in df_close.columns:
                     continue
-                tk_returns = df_close[col].pct_change().dropna()
+                tk_price = df_close[col].dropna()
+                # 양수만 (로그 가능)
+                tk_price = tk_price[tk_price > 0]
                 # 공통 인덱스
-                common = spy_returns.index.intersection(tk_returns.index)
+                common = log_spy.index.intersection(tk_price.index)
                 if len(common) < 10:
                     continue
-                cov = np.cov(
-                    tk_returns.loc[common].values,
-                    spy_returns.loc[common].values,
-                )[0, 1]
-                beta_spy = cov / spy_var
-                if np.isfinite(beta_spy):
-                    spy_betas[tk] = float(beta_spy)
+                log_tk = np.log(tk_price.loc[common])
+                log_s = log_spy.loc[common]
+                try:
+                    # numpy.polyfit: deg=1 → [slope, intercept]
+                    slope, _ = np.polyfit(log_s.values, log_tk.values, 1)
+                    if np.isfinite(slope):
+                        spy_betas[tk] = float(slope)
+                except Exception as e:
+                    log.warning(f"β·SPY log-regression failed: {tk}: {e}")
     st.session_state['spy_betas'] = spy_betas
 
     pct_changes = {}
@@ -4368,24 +4371,17 @@ def main() -> None:
 
             sigma_pct_str = f"±{sigma_pct_int}%" if sigma_pct_int is not None else "—"
 
-            # ── β·SPY (SPY +10% 시 종목 변화율) ──
+            # ── β·SPY (SPY 대비 로그 회귀 슬로프, 배수) ──
             spy_betas = st.session_state.get('spy_betas', {})
             beta_spy = spy_betas.get(ticker)
-            trend_pct_int = None
-            if beta_spy is not None and np.isfinite(beta_spy):
-                # SPY +10% 변동 시 종목 변화율 = β × 10
-                trend_pct_int = int(round(beta_spy * 10))
-
-            trend_pct_str = (
-                signed_str(trend_pct_int, '{:d}') + "%"
-                if trend_pct_int is not None else "—"
-            )
+            beta_str = "—"
             trend_color = '#6b7280'   # 단색
+            if beta_spy is not None and np.isfinite(beta_spy):
+                # 배수 그대로 표시 (소수점 1자리)
+                sign = '+' if beta_spy >= 0 else ''
+                beta_str = f"{sign}{beta_spy:.1f}×"
 
-            trend_pct_str = (
-                signed_str(trend_pct_int, '{:d}') + "%"
-                if trend_pct_int is not None else "—"
-            )
+            trend_pct_str = beta_str
 
             # ── DD% (역대 고점 대비 드로다운) ──
             # 종목 Norm 시계열 cummax 대비 현재 위치
@@ -4456,7 +4452,7 @@ def main() -> None:
 
         st.caption(
             f"■ 현재가 위치=σ · 테두리색=모멘텀 (MACD+RSI) · ▪ 평균단가 · ● 매수 ● 매도 (당시 σ) "
-            f"· σ%=변동성 · β·SPY=SPY +10% 시 종목 변화율 · DD=역대 고점 대비 · 수익=평가수익률"
+            f"· σ%=변동성 · β·SPY=SPY 대비 로그회귀 슬로프 (배수) · DD=역대 고점 대비 · 수익=평가수익률"
         )
 
         # ── σ vs β 산점도 ──
@@ -4490,11 +4486,12 @@ def main() -> None:
                     t_sigma_unit = float(t_exp_std.iloc[-1])
                     if t_sigma_unit > 0 and np.isfinite(t_sigma_unit):
                         sigma_pct_v = (np.exp(t_sigma_unit) - 1) * 100
-            # β·SPY
+            # β·SPY (로그 회귀 슬로프, 배수)
             beta_v = spy_betas_sc.get(ticker)
-            beta_pct_v = beta_v * 10 if beta_v is not None and np.isfinite(beta_v) else None
+            if beta_v is None or not np.isfinite(beta_v):
+                beta_v = None
 
-            if sigma_pct_v is None or beta_pct_v is None:
+            if sigma_pct_v is None or beta_v is None:
                 continue
 
             # 점 크기 (보유 평가금액 비례, 미보유는 작게)
@@ -4511,7 +4508,7 @@ def main() -> None:
             scatter_data.append({
                 'ticker': ticker,
                 'sigma': sigma_pct_v,
-                'beta': beta_pct_v,
+                'beta': beta_v,
                 'eval': eval_usd,
                 'holding': is_holding,
             })
@@ -4553,7 +4550,7 @@ def main() -> None:
                 hovertemplate=(
                     '<b>%{text}</b><br>'
                     'σ: ±%{x:.0f}%<br>'
-                    'β·SPY: %{y:+.0f}%<extra></extra>'
+                    'β·SPY: %{y:+.2f}×<extra></extra>'
                 ),
                 showlegend=False,
             ))
@@ -4576,8 +4573,8 @@ def main() -> None:
             # 축 범위
             sigma_min = min(sigma_vals) * 0.85
             sigma_max = max(sigma_vals) * 1.15
-            beta_min = min(beta_vals) - 5
-            beta_max = max(beta_vals) + 5
+            beta_min = min(beta_vals) - 0.5
+            beta_max = max(beta_vals) + 0.5
 
             fig_sc.update_layout(
                 height=400,
@@ -4590,11 +4587,12 @@ def main() -> None:
                     ticksuffix='%',
                 ),
                 yaxis=dict(
-                    title=dict(text='β·SPY (SPY +10% 시 변화)', font=dict(size=11)),
+                    title=dict(text='β·SPY (SPY 대비 로그회귀 슬로프)',
+                               font=dict(size=11)),
                     showgrid=True, gridcolor='rgba(156,163,175,0.15)',
                     tickfont=dict(size=9),
                     range=[beta_min, beta_max],
-                    ticksuffix='%',
+                    ticksuffix='×',
                     zeroline=True, zerolinecolor='#9ca3af', zerolinewidth=1,
                 ),
                 paper_bgcolor='white', plot_bgcolor='white',
