@@ -1616,21 +1616,6 @@ def _build_alloc_html(
             f"</div>"
         )
 
-    # 시드 사용률
-    used_pct = total_inv * usd_krw / CFG.SEED_KRW * 100
-    use_color = (
-        '#b91c1c' if used_pct >= 90
-        else '#f59e0b' if used_pct >= 70
-        else '#16a34a'
-    )
-    html += (
-        f"<div style='font-size:0.6rem;color:{COLOR_LABEL};margin-top:6px;"
-        f"padding-top:4px;border-top:1px dashed #e5e7eb;display:flex;"
-        f"justify-content:space-between;'>"
-        f"<span>총 원금 ${int(round(total_inv)):,}</span>"
-        f"<span style='color:{use_color};font-weight:700;'>"
-        f"시드 대비 {used_pct:.0f}% 사용</span></div>"
-    )
     return html
 
 
@@ -2510,52 +2495,54 @@ def render_position_tracker(
         return f"<span style='font-weight:700;color:{color};'>{sign}${int(round(val)):,}</span>"
 
     # ── 종목명 헤더 — 한눈에 보기와 동일 정보 ──
-    # σ% (변동성), β·30d (추세), 수익% (보유 시)
-    TREND_DAYS_HDR = 30
+    # σ% (변동성), β·SPY (SPY +10% 시 변화율), DD (역대 고점 대비)
     sigma_pct_int = None
     if df_daily is not None and sigma_unit > 0 and np.isfinite(sigma_unit):
         sigma_pct_int = int(round((np.exp(sigma_unit) - 1) * 100))
 
+    # β·SPY (한눈에 보기와 동일 - main()에서 계산된 값 사용)
+    spy_betas_hdr = st.session_state.get('spy_betas', {})
+    beta_spy_hdr = spy_betas_hdr.get(selected_ticker)
     trend_pct_int = None
-    trend_color_hdr = '#6b7280'
-    if (df_daily is not None and 'Predicted' in df_daily.columns
-            and len(df_daily) > TREND_DAYS_HDR):
-        try:
-            p_recent = float(df_daily['Predicted'].iloc[-1])
-            p_past = float(df_daily['Predicted'].iloc[-(TREND_DAYS_HDR + 1)])
-            if p_past > 0 and np.isfinite(p_recent) and np.isfinite(p_past):
-                trend_pct_v = (p_recent / p_past - 1) * 100
-                trend_pct_int = int(round(trend_pct_v))
-                trend_color_hdr = pnl_color(trend_pct_v)
-        except Exception:
-            pass
+    if beta_spy_hdr is not None and np.isfinite(beta_spy_hdr):
+        trend_pct_int = int(round(beta_spy_hdr * 10))   # SPY +10% 시 변화율
 
-    # 평가수익률 (보유 시만)
-    avg_price_hdr = None
-    ts_hdr = portfolio_state.get(selected_ticker)
-    if (ts_hdr and ts_hdr['cycle']['hold_qty'] > 0
-            and ts_hdr['cycle']['buy_qty'] > 0):
-        avg_price_hdr = ts_hdr['cycle']['buy_cost'] / ts_hdr['cycle']['buy_qty']
-
-    ret_pct_str_hdr = "—"
-    ret_color_hdr = '#9ca3af'
-    if avg_price_hdr is not None and current_price is not None:
-        ret_pct_v = (current_price / avg_price_hdr - 1) * 100
-        ret_pct_int = int(round(ret_pct_v))
-        ret_pct_str_hdr = signed_str(ret_pct_int, '{:d}') + "%"
-        ret_color_hdr = pnl_color(ret_pct_v)
+    # DD (역대 고점 대비)
+    dd_pct_int = None
+    dd_color_hdr = '#9ca3af'
+    if df_daily is not None:
+        norm_col = f'{selected_ticker}_Norm'
+        if norm_col in df_daily.columns:
+            t_norm = df_daily[norm_col].dropna()
+            if len(t_norm) > 0:
+                cummax_v = float(t_norm.cummax().iloc[-1])
+                cur_v = float(t_norm.iloc[-1])
+                if cummax_v > 0 and np.isfinite(cummax_v) and np.isfinite(cur_v):
+                    dd_v = (cur_v / cummax_v - 1) * 100
+                    dd_pct_int = int(round(dd_v))
+                    if dd_v >= -3:
+                        dd_color_hdr = '#dc2626'
+                    elif dd_v >= -10:
+                        dd_color_hdr = '#f59e0b'
+                    elif dd_v >= -25:
+                        dd_color_hdr = '#6b7280'
+                    else:
+                        dd_color_hdr = '#2563eb'
 
     sigma_str_hdr = f"±{sigma_pct_int}%" if sigma_pct_int is not None else "—"
     trend_str_hdr = (
         signed_str(trend_pct_int, '{:d}') + "%"
         if trend_pct_int is not None else "—"
     )
+    dd_str_hdr = f"{dd_pct_int}%" if dd_pct_int is not None else "—"
 
     header_right = (
         f"<span style='font-size:0.7rem;color:#6b7280;'>"
         f"<span title='1σ 변동성' style='font-weight:600;'>σ {sigma_str_hdr}</span>"
-        f" · <span title='30일 추세' style='color:{trend_color_hdr};font-weight:600;'>"
-        f"β·30d {trend_str_hdr}</span>"
+        f" · <span title='SPY +10% 시 종목 변화율' style='font-weight:600;'>"
+        f"β·SPY {trend_str_hdr}</span>"
+        f" · <span title='역대 고점 대비 드로다운' style='color:{dd_color_hdr};font-weight:600;'>"
+        f"DD {dd_str_hdr}</span>"
         f"</span>"
     )
     header_html = (
@@ -4471,6 +4458,153 @@ def main() -> None:
             f"■ 현재가 위치=σ · 테두리색=모멘텀 (MACD+RSI) · ▪ 평균단가 · ● 매수 ● 매도 (당시 σ) "
             f"· σ%=변동성 · β·SPY=SPY +10% 시 종목 변화율 · DD=역대 고점 대비 · 수익=평가수익률"
         )
+
+        # ── σ vs β 산점도 ──
+        st.markdown(
+            "<div style='margin-top:16px;padding:8px 4px 4px 4px;"
+            "border-top:1px solid #e5e7eb;font-size:0.7rem;font-weight:700;"
+            "color:#6b7280;'>📊 종목 변동성·시장민감도 분포</div>",
+            unsafe_allow_html=True,
+        )
+
+        # 데이터 수집
+        scatter_data = []
+        spy_betas_sc = st.session_state.get('spy_betas', {})
+        for ticker in TARGET_TICKERS:
+            t_result = all_analyses.get(ticker)
+            if not t_result or t_result[0] is None:
+                continue
+            t_df, _, _ = t_result
+            if t_df.empty:
+                continue
+            # σ%
+            t_norm_col = f'{ticker}_Norm'
+            sigma_pct_v = None
+            if 'Predicted' in t_df.columns and t_norm_col in t_df.columns:
+                t_log_resid = (np.log(t_df[t_norm_col]) - np.log(t_df['Predicted'])).dropna()
+                t_exp_std = t_log_resid.expanding(
+                    min_periods=CFG.EXPANDING_MIN_PERIODS
+                ).std().dropna()
+                if len(t_exp_std) > 0:
+                    t_sigma_unit = float(t_exp_std.iloc[-1])
+                    if t_sigma_unit > 0 and np.isfinite(t_sigma_unit):
+                        sigma_pct_v = (np.exp(t_sigma_unit) - 1) * 100
+            # β·SPY
+            beta_v = spy_betas_sc.get(ticker)
+            beta_pct_v = beta_v * 10 if beta_v is not None and np.isfinite(beta_v) else None
+
+            if sigma_pct_v is None or beta_pct_v is None:
+                continue
+
+            # 점 크기 (보유 평가금액 비례, 미보유는 작게)
+            t_ts = portfolio_state.get(ticker)
+            if t_ts and t_ts['cycle']['hold_qty'] > 0 and t_ts['cycle']['buy_qty'] > 0:
+                t_avg = t_ts['cycle']['buy_cost'] / t_ts['cycle']['buy_qty']
+                t_cur = df_close_last.get(f'{ticker}_Close', t_avg)
+                eval_usd = t_cur * t_ts['cycle']['hold_qty']
+                is_holding = True
+            else:
+                eval_usd = 0
+                is_holding = False
+
+            scatter_data.append({
+                'ticker': ticker,
+                'sigma': sigma_pct_v,
+                'beta': beta_pct_v,
+                'eval': eval_usd,
+                'holding': is_holding,
+            })
+
+        if scatter_data:
+            # 점 크기 스케일링
+            max_eval = max((d['eval'] for d in scatter_data), default=0)
+            sizes = []
+            for d in scatter_data:
+                if d['holding'] and max_eval > 0:
+                    # 보유: 평가금액 비례 (12 ~ 30)
+                    size = 12 + (d['eval'] / max_eval) * 18
+                else:
+                    # 미보유: 작게 (8)
+                    size = 8
+                sizes.append(size)
+
+            # 색상: 보유 빨강, 미보유 회색
+            colors = [
+                '#dc2626' if d['holding'] else '#9ca3af'
+                for d in scatter_data
+            ]
+            opacities = [0.85 if d['holding'] else 0.5 for d in scatter_data]
+
+            fig_sc = go.Figure()
+            fig_sc.add_trace(go.Scatter(
+                x=[d['sigma'] for d in scatter_data],
+                y=[d['beta'] for d in scatter_data],
+                mode='markers+text',
+                marker=dict(
+                    size=sizes,
+                    color=colors,
+                    opacity=opacities,
+                    line=dict(color='white', width=1),
+                ),
+                text=[display_name(d['ticker']) for d in scatter_data],
+                textposition='top center',
+                textfont=dict(size=9, color='#374151'),
+                hovertemplate=(
+                    '<b>%{text}</b><br>'
+                    'σ: ±%{x:.0f}%<br>'
+                    'β·SPY: %{y:+.0f}%<extra></extra>'
+                ),
+                showlegend=False,
+            ))
+
+            # 사분면 가이드선 (중앙값)
+            sigma_vals = [d['sigma'] for d in scatter_data]
+            beta_vals = [d['beta'] for d in scatter_data]
+            sigma_med = float(np.median(sigma_vals))
+            beta_med = float(np.median(beta_vals))
+
+            fig_sc.add_hline(
+                y=beta_med, line_dash="dot", line_color='#d1d5db',
+                line_width=1,
+            )
+            fig_sc.add_vline(
+                x=sigma_med, line_dash="dot", line_color='#d1d5db',
+                line_width=1,
+            )
+
+            # 축 범위
+            sigma_min = min(sigma_vals) * 0.85
+            sigma_max = max(sigma_vals) * 1.15
+            beta_min = min(beta_vals) - 5
+            beta_max = max(beta_vals) + 5
+
+            fig_sc.update_layout(
+                height=400,
+                margin=dict(l=4, r=4, t=10, b=4),
+                xaxis=dict(
+                    title=dict(text='σ% (변동성)', font=dict(size=11)),
+                    showgrid=True, gridcolor='rgba(156,163,175,0.15)',
+                    tickfont=dict(size=9),
+                    range=[sigma_min, sigma_max],
+                    ticksuffix='%',
+                ),
+                yaxis=dict(
+                    title=dict(text='β·SPY (SPY +10% 시 변화)', font=dict(size=11)),
+                    showgrid=True, gridcolor='rgba(156,163,175,0.15)',
+                    tickfont=dict(size=9),
+                    range=[beta_min, beta_max],
+                    ticksuffix='%',
+                    zeroline=True, zerolinecolor='#9ca3af', zerolinewidth=1,
+                ),
+                paper_bgcolor='white', plot_bgcolor='white',
+            )
+            st.plotly_chart(fig_sc, use_container_width=True,
+                            config={'displayModeBar': False, 'staticPlot': True})
+
+            st.caption(
+                "● 빨강=보유 (점 크기=평가금액) · ● 회색=미보유 · "
+                "점선=중앙값 (4분면 가이드)"
+            )
 
     # ====================================================
     # 탭 3: 전체 통계 (시드/실현/비중/달력/자산추이)
