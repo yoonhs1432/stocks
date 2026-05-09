@@ -2229,57 +2229,114 @@ def render_chart(
          lambda v: '#dc2626' if v <= -CFG.MACD_HIGH else '#1d4ed8' if v >= CFG.MACD_HIGH else 'black'),
     ]:
         if col_name == 'Z_Score':
-            # ── Z 실선 + 임계 fill (막대 대신) ──
+            # ── Z + 모멘텀 패널 ──
+            # 1. 모멘텀 점수 시계열 (정수, 종목카드와 같은 기준)
+            # 2. 점수에 해당하는 색으로 그 날짜 전체 세로 면적 칠하기
+            # 3. Z 라인 (검정), 모멘텀 라인 (주황) 위에 그림
             z_series = df_daily[col_name].fillna(0)
-            # 임계값 초과만 fill되도록 마스킹
-            # |Z| > Z_HIGH 인 부분만 임계선과 Z 사이를 fill
-            z_above = z_series.where(z_series > hi, other=hi)  # Z > +Z_HIGH 위
-            z_below = z_series.where(z_series < lo, other=lo)  # Z < -Z_HIGH 아래
 
-            # 위쪽 임계선 (Z=+Z_HIGH)
-            fig.add_trace(go.Scatter(
-                x=df_daily.index, y=[hi] * len(df_daily),
-                mode='lines', line=dict(color='rgba(0,0,0,0)', width=0),
-                showlegend=False, hoverinfo='skip',
-            ), row=row, col=1)
-            # Z 위 fill (임계 초과 매도 영역, 파랑)
-            fig.add_trace(go.Scatter(
-                x=df_daily.index, y=z_above,
-                mode='lines', line=dict(color='rgba(0,0,0,0)', width=0),
-                fill='tonexty', fillcolor='rgba(37,99,235,0.18)',  # 파랑 (매도 강)
-                name='Z>임계', hoverinfo='skip', showlegend=False,
-            ), row=row, col=1)
+            # 모멘텀 점수 (정수, compute_momentum_score와 동일)
+            mhz_v = df_daily['MACD_Hist_Z'].fillna(0).values
+            rsi_v = df_daily['RSI'].fillna(50).values
+            s_mhz_smooth = 1.2 * (mhz_v / CFG.MACD_HIGH)
+            s_rsi_smooth = 0.8 * ((rsi_v - 50) / 20.0)
+            momentum_smooth = 2.0 * (s_mhz_smooth + s_rsi_smooth)
+            momentum_series = pd.Series(momentum_smooth, index=df_daily.index)
+            # 종목카드 색 분기에 사용할 정수 점수
+            momentum_int = momentum_series.round().astype(int).clip(-4, 4)
 
-            # 아래쪽 임계선 (Z=-Z_HIGH)
-            fig.add_trace(go.Scatter(
-                x=df_daily.index, y=[lo] * len(df_daily),
-                mode='lines', line=dict(color='rgba(0,0,0,0)', width=0),
-                showlegend=False, hoverinfo='skip',
-            ), row=row, col=1)
-            # Z 아래 fill (임계 초과 매수 영역, 빨강)
-            fig.add_trace(go.Scatter(
-                x=df_daily.index, y=z_below,
-                mode='lines', line=dict(color='rgba(0,0,0,0)', width=0),
-                fill='tonexty', fillcolor='rgba(220,38,38,0.18)',  # 빨강 (매수 강)
-                name='Z<임계', hoverinfo='skip', showlegend=False,
-            ), row=row, col=1)
+            # 면적 색 (종목카드 / 탭2 마커 / 그래프 3 단일 기준)
+            # 절대값이 클수록 더 진한 색. 0~1 중립 = 면적 없음
+            #   |M|>=4: 진한 (alpha 0.18)
+            #   |M|>=2: 보통 (alpha 0.12)
+            #   |M|>=1: 약한 (alpha 0.06)
+            #   |M|<1:  없음
+            def _mom_fill_rgba(score: int) -> Optional[str]:
+                if score <= -4:    return 'rgba(127,29,29,0.18)'   # 강 매수 (진빨강)
+                if score <= -2:    return 'rgba(220,38,38,0.12)'   # 매수 (빨강)
+                if score <= -1:    return 'rgba(252,165,165,0.10)' # 약 매수 (연빨강)
+                if score >=  4:    return 'rgba(30,58,138,0.18)'   # 강 매도 (진파랑)
+                if score >=  2:    return 'rgba(37,99,235,0.12)'   # 매도 (파랑)
+                if score >=  1:    return 'rgba(147,197,253,0.10)' # 약 매도 (연파랑)
+                return None
 
-            # Z 실선 (남색, 굵게)
+            # 연속 같은 색 구간을 vrect로 합쳐 그림 (성능 + 시각)
+            # df_daily.index를 따라 같은 색 구간끼리 묶고 vrect 출력
+            cur_color = None
+            seg_start = None
+            idx_list = list(df_daily.index)
+            for i, (idx, sc) in enumerate(zip(idx_list, momentum_int)):
+                rgba = _mom_fill_rgba(int(sc))
+                if rgba != cur_color:
+                    # 색 바뀜: 직전 구간 fill 처리
+                    if cur_color is not None and seg_start is not None:
+                        seg_end = idx_list[i - 1]
+                        # 한 점만 있으면 폭 너무 좁아짐 → 다음 점까지 확장 효과
+                        # vrect: x0 ~ x1 사이 세로 채움 (행 별로)
+                        fig.add_vrect(
+                            x0=seg_start, x1=seg_end,
+                            fillcolor=cur_color, line_width=0,
+                            layer='below', row=row, col=1,
+                        )
+                    cur_color = rgba
+                    seg_start = idx
+            # 마지막 구간
+            if cur_color is not None and seg_start is not None:
+                fig.add_vrect(
+                    x0=seg_start, x1=idx_list[-1],
+                    fillcolor=cur_color, line_width=0,
+                    layer='below', row=row, col=1,
+                )
+
+            # ── Z 임계 수평선 (왼쪽 Y축 기준) ──
+            # ±1 (약), ±2 (강) — 색은 의미 따라 (위는 파랑=매도, 아래는 빨강=매수)
+            for y_val, lc, ld in [
+                (CFG.Z_HIGH,  '#1d4ed8', 'solid'),  # +2 강 매도
+                (1.0,         '#93c5fd', 'dot'),    # +1 약 매도
+                (-1.0,        '#fca5a5', 'dot'),    # -1 약 매수
+                (-CFG.Z_HIGH, '#dc2626', 'solid'),  # -2 강 매수
+                (0,           '#9ca3af', 'solid'),  # 중립
+            ]:
+                fig.add_hline(
+                    y=y_val, line_dash=ld, line_color=lc,
+                    line_width=0.8 if y_val != 0 else 0.5,
+                    row=row, col=1,
+                )
+
+            # ── Z 실선 (검정 굵게) ──
             fig.add_trace(go.Scatter(
                 x=df_daily.index, y=z_series,
                 mode='lines',
-                line=dict(color='#1e40af', width=2, shape='spline', smoothing=0.4),
+                line=dict(color='#111827', width=2.5, shape='spline', smoothing=0.4),
                 name='Z', hoverinfo='skip', showlegend=False,
             ), row=row, col=1)
 
-            # 0/+Z_HIGH/-Z_HIGH 가이드선
-            for y_val, lc, lw in [(hi, '#2563eb', 0.8), (lo, '#dc2626', 0.8), (0, '#9ca3af', 0.6)]:
-                fig.add_hline(
-                    y=y_val, line_dash="solid", line_color=lc,
-                    line_width=lw, row=row, col=1,
-                )
+            # ── 모멘텀 실선 (주황 얇게, 보조 Y축) ──
+            fig.add_trace(go.Scatter(
+                x=df_daily.index, y=momentum_series,
+                mode='lines',
+                line=dict(color='#f97316', width=1.5, shape='spline', smoothing=0.4),
+                name='Momentum', hoverinfo='skip', showlegend=False,
+            ), row=row, col=1, secondary_y=True)
+
             last_v = z_series.iloc[-1]
             val = float(last_v) if pd.notna(last_v) else 0.0
+
+            # ── 범례 (좌측 상단) ──
+            fig.add_annotation(
+                x=0, y=1, xref='x domain', yref='y domain',
+                text=(
+                    "<span style='color:#111827;'>━ Z</span>"
+                    "  "
+                    "<span style='color:#f97316;'>━ M</span>"
+                ),
+                showarrow=False,
+                font=dict(size=11),
+                xanchor='left', yanchor='top',
+                bgcolor='rgba(255,255,255,0.85)', bordercolor='#d1d5db',
+                borderwidth=1, borderpad=3,
+                row=row, col=1,
+            )
         else:
             # MACD: 기존 막대 유지
             colors = _bar_colors(df_daily[col_name], hi, lo, C_HI, C_LO, C_MH, C_ML)
@@ -2295,70 +2352,6 @@ def render_chart(
             last_v = df_daily[col_name].iloc[-1]
             val = float(last_v) if pd.notna(last_v) else 0.0
 
-        # ── Z 패널에만 모멘텀 라인 오버레이 (보조 Y축) ──
-        if col_name == 'Z_Score':
-            # 모멘텀 점수 시계열 (선형 무제한, 가중치 MACD 1.2 / RSI 0.8)
-            # 부호 컨벤션: 음수=매수, 양수=매도
-            mhz_v = df_daily['MACD_Hist_Z'].fillna(0).values
-            rsi_v = df_daily['RSI'].fillna(50).values
-            s_mhz_smooth = 1.2 * (mhz_v / CFG.MACD_HIGH)
-            s_rsi_smooth = 0.8 * ((rsi_v - 50) / 20.0)
-            momentum_smooth = 2.0 * (s_mhz_smooth + s_rsi_smooth)
-            momentum_series = pd.Series(momentum_smooth, index=df_daily.index)
-
-            # 모멘텀 임계값 ±2 (탭2 마커 색 '매수'/'매도' 기준)
-            MOM_THR = 2.0
-            mom_above = momentum_series.where(momentum_series > MOM_THR, other=MOM_THR)
-            mom_below = momentum_series.where(momentum_series < -MOM_THR, other=-MOM_THR)
-
-            # 모멘텀 +임계 (위쪽 fill, 파랑 - 매도 강)
-            fig.add_trace(go.Scatter(
-                x=df_daily.index, y=[MOM_THR] * len(df_daily),
-                mode='lines', line=dict(color='rgba(0,0,0,0)', width=0),
-                showlegend=False, hoverinfo='skip',
-            ), row=row, col=1, secondary_y=True)
-            fig.add_trace(go.Scatter(
-                x=df_daily.index, y=mom_above,
-                mode='lines', line=dict(color='rgba(0,0,0,0)', width=0),
-                fill='tonexty', fillcolor='rgba(37,99,235,0.18)',  # 파랑
-                hoverinfo='skip', showlegend=False,
-            ), row=row, col=1, secondary_y=True)
-
-            # 모멘텀 -임계 (아래쪽 fill, 빨강 - 매수 강)
-            fig.add_trace(go.Scatter(
-                x=df_daily.index, y=[-MOM_THR] * len(df_daily),
-                mode='lines', line=dict(color='rgba(0,0,0,0)', width=0),
-                showlegend=False, hoverinfo='skip',
-            ), row=row, col=1, secondary_y=True)
-            fig.add_trace(go.Scatter(
-                x=df_daily.index, y=mom_below,
-                mode='lines', line=dict(color='rgba(0,0,0,0)', width=0),
-                fill='tonexty', fillcolor='rgba(220,38,38,0.18)',  # 빨강
-                hoverinfo='skip', showlegend=False,
-            ), row=row, col=1, secondary_y=True)
-
-            # 모멘텀 실선 (보라)
-            fig.add_trace(go.Scatter(
-                x=df_daily.index, y=momentum_series,
-                mode='lines',
-                line=dict(color='#7c3aed', width=1.8, shape='spline', smoothing=0.4),
-                name='Momentum', hoverinfo='skip', showlegend=False,
-            ), row=row, col=1, secondary_y=True)
-
-            # 라벨: Z + 모멘텀 마지막 값
-            mom_last_f = float(momentum_series.iloc[-1]) if len(momentum_series) > 0 else 0.0
-            mom_last_int = int(round(mom_last_f))
-            label_text = f"<b>Z {val:+.2f} · M {mom_last_f:+.1f}</b>"
-            mom_color = momentum_to_color(mom_last_int)
-            fig.add_annotation(
-                x=0, y=1, xref='x domain', yref='y domain',
-                text=label_text, showarrow=False,
-                font=dict(size=11, color=color_fn(val)),
-                xanchor='left', yanchor='top',
-                bgcolor='white', bordercolor=mom_color, borderwidth=1.5, borderpad=2,
-                row=row, col=1,
-            )
-        else:
             fig.add_annotation(
                 x=0, y=1, xref='x domain', yref='y domain',
                 text=f"<b>{label}  {val:+.2f}</b>", showarrow=False,
@@ -2525,6 +2518,7 @@ def render_chart(
             'doubleClick': 'reset', 'responsive': True, 'showTips': False,
         },
     )
+
 
 
 # ====================================================
