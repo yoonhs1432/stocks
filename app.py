@@ -2242,20 +2242,16 @@ def render_chart(
             momentum_smooth = 2.0 * (s_mhz_smooth + s_rsi_smooth)
             momentum_series = pd.Series(momentum_smooth, index=df_daily.index)
 
-            # ── 임계 수평선 (양수=빨강, 음수=파랑) ──
-            # add_hline은 secondary_y subplot에서 불안정 → add_shape으로 직접 그림
-            # 주 Y축 (Z) 기준 — yref는 row의 yaxis 번호
-            # row 1=yaxis, row 2=yaxis2, row 3=yaxis3, ...
-            # 단 secondary_y가 있는 row는 yaxisN과 yaxisN+1 두 개를 차지함
-            # 안전하게 xref='x{row} domain', yref는 데이터 좌표로 그리되 row, col 활용
+            # ── 임계 수평선 (Z축 기준, 양수=빨강, 음수=파랑) ──
+            # Z ±1 (약 신호 점선), Z ±2 (강 신호 실선), 0 중립
+            # Y축 동기화로 모멘텀 ±2/±4도 같은 높이에 자동 표시
             for y_val, lc, ld, lw in [
-                (CFG.Z_HIGH,  '#dc2626', 'solid', 1.0),   # +2 빨강
-                (1.0,         '#fca5a5', 'dot',   0.9),   # +1 연빨강
-                (0,           '#9ca3af', 'solid', 0.6),   # 중립
-                (-1.0,        '#93c5fd', 'dot',   0.9),   # -1 연파랑
-                (-CFG.Z_HIGH, '#2563eb', 'solid', 1.0),   # -2 파랑
+                (2.0,   '#dc2626', 'solid', 1.0),   # +2 빨강 강 신호
+                (1.0,   '#fca5a5', 'dot',   0.9),   # +1 연빨강 약 신호
+                (0,     '#9ca3af', 'solid', 0.6),   # 중립
+                (-1.0,  '#93c5fd', 'dot',   0.9),   # -1 연파랑 약 신호
+                (-2.0,  '#2563eb', 'solid', 1.0),   # -2 파랑 강 신호
             ]:
-                # 가장 안정적: hidden trace로 horizontal line
                 fig.add_trace(go.Scatter(
                     x=[df_daily.index[0], df_daily.index[-1]],
                     y=[y_val, y_val],
@@ -2323,29 +2319,45 @@ def render_chart(
             )
 
         view_abs = abs(df_daily.loc[df_daily.index >= view_start, col_name].dropna())
-        rng = max(hi, view_abs.max() if not view_abs.empty else hi)
-        # Z 축 범위 (좌측, 주 Y축)
-        z_axis_max = rng + 0.3
-        fig.update_yaxes(
-            range=[-z_axis_max, z_axis_max], autorange=False, fixedrange=True,
-            row=row, col=1,
-        )
+        z_data_max = float(view_abs.max()) if not view_abs.empty else 0.0
 
-        # 모멘텀 축 동기화 (Z 패널일 때만)
-        # 기본 매핑: Z 축 ±N → 모멘텀 축 ±2N
-        # 의미: Z=±k 위치와 모멘텀=±2k 위치가 시각적으로 동일 → 신호 일치/발산을 위치로 비교
-        # 단, 모멘텀 데이터가 동기화 범위를 넘으면 모멘텀 축을 확장 (잘림 방지)
         if col_name == 'Z_Score':
+            # ── Z + M 동시 동기화 (Z * 2 = M, 0 가운데) ──
+            # 1. Z 데이터 max
+            # 2. M 데이터 max를 Z 단위로 환산 (÷2)
+            # 3. 둘 중 큰 값 + 임계값(2) + 여유 → Z 축 max
+            # 4. M 축 max = Z 축 max × 2 (비율 정확히 유지)
+            # 0이 항상 가운데 (-max ~ +max 대칭)
             mom_view = momentum_series.loc[momentum_series.index >= view_start]
-            mom_data_max = float(abs(mom_view).max()) if not mom_view.empty else 0.0
-            mom_axis_max = max(z_axis_max * 2, mom_data_max + 0.3)
+            m_data_max = float(abs(mom_view).max()) if not mom_view.empty else 0.0
+            # Z 단위 기준 max (Z_HIGH=2, M_HIGH=4 임계값 보장)
+            z_axis_max = max(
+                z_data_max,
+                m_data_max / 2.0,
+                2.0,    # Z 임계 ±2 보이도록
+            ) + 0.3
+            mom_axis_max = z_axis_max * 2.0  # 정확한 비율 유지
+
+            fig.update_yaxes(
+                range=[-z_axis_max, z_axis_max], autorange=False, fixedrange=True,
+                row=row, col=1,
+            )
             fig.update_yaxes(
                 range=[-mom_axis_max, mom_axis_max],
                 autorange=False, fixedrange=True,
                 tickvals=[-6, -4, -2, 0, 2, 4, 6],
-                tickfont=dict(size=8, color='#7c3aed'),
+                tickfont=dict(size=8, color='#f97316'),
                 row=row, col=1, secondary_y=True,
             )
+        else:
+            # MACD 패널: 기존 방식
+            rng = max(hi, z_data_max)
+            macd_axis_max = rng + 0.3
+            fig.update_yaxes(
+                range=[-macd_axis_max, macd_axis_max], autorange=False, fixedrange=True,
+                row=row, col=1,
+            )
+
         row += 1
 
     # RSI
