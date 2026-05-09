@@ -356,7 +356,7 @@ def init_session_state() -> None:
         'selected_option':     lambda: TARGET_TICKERS[0],
         'custom_ticker_input': str,
         'last_data_date':      str,
-        'view_months':         lambda: load_settings().get('view_months', 3),
+        'view_months':         lambda: load_settings().get('view_months', 2),
         'overview_view_months': lambda: 3,
         'overview_bar_unit':    lambda: '일',
         'analysis_start':      lambda: load_settings().get(
@@ -2228,24 +2228,77 @@ def render_chart(
         ('MACD_Hist_Z', CFG.MACD_HIGH, -CFG.MACD_HIGH, 'MACD',
          lambda v: '#dc2626' if v <= -CFG.MACD_HIGH else '#1d4ed8' if v >= CFG.MACD_HIGH else 'black'),
     ]:
-        colors = _bar_colors(df_daily[col_name], hi, lo, C_HI, C_LO, C_MH, C_ML)
-        fig.add_trace(go.Bar(
-            x=df_daily.index, y=df_daily[col_name],
-            marker_color=colors, name=col_name, hoverinfo='skip',
-        ), row=row, col=1)
-        for y_val, lc in [(hi, 'blue'), (-hi, 'red'), (0, 'gray')]:
-            fig.add_hline(
-                y=y_val, line_dash="solid", line_color=lc,
-                line_width=0.8 if y_val != 0 else 0.6, row=row, col=1,
-            )
-        last_v = df_daily[col_name].iloc[-1]
-        val = float(last_v) if pd.notna(last_v) else 0.0
+        if col_name == 'Z_Score':
+            # ── Z 실선 + 임계 fill (막대 대신) ──
+            z_series = df_daily[col_name].fillna(0)
+            # 임계값 초과만 fill되도록 마스킹
+            # |Z| > Z_HIGH 인 부분만 임계선과 Z 사이를 fill
+            z_above = z_series.where(z_series > hi, other=hi)  # Z > +Z_HIGH 위
+            z_below = z_series.where(z_series < lo, other=lo)  # Z < -Z_HIGH 아래
+
+            # 위쪽 임계선 (Z=+Z_HIGH)
+            fig.add_trace(go.Scatter(
+                x=df_daily.index, y=[hi] * len(df_daily),
+                mode='lines', line=dict(color='rgba(0,0,0,0)', width=0),
+                showlegend=False, hoverinfo='skip',
+            ), row=row, col=1)
+            # Z 위 fill (임계 초과 매도 영역, 파랑)
+            fig.add_trace(go.Scatter(
+                x=df_daily.index, y=z_above,
+                mode='lines', line=dict(color='rgba(0,0,0,0)', width=0),
+                fill='tonexty', fillcolor='rgba(37,99,235,0.18)',  # 파랑 (매도 강)
+                name='Z>임계', hoverinfo='skip', showlegend=False,
+            ), row=row, col=1)
+
+            # 아래쪽 임계선 (Z=-Z_HIGH)
+            fig.add_trace(go.Scatter(
+                x=df_daily.index, y=[lo] * len(df_daily),
+                mode='lines', line=dict(color='rgba(0,0,0,0)', width=0),
+                showlegend=False, hoverinfo='skip',
+            ), row=row, col=1)
+            # Z 아래 fill (임계 초과 매수 영역, 빨강)
+            fig.add_trace(go.Scatter(
+                x=df_daily.index, y=z_below,
+                mode='lines', line=dict(color='rgba(0,0,0,0)', width=0),
+                fill='tonexty', fillcolor='rgba(220,38,38,0.18)',  # 빨강 (매수 강)
+                name='Z<임계', hoverinfo='skip', showlegend=False,
+            ), row=row, col=1)
+
+            # Z 실선 (남색, 굵게)
+            fig.add_trace(go.Scatter(
+                x=df_daily.index, y=z_series,
+                mode='lines',
+                line=dict(color='#1e40af', width=2, shape='spline', smoothing=0.4),
+                name='Z', hoverinfo='skip', showlegend=False,
+            ), row=row, col=1)
+
+            # 0/+Z_HIGH/-Z_HIGH 가이드선
+            for y_val, lc, lw in [(hi, '#2563eb', 0.8), (lo, '#dc2626', 0.8), (0, '#9ca3af', 0.6)]:
+                fig.add_hline(
+                    y=y_val, line_dash="solid", line_color=lc,
+                    line_width=lw, row=row, col=1,
+                )
+            last_v = z_series.iloc[-1]
+            val = float(last_v) if pd.notna(last_v) else 0.0
+        else:
+            # MACD: 기존 막대 유지
+            colors = _bar_colors(df_daily[col_name], hi, lo, C_HI, C_LO, C_MH, C_ML)
+            fig.add_trace(go.Bar(
+                x=df_daily.index, y=df_daily[col_name],
+                marker_color=colors, name=col_name, hoverinfo='skip',
+            ), row=row, col=1)
+            for y_val, lc in [(hi, 'blue'), (-hi, 'red'), (0, 'gray')]:
+                fig.add_hline(
+                    y=y_val, line_dash="solid", line_color=lc,
+                    line_width=0.8 if y_val != 0 else 0.6, row=row, col=1,
+                )
+            last_v = df_daily[col_name].iloc[-1]
+            val = float(last_v) if pd.notna(last_v) else 0.0
 
         # ── Z 패널에만 모멘텀 라인 오버레이 (보조 Y축) ──
         if col_name == 'Z_Score':
             # 모멘텀 점수 시계열 (선형 무제한, 가중치 MACD 1.2 / RSI 0.8)
             # 부호 컨벤션: 음수=매수, 양수=매도
-            # 임계값 이상의 강도 차이 보존 (saturation 없음)
             mhz_v = df_daily['MACD_Hist_Z'].fillna(0).values
             rsi_v = df_daily['RSI'].fillna(50).values
             s_mhz_smooth = 1.2 * (mhz_v / CFG.MACD_HIGH)
@@ -2253,16 +2306,46 @@ def render_chart(
             momentum_smooth = 2.0 * (s_mhz_smooth + s_rsi_smooth)
             momentum_series = pd.Series(momentum_smooth, index=df_daily.index)
 
-            # 0 이하/이상 fill로 매수/매도 영역 강조
+            # 모멘텀 임계값 ±2 (탭2 마커 색 '매수'/'매도' 기준)
+            MOM_THR = 2.0
+            mom_above = momentum_series.where(momentum_series > MOM_THR, other=MOM_THR)
+            mom_below = momentum_series.where(momentum_series < -MOM_THR, other=-MOM_THR)
+
+            # 모멘텀 +임계 (위쪽 fill, 파랑 - 매도 강)
+            fig.add_trace(go.Scatter(
+                x=df_daily.index, y=[MOM_THR] * len(df_daily),
+                mode='lines', line=dict(color='rgba(0,0,0,0)', width=0),
+                showlegend=False, hoverinfo='skip',
+            ), row=row, col=1, secondary_y=True)
+            fig.add_trace(go.Scatter(
+                x=df_daily.index, y=mom_above,
+                mode='lines', line=dict(color='rgba(0,0,0,0)', width=0),
+                fill='tonexty', fillcolor='rgba(37,99,235,0.18)',  # 파랑
+                hoverinfo='skip', showlegend=False,
+            ), row=row, col=1, secondary_y=True)
+
+            # 모멘텀 -임계 (아래쪽 fill, 빨강 - 매수 강)
+            fig.add_trace(go.Scatter(
+                x=df_daily.index, y=[-MOM_THR] * len(df_daily),
+                mode='lines', line=dict(color='rgba(0,0,0,0)', width=0),
+                showlegend=False, hoverinfo='skip',
+            ), row=row, col=1, secondary_y=True)
+            fig.add_trace(go.Scatter(
+                x=df_daily.index, y=mom_below,
+                mode='lines', line=dict(color='rgba(0,0,0,0)', width=0),
+                fill='tonexty', fillcolor='rgba(220,38,38,0.18)',  # 빨강
+                hoverinfo='skip', showlegend=False,
+            ), row=row, col=1, secondary_y=True)
+
+            # 모멘텀 실선 (보라)
             fig.add_trace(go.Scatter(
                 x=df_daily.index, y=momentum_series,
                 mode='lines',
-                line=dict(color='#7c3aed', width=1.8, shape='spline', smoothing=0.5),
-                fill='tozeroy', fillcolor='rgba(124,58,237,0.08)',
-                name='Momentum', hoverinfo='skip',
+                line=dict(color='#7c3aed', width=1.8, shape='spline', smoothing=0.4),
+                name='Momentum', hoverinfo='skip', showlegend=False,
             ), row=row, col=1, secondary_y=True)
 
-            # 라벨: Z + 모멘텀 마지막 값 (소수점 1자리로 미세 변화 가시화)
+            # 라벨: Z + 모멘텀 마지막 값
             mom_last_f = float(momentum_series.iloc[-1]) if len(momentum_series) > 0 else 0.0
             mom_last_int = int(round(mom_last_f))
             label_text = f"<b>Z {val:+.2f} · M {mom_last_f:+.1f}</b>"
@@ -2454,6 +2537,7 @@ def render_position_tracker(
     portfolio_state: dict[str, TickerState],
     beta: Optional[float] = None,
     std_resid: Optional[float] = None,
+    phase: str = 'all',  # 'top' (헤더+위치바), 'bottom' (정보카드+사이클+메모), 'all' (모두)
 ) -> None:
     portfolio_pnl = calc_portfolio_total_pnl(portfolio_state, df_close)
     usd_krw, is_fallback = fetch_usd_krw()
@@ -2572,29 +2656,34 @@ def render_position_tracker(
             html_metric("현재가", f"${current_price:,.2f}")
             if current_price is not None else html_dash_cell("현재가")
         )
-        st.markdown(header_html + f"""
-        <div style='display:flex;gap:12px;flex-wrap:wrap;margin:0 0 8px 0;
-                    padding:8px 12px;background:#f3f4f6;
-                    border:1px solid #d1d5db;border-radius:8px;font-size:0.78rem;'>
-          {price_html}
-          {html_dash_cell("평균단가")}
-          {html_dash_cell("보유수량")}
-          {html_dash_cell("보유기간")}
-          {html_dash_cell("평가손익")}
-          {html_dash_cell("누적실현손익")}
-        </div>""", unsafe_allow_html=True)
-        # 액션 카드 (미보유 — 단, 과거 매매 이력은 있을 수 있음)
-        if (current_price is not None and beta is not None and std_resid is not None):
-            records_for_card = (
-                st.session_state.trade_history.get(selected_ticker, [])
-                if hasattr(st, 'session_state') else None
-            )
-            action_card = build_action_card_html(
-                df_daily, selected_ticker, current_price, None, beta, std_resid,
-                trade_records=records_for_card,
-            )
-            if action_card:
-                st.markdown(action_card, unsafe_allow_html=True)
+        if phase in ('top', 'all'):
+            # 헤더만
+            st.markdown(header_html, unsafe_allow_html=True)
+            # 액션 카드 (위치 바)
+            if (current_price is not None and beta is not None and std_resid is not None):
+                records_for_card = (
+                    st.session_state.trade_history.get(selected_ticker, [])
+                    if hasattr(st, 'session_state') else None
+                )
+                action_card = build_action_card_html(
+                    df_daily, selected_ticker, current_price, None, beta, std_resid,
+                    trade_records=records_for_card,
+                )
+                if action_card:
+                    st.markdown(action_card, unsafe_allow_html=True)
+        if phase in ('bottom', 'all'):
+            # 정보 카드
+            st.markdown(f"""
+            <div style='display:flex;gap:12px;flex-wrap:wrap;margin:0 0 8px 0;
+                        padding:8px 12px;background:#f3f4f6;
+                        border:1px solid #d1d5db;border-radius:8px;font-size:0.78rem;'>
+              {price_html}
+              {html_dash_cell("평균단가")}
+              {html_dash_cell("보유수량")}
+              {html_dash_cell("보유기간")}
+              {html_dash_cell("평가손익")}
+              {html_dash_cell("누적실현손익")}
+            </div>""", unsafe_allow_html=True)
         return
 
     cyc = ts['cycle']
@@ -2659,28 +2748,33 @@ def render_position_tracker(
     bg_color = '#f0fdf4' if hold_qty > 0 else '#f3f4f6'
     border_c = '#86efac' if hold_qty > 0 else '#d1d5db'
 
-    st.markdown(header_html + f"""
-    <div style='display:flex;gap:12px;flex-wrap:wrap;margin:0 0 8px 0;
-                padding:8px 12px;background:{bg_color};
-                border:1px solid {border_c};border-radius:8px;font-size:0.78rem;'>
-      {price_html}
-      {avg_html}
-      {qty_html}
-      {period_html}
-      {pnl_html}
-      {cumulative_html}
-    </div>""", unsafe_allow_html=True)
+    if phase in ('top', 'all'):
+        # 헤더만
+        st.markdown(header_html, unsafe_allow_html=True)
+        # 액션 카드 (위치 바)
+        if current_price is not None and beta is not None and std_resid is not None:
+            records_for_card = st.session_state.trade_history.get(selected_ticker, [])
+            action_card = build_action_card_html(
+                df_daily, selected_ticker, current_price,
+                avg_price if hold_qty > 0 else None, beta, std_resid,
+                trade_records=records_for_card,
+            )
+            if action_card:
+                st.markdown(action_card, unsafe_allow_html=True)
 
-    # 액션 카드 (보유 중)
-    if current_price is not None and beta is not None and std_resid is not None:
-        records_for_card = st.session_state.trade_history.get(selected_ticker, [])
-        action_card = build_action_card_html(
-            df_daily, selected_ticker, current_price,
-            avg_price if hold_qty > 0 else None, beta, std_resid,
-            trade_records=records_for_card,
-        )
-        if action_card:
-            st.markdown(action_card, unsafe_allow_html=True)
+    if phase in ('bottom', 'all'):
+        # 정보 카드
+        st.markdown(f"""
+        <div style='display:flex;gap:12px;flex-wrap:wrap;margin:0 0 8px 0;
+                    padding:8px 12px;background:{bg_color};
+                    border:1px solid {border_c};border-radius:8px;font-size:0.78rem;'>
+          {price_html}
+          {avg_html}
+          {qty_html}
+          {period_html}
+          {pnl_html}
+          {cumulative_html}
+        </div>""", unsafe_allow_html=True)
 
 
 # ====================================================
@@ -3290,195 +3384,6 @@ def render_analytics_panel(
     std_resid: Optional[float] = None,
 ) -> None:
     """차트 아래 expander (세로 stack, 모바일 친화)."""
-
-    # ── #20 진입/익절 가격 제안 (σ + 역사적 분위 통합) ──
-    if (df_daily is not None and not df_daily.empty
-            and beta is not None and std_resid is not None):
-        with st.expander("🎯 매매가 제안", expanded=False):
-            close_col = f'{selected_ticker}_Close'
-            if close_col not in df_daily.columns:
-                st.caption("데이터 부족")
-            else:
-                cur_price = float(df_daily[close_col].iloc[-1])
-                cur_predicted = float(df_daily['Predicted'].iloc[-1])
-                cur_norm_y = float(df_daily[f'{selected_ticker}_Norm'].iloc[-1])
-                trend_price = cur_price * (cur_predicted / cur_norm_y)
-
-                # log_resid 시계열
-                log_resid_series = (
-                    np.log(df_daily[f'{selected_ticker}_Norm'])
-                    - np.log(df_daily['Predicted'])
-                ).dropna()
-
-                # ── 현재 시점 expanding std (그래프2의 Z-score와 일치) ──
-                expanding_std = log_resid_series.expanding(
-                    min_periods=CFG.EXPANDING_MIN_PERIODS
-                ).std()
-                cur_std = expanding_std.dropna()
-                if len(cur_std) > 0:
-                    sigma_unit = float(cur_std.iloc[-1])
-                    if sigma_unit <= 0 or not np.isfinite(sigma_unit):
-                        sigma_unit = std_resid
-                else:
-                    sigma_unit = std_resid
-
-                # ── σ 기반 가격 (회귀 모델) ──
-                def _price_at_sigma(k: float) -> float:
-                    return trend_price * np.exp(k * sigma_unit)
-
-                # ── 분위 기반 가격 (실증) ──
-                # 과거 log_resid의 분위값 → 그 분위에서의 가격
-                def _price_at_quantile(q: float) -> Optional[float]:
-                    """q는 0~1 (예: 0.10 = 하위 10% 분위)."""
-                    if len(log_resid_series) < 30:
-                        return None
-                    qval = float(log_resid_series.quantile(q))
-                    return trend_price * np.exp(qval)
-
-                # ── 보유 중 여부 + % 기준점 결정 (#2) ──
-                ts = portfolio_state.get(selected_ticker)
-                avg_price = None
-                if ts and ts['cycle']['hold_qty'] > 0 and ts['cycle']['buy_qty'] > 0:
-                    avg_price = ts['cycle']['buy_cost'] / ts['cycle']['buy_qty']
-
-                ref_price = avg_price if avg_price else cur_price
-                ref_label = "평균단가" if avg_price else "현재가"
-
-                def _pct_from_ref(p: float) -> str:
-                    pct = (p / ref_price - 1) * 100
-                    return signed_str(pct, '{:.1f}') + "%"
-
-                # 표 행에서 σ 표시용 헬퍼 (expanding std 기준)
-                def _price_to_sigma(p: float) -> float:
-                    if p <= 0 or trend_price <= 0:
-                        return 0.0
-                    return float(np.log(p / trend_price) / sigma_unit)
-                cur_sigma = _price_to_sigma(cur_price)
-
-                # ── 통합 매매가 테이블 ──
-                # 각 신호별: σ 가격 + 분위 가격 + 추천가(평균) + 신뢰도
-                # 분위 매핑: σ ≈ 정규분포의 분위와 비슷하게 잡음
-                #   -2σ ≈ 2.5%분위, -1.5σ ≈ 7%, -1σ ≈ 16%, +1σ ≈ 84%, +1.5σ ≈ 93%, +2σ ≈ 97.5%
-                signal_specs = [
-                    ("FB2 진입", '#7f1d1d', -2.0, 0.025),
-                    ("FB 진입",  '#dc2626', -1.5, 0.07),
-                    ("B 진입",   '#fca5a5', -1.0, 0.16),
-                    ("회귀선",   '#6b7280',  0.0, 0.50),
-                    ("S 익절",   '#93c5fd',  1.0, 0.84),
-                    ("FS 익절",  '#2563eb',  1.5, 0.93),
-                    ("FS2 익절", '#1e3a8a',  2.0, 0.975),
-                ]
-
-                def _confidence_stars(p_sigma: float, p_quantile: Optional[float]) -> str:
-                    """σ 가격과 분위 가격이 비슷할수록 신뢰도 ↑."""
-                    if p_quantile is None:
-                        return "<span style='color:#9ca3af;'>·</span>"
-                    diff_pct = abs(p_sigma - p_quantile) / max(p_sigma, 0.01) * 100
-                    if diff_pct < 3:
-                        return "<span style='color:#16a34a;'>★★★</span>"
-                    elif diff_pct < 8:
-                        return "<span style='color:#ca8a04;'>★★</span>"
-                    else:
-                        return "<span style='color:#9ca3af;'>★</span>"
-
-                tbl = [
-                    "<table style='width:100%;font-size:0.7rem;border-collapse:collapse;'>",
-                    "<tr style='color:#6b7280;border-bottom:1px solid #e5e7eb;'>"
-                    "<th style='text-align:left;padding:3px;'>구간</th>"
-                    "<th style='padding:3px;'>σ가격</th>"
-                    "<th style='padding:3px;'>분위가</th>"
-                    "<th style='padding:3px;'>추천가</th>"
-                    f"<th style='padding:3px;'>{ref_label}대비</th>"
-                    "<th style='padding:3px;'>신뢰</th></tr>"
-                ]
-
-                # ── 모든 행을 (price, html) 튜플로 모은 뒤 가격순 정렬 ──
-                table_rows = []  # [(price, html_str), ...]
-
-                # 신호별 행
-                for label, c, sigma_k, quantile_q in signal_specs:
-                    p_sigma = _price_at_sigma(sigma_k)
-                    p_quantile = _price_at_quantile(quantile_q)
-                    if p_quantile is not None:
-                        p_reco = (p_sigma + p_quantile) / 2
-                    else:
-                        p_reco = p_sigma
-                    is_trend = (sigma_k == 0.0)
-                    bg = "background:#fef3c7;" if is_trend else ""
-                    sigma_lbl = f"{sigma_k:+.1f}σ" if not is_trend else "추세"
-                    quantile_str = (
-                        f"${p_quantile:,.2f}" if p_quantile is not None else "-"
-                    )
-                    row_html = (
-                        f"<tr style='{bg}'>"
-                        f"<td style='padding:3px;'>"
-                        f"<span style='background:{c};color:#fff;padding:1px 4px;"
-                        f"border-radius:3px;font-size:0.6rem;font-weight:700;'>{label}</span>"
-                        f"<div style='color:#9ca3af;font-size:0.55rem;'>{sigma_lbl}</div></td>"
-                        f"<td style='padding:3px;text-align:center;color:#6b7280;'>${p_sigma:,.2f}</td>"
-                        f"<td style='padding:3px;text-align:center;color:#6b7280;'>{quantile_str}</td>"
-                        f"<td style='padding:3px;text-align:center;font-weight:700;'>${p_reco:,.2f}</td>"
-                        f"<td style='padding:3px;text-align:center;color:#6b7280;'>{_pct_from_ref(p_reco)}</td>"
-                        f"<td style='padding:3px;text-align:center;font-size:0.65rem;'>"
-                        f"{_confidence_stars(p_sigma, p_quantile)}</td>"
-                        f"</tr>"
-                    )
-                    table_rows.append((p_reco, row_html))
-
-                # ── 현재가 행 (별표 + 핑크 강조) ──
-                cur_pct_ref = (cur_price - ref_price) / ref_price * 100
-                cur_pct_color = pnl_color(cur_pct_ref) if avg_price else '#ec4899'
-                cur_row_html = (
-                    f"<tr style='background:#fdf2f8;border-top:1.5px dashed #ec4899;"
-                    f"border-bottom:1.5px dashed #ec4899;'>"
-                    f"<td style='padding:5px 3px;'>"
-                    f"<span style='background:#ec4899;color:#fff;padding:1px 5px;"
-                    f"border-radius:3px;font-size:0.6rem;font-weight:700;'>★ 현재가</span>"
-                    f"<div style='color:#9ca3af;font-size:0.55rem;'>{cur_sigma:+.2f}σ</div></td>"
-                    f"<td style='padding:5px 3px;text-align:center;color:#9ca3af;'>-</td>"
-                    f"<td style='padding:5px 3px;text-align:center;color:#9ca3af;'>-</td>"
-                    f"<td style='padding:5px 3px;text-align:center;font-weight:700;color:#ec4899;'>"
-                    f"${cur_price:,.2f}</td>"
-                    f"<td style='padding:5px 3px;text-align:center;color:{cur_pct_color};font-weight:700;'>"
-                    f"{signed_str(cur_pct_ref, '{:.1f}')}%</td>"
-                    f"<td style='padding:5px 3px;text-align:center;'></td>"
-                    f"</tr>"
-                )
-                table_rows.append((cur_price, cur_row_html))
-
-                # ── 평균단가 행 (보유 시) ──
-                if avg_price:
-                    avg_sigma_val = _price_to_sigma(avg_price)
-                    avg_row_html = (
-                        f"<tr style='background:#f3f4f6;'>"
-                        f"<td style='padding:5px 3px;'>"
-                        f"<span style='background:#6b7280;color:#fff;padding:1px 5px;"
-                        f"border-radius:3px;font-size:0.6rem;font-weight:700;'>● 평균단가</span>"
-                        f"<div style='color:#9ca3af;font-size:0.55rem;'>{avg_sigma_val:+.2f}σ</div></td>"
-                        f"<td style='padding:5px 3px;text-align:center;color:#9ca3af;'>-</td>"
-                        f"<td style='padding:5px 3px;text-align:center;color:#9ca3af;'>-</td>"
-                        f"<td style='padding:5px 3px;text-align:center;font-weight:700;color:#374151;'>"
-                        f"${avg_price:,.2f}</td>"
-                        f"<td style='padding:5px 3px;text-align:center;color:#6b7280;'>0.0%</td>"
-                        f"<td style='padding:5px 3px;text-align:center;'></td>"
-                        f"</tr>"
-                    )
-                    table_rows.append((avg_price, avg_row_html))
-
-                # ── 가격 내림차순 정렬 (높은 가격 = 위, 익절 영역이 위쪽) ──
-                # 익절 영역이 위쪽에 오도록 내림차순
-                table_rows.sort(key=lambda x: -x[0])
-                for _, html in table_rows:
-                    tbl.append(html)
-                tbl.append("</table>")
-                st.markdown("".join(tbl), unsafe_allow_html=True)
-                st.caption(
-                    f"σ가격: 회귀모델 × exp(±σ × {sigma_unit:.3f}) "
-                    f"[expanding std, 그래프 Z값과 일치] / "
-                    f"분위가: 과거 잔차 분위 가격 / "
-                    f"추천가: 두 값 평균 / "
-                    f"★★★ = σ·분위 일치도 높음 (3% 이내)"
-                )
 
     # ── #1 사이클 통계 + #5 진행 게이지 ──
     with st.expander("📈 사이클 통계", expanded=False):
@@ -4200,7 +4105,7 @@ def main() -> None:
     sorted_tickers = sorted(TARGET_TICKERS, key=_ticker_sort_key)
 
     # ── 메인 영역 전체를 감싸는 탭 ──
-    tab1, tab2, tab3 = st.tabs(["📊 상세", "🗺️ 한눈에 보기", "📈 전체 통계"])
+    tab1, tab2, tab3 = st.tabs(["📊 종목 분석", "🗺️ 종목 비교", "💼 포트폴리오"])
 
     # ====================================================
     # 탭 1: 기존 화면 (종목버튼 + 차트 + 분석패널 + 메모)
@@ -4247,8 +4152,10 @@ def main() -> None:
 
         with chart_col:
             if df_daily is not None:
+                # 헤더 + 위치 바 (그래프 위)
                 render_position_tracker(
                     selected_ticker, df_daily, df_close, portfolio_state, beta, std_resid,
+                    phase='top',
                 )
                 with st.spinner("캔들 데이터 로드 중..."):
                     df_ohlc = fetch_ohlc(selected_ticker, analysis_start, candle_type)
@@ -4268,6 +4175,11 @@ def main() -> None:
                 render_chart(
                     df_daily, selected_ticker, beta, std_resid,
                     cfg['guide_n'], st.session_state.view_months, df_ohlc, df_daily_raw,
+                )
+                # 정보 카드 (그래프 아래)
+                render_position_tracker(
+                    selected_ticker, df_daily, df_close, portfolio_state, beta, std_resid,
+                    phase='bottom',
                 )
             elif selected_option == DIRECT_INPUT_LABEL:
                 if not st.session_state.get('custom_ticker_input', ''):
@@ -4456,8 +4368,11 @@ def main() -> None:
             if sigma_pct_v is None or beta_v is None:
                 continue
 
-            # 점 크기 (보유 평가금액 비례, 미보유는 작게)
+            # 보유/이력 상태
             t_ts = portfolio_state.get(ticker)
+            has_history = ticker in st.session_state.trade_history and len(
+                st.session_state.trade_history.get(ticker, [])
+            ) > 0
             if t_ts and t_ts['cycle']['hold_qty'] > 0 and t_ts['cycle']['buy_qty'] > 0:
                 t_avg = t_ts['cycle']['buy_cost'] / t_ts['cycle']['buy_qty']
                 t_cur = df_close_last_sc.get(f'{ticker}_Close', t_avg)
@@ -4473,25 +4388,55 @@ def main() -> None:
                 'beta': beta_v,
                 'eval': eval_usd,
                 'holding': is_holding,
+                'has_history': has_history,
             })
 
         if scatter_data:
-            # 점 크기 스케일링
+            # 점 크기 스케일링 (보유 > 이력 > 미보유)
             max_eval = max((d['eval'] for d in scatter_data), default=0)
             sizes = []
             for d in scatter_data:
                 if d['holding'] and max_eval > 0:
-                    size = 14 + (d['eval'] / max_eval) * 18
+                    size = 14 + (d['eval'] / max_eval) * 18  # 14~32
+                elif d['has_history']:
+                    size = 11  # 이력만
                 else:
-                    size = 9
+                    size = 8   # 미보유
                 sizes.append(size)
 
-            # 색상
-            colors = [
-                '#dc2626' if d['holding'] else '#9ca3af'
+            # 색상 분류 (3단계)
+            #   현재 보유: 빨강 #ef4444
+            #   이력만: 주황 #f59e0b
+            #   미보유: 회색 #d1d5db
+            def _scatter_color(d):
+                if d['holding']:
+                    return '#ef4444'
+                elif d['has_history']:
+                    return '#f59e0b'
+                else:
+                    return '#d1d5db'
+            colors = [_scatter_color(d) for d in scatter_data]
+            opacities = [
+                1.0 if d['holding'] else 0.85 if d['has_history'] else 0.5
                 for d in scatter_data
             ]
-            opacities = [0.85 if d['holding'] else 0.55 for d in scatter_data]
+            # 마커 테두리 (선명도)
+            stroke_widths = [
+                2 if d['holding'] else 1.5 if d['has_history'] else 1
+                for d in scatter_data
+            ]
+            # 라벨 색 (점 색에 맞춤)
+            label_colors = [
+                '#991b1b' if d['holding']
+                else '#92400e' if d['has_history']
+                else '#6b7280'
+                for d in scatter_data
+            ]
+            # 라벨 굵기
+            label_weights = [
+                700 if d['holding'] else 600 if d['has_history'] else 400
+                for d in scatter_data
+            ]
 
             # 사분면 가이드선 중앙값
             sigma_vals = [d['sigma'] for d in scatter_data]
@@ -4500,22 +4445,14 @@ def main() -> None:
             beta_med = float(np.median(beta_vals))
 
             # 라벨 위치 자동 분산
-            # X = β (좌우), Y = σ (상하, 로그 스케일)
-            # σ 작은 종목들 (Y 하단)이 클러스터 → 라벨 분산 필요
-            # β 작은 종목들 (X 좌측)도 클러스터 → 좌우 분산
             text_positions = []
             for i, d in enumerate(scatter_data):
-                # X축 (β) 위치별 좌우 회피
                 if d['beta'] > beta_med * 1.4:
-                    # 우측: 라벨을 좌측으로
                     h_pos = 'left'
                 elif d['beta'] < beta_med * 0.6:
-                    # 좌측: 라벨을 우측으로
                     h_pos = 'right'
                 else:
                     h_pos = 'center'
-                # Y축 (σ) 위치별 상하 회피
-                # σ 하단 클러스터 (작은 σ) 일 때만 인덱스로 위/아래 번갈아
                 if d['sigma'] < sigma_med * 0.7:
                     v_pos = 'top' if i % 2 == 0 else 'bottom'
                 else:
@@ -4523,6 +4460,7 @@ def main() -> None:
                 text_positions.append(f"{v_pos} {h_pos}")
 
             fig_sc = go.Figure()
+            # Plotly는 trace 단위로만 textfont 색상 단일 가능 → 점별 색상은 array 가능 (최신 plotly)
             fig_sc.add_trace(go.Scatter(
                 x=[d['beta'] for d in scatter_data],
                 y=[d['sigma'] for d in scatter_data],
@@ -4531,11 +4469,12 @@ def main() -> None:
                     size=sizes,
                     color=colors,
                     opacity=opacities,
-                    line=dict(color='white', width=1.5),
+                    line=dict(color='white', width=stroke_widths),
                 ),
                 text=[display_name(d['ticker']) for d in scatter_data],
                 textposition=text_positions,
-                textfont=dict(size=10, color='#1f2937'),
+                textfont=dict(size=10, color=label_colors,
+                              weight=label_weights),
                 hovertemplate=(
                     '<b>%{text}</b><br>'
                     'β·SPY: %{x:+.2f}×<br>'
@@ -4545,13 +4484,13 @@ def main() -> None:
                 cliponaxis=False,
             ))
 
-            # 사분면 가이드선
+            # 사분면 가이드선 (더 흐리게)
             fig_sc.add_hline(
-                y=sigma_med, line_dash="dot", line_color='#d1d5db',
+                y=sigma_med, line_dash="dot", line_color='#e5e7eb',
                 line_width=1,
             )
             fig_sc.add_vline(
-                x=beta_med, line_dash="dot", line_color='#d1d5db',
+                x=beta_med, line_dash="dot", line_color='#e5e7eb',
                 line_width=1,
             )
 
@@ -4568,8 +4507,8 @@ def main() -> None:
                 xaxis=dict(
                     title=dict(text='β·SPY (SPY 대비 로그회귀 슬로프)',
                                font=dict(size=11, color='#6b7280')),
-                    showgrid=True, gridcolor='rgba(156,163,175,0.15)',
-                    tickfont=dict(size=9, color='#6b7280'),
+                    showgrid=True, gridcolor='rgba(229,231,235,0.6)',
+                    tickfont=dict(size=9, color='#9ca3af'),
                     range=[beta_min, beta_max],
                     ticksuffix='×',
                     zeroline=True, zerolinecolor='#9ca3af', zerolinewidth=1.2,
@@ -4578,8 +4517,8 @@ def main() -> None:
                     title=dict(text='σ% (변동성)',
                                font=dict(size=11, color='#6b7280')),
                     type='log',
-                    showgrid=True, gridcolor='rgba(156,163,175,0.15)',
-                    tickfont=dict(size=9, color='#6b7280'),
+                    showgrid=True, gridcolor='rgba(229,231,235,0.6)',
+                    tickfont=dict(size=9, color='#9ca3af'),
                     range=[np.log10(sigma_log_min), np.log10(sigma_log_max)],
                     ticksuffix='%',
                 ),
@@ -4589,8 +4528,8 @@ def main() -> None:
                             config={'displayModeBar': False, 'staticPlot': True})
 
             st.caption(
-                "● 빨강=보유 (점 크기=평가금액) · ● 회색=미보유 · "
-                "점선=중앙값 · Y축 로그스케일"
+                "● 빨강=현재 보유 (크기=평가금액) · ● 주황=과거 매매 이력 · "
+                "● 회색=미보유 · 점선=중앙값"
             )
 
     # ====================================================
