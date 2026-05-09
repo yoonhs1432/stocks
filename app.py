@@ -2230,77 +2230,31 @@ def render_chart(
     ]:
         if col_name == 'Z_Score':
             # ── Z + 모멘텀 패널 ──
-            # 1. 모멘텀 점수 시계열 (정수, 종목카드와 같은 기준)
-            # 2. 점수에 해당하는 색으로 그 날짜 전체 세로 면적 칠하기
-            # 3. Z 라인 (검정), 모멘텀 라인 (주황) 위에 그림
+            # Z 라인 (검정 굵게), 모멘텀 라인 (주황 얇게)
+            # + 임계 수평선 (양수=빨강, 음수=파랑) — 선생님 요청
             z_series = df_daily[col_name].fillna(0)
 
-            # 모멘텀 점수 (정수, compute_momentum_score와 동일)
+            # 모멘텀 점수 시계열
             mhz_v = df_daily['MACD_Hist_Z'].fillna(0).values
             rsi_v = df_daily['RSI'].fillna(50).values
             s_mhz_smooth = 1.2 * (mhz_v / CFG.MACD_HIGH)
             s_rsi_smooth = 0.8 * ((rsi_v - 50) / 20.0)
             momentum_smooth = 2.0 * (s_mhz_smooth + s_rsi_smooth)
             momentum_series = pd.Series(momentum_smooth, index=df_daily.index)
-            # 종목카드 색 분기에 사용할 정수 점수
-            momentum_int = momentum_series.round().astype(int).clip(-4, 4)
 
-            # 면적 색 (종목카드 / 탭2 마커 / 그래프 3 단일 기준)
-            # 절대값이 클수록 더 진한 색. 0~1 중립 = 면적 없음
-            #   |M|>=4: 진한 (alpha 0.18)
-            #   |M|>=2: 보통 (alpha 0.12)
-            #   |M|>=1: 약한 (alpha 0.06)
-            #   |M|<1:  없음
-            def _mom_fill_rgba(score: int) -> Optional[str]:
-                if score <= -4:    return 'rgba(127,29,29,0.18)'   # 강 매수 (진빨강)
-                if score <= -2:    return 'rgba(220,38,38,0.12)'   # 매수 (빨강)
-                if score <= -1:    return 'rgba(252,165,165,0.10)' # 약 매수 (연빨강)
-                if score >=  4:    return 'rgba(30,58,138,0.18)'   # 강 매도 (진파랑)
-                if score >=  2:    return 'rgba(37,99,235,0.12)'   # 매도 (파랑)
-                if score >=  1:    return 'rgba(147,197,253,0.10)' # 약 매도 (연파랑)
-                return None
-
-            # 연속 같은 색 구간을 vrect로 합쳐 그림 (성능 + 시각)
-            # df_daily.index를 따라 같은 색 구간끼리 묶고 vrect 출력
-            cur_color = None
-            seg_start = None
-            idx_list = list(df_daily.index)
-            for i, (idx, sc) in enumerate(zip(idx_list, momentum_int)):
-                rgba = _mom_fill_rgba(int(sc))
-                if rgba != cur_color:
-                    # 색 바뀜: 직전 구간 fill 처리
-                    if cur_color is not None and seg_start is not None:
-                        seg_end = idx_list[i - 1]
-                        # 한 점만 있으면 폭 너무 좁아짐 → 다음 점까지 확장 효과
-                        # vrect: x0 ~ x1 사이 세로 채움 (행 별로)
-                        fig.add_vrect(
-                            x0=seg_start, x1=seg_end,
-                            fillcolor=cur_color, line_width=0,
-                            layer='below', row=row, col=1,
-                        )
-                    cur_color = rgba
-                    seg_start = idx
-            # 마지막 구간
-            if cur_color is not None and seg_start is not None:
-                fig.add_vrect(
-                    x0=seg_start, x1=idx_list[-1],
-                    fillcolor=cur_color, line_width=0,
-                    layer='below', row=row, col=1,
-                )
-
-            # ── Z 임계 수평선 (왼쪽 Y축 기준) ──
-            # ±1 (약), ±2 (강) — 색은 의미 따라 (위는 파랑=매도, 아래는 빨강=매수)
-            for y_val, lc, ld in [
-                (CFG.Z_HIGH,  '#1d4ed8', 'solid'),  # +2 강 매도
-                (1.0,         '#93c5fd', 'dot'),    # +1 약 매도
-                (-1.0,        '#fca5a5', 'dot'),    # -1 약 매수
-                (-CFG.Z_HIGH, '#dc2626', 'solid'),  # -2 강 매수
-                (0,           '#9ca3af', 'solid'),  # 중립
+            # ── 임계 수평선 (양수=빨강, 음수=파랑) ──
+            # Z 기준 (왼쪽 Y축, 주 Y축에 그어짐)
+            # ±1 (약 신호 점선), ±2 (강 신호 실선), 0 중립
+            for y_val, lc, ld, lw in [
+                (CFG.Z_HIGH,  '#dc2626', 'solid', 0.9),   # +2 빨강 (양수)
+                (1.0,         '#fca5a5', 'dot',   0.8),   # +1 연빨강
+                (0,           '#9ca3af', 'solid', 0.5),   # 중립
+                (-1.0,        '#93c5fd', 'dot',   0.8),   # -1 연파랑
+                (-CFG.Z_HIGH, '#2563eb', 'solid', 0.9),   # -2 파랑 (음수)
             ]:
                 fig.add_hline(
                     y=y_val, line_dash=ld, line_color=lc,
-                    line_width=0.8 if y_val != 0 else 0.5,
-                    row=row, col=1,
+                    line_width=lw, row=row, col=1,
                 )
 
             # ── Z 실선 (검정 굵게) ──
@@ -2518,7 +2472,6 @@ def render_chart(
             'doubleClick': 'reset', 'responsive': True, 'showTips': False,
         },
     )
-
 
 
 # ====================================================
