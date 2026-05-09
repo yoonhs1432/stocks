@@ -2243,19 +2243,26 @@ def render_chart(
             momentum_series = pd.Series(momentum_smooth, index=df_daily.index)
 
             # ── 임계 수평선 (양수=빨강, 음수=파랑) ──
-            # Z 기준 (왼쪽 Y축, 주 Y축에 그어짐)
-            # ±1 (약 신호 점선), ±2 (강 신호 실선), 0 중립
+            # add_hline은 secondary_y subplot에서 불안정 → add_shape으로 직접 그림
+            # 주 Y축 (Z) 기준 — yref는 row의 yaxis 번호
+            # row 1=yaxis, row 2=yaxis2, row 3=yaxis3, ...
+            # 단 secondary_y가 있는 row는 yaxisN과 yaxisN+1 두 개를 차지함
+            # 안전하게 xref='x{row} domain', yref는 데이터 좌표로 그리되 row, col 활용
             for y_val, lc, ld, lw in [
-                (CFG.Z_HIGH,  '#dc2626', 'solid', 0.9),   # +2 빨강 (양수)
-                (1.0,         '#fca5a5', 'dot',   0.8),   # +1 연빨강
-                (0,           '#9ca3af', 'solid', 0.5),   # 중립
-                (-1.0,        '#93c5fd', 'dot',   0.8),   # -1 연파랑
-                (-CFG.Z_HIGH, '#2563eb', 'solid', 0.9),   # -2 파랑 (음수)
+                (CFG.Z_HIGH,  '#dc2626', 'solid', 1.0),   # +2 빨강
+                (1.0,         '#fca5a5', 'dot',   0.9),   # +1 연빨강
+                (0,           '#9ca3af', 'solid', 0.6),   # 중립
+                (-1.0,        '#93c5fd', 'dot',   0.9),   # -1 연파랑
+                (-CFG.Z_HIGH, '#2563eb', 'solid', 1.0),   # -2 파랑
             ]:
-                fig.add_hline(
-                    y=y_val, line_dash=ld, line_color=lc,
-                    line_width=lw, row=row, col=1,
-                )
+                # 가장 안정적: hidden trace로 horizontal line
+                fig.add_trace(go.Scatter(
+                    x=[df_daily.index[0], df_daily.index[-1]],
+                    y=[y_val, y_val],
+                    mode='lines',
+                    line=dict(color=lc, width=lw, dash=ld),
+                    hoverinfo='skip', showlegend=False,
+                ), row=row, col=1)
 
             # ── Z 실선 (검정 굵게) ──
             fig.add_trace(go.Scatter(
