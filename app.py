@@ -530,6 +530,20 @@ def get_signal_combined(cz: float, mhz: float, rsi: float) -> str:
     return score_to_signal(compute_combined_score(cz, mhz, rsi))
 
 
+def get_price_fill_color_combined(score: int) -> str:
+    """Combined score (-6~+6) → 가격 차트 fill 색.
+
+    음수 = 매수 (빨강), 양수 = 매도 (파랑), 0 = 중립
+    """
+    if score <= -5: return Colors.MOM_BUY_STRONG
+    if score <= -3: return Colors.MOM_BUY
+    if score <= -1: return Colors.MOM_BUY_WEAK
+    if score >= 5:  return Colors.MOM_SELL_STRONG
+    if score >= 3:  return Colors.MOM_SELL
+    if score >= 1:  return Colors.MOM_SELL_WEAK
+    return Colors.MOM_HOLD
+
+
 def compute_momentum_score_smooth(mhz: float, rsi: float) -> float:
     """모멘텀 점수의 연속 버전 (시각화용).
 
