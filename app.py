@@ -353,6 +353,7 @@ def init_session_state() -> None:
         'ticker_signals':      dict,
         'ticker_betas':        dict,
         'ticker_momentum_scores': dict,
+        'ticker_momentum_smooth': dict,
         'selected_option':     lambda: TARGET_TICKERS[0],
         'custom_ticker_input': str,
         'last_data_date':      str,
@@ -505,43 +506,17 @@ def get_price_fill_color_combined(score: int) -> str:
 # 위치(σ)와 독립적인 모멘텀 정보를 마커 색으로 표시하기 위함
 # ────────────────────────────────────────────────
 def compute_momentum_score(mhz: float, rsi: float) -> int:
-    """MACD-Z + RSI 가중합산 모멘텀 점수 (-4 ~ +4 정수).
+    """모멘텀 점수 정수 (-4 ~ +4).
 
-    가중치: MACD 1.2 / RSI 0.8 (MACD 60% 비중, 더 안정적)
+    smooth 점수의 round(smooth / 2) — 그래프 3의 M값과 정확히 일치.
+    예: M = +2.6 → +1, M = -3.4 → -2, M = -4.5 → -2
+
     부호 컨벤션: 음수 = 매수 모멘텀, 양수 = 매도 모멘텀
-    (Z, MACD, RSI 부호와 일치)
-
-    RSI:
-      ≤30: -2  / 30~40: -1  / 40~60: 0  / 60~70: +1  / ≥70: +2
-    MACD-Z:
-      ≤-2: -2  / -2~-1: -1  / -1~+1: 0  / +1~+2: +1  / ≥+2: +2
     """
-    # RSI 점수 (음수=과매도/매수)
-    if rsi <= CFG.RSI_OVERSOLD:        # 30
-        s_rsi = -2
-    elif rsi <= 40:
-        s_rsi = -1
-    elif rsi < 60:
-        s_rsi = 0
-    elif rsi < CFG.RSI_OVERBOUGHT:     # 70
-        s_rsi = 1
-    else:
-        s_rsi = 2
-
-    # MACD-Z 점수 (음수=매수 영역)
-    if mhz <= -CFG.MACD_HIGH:          # -2
-        s_mhz = -2
-    elif mhz <= -1:
-        s_mhz = -1
-    elif mhz < 1:
-        s_mhz = 0
-    elif mhz < CFG.MACD_HIGH:          # +2
-        s_mhz = 1
-    else:
-        s_mhz = 2
-
-    # 가중합 (MACD 1.2 / RSI 0.8) → 합 ±4 보존
-    return int(round(1.2 * s_mhz + 0.8 * s_rsi))
+    smooth = compute_momentum_score_smooth(mhz, rsi)
+    # smooth / 2 → 정수 점수 (±4 범위로 클립)
+    score = int(round(smooth / 2.0))
+    return max(-4, min(4, score))
 
 
 def compute_momentum_score_smooth(mhz: float, rsi: float) -> float:
@@ -3998,9 +3973,12 @@ def main() -> None:
             st.session_state.ticker_betas[ticker] = round(beta_t, 2)
             # 모멘텀 점수 (네모 마커 색 결정용)
             st.session_state.ticker_momentum_scores[ticker] = compute_momentum_score(mhz, rsi)
+            # 모멘텀 smooth (정렬 2차 키 — 같은 색 내 강도 차이)
+            st.session_state.ticker_momentum_smooth[ticker] = compute_momentum_score_smooth(mhz, rsi)
         else:
             st.session_state.ticker_signals.setdefault(ticker, 'H')
             st.session_state.ticker_momentum_scores.setdefault(ticker, 0)
+            st.session_state.ticker_momentum_smooth.setdefault(ticker, 0.0)
 
     df_daily = beta = std_resid = None
     if selected_ticker:
@@ -4023,6 +4001,7 @@ def main() -> None:
             rsi = float(df_daily['RSI'].iloc[-1]) if pd.notna(df_daily['RSI'].iloc[-1]) else 50.0
             st.session_state.ticker_signals[selected_ticker] = get_signal_combined(cz, mhz, rsi)
             st.session_state.ticker_momentum_scores[selected_ticker] = compute_momentum_score(mhz, rsi)
+            st.session_state.ticker_momentum_smooth[selected_ticker] = compute_momentum_score_smooth(mhz, rsi)
 
     holding_tickers = {
         tk for tk, ts in portfolio_state.items() if ts['cycle']['hold_qty'] > 0
@@ -4062,12 +4041,13 @@ def main() -> None:
 
     # ── sorted_tickers 미리 계산 (탭 1, 탭 2 모두 사용) ──
     # 정렬 우선순위:
-    #   1. 모멘텀 점수 (음수=매수, 양수=매도) — 매수 강한 게 위로
-    #   2. 원래 순서 (TARGET_TICKERS index)
-    # 보유 여부는 별표(★)로 시각적 구분만.
+    #   1. 모멘텀 정수 점수 (색 분류와 일치, 음수=매수 위로)
+    #   2. 모멘텀 smooth 점수 (같은 색 내 신호 강도 — 더 음수가 위로)
+    #   3. 원래 순서 (TARGET_TICKERS index)
     def _ticker_sort_key(tk: str) -> tuple:
-        mom = st.session_state.ticker_momentum_scores.get(tk, 0)
-        return (mom, TARGET_TICKERS.index(tk))
+        mom_int = st.session_state.ticker_momentum_scores.get(tk, 0)
+        mom_smooth = st.session_state.ticker_momentum_smooth.get(tk, 0.0)
+        return (mom_int, mom_smooth, TARGET_TICKERS.index(tk))
     sorted_tickers = sorted(TARGET_TICKERS, key=_ticker_sort_key)
 
     # ── 메인 영역 전체를 감싸는 탭 ──
