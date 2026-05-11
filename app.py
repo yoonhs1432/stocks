@@ -4338,78 +4338,21 @@ def main() -> None:
             })
 
         if scatter_data:
-            # ── 점 크기 통일 ──
-            # 보유 16 (살짝 강조), 그 외 14
-            sizes = [16 if d['holding'] else 14 for d in scatter_data]
+            # ── 모든 점 통일 (보유 이력 무관) ──
+            # 크기, 테두리, 라벨 모두 동일
+            sigma_vals = [d['sigma'] for d in scatter_data]
+            beta_vals = [d['beta'] for d in scatter_data]
+            sigma_med = float(np.median(sigma_vals))
+            beta_med = float(np.median(beta_vals))
 
-            # ── 색: 탭1 버튼과 동일 — 모멘텀 점수 기반 ──
+            # 색: 탭1 버튼과 동일 — 모멘텀 점수 기반 (구분의 유일한 차원)
             mom_scores_map = st.session_state.get('ticker_momentum_scores', {})
             colors = [
                 momentum_to_color(mom_scores_map.get(d['ticker'], 0))
                 for d in scatter_data
             ]
 
-            # ── 투명도 (보유/이력/미보유) ──
-            opacities = [
-                1.0 if d['holding'] else 0.9 if d['has_history'] else 0.55
-                for d in scatter_data
-            ]
-
-            # ── 테두리: 보유=검정 굵게, 이력=흰색 중간, 미보유=흰색 얇게 ──
-            line_colors = [
-                '#000000' if d['holding']
-                else '#ffffff'
-                for d in scatter_data
-            ]
-            line_widths = [
-                2 if d['holding']
-                else 1.5 if d['has_history']
-                else 1
-                for d in scatter_data
-            ]
-
-            # ── 라벨 색: 점 색에 맞춰 어두운 톤 (가독성) ──
-            # 모멘텀 색이 옅으면 어둡게, 진하면 그대로
-            def _label_color(c: str, holding: bool, has_hist: bool) -> str:
-                # 연한 색은 어둡게 변환, 진한 색은 그대로
-                # opacity가 낮을수록 어둡게
-                if holding:
-                    return '#111827'  # 검정 강조
-                if has_hist:
-                    return '#374151'  # 진회색
-                return '#9ca3af'      # 미보유는 흐린 회색
-            label_colors = [
-                _label_color(colors[i], d['holding'], d['has_history'])
-                for i, d in enumerate(scatter_data)
-            ]
-            # ── 라벨 폰트 크기/굵기: 보유 > 이력 > 미보유 ──
-            label_sizes = [
-                12 if d['holding']
-                else 10 if d['has_history']
-                else 8
-                for d in scatter_data
-            ]
-            label_weights = [
-                700 if d['holding']
-                else 600 if d['has_history']
-                else 400
-                for d in scatter_data
-            ]
-
-            # ── 사분면 가이드선 중앙값 ──
-            sigma_vals = [d['sigma'] for d in scatter_data]
-            beta_vals = [d['beta'] for d in scatter_data]
-            sigma_med = float(np.median(sigma_vals))
-            beta_med = float(np.median(beta_vals))
-
             # ── 라벨 위치 분산 (거리 기반 8방향) ──
-            # 1. 각 점의 좌표를 로그 σ 공간으로 정규화 (β와 같은 단위 척도)
-            # 2. 각 점에 대해 가장 가까운 이웃 방향을 찾음
-            # 3. 그 반대 방향으로 라벨 배치
-            #
-            # 8방향 매핑 (반대 방향으로)
-            #   가장 가까운 이웃이 우상 → 라벨은 좌하
-            #   가장 가까운 이웃이 좌 → 라벨은 우
             POSITION_8 = [
                 'middle right',     # 0°
                 'top right',        # 45°
@@ -4420,8 +4363,6 @@ def main() -> None:
                 'bottom center',    # 270°
                 'bottom right',     # 315°
             ]
-
-            # 정규화 좌표 (log σ + β)
             import math as _m
             log_sigma_vals = [_m.log10(max(s, 0.1)) for s in sigma_vals]
             log_sigma_range = max(log_sigma_vals) - min(log_sigma_vals) or 1.0
@@ -4436,7 +4377,6 @@ def main() -> None:
 
             text_positions = []
             for i, (xi, yi) in enumerate(norm_coords):
-                # 가장 가까운 이웃 찾기
                 min_dist = float('inf')
                 nearest_dx, nearest_dy = 0, 0
                 for j, (xj, yj) in enumerate(norm_coords):
@@ -4448,16 +4388,10 @@ def main() -> None:
                     if dist < min_dist:
                         min_dist = dist
                         nearest_dx, nearest_dy = dx, dy
-
-                # 이웃 방향 → 반대 방향 라벨
-                # atan2: dx, dy → angle (radians)
                 if nearest_dx == 0 and nearest_dy == 0:
-                    # 정확히 겹침: 인덱스로 분산
                     text_positions.append(POSITION_8[i % 8])
                 else:
-                    # 반대 방향 = 이웃과 정반대
-                    angle = _m.atan2(-nearest_dy, -nearest_dx)  # 반대로
-                    # 0~2π로 정규화 + 0~7로 매핑
+                    angle = _m.atan2(-nearest_dy, -nearest_dx)
                     angle_norm = (angle + 2 * _m.pi) % (2 * _m.pi)
                     idx = int(round(angle_norm / (_m.pi / 4))) % 8
                     text_positions.append(POSITION_8[idx])
@@ -4468,15 +4402,14 @@ def main() -> None:
                 y=sigma_vals,
                 mode='markers+text',
                 marker=dict(
-                    size=sizes,
+                    size=14,
                     color=colors,
-                    opacity=opacities,
-                    line=dict(color=line_colors, width=line_widths),
+                    opacity=0.9,
+                    line=dict(color='white', width=1.5),
                 ),
                 text=[display_name(d['ticker']) for d in scatter_data],
                 textposition=text_positions,
-                textfont=dict(size=label_sizes, color=label_colors,
-                              weight=label_weights),
+                textfont=dict(size=10, color='#374151', weight=500),
                 hovertemplate=(
                     '<b>%{text}</b><br>'
                     'β·SPY: %{x:+.2f}×<br>'
@@ -4530,9 +4463,7 @@ def main() -> None:
                             config={'displayModeBar': False, 'staticPlot': True})
 
             st.caption(
-                "■ 점 색=모멘텀 점수 (탭1 버튼과 동일) · "
-                "■ 검정 테두리=현재 보유 · "
-                "라벨: 보유>이력>미보유 차등 · 점선=중앙값"
+                "■ 점 색=모멘텀 점수 (탭1 버튼과 동일) · 점선=중앙값"
             )
 
     # ====================================================
