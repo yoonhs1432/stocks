@@ -2275,72 +2275,68 @@ def render_chart(
             bullish_mask = both_valid & (hist_clean >= 0) & (hist_prev < 0)
             bearish_mask = both_valid & (hist_clean <= 0) & (hist_prev > 0)
 
-            # Y 오프셋 — view 범위 기준 18%
+            # Y 오프셋 — view 범위 기준 10% (작게)
             macd_view = df_daily.loc[df_daily.index >= view_start, 'MACD'].dropna()
             sig_view_y = df_daily.loc[df_daily.index >= view_start, 'MACD_Signal'].dropna()
             macd_max_y = float(abs(macd_view).max()) if not macd_view.empty else 0.0
             sig_max_y = float(abs(sig_view_y).max()) if not sig_view_y.empty else 0.0
-            y_axis_max = max(macd_max_y, sig_max_y) * 1.15
-            if y_axis_max <= 0:
-                y_axis_max = 1.0
-            y_offset = y_axis_max * 0.18   # 18% offset — 더 멀게
+            data_max_y = max(macd_max_y, sig_max_y)
+            if data_max_y <= 0:
+                data_max_y = 1.0
+            y_offset = data_max_y * 0.10   # 10% offset
+
+            # ── 마커 위치 (고정) ──
+            # ▲ 매수: 크로스 바로 아래 (-offset)
+            # ▼ 매도: 크로스 바로 위  (+offset)
+            # → 마커 포함하도록 Y축 범위 계산 (이후 update_yaxes에 반영)
+            bull_y = (macd_raw[bullish_mask].values - y_offset) if bullish_mask.any() else np.array([])
+            bear_y = (macd_raw[bearish_mask].values + y_offset) if bearish_mask.any() else np.array([])
+
+            # 마커 포함 Y축 max (view 범위 내만)
+            view_mask_idx = df_daily.index >= view_start
+            bull_in_view = bullish_mask & view_mask_idx
+            bear_in_view = bearish_mask & view_mask_idx
+            extra_max_y = 0.0
+            if bull_in_view.any():
+                extra_max_y = max(
+                    extra_max_y,
+                    float(abs((macd_raw[bull_in_view] - y_offset)).max())
+                )
+            if bear_in_view.any():
+                extra_max_y = max(
+                    extra_max_y,
+                    float(abs((macd_raw[bear_in_view] + y_offset)).max())
+                )
+            # 추후 macd_axis_max 계산 시 사용
+            st.session_state['_macd_marker_extra'] = extra_max_y
 
             if bullish_mask.any():
                 bull_x = df_daily.index[bullish_mask]
                 bull_y_base = macd_raw[bullish_mask].values
-                # 적응형 위치: MACD 값이 음수 영역이면 위로, 양수 영역이면 아래로
-                # 임계: |MACD| > y_axis_max * 0.5 → 반대 방향
-                # 기본: 크로스 아래
-                bull_y = np.where(
-                    bull_y_base < -y_axis_max * 0.4,
-                    bull_y_base + y_offset,   # 너무 아래면 위로
-                    bull_y_base - y_offset,   # 일반: 아래
-                )
-                bull_hist = (macd_raw - sig_raw)[bullish_mask].values
-                bull_hover = [
-                    f"▲ {d.strftime('%m/%d')} MACD={m:.2f} Sig={m-h:.2f}"
-                    for d, m, h in zip(bull_x, bull_y_base, bull_hist)
-                ]
                 fig.add_trace(go.Scatter(
-                    x=bull_x, y=bull_y,
+                    x=bull_x, y=bull_y_base - y_offset,
                     mode='markers',
                     marker=dict(
-                        symbol='triangle-up', size=12,
+                        symbol='triangle-up', size=8,
                         color='#dc2626', opacity=0.9,
-                        line=dict(color='white', width=1),
+                        line=dict(color='white', width=0.8),
                     ),
-                    text=bull_hover,
-                    hovertemplate='%{text}<extra></extra>',
-                    name='Bullish', showlegend=False,
+                    name='Bullish', hoverinfo='skip', showlegend=False,
                     cliponaxis=False,
                 ), row=row, col=1)
 
             if bearish_mask.any():
                 bear_x = df_daily.index[bearish_mask]
                 bear_y_base = macd_raw[bearish_mask].values
-                # 적응형 위치: MACD 값이 양수 영역이면 아래로, 음수 영역이면 위로
-                # 기본: 크로스 위
-                bear_y = np.where(
-                    bear_y_base > y_axis_max * 0.4,
-                    bear_y_base - y_offset,   # 너무 위면 아래로
-                    bear_y_base + y_offset,   # 일반: 위
-                )
-                bear_hist = (macd_raw - sig_raw)[bearish_mask].values
-                bear_hover = [
-                    f"▼ {d.strftime('%m/%d')} MACD={m:.2f} Sig={m-h:.2f}"
-                    for d, m, h in zip(bear_x, bear_y_base, bear_hist)
-                ]
                 fig.add_trace(go.Scatter(
-                    x=bear_x, y=bear_y,
+                    x=bear_x, y=bear_y_base + y_offset,
                     mode='markers',
                     marker=dict(
-                        symbol='triangle-down', size=12,
+                        symbol='triangle-down', size=8,
                         color='#2563eb', opacity=0.9,
-                        line=dict(color='white', width=1),
+                        line=dict(color='white', width=0.8),
                     ),
-                    text=bear_hover,
-                    hovertemplate='%{text}<extra></extra>',
-                    name='Bearish', showlegend=False,
+                    name='Bearish', hoverinfo='skip', showlegend=False,
                     cliponaxis=False,
                 ), row=row, col=1)
 
@@ -2349,18 +2345,13 @@ def render_chart(
             last_sig = signal_series.iloc[-1]
             sig_v = float(last_sig) if pd.notna(last_sig) else 0.0
 
-            # 범례 (좌측 상단) + 교차 개수 진단
-            # view 범위 내 교차만 카운트 (화면 보이는 범위)
-            bull_in_view = (bullish_mask & (df_daily.index >= view_start)).sum()
-            bear_in_view = (bearish_mask & (df_daily.index >= view_start)).sum()
+            # 범례 (좌측 상단)
             fig.add_annotation(
                 x=0, y=1, xref='x domain', yref='y domain',
                 text=(
                     "<span style='color:#7c3aed;'>━ MACD</span>"
                     "  "
                     "<span style='color:#a78bfa;'>━ Signal</span>"
-                    f"  <span style='color:#9ca3af;font-size:9px;'>"
-                    f"▲{bull_in_view} ▼{bear_in_view}</span>"
                 ),
                 showarrow=False,
                 font=dict(size=11),
@@ -2369,27 +2360,6 @@ def render_chart(
                 borderwidth=1, borderpad=3,
                 row=row, col=1,
             )
-
-            # 진단 — 검출된 교차 날짜 리스트 우상단
-            view_mask_idx = df_daily.index >= view_start
-            bull_dates = df_daily.index[bullish_mask & view_mask_idx]
-            bear_dates = df_daily.index[bearish_mask & view_mask_idx]
-            cross_lines = []
-            for d in bull_dates:
-                cross_lines.append(f"▲{d.strftime('%m/%d')}")
-            for d in bear_dates:
-                cross_lines.append(f"▼{d.strftime('%m/%d')}")
-            if cross_lines:
-                diag_text = "<br>".join(cross_lines[:8])  # 최대 8개
-                fig.add_annotation(
-                    x=1, y=1, xref='x domain', yref='y domain',
-                    text=f"<span style='font-size:8px;color:#6b7280;'>{diag_text}</span>",
-                    showarrow=False,
-                    xanchor='right', yanchor='top',
-                    bgcolor='rgba(255,255,255,0.8)',
-                    borderwidth=0, borderpad=2,
-                    row=row, col=1,
-                )
 
         view_abs = abs(df_daily.loc[df_daily.index >= view_start, col_name].dropna())
         z_data_max = float(view_abs.max()) if not view_abs.empty else 0.0
@@ -2410,13 +2380,17 @@ def render_chart(
                 row=row, col=1,
             )
         else:
-            # ── MACD 패널 Y축: MACD + Signal 라인 기반 ──
+            # ── MACD 패널 Y축: MACD + Signal + 교차 마커 모두 포함 ──
             # MACD는 가격 단위 (종목마다 척도 다름) — 데이터 기반 동적 범위
             macd_view = df_daily.loc[df_daily.index >= view_start, 'MACD'].dropna()
             sig_view = df_daily.loc[df_daily.index >= view_start, 'MACD_Signal'].dropna()
             macd_data_max = float(abs(macd_view).max()) if not macd_view.empty else 0.0
             sig_data_max = float(abs(sig_view).max()) if not sig_view.empty else 0.0
-            macd_axis_max = max(macd_data_max, sig_data_max) * 1.15
+            # 교차 마커 위치도 포함 (st.session_state에 저장된 값)
+            marker_extra = st.session_state.get('_macd_marker_extra', 0.0)
+            macd_axis_max = max(
+                macd_data_max, sig_data_max, marker_extra
+            ) * 1.10  # 10% 여유
             if macd_axis_max <= 0:
                 macd_axis_max = 1.0
             fig.update_yaxes(
