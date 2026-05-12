@@ -2230,20 +2230,22 @@ def render_chart(
             macd_series = df_daily['MACD'].fillna(0)
             signal_series = df_daily['MACD_Signal'].fillna(0)
 
-            # MACD 라인 (검정)
+            # MACD 라인 (보라 #7c3aed) — 변수별 고유 색
             fig.add_trace(go.Scatter(
                 x=df_daily.index, y=macd_series,
                 mode='lines',
-                line=dict(color='#111827', width=2.0, shape='spline', smoothing=0.5),
+                line=dict(color='#7c3aed', width=2.0, shape='spline', smoothing=0.5),
                 name='MACD', hoverinfo='skip', showlegend=False,
                 connectgaps=True,
             ), row=row, col=1)
 
-            # Signal 라인 (주황)
+            # Signal 라인 (연보라 #a78bfa) — MACD와 같은 색조의 옅은 버전
+            #   width 1.2 + opacity 0.6 (보조 지표 위계)
             fig.add_trace(go.Scatter(
                 x=df_daily.index, y=signal_series,
                 mode='lines',
-                line=dict(color='#f97316', width=1.5, shape='spline', smoothing=0.5),
+                line=dict(color='#a78bfa', width=1.2, shape='spline', smoothing=0.5),
+                opacity=0.6,
                 name='Signal', hoverinfo='skip', showlegend=False,
                 connectgaps=True,
             ), row=row, col=1)
@@ -2257,6 +2259,59 @@ def render_chart(
                 hoverinfo='skip', showlegend=False,
             ), row=row, col=1)
 
+            # ── MACD-Signal 교차점 화살표 ──
+            # hist = MACD - Signal
+            # 상향 교차 (bullish): hist가 음→양 → 매수 → ▲ 빨강 (크로스 바로 아래)
+            # 하향 교차 (bearish): hist가 양→음 → 매도 → ▼ 파랑 (크로스 바로 위)
+            hist = (macd_series - signal_series).fillna(0)
+            hist_prev = hist.shift(1).fillna(0)
+            bullish_mask = (hist >= 0) & (hist_prev < 0)
+            bearish_mask = (hist <= 0) & (hist_prev > 0)
+
+            # Y 오프셋 — view 범위 기준 6%
+            macd_view = df_daily.loc[df_daily.index >= view_start, 'MACD'].dropna()
+            sig_view_y = df_daily.loc[df_daily.index >= view_start, 'MACD_Signal'].dropna()
+            macd_max_y = float(abs(macd_view).max()) if not macd_view.empty else 0.0
+            sig_max_y = float(abs(sig_view_y).max()) if not sig_view_y.empty else 0.0
+            y_axis_max = max(macd_max_y, sig_max_y) * 1.15
+            if y_axis_max <= 0:
+                y_axis_max = 1.0
+            y_offset = y_axis_max * 0.08   # 8% offset
+
+            if bullish_mask.any():
+                bull_x = df_daily.index[bullish_mask]
+                # 크로스 바로 "아래" — y_offset만큼 음수 방향
+                bull_y_base = macd_series[bullish_mask].values
+                bull_y = bull_y_base - y_offset
+                fig.add_trace(go.Scatter(
+                    x=bull_x, y=bull_y,
+                    mode='markers',
+                    marker=dict(
+                        symbol='triangle-up', size=7,
+                        color='#dc2626', opacity=0.85,
+                        line=dict(color='white', width=0.8),
+                    ),
+                    name='Bullish', hoverinfo='skip', showlegend=False,
+                    cliponaxis=False,
+                ), row=row, col=1)
+
+            if bearish_mask.any():
+                bear_x = df_daily.index[bearish_mask]
+                # 크로스 바로 "위" — y_offset만큼 양수 방향
+                bear_y_base = macd_series[bearish_mask].values
+                bear_y = bear_y_base + y_offset
+                fig.add_trace(go.Scatter(
+                    x=bear_x, y=bear_y,
+                    mode='markers',
+                    marker=dict(
+                        symbol='triangle-down', size=7,
+                        color='#2563eb', opacity=0.85,
+                        line=dict(color='white', width=0.8),
+                    ),
+                    name='Bearish', hoverinfo='skip', showlegend=False,
+                    cliponaxis=False,
+                ), row=row, col=1)
+
             last_v = macd_series.iloc[-1]
             val = float(last_v) if pd.notna(last_v) else 0.0
             last_sig = signal_series.iloc[-1]
@@ -2266,9 +2321,9 @@ def render_chart(
             fig.add_annotation(
                 x=0, y=1, xref='x domain', yref='y domain',
                 text=(
-                    "<span style='color:#111827;'>━ MACD</span>"
+                    "<span style='color:#7c3aed;'>━ MACD</span>"
                     "  "
-                    "<span style='color:#f97316;'>━ Signal</span>"
+                    "<span style='color:#a78bfa;'>━ Signal</span>"
                 ),
                 showarrow=False,
                 font=dict(size=11),
@@ -2332,11 +2387,11 @@ def render_chart(
             hoverinfo='skip', showlegend=False,
         ), row=row, col=1)
 
-    # RSI 라인 (검정)
+    # RSI 라인 (청록 #0891b2) — 변수별 고유 색
     fig.add_trace(go.Scatter(
         x=df_daily.index, y=rsi_series,
         mode='lines',
-        line=dict(color='#111827', width=2.0, shape='spline', smoothing=0.5),
+        line=dict(color='#0891b2', width=2.0, shape='spline', smoothing=0.5),
         name='RSI', hoverinfo='skip', showlegend=False,
         connectgaps=True,
     ), row=row, col=1)
@@ -2345,7 +2400,7 @@ def render_chart(
     rsi_val = float(last_rsi) if pd.notna(last_rsi) else 50.0
     rsi_color = (
         '#dc2626' if rsi_val >= CFG.RSI_OVERBOUGHT
-        else '#2563eb' if rsi_val <= CFG.RSI_OVERSOLD else 'black'
+        else '#2563eb' if rsi_val <= CFG.RSI_OVERSOLD else '#0891b2'
     )
     fig.add_annotation(
         x=0, y=1, xref='x domain', yref='y domain',
