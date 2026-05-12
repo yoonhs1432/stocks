@@ -2301,7 +2301,7 @@ def render_chart(
                         f"▼{bearish_mask[df_daily.index >= view_start].sum()}건"
                     )
 
-            # Y 오프셋 — view 범위 기준 10% (작게)
+            # Y 오프셋 — view 범위 기준 18% (마커가 라인에 가려지지 않게)
             macd_view = df_daily.loc[df_daily.index >= view_start, 'MACD'].dropna()
             sig_view_y = df_daily.loc[df_daily.index >= view_start, 'MACD_Signal'].dropna()
             macd_max_y = float(abs(macd_view).max()) if not macd_view.empty else 0.0
@@ -2309,7 +2309,7 @@ def render_chart(
             data_max_y = max(macd_max_y, sig_max_y)
             if data_max_y <= 0:
                 data_max_y = 1.0
-            y_offset = data_max_y * 0.10   # 10% offset
+            y_offset = data_max_y * 0.18   # 18% — 라인 위/아래로 충분히 떨어뜨림
 
             # ── 마커 위치 (고정) ──
             # ▲ 매수: 크로스 바로 아래 (-offset)
@@ -2493,6 +2493,7 @@ def render_chart(
             fig.add_vline(
                 x=t_date, line_dash="solid", line_width=1,
                 line_color=m_color, opacity=0.8, row=r, col=1,
+                layer='below',   # 마커가 vline 위에 보이도록
             )
 
     # ── 메모 마커 (#8) ──
@@ -2536,6 +2537,7 @@ def render_chart(
                 fig.add_vline(
                     x=d, line_dash="dot", line_width=1,
                     line_color='#fbbf24', opacity=0.4, row=r, col=1,
+                    layer='below',
                 )
 
     # 축 공통 스타일
