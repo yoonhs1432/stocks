@@ -2261,12 +2261,19 @@ def render_chart(
 
             # ── MACD-Signal 교차점 화살표 ──
             # hist = MACD - Signal
-            # 상향 교차 (bullish): hist가 음→양 → 매수 → ▲ 빨강 (크로스 바로 아래)
-            # 하향 교차 (bearish): hist가 양→음 → 매도 → ▼ 파랑 (크로스 바로 위)
-            hist = (macd_series - signal_series).fillna(0)
-            hist_prev = hist.shift(1).fillna(0)
-            bullish_mask = (hist >= 0) & (hist_prev < 0)
-            bearish_mask = (hist <= 0) & (hist_prev > 0)
+            # 부호가 바뀌는 시점을 교차로 정의 (hist=0인 점 안전 처리)
+            # 상향: 직전 hist<0, 현재 hist≥0 → 매수 → ▲ 빨강
+            # 하향: 직전 hist>0, 현재 hist≤0 → 매도 → ▼ 파랑
+            # NaN을 0으로 채우면 가짜 교차 발생 → dropna 기반 검출
+            macd_raw = df_daily['MACD']
+            sig_raw = df_daily['MACD_Signal']
+            valid_idx = macd_raw.notna() & sig_raw.notna()
+            hist_clean = (macd_raw - sig_raw).where(valid_idx)
+            hist_prev = hist_clean.shift(1)
+            both_valid = hist_clean.notna() & hist_prev.notna()
+            # 부호 변화 검출 (hist=0 통과 케이스 포함)
+            bullish_mask = both_valid & (hist_clean >= 0) & (hist_prev < 0)
+            bearish_mask = both_valid & (hist_clean <= 0) & (hist_prev > 0)
 
             # Y 오프셋 — view 범위 기준 18%
             macd_view = df_daily.loc[df_daily.index >= view_start, 'MACD'].dropna()
@@ -2281,7 +2288,8 @@ def render_chart(
             if bullish_mask.any():
                 bull_x = df_daily.index[bullish_mask]
                 # 크로스 바로 "아래" — y_offset만큼 음수 방향
-                bull_y_base = macd_series[bullish_mask].values
+                # raw MACD 값 (fillna 적용 안 됨) 사용
+                bull_y_base = macd_raw[bullish_mask].values
                 bull_y = bull_y_base - y_offset
                 fig.add_trace(go.Scatter(
                     x=bull_x, y=bull_y,
@@ -2298,7 +2306,7 @@ def render_chart(
             if bearish_mask.any():
                 bear_x = df_daily.index[bearish_mask]
                 # 크로스 바로 "위" — y_offset만큼 양수 방향
-                bear_y_base = macd_series[bearish_mask].values
+                bear_y_base = macd_raw[bearish_mask].values
                 bear_y = bear_y_base + y_offset
                 fig.add_trace(go.Scatter(
                     x=bear_x, y=bear_y,
