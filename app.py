@@ -133,7 +133,8 @@ COLOR_BORDER = Colors.BORDER
 
 
 X_ASSET_FIXED = 'SPY'
-TARGET_TICKERS = [
+# 종목 리스트 — 초기값은 DEFAULT_TICKERS, main()에서 load_target_tickers()로 갱신
+TARGET_TICKERS: list[str] = [
     'FNGU', 'TQQQ', 'SOXL', 'HIBL', 'QPUX', 'LABU', 'DFEN', 'DPST',
     'GDXU', 'KORU', '005930', 'AVXX', 'SPYU', 'TARK', 'URTY', 'TNA',
     'BNKU', 'BTC-USD', 'ETH-USD', 'GLD',
@@ -332,8 +333,18 @@ def html_progress_bar(width_pct: float, color: str, height: int = 7) -> str:
 TRADE_FILE = 'trade_history.json'
 MEMO_FILE = 'memo_history.json'
 SETTINGS_FILE = 'settings.json'
+TICKERS_FILE = 'target_tickers.json'
 GIST_FILENAME = 'quant_trade_history.json'
 MEMO_GIST_FILENAME = 'quant_memo_history.json'
+TICKERS_GIST_FILENAME = 'quant_target_tickers.json'
+
+# 기본 종목 (사용자 설정이 없을 때 fallback)
+DEFAULT_TICKERS = [
+    'FNGU', 'TQQQ', 'SOXL', 'HIBL', 'QPUX', 'LABU', 'DFEN', 'DPST',
+    'GDXU', 'KORU', '005930', 'AVXX', 'SPYU', 'TARK', 'URTY', 'TNA',
+    'BNKU', 'BTC-USD', 'ETH-USD', 'GLD',
+]
+MIN_TICKERS = 3   # 최소 보유 종목 수
 
 
 def _gist_cfg() -> tuple[str, str]:
@@ -413,6 +424,28 @@ def load_trade_history() -> dict: return _load_json(TRADE_FILE, GIST_FILENAME)
 def save_trade_history(h: dict) -> None: _save_json(TRADE_FILE, GIST_FILENAME, h)
 def load_memo_history() -> dict: return _load_json(MEMO_FILE, MEMO_GIST_FILENAME)
 def save_memo_history(h: dict) -> None: _save_json(MEMO_FILE, MEMO_GIST_FILENAME, h)
+
+
+def load_target_tickers() -> list[str]:
+    """저장된 종목 리스트. 없으면 DEFAULT_TICKERS."""
+    data = _load_json(TICKERS_FILE, TICKERS_GIST_FILENAME)
+    tickers = data.get('tickers') if isinstance(data, dict) else None
+    if isinstance(tickers, list) and len(tickers) >= MIN_TICKERS:
+        # 중복 제거 + 빈 문자열 제거 + 순서 유지
+        seen = set()
+        out = []
+        for t in tickers:
+            t = str(t).strip().upper()
+            if t and t not in seen:
+                seen.add(t)
+                out.append(t)
+        if len(out) >= MIN_TICKERS:
+            return out
+    return list(DEFAULT_TICKERS)
+
+
+def save_target_tickers(tickers: list[str]) -> None:
+    _save_json(TICKERS_FILE, TICKERS_GIST_FILENAME, {'tickers': tickers})
 
 
 def load_settings() -> dict:
@@ -1723,6 +1756,76 @@ def render_sidebar(
             f"☁️ Gist 연동됨 (`{gid[:8]}...`)" if (tok and gid)
             else "💾 로컬 저장 (Gist 미설정)"
         )
+
+        # ── 종목 관리 expander ──
+        with st.expander(f"📊 종목 관리 ({len(TARGET_TICKERS)}개)", expanded=False):
+            # 추가
+            st.caption("➕ 새 종목 추가")
+            add_col1, add_col2 = st.columns([3, 1])
+            new_ticker = add_col1.text_input(
+                "ticker",
+                key="add_ticker_input",
+                placeholder="예: NVDA, AAPL, 000660",
+                label_visibility="collapsed",
+            )
+            if add_col2.button("추가", key="add_ticker_btn",
+                               use_container_width=True):
+                tk = (new_ticker or "").strip().upper()
+                if not tk:
+                    st.warning("티커를 입력하세요")
+                elif tk in TARGET_TICKERS:
+                    st.warning(f"이미 추가됨: {tk}")
+                else:
+                    new_list = TARGET_TICKERS + [tk]
+                    TARGET_TICKERS[:] = new_list
+                    save_target_tickers(new_list)
+                    fetch_all_data.clear()
+                    compute_all_analyses.clear()
+                    st.success(f"추가됨: {tk}")
+                    st.rerun()
+
+            st.caption("⚠️ 잘못된 티커 추가 시 데이터 로드 실패 (yfinance 의존)")
+
+            # 삭제 (체크박스)
+            st.caption(f"🗑️ 삭제 (현재 {len(TARGET_TICKERS)}개, 최소 {MIN_TICKERS}개 유지)")
+            to_delete = []
+            # 5열 그리드
+            cols_per_row = 5
+            for i in range(0, len(TARGET_TICKERS), cols_per_row):
+                cols = st.columns(cols_per_row)
+                for j, tk in enumerate(TARGET_TICKERS[i:i+cols_per_row]):
+                    if cols[j].checkbox(
+                        display_name(tk),
+                        key=f"del_chk_{tk}",
+                        help=tk,
+                    ):
+                        to_delete.append(tk)
+
+            del_col1, del_col2 = st.columns([1, 1])
+            if to_delete:
+                del_col1.caption(f"선택: {len(to_delete)}개")
+            if del_col2.button(
+                "선택 종목 삭제", key="del_tickers_btn",
+                use_container_width=True,
+                disabled=not to_delete,
+                type="primary" if to_delete else "secondary",
+            ):
+                remaining = [t for t in TARGET_TICKERS if t not in to_delete]
+                if len(remaining) < MIN_TICKERS:
+                    st.error(f"최소 {MIN_TICKERS}개 종목 유지 필요")
+                else:
+                    TARGET_TICKERS[:] = remaining
+                    save_target_tickers(remaining)
+                    # 캐시 무효화
+                    fetch_all_data.clear()
+                    compute_all_analyses.clear()
+                    # 삭제된 ticker가 선택되어 있으면 첫 번째로 변경
+                    if st.session_state.selected_option in to_delete:
+                        st.session_state.selected_option = remaining[0]
+                    st.success(f"삭제됨: {', '.join(to_delete)}")
+                    st.rerun()
+
+            st.caption("매매 기록은 삭제되지 않음 (자산 추이/실현손익엔 반영)")
 
         # 매매 기록 / 메모를 탭으로 분리 (#4)
         tab_trade, tab_memo = st.tabs(["📈 매매 기록", "📝 메모"])
@@ -3893,6 +3996,10 @@ def update_ticker_signals(df_close: pd.DataFrame, all_analyses: dict) -> dict[st
 
 def main() -> None:
     init_session_state()
+
+    # ── 저장된 사용자 종목 리스트로 갱신 (Gist/로컬) ──
+    loaded_tickers = load_target_tickers()
+    TARGET_TICKERS[:] = loaded_tickers   # in-place 갱신
 
     DIRECT_INPUT_LABEL = "직접 입력"
     all_options = TARGET_TICKERS + [DIRECT_INPUT_LABEL]
