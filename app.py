@@ -2264,16 +2264,42 @@ def render_chart(
             # 부호가 바뀌는 시점을 교차로 정의 (hist=0인 점 안전 처리)
             # 상향: 직전 hist<0, 현재 hist≥0 → 매수 → ▲ 빨강
             # 하향: 직전 hist>0, 현재 hist≤0 → 매도 → ▼ 파랑
-            # NaN을 0으로 채우면 가짜 교차 발생 → dropna 기반 검출
             macd_raw = df_daily['MACD']
             sig_raw = df_daily['MACD_Signal']
             valid_idx = macd_raw.notna() & sig_raw.notna()
             hist_clean = (macd_raw - sig_raw).where(valid_idx)
             hist_prev = hist_clean.shift(1)
             both_valid = hist_clean.notna() & hist_prev.notna()
-            # 부호 변화 검출 (hist=0 통과 케이스 포함)
             bullish_mask = both_valid & (hist_clean >= 0) & (hist_prev < 0)
             bearish_mask = both_valid & (hist_clean <= 0) & (hist_prev > 0)
+
+            # ── 진단: hist 시계열을 사이드바에 출력 ──
+            # view 범위 내 모든 일자의 (날짜, MACD, Signal, hist, 교차여부) 표시
+            with st.sidebar:
+                with st.expander(f"🔍 MACD 진단 ({selected_ticker})", expanded=False):
+                    view_mask = df_daily.index >= view_start
+                    diag_df = pd.DataFrame({
+                        'date': df_daily.index[view_mask].strftime('%m/%d'),
+                        'MACD': macd_raw[view_mask].round(2).values,
+                        'Signal': sig_raw[view_mask].round(2).values,
+                        'hist': hist_clean[view_mask].round(2).values,
+                        'cross': [
+                            '▲' if bullish_mask[i] else
+                            '▼' if bearish_mask[i] else ''
+                            for i in df_daily.index[view_mask]
+                        ],
+                    })
+                    # 교차 일자만 또는 전체
+                    cross_only = st.checkbox(
+                        "교차 일자만", value=True, key=f"diag_cross_only_{selected_ticker}"
+                    )
+                    if cross_only:
+                        diag_df = diag_df[diag_df['cross'] != '']
+                    st.dataframe(diag_df, hide_index=True, height=300)
+                    st.caption(
+                        f"검출: ▲{bullish_mask[df_daily.index >= view_start].sum()}건 / "
+                        f"▼{bearish_mask[df_daily.index >= view_start].sum()}건"
+                    )
 
             # Y 오프셋 — view 범위 기준 10% (작게)
             macd_view = df_daily.loc[df_daily.index >= view_start, 'MACD'].dropna()
