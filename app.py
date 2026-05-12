@@ -492,29 +492,6 @@ def compute_combined_score(cz: float, mhz: float, rsi: float) -> int:
     return s
 
 
-def compute_combined_score_vec(
-    cz: pd.Series, mhz: pd.Series, rsi: pd.Series
-) -> np.ndarray:
-    """벡터화 버전 — 전체 시계열을 한 번에 계산.
-
-    부호 컨벤션: 음수 = 매수 신호, 양수 = 매도 신호
-    """
-    cz_v = cz.fillna(0).values
-    mhz_v = mhz.fillna(0).values
-    rsi_v = rsi.fillna(50).values
-
-    s_cz = np.where(cz_v <= -CFG.Z_HIGH, -2,
-            np.where(cz_v < 0, -1,
-            np.where(cz_v >= CFG.Z_HIGH, 2, 1)))
-    s_mhz = np.where(mhz_v <= -CFG.MACD_HIGH, -2,
-             np.where(mhz_v < 0, -1,
-             np.where(mhz_v >= CFG.MACD_HIGH, 2, 1)))
-    s_rsi = np.where(rsi_v <= CFG.RSI_OVERSOLD, -2,
-             np.where(rsi_v < 50, -1,
-             np.where(rsi_v >= CFG.RSI_OVERBOUGHT, 2, 1)))
-    return s_cz + s_mhz + s_rsi
-
-
 def score_to_signal(score: int) -> str:
     """음수 = 매수, 양수 = 매도, 0 = 중립."""
     if score <= -5: return 'FB2'   # 강한 매수
@@ -528,20 +505,6 @@ def score_to_signal(score: int) -> str:
 
 def get_signal_combined(cz: float, mhz: float, rsi: float) -> str:
     return score_to_signal(compute_combined_score(cz, mhz, rsi))
-
-
-def get_price_fill_color_combined(score: int) -> str:
-    """Combined score (-6~+6) → 가격 차트 fill 색.
-
-    음수 = 매수 (빨강), 양수 = 매도 (파랑), 0 = 중립
-    """
-    if score <= -5: return Colors.MOM_BUY_STRONG
-    if score <= -3: return Colors.MOM_BUY
-    if score <= -1: return Colors.MOM_BUY_WEAK
-    if score >= 5:  return Colors.MOM_SELL_STRONG
-    if score >= 3:  return Colors.MOM_SELL
-    if score >= 1:  return Colors.MOM_SELL_WEAK
-    return Colors.MOM_HOLD
 
 
 def compute_momentum_score_smooth(mhz: float, rsi: float) -> float:
@@ -757,12 +720,6 @@ def process_asset_data(
         log_resid
         / log_resid.expanding(min_periods=CFG.EXPANDING_MIN_PERIODS).std().replace(0, np.nan)
     )
-
-    # 벡터화 스코어
-    df['Combined_Score'] = compute_combined_score_vec(
-        df['Z_Score'], df['MACD_Hist_Z'], df['RSI']
-    )
-    df['Price_Fill_Color'] = df['Combined_Score'].apply(get_price_fill_color_combined)
 
     return df, beta, std_resid
 
@@ -1184,21 +1141,6 @@ def _bar_colors(
     return np.where(series >= hi_thr, hi_c,
            np.where(series >= 0, mid_hi_c,
            np.where(series <= lo_thr, lo_c, mid_lo_c)))
-
-
-def add_segmented_fill(fig, df, y_col, color_col, row, col, baseline_y):
-    for i in range(1, len(df)):
-        y0, y1 = df[y_col].iloc[i - 1], df[y_col].iloc[i]
-        fc = df[color_col].iloc[i]
-        if pd.isna(y0) or pd.isna(y1) or not fc or fc == 'rgba(0,0,0,0)':
-            continue
-        fig.add_trace(go.Scatter(
-            x=[df.index[i - 1], df.index[i - 1], df.index[i], df.index[i]],
-            y=[baseline_y, y0, y1, baseline_y],
-            mode='lines', line=dict(width=0, color='rgba(0,0,0,0)'),
-            fill='toself', fillcolor=fc,
-            showlegend=False, hoverinfo='skip',
-        ), row=row, col=col)
 
 
 # ====================================================
@@ -1799,8 +1741,6 @@ def render_chart(
     spy_lo = df_daily.loc[df_daily.index >= view_start, 'Plot_Norm_SPY'].min()
     spy_hi = df_daily.loc[df_daily.index >= view_start, 'Plot_Norm_SPY'].max()
     p_lo, p_hi = min(p_lo, spy_lo) * 0.97, max(p_hi, spy_hi) * 1.03
-
-    add_segmented_fill(fig, df_daily, 'Plot_Norm_Ticker', 'Price_Fill_Color', row, 1, p_lo)
 
     fig.update_yaxes(
         type="log",
