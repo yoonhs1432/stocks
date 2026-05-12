@@ -2268,7 +2268,7 @@ def render_chart(
             bullish_mask = (hist >= 0) & (hist_prev < 0)
             bearish_mask = (hist <= 0) & (hist_prev > 0)
 
-            # Y 오프셋 — view 범위 기준 6%
+            # Y 오프셋 — view 범위 기준 18%
             macd_view = df_daily.loc[df_daily.index >= view_start, 'MACD'].dropna()
             sig_view_y = df_daily.loc[df_daily.index >= view_start, 'MACD_Signal'].dropna()
             macd_max_y = float(abs(macd_view).max()) if not macd_view.empty else 0.0
@@ -2276,7 +2276,7 @@ def render_chart(
             y_axis_max = max(macd_max_y, sig_max_y) * 1.15
             if y_axis_max <= 0:
                 y_axis_max = 1.0
-            y_offset = y_axis_max * 0.08   # 8% offset
+            y_offset = y_axis_max * 0.18   # 18% offset — 더 멀게
 
             if bullish_mask.any():
                 bull_x = df_daily.index[bullish_mask]
@@ -2287,9 +2287,9 @@ def render_chart(
                     x=bull_x, y=bull_y,
                     mode='markers',
                     marker=dict(
-                        symbol='triangle-up', size=7,
-                        color='#dc2626', opacity=0.85,
-                        line=dict(color='white', width=0.8),
+                        symbol='triangle-up', size=12,
+                        color='#dc2626', opacity=0.9,
+                        line=dict(color='white', width=1),
                     ),
                     name='Bullish', hoverinfo='skip', showlegend=False,
                     cliponaxis=False,
@@ -2304,9 +2304,9 @@ def render_chart(
                     x=bear_x, y=bear_y,
                     mode='markers',
                     marker=dict(
-                        symbol='triangle-down', size=7,
-                        color='#2563eb', opacity=0.85,
-                        line=dict(color='white', width=0.8),
+                        symbol='triangle-down', size=12,
+                        color='#2563eb', opacity=0.9,
+                        line=dict(color='white', width=1),
                     ),
                     name='Bearish', hoverinfo='skip', showlegend=False,
                     cliponaxis=False,
