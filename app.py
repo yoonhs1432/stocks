@@ -590,24 +590,25 @@ def compute_momentum_score_smooth(mhz: float, rsi: float) -> float:
     """모멘텀 점수의 연속 버전 (시각화용).
 
     선형 무제한 — 임계값 이상의 강도 차이도 그대로 보존.
-    saturation 없음. 동일 가중치/부호 컨벤션 사용.
+    Z와 동일 척도 (±2.5 범위) 로 단일 Y축 표시 가능.
 
     - MACD-Z를 MACD_HIGH 단위로 정규화, 가중 CFG.MACD_WEIGHT (1.2)
     - RSI를 ±20 단위 (50 중심)로 정규화, 가중 CFG.RSI_WEIGHT (0.8)
-    - 합산 × 2 = 정수 척도와 일치 (정상 ±4, 극단 ±8)
+    - 임계 ±1 (약), ±2 (강) → Z 임계와 동일
     """
     s_mhz = CFG.MACD_WEIGHT * (mhz / CFG.MACD_HIGH)
     s_rsi = CFG.RSI_WEIGHT  * ((rsi - 50) / 20.0)
-    return 2.0 * (s_mhz + s_rsi)
+    return s_mhz + s_rsi
 
 
 def compute_momentum_score(mhz: float, rsi: float) -> int:
     """모멘텀 점수 정수 (-CFG.SCORE_MAX ~ +CFG.SCORE_MAX).
 
-    smooth 점수의 round(smooth / 2) — 그래프 3의 M값과 일치.
+    smooth가 Z와 동일 척도이므로 직접 round.
+    임계: ±1 약, ±2 강 (Z와 동일).
     """
     smooth = compute_momentum_score_smooth(mhz, rsi)
-    return max(-CFG.SCORE_MAX, min(CFG.SCORE_MAX, int(round(smooth / 2.0))))
+    return max(-CFG.SCORE_MAX, min(CFG.SCORE_MAX, int(round(smooth))))
 
 
 def momentum_score_to_signal(score: int) -> str:
@@ -1337,7 +1338,7 @@ def analyze_signal_accuracy(journal: list[dict]) -> dict:
         last_buy_m = None
         for e in entries:
             if e['type'] == 'buy' and e['m'] is not None:
-                last_buy_m = max(-4, min(4, int(round(e['m'] / 2.0))))
+                last_buy_m = max(-4, min(4, int(round(e['m']))))
             elif e['type'] == 'sell' and e['pnl_pct'] is not None and last_buy_m is not None:
                 buy_signal_outcomes[last_buy_m].append(e['pnl_pct'])
                 # last_buy_m은 보유 종료까지 유지 (부분매도 고려)
@@ -1390,7 +1391,7 @@ def _build_journal_html(journal: list[dict], stats: dict) -> str:
             z_col = '#dc2626' if e['z'] <= -1 else '#2563eb' if e['z'] >= 1 else '#9ca3af'
             sig_parts.append(f"<span style='color:{z_col};'>Z{e['z']:+.1f}</span>")
         if e['m'] is not None:
-            m_int = max(-4, min(4, int(round(e['m'] / 2.0))))
+            m_int = max(-4, min(4, int(round(e['m']))))
             m_col = momentum_to_color(m_int)
             sig_parts.append(f"<span style='color:{m_col};'>M{e['m']:+.1f}</span>")
         if e['dd'] is not None:
@@ -1998,15 +1999,11 @@ def render_chart(
     plot_order = ['main', 'spacer', 'price', 'zscore', 'macd', 'rsi']
     total_rows = len(plot_order)
     total_h = sum(PX[p] for p in plot_order)
-    # zscore 패널만 secondary_y 활성화 (Z + 모멘텀 dual-axis)
-    specs = [
-        [{"secondary_y": (p == 'zscore')}] for p in plot_order
-    ]
+    # 모든 패널 단일 Y축 (Z + M 같은 척도)
     fig = make_subplots(
         rows=total_rows, cols=1,
         row_heights=[PX[p] / total_h for p in plot_order],
         vertical_spacing=0.02,
-        specs=specs,
     )
     row = 1
 
@@ -2100,11 +2097,8 @@ def render_chart(
 
     # [3] Price
     price_row = row
-    fig.add_trace(go.Scatter(
-        x=df_daily.index, y=df_daily['Plot_Norm_SPY'],
-        mode='lines', line=dict(color='gray', width=1.5), name=X_ASSET_FIXED,
-    ), row=row, col=1)
 
+    # 캔들스틱 먼저 (배경) — SPY 라인이 위로 가도록
     ohlc_norm = pd.DataFrame()
     if df_ohlc is not None and not df_ohlc.empty:
         base_close = df_daily[f'{selected_ticker}_Close'].iloc[0]
@@ -2126,6 +2120,13 @@ def render_chart(
             x=df_daily.index, y=df_daily['Plot_Norm_Ticker'],
             mode='lines', line=dict(color='black', width=1.5), name=selected_ticker,
         ), row=row, col=1)
+
+    # SPY 라인 (위에) — 캔들 위로 그려서 연속성 유지
+    fig.add_trace(go.Scatter(
+        x=df_daily.index, y=df_daily['Plot_Norm_SPY'],
+        mode='lines', line=dict(color='gray', width=1.5), name=X_ASSET_FIXED,
+        connectgaps=True,
+    ), row=row, col=1)
 
     if not ohlc_norm.empty:
         vc = ohlc_norm[ohlc_norm.index >= view_start]
@@ -2168,16 +2169,16 @@ def render_chart(
     ]:
         if col_name == 'Z_Score':
             # ── Z + 모멘텀 패널 ──
-            # Z 라인 (검정 굵게), 모멘텀 라인 (주황 얇게)
-            # + 임계 수평선 (양수=빨강, 음수=파랑) — 선생님 요청
+            # Z 라인 (검정), 모멘텀 라인 (주황) — 동일 Y축 (같은 척도)
+            # + 임계 수평선 ±1 (약), ±2 (강)
             z_series = df_daily[col_name].fillna(0)
 
-            # 모멘텀 점수 시계열
+            # 모멘텀 점수 시계열 — compute_momentum_score_smooth와 동일 식
             mhz_v = df_daily['MACD_Hist_Z'].fillna(0).values
             rsi_v = df_daily['RSI'].fillna(50).values
-            s_mhz_smooth = 1.2 * (mhz_v / CFG.MACD_HIGH)
-            s_rsi_smooth = 0.8 * ((rsi_v - 50) / 20.0)
-            momentum_smooth = 2.0 * (s_mhz_smooth + s_rsi_smooth)
+            s_mhz_smooth = CFG.MACD_WEIGHT * (mhz_v / CFG.MACD_HIGH)
+            s_rsi_smooth = CFG.RSI_WEIGHT  * ((rsi_v - 50) / 20.0)
+            momentum_smooth = s_mhz_smooth + s_rsi_smooth   # × 2 제거: Z와 같은 척도
             momentum_series = pd.Series(momentum_smooth, index=df_daily.index)
 
             # ── 임계 수평선 (Z축 기준, 양수=빨강, 음수=파랑) ──
@@ -2199,23 +2200,23 @@ def render_chart(
                     hoverinfo='skip', showlegend=False,
                 ), row=row, col=1)
 
-            # ── Z 실선 (검정 굵게) — 임계선보다 굵게 ──
+            # ── Z 실선 (검정) — 임계선보다 굵게 ──
             fig.add_trace(go.Scatter(
                 x=df_daily.index, y=z_series,
                 mode='lines',
-                line=dict(color='#111827', width=3, shape='spline', smoothing=0.5),
+                line=dict(color='#111827', width=2.0, shape='spline', smoothing=0.5),
                 name='Z', hoverinfo='skip', showlegend=False,
                 connectgaps=True,
             ), row=row, col=1)
 
-            # ── 모멘텀 실선 (주황) ──
+            # ── 모멘텀 실선 (주황) — Z와 같은 Y축 (척도 동일) ──
             fig.add_trace(go.Scatter(
                 x=df_daily.index, y=momentum_series,
                 mode='lines',
-                line=dict(color='#f97316', width=2.2, shape='spline', smoothing=0.5),
+                line=dict(color='#f97316', width=1.5, shape='spline', smoothing=0.5),
                 name='Momentum', hoverinfo='skip', showlegend=False,
                 connectgaps=True,
-            ), row=row, col=1, secondary_y=True)
+            ), row=row, col=1)
 
             last_v = z_series.iloc[-1]
             val = float(last_v) if pd.notna(last_v) else 0.0
@@ -2263,32 +2264,19 @@ def render_chart(
         z_data_max = float(view_abs.max()) if not view_abs.empty else 0.0
 
         if col_name == 'Z_Score':
-            # ── Z + M 동시 동기화 (Z * 2 = M, 0 가운데) ──
-            # 1. Z 데이터 max
-            # 2. M 데이터 max를 Z 단위로 환산 (÷2)
-            # 3. 둘 중 큰 값 + 임계값(2) + 여유 → Z 축 max
-            # 4. M 축 max = Z 축 max × 2 (비율 정확히 유지)
+            # ── Z + M 단일 Y축 (같은 척도, ±2가 강 임계) ──
             # 0이 항상 가운데 (-max ~ +max 대칭)
             mom_view = momentum_series.loc[momentum_series.index >= view_start]
             m_data_max = float(abs(mom_view).max()) if not mom_view.empty else 0.0
-            # Z 단위 기준 max (Z_HIGH=2, M_HIGH=4 임계값 보장)
             z_axis_max = max(
                 z_data_max,
-                m_data_max / 2.0,
-                2.0,    # Z 임계 ±2 보이도록
+                m_data_max,    # M이 Z와 같은 척도이므로 동일 비교
+                2.0,           # ±2 임계 항상 보이도록
             ) + 0.3
-            mom_axis_max = z_axis_max * 2.0  # 정확한 비율 유지
 
             fig.update_yaxes(
                 range=[-z_axis_max, z_axis_max], autorange=False, fixedrange=True,
                 row=row, col=1,
-            )
-            fig.update_yaxes(
-                range=[-mom_axis_max, mom_axis_max],
-                autorange=False, fixedrange=True,
-                tickvals=[-6, -4, -2, 0, 2, 4, 6],
-                tickfont=dict(size=8, color='#f97316'),
-                row=row, col=1, secondary_y=True,
             )
         else:
             # MACD 패널: 기존 방식
@@ -2415,8 +2403,12 @@ def render_chart(
             matches=time_x_axis, rangebreaks=[dict(bounds=['sat', 'mon'])],
             showticklabels=(r == total_rows), tickformat="%m/%d",
             range=[view_start, last_date], row=r, col=1,
+            layer='below traces',   # grid가 라인 아래에 그려지도록
         )
-        fig.update_yaxes(showgrid=False, autorange=False, fixedrange=True, row=r, col=1)
+        fig.update_yaxes(
+            showgrid=False, autorange=False, fixedrange=True, row=r, col=1,
+            layer='below traces',
+        )
 
     fig.update_traces(hoverinfo='skip')
     fig.update_layout(
