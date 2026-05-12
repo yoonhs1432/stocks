@@ -2288,9 +2288,14 @@ def render_chart(
             if bullish_mask.any():
                 bull_x = df_daily.index[bullish_mask]
                 # 크로스 바로 "아래" — y_offset만큼 음수 방향
-                # raw MACD 값 (fillna 적용 안 됨) 사용
                 bull_y_base = macd_raw[bullish_mask].values
                 bull_y = bull_y_base - y_offset
+                # hover: 날짜 + hist 값
+                bull_hist = (macd_raw - sig_raw)[bullish_mask].values
+                bull_hover = [
+                    f"▲ {d.strftime('%m/%d')} MACD={m:.2f} Sig={m-h:.2f}"
+                    for d, m, h in zip(bull_x, bull_y_base, bull_hist)
+                ]
                 fig.add_trace(go.Scatter(
                     x=bull_x, y=bull_y,
                     mode='markers',
@@ -2299,7 +2304,9 @@ def render_chart(
                         color='#dc2626', opacity=0.9,
                         line=dict(color='white', width=1),
                     ),
-                    name='Bullish', hoverinfo='skip', showlegend=False,
+                    text=bull_hover,
+                    hovertemplate='%{text}<extra></extra>',
+                    name='Bullish', showlegend=False,
                     cliponaxis=False,
                 ), row=row, col=1)
 
@@ -2308,6 +2315,11 @@ def render_chart(
                 # 크로스 바로 "위" — y_offset만큼 양수 방향
                 bear_y_base = macd_raw[bearish_mask].values
                 bear_y = bear_y_base + y_offset
+                bear_hist = (macd_raw - sig_raw)[bearish_mask].values
+                bear_hover = [
+                    f"▼ {d.strftime('%m/%d')} MACD={m:.2f} Sig={m-h:.2f}"
+                    for d, m, h in zip(bear_x, bear_y_base, bear_hist)
+                ]
                 fig.add_trace(go.Scatter(
                     x=bear_x, y=bear_y,
                     mode='markers',
@@ -2316,7 +2328,9 @@ def render_chart(
                         color='#2563eb', opacity=0.9,
                         line=dict(color='white', width=1),
                     ),
-                    name='Bearish', hoverinfo='skip', showlegend=False,
+                    text=bear_hover,
+                    hovertemplate='%{text}<extra></extra>',
+                    name='Bearish', showlegend=False,
                     cliponaxis=False,
                 ), row=row, col=1)
 
@@ -2325,13 +2339,18 @@ def render_chart(
             last_sig = signal_series.iloc[-1]
             sig_v = float(last_sig) if pd.notna(last_sig) else 0.0
 
-            # 범례 (좌측 상단)
+            # 범례 (좌측 상단) + 교차 개수 진단
+            # view 범위 내 교차만 카운트 (화면 보이는 범위)
+            bull_in_view = (bullish_mask & (df_daily.index >= view_start)).sum()
+            bear_in_view = (bearish_mask & (df_daily.index >= view_start)).sum()
             fig.add_annotation(
                 x=0, y=1, xref='x domain', yref='y domain',
                 text=(
                     "<span style='color:#7c3aed;'>━ MACD</span>"
                     "  "
                     "<span style='color:#a78bfa;'>━ Signal</span>"
+                    f"  <span style='color:#9ca3af;font-size:9px;'>"
+                    f"▲{bull_in_view} ▼{bear_in_view}</span>"
                 ),
                 showarrow=False,
                 font=dict(size=11),
@@ -2340,6 +2359,27 @@ def render_chart(
                 borderwidth=1, borderpad=3,
                 row=row, col=1,
             )
+
+            # 진단 — 검출된 교차 날짜 리스트 우상단
+            view_mask_idx = df_daily.index >= view_start
+            bull_dates = df_daily.index[bullish_mask & view_mask_idx]
+            bear_dates = df_daily.index[bearish_mask & view_mask_idx]
+            cross_lines = []
+            for d in bull_dates:
+                cross_lines.append(f"▲{d.strftime('%m/%d')}")
+            for d in bear_dates:
+                cross_lines.append(f"▼{d.strftime('%m/%d')}")
+            if cross_lines:
+                diag_text = "<br>".join(cross_lines[:8])  # 최대 8개
+                fig.add_annotation(
+                    x=1, y=1, xref='x domain', yref='y domain',
+                    text=f"<span style='font-size:8px;color:#6b7280;'>{diag_text}</span>",
+                    showarrow=False,
+                    xanchor='right', yanchor='top',
+                    bgcolor='rgba(255,255,255,0.8)',
+                    borderwidth=0, borderpad=2,
+                    row=row, col=1,
+                )
 
         view_abs = abs(df_daily.loc[df_daily.index >= view_start, col_name].dropna())
         z_data_max = float(view_abs.max()) if not view_abs.empty else 0.0
