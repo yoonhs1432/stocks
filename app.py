@@ -2183,12 +2183,13 @@ def render_chart(
             # ── 임계 수평선 (Z축 기준, 양수=빨강, 음수=파랑) ──
             # Z ±1 (약 신호 점선), Z ±2 (강 신호 실선), 0 중립
             # Y축 동기화로 모멘텀 ±2/±4도 같은 높이에 자동 표시
+            # 라인이 임계선보다 굵어야 가독성 ↑
             for y_val, lc, ld, lw in [
-                (2.0,   '#dc2626', 'solid', 1.0),   # +2 빨강 강 신호
-                (1.0,   '#fca5a5', 'dot',   0.9),   # +1 연빨강 약 신호
-                (0,     '#9ca3af', 'solid', 0.6),   # 중립
-                (-1.0,  '#93c5fd', 'dot',   0.9),   # -1 연파랑 약 신호
-                (-2.0,  '#2563eb', 'solid', 1.0),   # -2 파랑 강 신호
+                (2.0,   '#dc2626', 'solid', 0.7),   # +2 빨강 강 신호
+                (1.0,   '#fca5a5', 'dot',   0.6),   # +1 연빨강 약 신호
+                (0,     '#9ca3af', 'solid', 0.5),   # 중립
+                (-1.0,  '#93c5fd', 'dot',   0.6),   # -1 연파랑 약 신호
+                (-2.0,  '#2563eb', 'solid', 0.7),   # -2 파랑 강 신호
             ]:
                 fig.add_trace(go.Scatter(
                     x=[df_daily.index[0], df_daily.index[-1]],
@@ -2198,20 +2199,22 @@ def render_chart(
                     hoverinfo='skip', showlegend=False,
                 ), row=row, col=1)
 
-            # ── Z 실선 (검정 굵게) ──
+            # ── Z 실선 (검정 굵게) — 임계선보다 굵게 ──
             fig.add_trace(go.Scatter(
                 x=df_daily.index, y=z_series,
                 mode='lines',
-                line=dict(color='#111827', width=2.5, shape='spline', smoothing=0.4),
+                line=dict(color='#111827', width=3, shape='spline', smoothing=0.5),
                 name='Z', hoverinfo='skip', showlegend=False,
+                connectgaps=True,
             ), row=row, col=1)
 
-            # ── 모멘텀 실선 (주황 얇게, 보조 Y축) ──
+            # ── 모멘텀 실선 (주황) ──
             fig.add_trace(go.Scatter(
                 x=df_daily.index, y=momentum_series,
                 mode='lines',
-                line=dict(color='#f97316', width=1.5, shape='spline', smoothing=0.4),
+                line=dict(color='#f97316', width=2.2, shape='spline', smoothing=0.5),
                 name='Momentum', hoverinfo='skip', showlegend=False,
+                connectgaps=True,
             ), row=row, col=1, secondary_y=True)
 
             last_v = z_series.iloc[-1]
