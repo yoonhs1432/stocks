@@ -1213,14 +1213,6 @@ def calc_portfolio_total_pnl(
 # ====================================================
 # 11. 차트 헬퍼
 # ====================================================
-def _bar_colors(
-    series: pd.Series,
-    hi_thr: float, lo_thr: float,
-    hi_c: str, lo_c: str, mid_hi_c: str, mid_lo_c: str,
-) -> np.ndarray:
-    return np.where(series >= hi_thr, hi_c,
-           np.where(series >= 0, mid_hi_c,
-           np.where(series <= lo_thr, lo_c, mid_lo_c)))
 
 
 # ====================================================
@@ -2155,12 +2147,7 @@ def render_chart(
     time_x_axis = f'x{row}'
     row += 1
 
-    # [4~5] Z / MACD / RSI
-    C_HI = 'rgba(29,78,216,0.85)'
-    C_LO = 'rgba(185,28,28,0.85)'
-    C_MH = 'rgba(147,197,253,0.6)'
-    C_ML = 'rgba(252,165,165,0.6)'
-
+    # [4~5] Z+M / MACD (라인) — 두 패널 모두 라인 그래프
     for col_name, hi, lo, label, color_fn in [
         ('Z_Score',     CFG.Z_HIGH,    -CFG.Z_HIGH,    'Z',
          lambda v: 'black'),
@@ -2237,26 +2224,57 @@ def render_chart(
                 row=row, col=1,
             )
         else:
-            # MACD: 기존 막대 유지
-            colors = _bar_colors(df_daily[col_name], hi, lo, C_HI, C_LO, C_MH, C_ML)
-            fig.add_trace(go.Bar(
-                x=df_daily.index, y=df_daily[col_name],
-                marker_color=colors, name=col_name, hoverinfo='skip',
-            ), row=row, col=1)
-            for y_val, lc in [(hi, 'blue'), (-hi, 'red'), (0, 'gray')]:
-                fig.add_hline(
-                    y=y_val, line_dash="solid", line_color=lc,
-                    line_width=0.8 if y_val != 0 else 0.6, row=row, col=1,
-                )
-            last_v = df_daily[col_name].iloc[-1]
-            val = float(last_v) if pd.notna(last_v) else 0.0
+            # ── MACD 패널: MACD 라인 + Signal 라인 (가격 단위) ──
+            # M 계산은 MACD_Hist_Z 그대로 유지 (그래프 3에서 사용)
+            # 여기는 단순히 두 라인 표시
+            macd_series = df_daily['MACD'].fillna(0)
+            signal_series = df_daily['MACD_Signal'].fillna(0)
 
+            # MACD 라인 (검정)
+            fig.add_trace(go.Scatter(
+                x=df_daily.index, y=macd_series,
+                mode='lines',
+                line=dict(color='#111827', width=2.0, shape='spline', smoothing=0.5),
+                name='MACD', hoverinfo='skip', showlegend=False,
+                connectgaps=True,
+            ), row=row, col=1)
+
+            # Signal 라인 (주황)
+            fig.add_trace(go.Scatter(
+                x=df_daily.index, y=signal_series,
+                mode='lines',
+                line=dict(color='#f97316', width=1.5, shape='spline', smoothing=0.5),
+                name='Signal', hoverinfo='skip', showlegend=False,
+                connectgaps=True,
+            ), row=row, col=1)
+
+            # 0 중립 수평선
+            fig.add_trace(go.Scatter(
+                x=[df_daily.index[0], df_daily.index[-1]],
+                y=[0, 0],
+                mode='lines',
+                line=dict(color='#9ca3af', width=0.5),
+                hoverinfo='skip', showlegend=False,
+            ), row=row, col=1)
+
+            last_v = macd_series.iloc[-1]
+            val = float(last_v) if pd.notna(last_v) else 0.0
+            last_sig = signal_series.iloc[-1]
+            sig_v = float(last_sig) if pd.notna(last_sig) else 0.0
+
+            # 범례 (좌측 상단)
             fig.add_annotation(
                 x=0, y=1, xref='x domain', yref='y domain',
-                text=f"<b>{label}  {val:+.2f}</b>", showarrow=False,
-                font=dict(size=11, color=color_fn(val)),
+                text=(
+                    "<span style='color:#111827;'>━ MACD</span>"
+                    "  "
+                    "<span style='color:#f97316;'>━ Signal</span>"
+                ),
+                showarrow=False,
+                font=dict(size=11),
                 xanchor='left', yanchor='top',
-                bgcolor='white', bordercolor='black', borderwidth=1, borderpad=2,
+                bgcolor='rgba(255,255,255,0.85)', bordercolor='#d1d5db',
+                borderwidth=1, borderpad=3,
                 row=row, col=1,
             )
 
@@ -2279,9 +2297,15 @@ def render_chart(
                 row=row, col=1,
             )
         else:
-            # MACD 패널: 기존 방식
-            rng = max(hi, z_data_max)
-            macd_axis_max = rng + 0.3
+            # ── MACD 패널 Y축: MACD + Signal 라인 기반 ──
+            # MACD는 가격 단위 (종목마다 척도 다름) — 데이터 기반 동적 범위
+            macd_view = df_daily.loc[df_daily.index >= view_start, 'MACD'].dropna()
+            sig_view = df_daily.loc[df_daily.index >= view_start, 'MACD_Signal'].dropna()
+            macd_data_max = float(abs(macd_view).max()) if not macd_view.empty else 0.0
+            sig_data_max = float(abs(sig_view).max()) if not sig_view.empty else 0.0
+            macd_axis_max = max(macd_data_max, sig_data_max) * 1.15
+            if macd_axis_max <= 0:
+                macd_axis_max = 1.0
             fig.update_yaxes(
                 range=[-macd_axis_max, macd_axis_max], autorange=False, fixedrange=True,
                 row=row, col=1,
@@ -2289,25 +2313,39 @@ def render_chart(
 
         row += 1
 
-    # RSI
-    rsi_c = df_daily['RSI'] - 50
-    rsi_colors = _bar_colors(
-        df_daily['RSI'], CFG.RSI_OVERBOUGHT, CFG.RSI_OVERSOLD, C_HI, C_LO, C_MH, C_ML,
-    )
-    fig.add_trace(go.Bar(
-        x=df_daily.index, y=rsi_c,
-        marker_color=rsi_colors, name='RSI', hoverinfo='skip',
+    # ── RSI 패널: 라인 그래프 (0~100 범위) ──
+    rsi_series = df_daily['RSI'].fillna(50)
+
+    # 30, 50, 70 수평선
+    # 양수 = 빨강 (한국 컨벤션과 일관), 음수 = 파랑
+    # RSI는 50 중심이라: 70 (과매수=빨강), 50 (중립), 30 (과매도=파랑)
+    for y_val, lc, ld, lw in [
+        (CFG.RSI_OVERBOUGHT, '#dc2626', 'solid', 0.7),   # 70 빨강
+        (50,                 '#9ca3af', 'solid', 0.5),   # 50 중립
+        (CFG.RSI_OVERSOLD,   '#2563eb', 'solid', 0.7),   # 30 파랑
+    ]:
+        fig.add_trace(go.Scatter(
+            x=[df_daily.index[0], df_daily.index[-1]],
+            y=[y_val, y_val],
+            mode='lines',
+            line=dict(color=lc, width=lw, dash=ld),
+            hoverinfo='skip', showlegend=False,
+        ), row=row, col=1)
+
+    # RSI 라인 (검정)
+    fig.add_trace(go.Scatter(
+        x=df_daily.index, y=rsi_series,
+        mode='lines',
+        line=dict(color='#111827', width=2.0, shape='spline', smoothing=0.5),
+        name='RSI', hoverinfo='skip', showlegend=False,
+        connectgaps=True,
     ), row=row, col=1)
-    for y_val, lc in [(20, 'blue'), (-20, 'red'), (0, 'gray')]:
-        fig.add_hline(
-            y=y_val, line_dash="solid", line_color=lc,
-            line_width=0.8 if y_val != 0 else 0.6, row=row, col=1,
-        )
+
     last_rsi = df_daily['RSI'].iloc[-1]
     rsi_val = float(last_rsi) if pd.notna(last_rsi) else 50.0
     rsi_color = (
-        '#1d4ed8' if rsi_val >= CFG.RSI_OVERBOUGHT
-        else '#dc2626' if rsi_val <= CFG.RSI_OVERSOLD else 'black'
+        '#dc2626' if rsi_val >= CFG.RSI_OVERBOUGHT
+        else '#2563eb' if rsi_val <= CFG.RSI_OVERSOLD else 'black'
     )
     fig.add_annotation(
         x=0, y=1, xref='x domain', yref='y domain',
@@ -2316,13 +2354,9 @@ def render_chart(
         bgcolor='white', bordercolor='black', borderwidth=1, borderpad=2,
         row=row, col=1,
     )
-    view_rsi_dropna = df_daily.loc[df_daily.index >= view_start, 'RSI'].dropna()
-    rsi_abs = max(
-        20.0,
-        abs(view_rsi_dropna - 50).max() if not view_rsi_dropna.empty else 20.0,
-    )
+    # Y축: 0~100 고정 (전통적 RSI 범위)
     fig.update_yaxes(
-        range=[-(rsi_abs + 2), rsi_abs + 2], autorange=False, fixedrange=True, row=row, col=1,
+        range=[0, 100], autorange=False, fixedrange=True, row=row, col=1,
     )
 
     # 매매 마커
