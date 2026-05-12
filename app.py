@@ -2287,10 +2287,15 @@ def render_chart(
 
             if bullish_mask.any():
                 bull_x = df_daily.index[bullish_mask]
-                # 크로스 바로 "아래" — y_offset만큼 음수 방향
                 bull_y_base = macd_raw[bullish_mask].values
-                bull_y = bull_y_base - y_offset
-                # hover: 날짜 + hist 값
+                # 적응형 위치: MACD 값이 음수 영역이면 위로, 양수 영역이면 아래로
+                # 임계: |MACD| > y_axis_max * 0.5 → 반대 방향
+                # 기본: 크로스 아래
+                bull_y = np.where(
+                    bull_y_base < -y_axis_max * 0.4,
+                    bull_y_base + y_offset,   # 너무 아래면 위로
+                    bull_y_base - y_offset,   # 일반: 아래
+                )
                 bull_hist = (macd_raw - sig_raw)[bullish_mask].values
                 bull_hover = [
                     f"▲ {d.strftime('%m/%d')} MACD={m:.2f} Sig={m-h:.2f}"
@@ -2312,9 +2317,14 @@ def render_chart(
 
             if bearish_mask.any():
                 bear_x = df_daily.index[bearish_mask]
-                # 크로스 바로 "위" — y_offset만큼 양수 방향
                 bear_y_base = macd_raw[bearish_mask].values
-                bear_y = bear_y_base + y_offset
+                # 적응형 위치: MACD 값이 양수 영역이면 아래로, 음수 영역이면 위로
+                # 기본: 크로스 위
+                bear_y = np.where(
+                    bear_y_base > y_axis_max * 0.4,
+                    bear_y_base - y_offset,   # 너무 위면 아래로
+                    bear_y_base + y_offset,   # 일반: 위
+                )
                 bear_hist = (macd_raw - sig_raw)[bearish_mask].values
                 bear_hover = [
                     f"▼ {d.strftime('%m/%d')} MACD={m:.2f} Sig={m-h:.2f}"
