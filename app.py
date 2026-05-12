@@ -2273,34 +2273,6 @@ def render_chart(
             bullish_mask = both_valid & (hist_clean >= 0) & (hist_prev < 0)
             bearish_mask = both_valid & (hist_clean <= 0) & (hist_prev > 0)
 
-            # ── 진단: hist 시계열을 사이드바에 출력 ──
-            # view 범위 내 모든 일자의 (날짜, MACD, Signal, hist, 교차여부) 표시
-            with st.sidebar:
-                with st.expander(f"🔍 MACD 진단 ({selected_ticker})", expanded=False):
-                    view_mask = df_daily.index >= view_start
-                    diag_df = pd.DataFrame({
-                        'date': df_daily.index[view_mask].strftime('%m/%d'),
-                        'MACD': macd_raw[view_mask].round(2).values,
-                        'Signal': sig_raw[view_mask].round(2).values,
-                        'hist': hist_clean[view_mask].round(2).values,
-                        'cross': [
-                            '▲' if bullish_mask[i] else
-                            '▼' if bearish_mask[i] else ''
-                            for i in df_daily.index[view_mask]
-                        ],
-                    })
-                    # 교차 일자만 또는 전체
-                    cross_only = st.checkbox(
-                        "교차 일자만", value=True, key=f"diag_cross_only_{selected_ticker}"
-                    )
-                    if cross_only:
-                        diag_df = diag_df[diag_df['cross'] != '']
-                    st.dataframe(diag_df, hide_index=True, height=300)
-                    st.caption(
-                        f"검출: ▲{bullish_mask[df_daily.index >= view_start].sum()}건 / "
-                        f"▼{bearish_mask[df_daily.index >= view_start].sum()}건"
-                    )
-
             # Y 오프셋 — view 범위 기준 18% (마커가 라인에 가려지지 않게)
             macd_view = df_daily.loc[df_daily.index >= view_start, 'MACD'].dropna()
             sig_view_y = df_daily.loc[df_daily.index >= view_start, 'MACD_Signal'].dropna()
@@ -2346,8 +2318,6 @@ def render_chart(
                         text="▲",
                         showarrow=False,
                         font=dict(size=14, color='#dc2626'),
-                        bgcolor='rgba(255,255,255,0.5)',
-                        borderpad=0,
                         xanchor='center', yanchor='middle',
                         row=row, col=1,
                     )
@@ -2361,8 +2331,6 @@ def render_chart(
                         text="▼",
                         showarrow=False,
                         font=dict(size=14, color='#2563eb'),
-                        bgcolor='rgba(255,255,255,0.5)',
-                        borderpad=0,
                         xanchor='center', yanchor='middle',
                         row=row, col=1,
                     )
