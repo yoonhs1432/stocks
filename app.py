@@ -239,6 +239,52 @@ def signed_str(val: float, fmt: str = "{:,.0f}") -> str:
     return f"{sign}{fmt.format(val)}"
 
 
+def compute_halflife(residual: pd.Series) -> Optional[float]:
+    """잔차의 평균회귀 반감기 (영업일 단위).
+
+    AR(1) 회귀: residual[t] = α + φ × residual[t-1] + ε
+    half_life = -log(2) / log(φ)
+
+    φ < 1 이고 φ > 0 이면 평균회귀. 짧을수록 빠르게 회귀.
+    """
+    s = residual.dropna()
+    if len(s) < 30:
+        return None
+    s_lag = s.shift(1).dropna()
+    s_now = s.loc[s_lag.index]
+    if len(s_now) < 30:
+        return None
+    try:
+        # OLS 슬로프 = AR(1) 계수 φ
+        x = s_lag.values
+        y = s_now.values
+        x_mean = x.mean()
+        y_mean = y.mean()
+        num = ((x - x_mean) * (y - y_mean)).sum()
+        denom = ((x - x_mean) ** 2).sum()
+        if denom <= 0:
+            return None
+        phi = num / denom
+        # 평균회귀 조건: 0 < φ < 1
+        if phi <= 0 or phi >= 1 or not np.isfinite(phi):
+            return None
+        hl = -np.log(2) / np.log(phi)
+        if not np.isfinite(hl) or hl <= 0:
+            return None
+        return float(hl)
+    except Exception:
+        return None
+
+
+def halflife_color(hl: Optional[float]) -> str:
+    """half-life 색 — 짧을수록 평균회귀 좋음 (초록), 길수록 추세 추종 (회색)."""
+    if hl is None: return Colors.NEUTRAL
+    if hl <= 10:   return '#16a34a'   # 초록 (평균회귀 강)
+    if hl <= 20:   return '#65a30d'
+    if hl <= 30:   return Colors.LABEL_DARK
+    return Colors.NEUTRAL
+
+
 # ── #1 신호 정렬 우선순위 ──
 SIGNAL_PRIORITY = {
     'FB2': 0, 'FB': 1, 'B': 2, 'H': 3, 'S': 4, 'FS': 5, 'FS2': 6,
@@ -1146,6 +1192,253 @@ def _bar_colors(
 # ====================================================
 # 12. 사이드바 - 포트폴리오 카드 빌더 (분리)
 # ====================================================
+def build_trade_journal(
+    trade_history: dict, all_analyses: dict, df_close: pd.DataFrame,
+) -> list[dict]:
+    """매매 기록 + 매매 시점 신호 매칭.
+
+    각 매매 기록에 대해 그 시점의 Z, M(모멘텀), DD를 분석 데이터에서 추출.
+    매매 짝 (buy → sell)을 묶어 수익률도 계산.
+
+    Returns:
+        list of dict: [
+            {ticker, date, type, qty, price, z, m, dd, pnl_pct (sell만)},
+            ...
+        ]
+    """
+    journal: list[dict] = []
+
+    for tk, recs in trade_history.items():
+        result = all_analyses.get(tk)
+        if not result or result[0] is None:
+            df_t = None
+        else:
+            df_t, _, _ = result
+
+        sorted_recs = sorted(
+            [r for r in recs if r.get('qty', 0) > 0 and r.get('price', 0) > 0],
+            key=lambda r: r['date']
+        )
+
+        # 가중평균 단가 추적 (수익률 계산용)
+        avg_p = 0.0
+        hqty = 0
+        for r in sorted_recs:
+            try:
+                rd = datetime.date.fromisoformat(r['date'])
+            except Exception:
+                continue
+            ts = pd.Timestamp(rd)
+            qty = int(r['qty'])
+            entry = {
+                'ticker': tk, 'date': r['date'], 'type': r['type'],
+                'qty': qty, 'price': float(r['price']),
+                'z': None, 'm': None, 'dd': None, 'pnl_pct': None,
+            }
+
+            # 매매 시점 신호 추출 (df_t에서 ts 또는 가장 가까운 영업일)
+            if df_t is not None and not df_t.empty:
+                # 가장 가까운 영업일 (ts 또는 그 이전)
+                idx = df_t.index[df_t.index <= ts]
+                if len(idx) > 0:
+                    nearest = idx[-1]
+                    row = df_t.loc[nearest]
+                    z_v = row.get('Z_Score')
+                    mhz = row.get('MACD_Hist_Z')
+                    rsi = row.get('RSI')
+                    if pd.notna(z_v):
+                        entry['z'] = float(z_v)
+                    if pd.notna(mhz) and pd.notna(rsi):
+                        entry['m'] = compute_momentum_score_smooth(float(mhz), float(rsi))
+                    # DD: 그 시점까지의 cummax 대비
+                    norm_col = f'{tk}_Norm'
+                    if norm_col in df_t.columns:
+                        norm_s = df_t.loc[:nearest, norm_col].dropna()
+                        if len(norm_s) > 0:
+                            cm = float(norm_s.cummax().iloc[-1])
+                            cv = float(norm_s.iloc[-1])
+                            if cm > 0:
+                                entry['dd'] = (cv / cm - 1) * 100
+
+            # 수익률 (매도 시점만)
+            if r['type'] == 'buy':
+                if hqty + qty > 0:
+                    avg_p = (avg_p * hqty + r['price'] * qty) / (hqty + qty)
+                hqty += qty
+            elif r['type'] == 'sell' and hqty > 0:
+                sq = min(qty, hqty)
+                if avg_p > 0:
+                    entry['pnl_pct'] = (r['price'] / avg_p - 1) * 100
+                hqty -= sq
+                if hqty == 0:
+                    avg_p = 0.0
+
+            journal.append(entry)
+
+    return journal
+
+
+def analyze_signal_accuracy(journal: list[dict]) -> dict:
+    """매매 일지에서 신호 단계별 평균 수익률 분석.
+
+    분류: 매매 시점의 모멘텀 점수 (M 정수) 단계
+    매도 거래에 대해 평균 수익률 계산.
+    """
+    # 매수 시점 신호 → 후속 매도 수익률 매칭
+    # 단순화: 매도 거래의 매수 시점 신호로 분류 (가중평균 단가 기반이라 어려움)
+    # → 매도 거래 자체의 신호로 분류 (그 시점 매도가 적절했는지)
+
+    sell_by_m_buy = {-4: [], -3: [], -2: [], -1: [], 0: [], 1: [], 2: [], 3: [], 4: []}
+    sell_by_m_sell = {-4: [], -3: [], -2: [], -1: [], 0: [], 1: [], 2: [], 3: [], 4: []}
+
+    # 매수 시점 신호별 후속 수익률
+    # 매수 → 다음 매도까지 매칭
+    by_ticker = {}
+    for j in journal:
+        by_ticker.setdefault(j['ticker'], []).append(j)
+
+    buy_signal_outcomes = {-4: [], -3: [], -2: [], -1: [], 0: [], 1: [], 2: [], 3: [], 4: []}
+
+    for tk, entries in by_ticker.items():
+        # 가장 최근 매수의 신호를 매도 수익률과 매칭
+        last_buy_m = None
+        for e in entries:
+            if e['type'] == 'buy' and e['m'] is not None:
+                last_buy_m = max(-4, min(4, int(round(e['m'] / 2.0))))
+            elif e['type'] == 'sell' and e['pnl_pct'] is not None and last_buy_m is not None:
+                buy_signal_outcomes[last_buy_m].append(e['pnl_pct'])
+                # last_buy_m은 보유 종료까지 유지 (부분매도 고려)
+
+    return {
+        'buy_outcomes': buy_signal_outcomes,  # 매수 시점 M점수 → 수익률 리스트
+    }
+
+
+def _build_journal_html(journal: list[dict], stats: dict) -> str:
+    """매매 일지 + 신호 정확도 통합 카드.
+
+    좌측 2/3: 매매 일지 (최근 20건)
+    우측 1/3: 신호 정확도 (매수 시점 M점수별 평균 수익률)
+    """
+    if not journal:
+        return ""
+
+    # 최근 20건 (날짜 내림차순)
+    recent = sorted(journal, key=lambda x: x['date'], reverse=True)[:20]
+
+    # 통계 (매수 시점 M점수별)
+    buy_outcomes = stats.get('buy_outcomes', {})
+
+    html = (
+        f"{html_section_divider()}"
+        f"<div style='font-size:0.62rem;font-weight:700;color:{COLOR_LABEL};"
+        f"margin-bottom:6px;'>📓 매매 일지 + 신호 분석</div>"
+    )
+
+    # 2:1 비율 - 좌측 일지 + 우측 통계
+    html += (
+        "<div style='display:flex;gap:8px;align-items:flex-start;'>"
+        # ── 좌측 2/3: 매매 일지 ──
+        "<div style='flex:2;min-width:0;'>"
+        f"<div style='font-size:0.55rem;color:{COLOR_LABEL};margin-bottom:4px;'>"
+        f"최근 {len(recent)}건 (총 {len(journal)}건)</div>"
+    )
+
+    for e in recent:
+        # 매수=빨강▲, 매도=파랑▼
+        is_buy = e['type'] == 'buy'
+        type_col = '#dc2626' if is_buy else '#2563eb'
+        type_icon = '▲' if is_buy else '▼'
+        tk_short = display_name(e['ticker'])
+
+        # 신호 표시: Z, M, DD
+        sig_parts = []
+        if e['z'] is not None:
+            z_col = '#dc2626' if e['z'] <= -1 else '#2563eb' if e['z'] >= 1 else '#9ca3af'
+            sig_parts.append(f"<span style='color:{z_col};'>Z{e['z']:+.1f}</span>")
+        if e['m'] is not None:
+            m_int = max(-4, min(4, int(round(e['m'] / 2.0))))
+            m_col = momentum_to_color(m_int)
+            sig_parts.append(f"<span style='color:{m_col};'>M{e['m']:+.1f}</span>")
+        if e['dd'] is not None:
+            dd_col = dd_color(e['dd'])
+            sig_parts.append(f"<span style='color:{dd_col};'>DD{e['dd']:.0f}%</span>")
+        sig_html = " ".join(sig_parts) if sig_parts else ""
+
+        # 수익률 (매도만)
+        pnl_html = ""
+        if e['pnl_pct'] is not None:
+            pcol = pnl_color(e['pnl_pct'])
+            pnl_html = (
+                f" → <span style='color:{pcol};font-weight:700;'>"
+                f"{signed_str(e['pnl_pct'], '{:.1f}')}%</span>"
+            )
+
+        # 날짜 짧게 (MM/DD)
+        try:
+            d_short = datetime.date.fromisoformat(e['date']).strftime('%m/%d')
+        except Exception:
+            d_short = e['date']
+
+        html += (
+            f"<div style='font-size:0.6rem;color:#374151;margin-bottom:2px;"
+            f"display:flex;gap:4px;align-items:center;'>"
+            f"<span style='color:#9ca3af;width:32px;flex-shrink:0;'>{d_short}</span>"
+            f"<span style='color:{type_col};font-weight:700;width:14px;flex-shrink:0;'>{type_icon}</span>"
+            f"<span style='font-weight:600;width:40px;flex-shrink:0;'>{tk_short}</span>"
+            f"<span style='color:#6b7280;flex:1;min-width:0;'>{sig_html}{pnl_html}</span>"
+            f"</div>"
+        )
+
+    html += "</div>"
+
+    # ── 우측 1/3: 신호 정확도 ──
+    html += (
+        "<div style='flex:1;min-width:0;'>"
+        f"<div style='font-size:0.55rem;color:{COLOR_LABEL};margin-bottom:4px;'>"
+        f"매수 시점 M점수별 평균</div>"
+    )
+
+    # M점수 영역별 집계 (강매수 ~ 강매도 7단계)
+    # M점수 → 분류
+    # -4: 강매수, -3~-2: 매수, -1: 약매수, 0: 중립, +1: 약매도, +2~+3: 매도, +4: 강매도
+    bins = [
+        ('강매수', [-4]),
+        ('매수',   [-3, -2]),
+        ('약매수', [-1]),
+        ('중립',   [0]),
+        ('약매도', [1]),
+        ('매도',   [2, 3]),
+        ('강매도', [4]),
+    ]
+    for label, scores in bins:
+        all_returns = []
+        for s in scores:
+            all_returns.extend(buy_outcomes.get(s, []))
+        if not all_returns:
+            continue
+        avg_pnl = sum(all_returns) / len(all_returns)
+        col = pnl_color(avg_pnl)
+        html += (
+            f"<div style='font-size:0.58rem;color:#374151;margin-bottom:3px;"
+            f"display:flex;gap:4px;align-items:baseline;'>"
+            f"<span style='width:36px;flex-shrink:0;'>{label}</span>"
+            f"<span style='color:#9ca3af;width:24px;flex-shrink:0;'>{len(all_returns)}건</span>"
+            f"<span style='color:{col};font-weight:700;text-align:right;flex:1;'>"
+            f"{signed_str(avg_pnl, '{:+.1f}')}%</span>"
+            f"</div>"
+        )
+
+    if not any(buy_outcomes.values()):
+        html += (
+            f"<div style='font-size:0.55rem;color:#9ca3af;margin-top:6px;'>"
+            f"매도 기록 부족</div>"
+        )
+
+    html += "</div></div>"  # right 1/3 + outer flex
+    return html
+
+
 def _build_realized_html(
     portfolio_state: dict[str, TickerState], usd_krw: float
 ) -> str:
@@ -2115,8 +2408,18 @@ def render_position_tracker(
                     dd_pct_int = int(round(dd_v))
                     dd_color_hdr = dd_color(dd_v)
 
+    # half-life (잔차 평균회귀 반감기) — 분석 기간 전체 잔차 시계열로 계산
+    half_life = None
+    if df_daily is not None:
+        norm_col = f'{selected_ticker}_Norm'
+        if 'Predicted' in df_daily.columns and norm_col in df_daily.columns:
+            log_resid = (np.log(df_daily[norm_col]) - np.log(df_daily['Predicted'])).dropna()
+            half_life = compute_halflife(log_resid)
+
     sigma_str_hdr = f"±{sigma_pct_int}%" if sigma_pct_int is not None else "—"
     dd_str_hdr = f"{dd_pct_int}%" if dd_pct_int is not None else "—"
+    hl_str = f"{int(round(half_life))}d" if half_life is not None else "—"
+    hl_col = halflife_color(half_life)
 
     header_right = (
         f"<span style='font-size:0.7rem;color:#6b7280;'>"
@@ -2125,6 +2428,9 @@ def render_position_tracker(
         f"β·SPY {beta_str_hdr}</span>"
         f" · <span title='역대 고점 대비 드로다운' style='color:{dd_color_hdr};font-weight:600;'>"
         f"DD {dd_str_hdr}</span>"
+        f" · <span title='잔차 평균회귀 반감기 (영업일) — 짧을수록 평균회귀 매매 효율 ↑' "
+        f"style='color:{hl_col};font-weight:600;'>"
+        f"t½ {hl_str}</span>"
         f"</span>"
     )
     header_html = (
@@ -2996,6 +3302,7 @@ def render_analytics_panel(
 def render_overview_panel(
     portfolio_state: dict[str, TickerState],
     df_close: pd.DataFrame,
+    all_analyses: Optional[dict] = None,
 ) -> None:
     """전체 포트폴리오 통계 — 시드/실현/비중/달력/자산 추이.
 
@@ -3057,7 +3364,25 @@ def render_overview_panel(
         unsafe_allow_html=True,
     )
 
-    # ── 3. 자산 추이 통합 카드 (시드 대비 누적 막대) ──
+    # ── 3. 매매 일지 + 신호 분석 ──
+    if all_analyses is not None:
+        journal = build_trade_journal(
+            st.session_state.trade_history, all_analyses, df_close,
+        )
+        if journal:
+            stats = analyze_signal_accuracy(journal)
+            jhtml = _build_journal_html(journal, stats)
+            if jhtml:
+                st.markdown(
+                    f"<div style='padding:10px 12px;background:#ffffff;"
+                    f"border:1px solid #e2e8f0;border-radius:10px;margin-bottom:10px;"
+                    f"box-shadow:0 1px 3px rgba(0,0,0,0.06);'>"
+                    f"{jhtml}"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+
+    # ── 4. 자산 추이 통합 카드 (시드 대비 누적 막대) ──
     equity_series = st.session_state.get('equity_series_cache')
     seed_krw = CFG.SEED_KRW / 10000
 
@@ -3200,6 +3525,85 @@ def render_overview_panel(
                                 )
                     except Exception:
                         pass
+
+            # ── 매매 시점 마커 (▲ 매수 빨강, ▼ 매도 파랑) ──
+            # bar_unit에 맞춰 시간 단위 정규화
+            trade_marker_buy_x = []
+            trade_marker_buy_hover = []
+            trade_marker_sell_x = []
+            trade_marker_sell_hover = []
+
+            def _normalize_to_bar(d: datetime.date) -> Optional[str]:
+                """매매 날짜를 막대 X 라벨로 매핑."""
+                ts = pd.Timestamp(d)
+                if bar_unit == '일':
+                    # 정확히 같은 날 또는 가장 가까운 영업일
+                    if ts in equity_resampled.index:
+                        return ts.strftime('%m/%d')
+                    return None
+                elif bar_unit == '주':
+                    # 해당 주 월요일
+                    monday = ts - pd.Timedelta(days=ts.weekday())
+                    if monday in equity_resampled.index:
+                        return monday.strftime('%m/%d')
+                    return None
+                else:  # 월
+                    month_start = ts.replace(day=1)
+                    if pd.Timestamp(month_start) in equity_resampled.index:
+                        return pd.Timestamp(month_start).strftime('%y.%m')
+                    return None
+
+            for tk, recs in st.session_state.trade_history.items():
+                for r in recs:
+                    qty = r.get('qty', 0)
+                    price = r.get('price', 0)
+                    if qty <= 0 or price <= 0:
+                        continue
+                    try:
+                        rd = datetime.date.fromisoformat(r['date'])
+                    except Exception:
+                        continue
+                    x_label = _normalize_to_bar(rd)
+                    if x_label is None:
+                        continue
+                    hover = f"{tk} {r['type']} {qty}@${price:.2f} ({r['date']})"
+                    if r['type'] == 'buy':
+                        trade_marker_buy_x.append(x_label)
+                        trade_marker_buy_hover.append(hover)
+                    elif r['type'] == 'sell':
+                        trade_marker_sell_x.append(x_label)
+                        trade_marker_sell_hover.append(hover)
+
+            # 매수 마커 (▲ 빨강) — Y=0 위치, X축 위에 표시
+            if trade_marker_buy_x:
+                fig_eq.add_trace(go.Scatter(
+                    x=trade_marker_buy_x,
+                    y=[0] * len(trade_marker_buy_x),
+                    mode='markers',
+                    marker=dict(
+                        symbol='triangle-up', size=9,
+                        color='#dc2626', opacity=0.75,
+                        line=dict(color='white', width=1),
+                    ),
+                    text=trade_marker_buy_hover,
+                    hovertemplate='%{text}<extra></extra>',
+                    showlegend=False,
+                ))
+            # 매도 마커 (▼ 파랑)
+            if trade_marker_sell_x:
+                fig_eq.add_trace(go.Scatter(
+                    x=trade_marker_sell_x,
+                    y=[0] * len(trade_marker_sell_x),
+                    mode='markers',
+                    marker=dict(
+                        symbol='triangle-down', size=9,
+                        color='#2563eb', opacity=0.75,
+                        line=dict(color='white', width=1),
+                    ),
+                    text=trade_marker_sell_hover,
+                    hovertemplate='%{text}<extra></extra>',
+                    showlegend=False,
+                ))
 
             # X축 tick: 5~6개만
             max_ticks_eq = 6
@@ -4058,7 +4462,7 @@ def main() -> None:
     # 탭 3: 전체 통계 (시드/실현/비중/달력/자산추이)
     # ====================================================
     with tab3:
-        render_overview_panel(portfolio_state, df_close)
+        render_overview_panel(portfolio_state, df_close, all_analyses)
 
     st.markdown("<div style='height:80px;'></div>", unsafe_allow_html=True)
 
