@@ -2339,32 +2339,33 @@ def render_chart(
             if bullish_mask.any():
                 bull_x = df_daily.index[bullish_mask]
                 bull_y_base = macd_raw[bullish_mask].values
-                fig.add_trace(go.Scatter(
-                    x=bull_x, y=bull_y_base - y_offset,
-                    mode='markers',
-                    marker=dict(
-                        symbol='triangle-up', size=8,
-                        color='#dc2626', opacity=0.9,
-                        line=dict(color='white', width=0.8),
-                    ),
-                    name='Bullish', hoverinfo='skip', showlegend=False,
-                    cliponaxis=False,
-                ), row=row, col=1)
+                # annotation으로 표시 — 항상 최상위 layer, grid에 가려지지 않음
+                for bx, by in zip(bull_x, bull_y_base):
+                    fig.add_annotation(
+                        x=bx, y=by - y_offset,
+                        text="▲",
+                        showarrow=False,
+                        font=dict(size=14, color='#dc2626'),
+                        bgcolor='rgba(255,255,255,0.5)',
+                        borderpad=0,
+                        xanchor='center', yanchor='middle',
+                        row=row, col=1,
+                    )
 
             if bearish_mask.any():
                 bear_x = df_daily.index[bearish_mask]
                 bear_y_base = macd_raw[bearish_mask].values
-                fig.add_trace(go.Scatter(
-                    x=bear_x, y=bear_y_base + y_offset,
-                    mode='markers',
-                    marker=dict(
-                        symbol='triangle-down', size=8,
-                        color='#2563eb', opacity=0.9,
-                        line=dict(color='white', width=0.8),
-                    ),
-                    name='Bearish', hoverinfo='skip', showlegend=False,
-                    cliponaxis=False,
-                ), row=row, col=1)
+                for bx, by in zip(bear_x, bear_y_base):
+                    fig.add_annotation(
+                        x=bx, y=by + y_offset,
+                        text="▼",
+                        showarrow=False,
+                        font=dict(size=14, color='#2563eb'),
+                        bgcolor='rgba(255,255,255,0.5)',
+                        borderpad=0,
+                        xanchor='center', yanchor='middle',
+                        row=row, col=1,
+                    )
 
             last_v = macd_series.iloc[-1]
             val = float(last_v) if pd.notna(last_v) else 0.0
