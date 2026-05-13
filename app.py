@@ -1325,15 +1325,15 @@ def _build_journal_html(journal: list[dict], stats: dict) -> str:
     if not journal:
         return ""
 
-    # 최근 20건 (날짜 내림차순)
-    recent = sorted(journal, key=lambda x: x['date'], reverse=True)[:20]
+    # 전체 (날짜 내림차순)
+    recent = sorted(journal, key=lambda x: x['date'], reverse=True)
 
     html = (
         f"{html_section_divider()}"
         f"<div style='font-size:0.62rem;font-weight:700;color:{COLOR_LABEL};"
         f"margin-bottom:6px;'>📓 매매 일지</div>"
         f"<div style='font-size:0.55rem;color:{COLOR_LABEL};margin-bottom:4px;'>"
-        f"최근 {len(recent)}건 (총 {len(journal)}건)</div>"
+        f"전체 {len(recent)}건</div>"
     )
 
     for e in recent:
@@ -1584,6 +1584,11 @@ def _build_alloc_html(
 
         inv_krw_man_t = r['inv'] * usd_krw / 10000
 
+        # 평가 금액 분해: $평가 ($원금±$손익)
+        # 손익은 색깔로 (빨강=이익, 파랑=손실)
+        pnl_abs = abs(r['pnl'])
+        sign = '+' if r['pnl'] >= 0 else '-'
+
         html += (
             f"<div style='display:flex;align-items:center;gap:5px;margin-bottom:4px;'>"
             f"<div style='font-size:0.7rem;color:{COLOR_TEXT};width:42px;"
@@ -1592,10 +1597,14 @@ def _build_alloc_html(
             f"display:flex;align-items:center;overflow:hidden;min-width:0;'>"
             f"{bar_inner}"
             f"</div>"
-            f"<div style='font-size:0.6rem;color:#9ca3af;width:50px;text-align:right;"
-            f"flex-shrink:0;line-height:1.15;'>"
-            f"<div>${int(round(r['inv'])):,}</div>"
-            f"<div style='font-size:0.5rem;'>{int(round(inv_krw_man_t)):,}만</div>"
+            f"<div style='font-size:0.62rem;color:#374151;width:84px;text-align:right;"
+            f"flex-shrink:0;line-height:1.2;'>"
+            f"<div style='font-weight:700;'>${int(round(r['eval'])):,}</div>"
+            f"<div style='font-size:0.52rem;color:#9ca3af;white-space:nowrap;'>"
+            f"${int(round(r['inv'])):,}"
+            f"<span style='color:{pnl_color_v};font-weight:700;'>"
+            f"{sign}${int(round(pnl_abs)):,}</span>"
+            f"</div>"
             f"</div>"
             f"<div style='font-size:0.7rem;width:38px;text-align:right;flex-shrink:0;"
             f"color:{pnl_color_v};font-weight:700;'>"
@@ -3569,60 +3578,7 @@ def render_overview_panel(
         unsafe_allow_html=True,
     )
 
-    # ── 3. 매매 일지 + 신호 분석 ──
-    if all_analyses is not None:
-        journal = build_trade_journal(
-            st.session_state.trade_history, all_analyses, df_close,
-        )
-        if journal:
-            jhtml = _build_journal_html(journal, {})
-            if jhtml:
-                st.markdown(
-                    f"<div style='padding:10px 12px;background:#ffffff;"
-                    f"border:1px solid #e2e8f0;border-radius:10px;margin-bottom:10px;"
-                    f"box-shadow:0 1px 3px rgba(0,0,0,0.06);'>"
-                    f"{jhtml}"
-                    f"</div>",
-                    unsafe_allow_html=True,
-                )
-
-            # 메모 편집 expander (최근 20건)
-            recent_journal = sorted(journal, key=lambda x: x['date'], reverse=True)[:20]
-            with st.expander("📝 매매 메모 편집", expanded=False):
-                st.caption("최근 20건의 매매 메모 편집")
-                for e in recent_journal:
-                    if e.get('record_idx', -1) < 0:
-                        continue
-                    type_icon = '🔴' if e['type'] == 'buy' else '🔵'
-                    label = (
-                        f"{type_icon} {e['date']} {display_name(e['ticker'])} "
-                        f"{e['qty']}주 @${e['price']:.2f}"
-                    )
-                    st.markdown(
-                        f"<div style='font-size:0.72rem;color:#374151;"
-                        f"margin-top:8px;'>{label}</div>",
-                        unsafe_allow_html=True,
-                    )
-                    cur_memo = e.get('memo', '')
-                    new_memo = st.text_input(
-                        f"memo_{e['ticker']}_{e['record_idx']}",
-                        value=cur_memo,
-                        key=f"ov_memo_{e['ticker']}_{e['record_idx']}_{e['date']}",
-                        label_visibility="collapsed",
-                        placeholder="메모 (편집 후 엔터)",
-                    )
-                    if new_memo.strip() != cur_memo:
-                        idx = e['record_idx']
-                        recs = st.session_state.trade_history.get(e['ticker'], [])
-                        if 0 <= idx < len(recs):
-                            if new_memo.strip():
-                                recs[idx]['memo'] = new_memo.strip()
-                            elif 'memo' in recs[idx]:
-                                del recs[idx]['memo']
-                            save_trade_history(st.session_state.trade_history)
-                            st.rerun()
-
-    # ── 4. 자산 추이 통합 카드 (시드 대비 누적 막대) ──
+    # ── 3. 자산 추이 통합 카드 (매매 일지 위로 이동) (시드 대비 누적 막대) ──
     equity_series = st.session_state.get('equity_series_cache')
     seed_krw = CFG.SEED_KRW / 10000
 
@@ -3870,6 +3826,59 @@ def render_overview_panel(
             st.plotly_chart(fig_eq, use_container_width=True,
                             config={'displayModeBar': False, 'staticPlot': True})
 
+
+    # ── 4. 매매 일지 + 신호 분석 ──
+    if all_analyses is not None:
+        journal = build_trade_journal(
+            st.session_state.trade_history, all_analyses, df_close,
+        )
+        if journal:
+            jhtml = _build_journal_html(journal, {})
+            if jhtml:
+                st.markdown(
+                    f"<div style='padding:10px 12px;background:#ffffff;"
+                    f"border:1px solid #e2e8f0;border-radius:10px;margin-bottom:10px;"
+                    f"box-shadow:0 1px 3px rgba(0,0,0,0.06);'>"
+                    f"{jhtml}"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+
+            # 메모 편집 expander (전체)
+            recent_journal = sorted(journal, key=lambda x: x['date'], reverse=True)
+            with st.expander(f"📝 매매 메모 편집 ({len(recent_journal)}건)", expanded=False):
+                st.caption("전체 매매 메모 편집")
+                for e in recent_journal:
+                    if e.get('record_idx', -1) < 0:
+                        continue
+                    type_icon = '🔴' if e['type'] == 'buy' else '🔵'
+                    label = (
+                        f"{type_icon} {e['date']} {display_name(e['ticker'])} "
+                        f"{e['qty']}주 @${e['price']:.2f}"
+                    )
+                    st.markdown(
+                        f"<div style='font-size:0.72rem;color:#374151;"
+                        f"margin-top:8px;'>{label}</div>",
+                        unsafe_allow_html=True,
+                    )
+                    cur_memo = e.get('memo', '')
+                    new_memo = st.text_input(
+                        f"memo_{e['ticker']}_{e['record_idx']}",
+                        value=cur_memo,
+                        key=f"ov_memo_{e['ticker']}_{e['record_idx']}_{e['date']}",
+                        label_visibility="collapsed",
+                        placeholder="메모 (편집 후 엔터)",
+                    )
+                    if new_memo.strip() != cur_memo:
+                        idx = e['record_idx']
+                        recs = st.session_state.trade_history.get(e['ticker'], [])
+                        if 0 <= idx < len(recs):
+                            if new_memo.strip():
+                                recs[idx]['memo'] = new_memo.strip()
+                            elif 'memo' in recs[idx]:
+                                del recs[idx]['memo']
+                            save_trade_history(st.session_state.trade_history)
+                            st.rerun()
 
 # ====================================================
 # 18. 메모 섹션
