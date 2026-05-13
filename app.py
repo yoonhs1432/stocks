@@ -1981,6 +1981,7 @@ def render_chart(
     view_months: int,
     df_ohlc: Optional[pd.DataFrame] = None,
     df_daily_raw: Optional[pd.DataFrame] = None,
+    avg_price: Optional[float] = None,
 ) -> None:
     st.markdown("""<style>
     .js-plotly-plot, .js-plotly-plot .plotly, .js-plotly-plot svg {
@@ -2044,6 +2045,20 @@ def render_chart(
         marker=dict(symbol='star', color='hotpink', size=12, line=dict(color='black', width=1)),
         name='Current',
     ), row=row, col=1)
+
+    # ── 평단가 수평선 (보유 종목만) ──
+    # 그래프 1 (회귀): Y축은 _Norm = Close / first_close
+    if avg_price is not None and avg_price > 0:
+        base_y_ticker = sc_df[f'{selected_ticker}_Close'].iloc[0]
+        if base_y_ticker > 0:
+            avg_norm_g1 = avg_price / base_y_ticker
+            fig.add_trace(go.Scatter(
+                x=[min_x * 0.98, max_x * 1.02],
+                y=[avg_norm_g1, avg_norm_g1],
+                mode='lines',
+                line=dict(color='#f97316', width=1, dash='dot'),
+                hoverinfo='skip', showlegend=False,
+            ), row=row, col=1)
 
     band_upper = np.exp(np.log(sdf['Predicted'].values) + 1.5 * std_resid)
     band_lower = np.exp(np.log(sdf['Predicted'].values) - 1.5 * std_resid)
@@ -2119,6 +2134,24 @@ def render_chart(
         mode='lines', line=dict(color='gray', width=1.5), name=X_ASSET_FIXED,
         connectgaps=True,
     ), row=row, col=1)
+
+    # ── 평단가 수평선 (보유 종목만) ──
+    # 그래프 2 (price): 가격 → 정규화 변환
+    if avg_price is not None and avg_price > 0:
+        # scale 계산 (캔들 변환과 동일)
+        base_close_p = df_daily[f'{selected_ticker}_Close'].iloc[0]
+        base_n_p = df_daily[f'{selected_ticker}_Norm'].iloc[0]
+        base_vn_p = df_daily.loc[df_daily.index >= view_start, f'{selected_ticker}_Norm'].iloc[0]
+        scale_p = base_n_p / base_vn_p / base_close_p if base_close_p != 0 else 1.0
+        avg_norm = avg_price * scale_p
+        # 주황 점선 수평선
+        fig.add_trace(go.Scatter(
+            x=[df_daily.index[0], df_daily.index[-1]],
+            y=[avg_norm, avg_norm],
+            mode='lines',
+            line=dict(color='#f97316', width=1, dash='dot'),
+            hoverinfo='skip', showlegend=False,
+        ), row=row, col=1)
 
     if not ohlc_norm.empty:
         vc = ohlc_norm[ohlc_norm.index >= view_start]
@@ -4330,9 +4363,16 @@ def main() -> None:
                             )
                             if result_raw[0] is not None:
                                 df_daily_raw = result_raw[0]
+                # 보유 종목이면 평단가 계산
+                cur_ts = portfolio_state.get(selected_ticker)
+                cur_avg = None
+                if (cur_ts and cur_ts['cycle']['buy_qty'] > 0
+                        and cur_ts['cycle']['hold_qty'] > 0):
+                    cur_avg = cur_ts['cycle']['buy_cost'] / cur_ts['cycle']['buy_qty']
                 render_chart(
                     df_daily, selected_ticker, beta, std_resid,
                     cfg['guide_n'], st.session_state.view_months, df_ohlc, df_daily_raw,
+                    avg_price=cur_avg,
                 )
                 # 정보 카드 (그래프 아래)
                 render_position_tracker(
