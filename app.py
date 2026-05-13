@@ -1307,47 +1307,10 @@ def build_trade_journal(
     return journal
 
 
-def analyze_signal_accuracy(journal: list[dict]) -> dict:
-    """매매 일지에서 신호 단계별 평균 수익률 분석.
-
-    분류: 매매 시점의 모멘텀 점수 (M 정수) 단계
-    매도 거래에 대해 평균 수익률 계산.
-    """
-    # 매수 시점 신호 → 후속 매도 수익률 매칭
-    # 단순화: 매도 거래의 매수 시점 신호로 분류 (가중평균 단가 기반이라 어려움)
-    # → 매도 거래 자체의 신호로 분류 (그 시점 매도가 적절했는지)
-
-    sell_by_m_buy = {-4: [], -3: [], -2: [], -1: [], 0: [], 1: [], 2: [], 3: [], 4: []}
-    sell_by_m_sell = {-4: [], -3: [], -2: [], -1: [], 0: [], 1: [], 2: [], 3: [], 4: []}
-
-    # 매수 시점 신호별 후속 수익률
-    # 매수 → 다음 매도까지 매칭
-    by_ticker = {}
-    for j in journal:
-        by_ticker.setdefault(j['ticker'], []).append(j)
-
-    buy_signal_outcomes = {-4: [], -3: [], -2: [], -1: [], 0: [], 1: [], 2: [], 3: [], 4: []}
-
-    for tk, entries in by_ticker.items():
-        # 가장 최근 매수의 신호를 매도 수익률과 매칭
-        last_buy_m = None
-        for e in entries:
-            if e['type'] == 'buy' and e['m'] is not None:
-                last_buy_m = max(-4, min(4, int(round(e['m']))))
-            elif e['type'] == 'sell' and e['pnl_pct'] is not None and last_buy_m is not None:
-                buy_signal_outcomes[last_buy_m].append(e['pnl_pct'])
-                # last_buy_m은 보유 종료까지 유지 (부분매도 고려)
-
-    return {
-        'buy_outcomes': buy_signal_outcomes,  # 매수 시점 M점수 → 수익률 리스트
-    }
-
-
 def _build_journal_html(journal: list[dict], stats: dict) -> str:
-    """매매 일지 + 신호 정확도 통합 카드.
+    """매매 일지 카드 (최근 20건).
 
-    좌측 2/3: 매매 일지 (최근 20건)
-    우측 1/3: 신호 정확도 (매수 시점 M점수별 평균 수익률)
+    각 매매 시점의 Z/M/DD 신호 + 메모 표시.
     """
     if not journal:
         return ""
@@ -1355,20 +1318,10 @@ def _build_journal_html(journal: list[dict], stats: dict) -> str:
     # 최근 20건 (날짜 내림차순)
     recent = sorted(journal, key=lambda x: x['date'], reverse=True)[:20]
 
-    # 통계 (매수 시점 M점수별)
-    buy_outcomes = stats.get('buy_outcomes', {})
-
     html = (
         f"{html_section_divider()}"
         f"<div style='font-size:0.62rem;font-weight:700;color:{COLOR_LABEL};"
-        f"margin-bottom:6px;'>📓 매매 일지 + 신호 분석</div>"
-    )
-
-    # 2:1 비율 - 좌측 일지 + 우측 통계
-    html += (
-        "<div style='display:flex;gap:8px;align-items:flex-start;'>"
-        # ── 좌측 2/3: 매매 일지 ──
-        "<div style='flex:2;min-width:0;'>"
+        f"margin-bottom:6px;'>📓 매매 일지</div>"
         f"<div style='font-size:0.55rem;color:{COLOR_LABEL};margin-bottom:4px;'>"
         f"최근 {len(recent)}건 (총 {len(journal)}건)</div>"
     )
@@ -1410,11 +1363,11 @@ def _build_journal_html(journal: list[dict], stats: dict) -> str:
             d_short = e['date']
 
         html += (
-            f"<div style='font-size:0.6rem;color:#374151;margin-bottom:2px;"
-            f"display:flex;gap:4px;align-items:center;'>"
-            f"<span style='color:#9ca3af;width:32px;flex-shrink:0;'>{d_short}</span>"
+            f"<div style='font-size:0.65rem;color:#374151;margin-bottom:3px;"
+            f"display:flex;gap:6px;align-items:center;'>"
+            f"<span style='color:#9ca3af;width:36px;flex-shrink:0;'>{d_short}</span>"
             f"<span style='color:{type_col};font-weight:700;width:14px;flex-shrink:0;'>{type_icon}</span>"
-            f"<span style='font-weight:600;width:40px;flex-shrink:0;'>{tk_short}</span>"
+            f"<span style='font-weight:600;width:50px;flex-shrink:0;'>{tk_short}</span>"
             f"<span style='color:#6b7280;flex:1;min-width:0;'>{sig_html}{pnl_html}</span>"
             f"</div>"
         )
@@ -1425,57 +1378,11 @@ def _build_journal_html(journal: list[dict], stats: dict) -> str:
                 .replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
             )
             html += (
-                f"<div style='font-size:0.55rem;color:#9ca3af;"
-                f"margin:0 0 4px 50px;font-style:italic;line-height:1.3;'>"
+                f"<div style='font-size:0.6rem;color:#9ca3af;"
+                f"margin:0 0 6px 56px;font-style:italic;line-height:1.3;'>"
                 f"📝 {memo_safe}</div>"
             )
 
-    html += "</div>"
-
-    # ── 우측 1/3: 신호 정확도 ──
-    html += (
-        "<div style='flex:1;min-width:0;'>"
-        f"<div style='font-size:0.55rem;color:{COLOR_LABEL};margin-bottom:4px;'>"
-        f"매수 시점 M점수별 평균</div>"
-    )
-
-    # M점수 영역별 집계 (강매수 ~ 강매도 7단계)
-    # M점수 → 분류
-    # -4: 강매수, -3~-2: 매수, -1: 약매수, 0: 중립, +1: 약매도, +2~+3: 매도, +4: 강매도
-    bins = [
-        ('강매수', [-4]),
-        ('매수',   [-3, -2]),
-        ('약매수', [-1]),
-        ('중립',   [0]),
-        ('약매도', [1]),
-        ('매도',   [2, 3]),
-        ('강매도', [4]),
-    ]
-    for label, scores in bins:
-        all_returns = []
-        for s in scores:
-            all_returns.extend(buy_outcomes.get(s, []))
-        if not all_returns:
-            continue
-        avg_pnl = sum(all_returns) / len(all_returns)
-        col = pnl_color(avg_pnl)
-        html += (
-            f"<div style='font-size:0.58rem;color:#374151;margin-bottom:3px;"
-            f"display:flex;gap:4px;align-items:baseline;'>"
-            f"<span style='width:36px;flex-shrink:0;'>{label}</span>"
-            f"<span style='color:#9ca3af;width:24px;flex-shrink:0;'>{len(all_returns)}건</span>"
-            f"<span style='color:{col};font-weight:700;text-align:right;flex:1;'>"
-            f"{signed_str(avg_pnl, '{:+.1f}')}%</span>"
-            f"</div>"
-        )
-
-    if not any(buy_outcomes.values()):
-        html += (
-            f"<div style='font-size:0.55rem;color:#9ca3af;margin-top:6px;'>"
-            f"매도 기록 부족</div>"
-        )
-
-    html += "</div></div>"  # right 1/3 + outer flex
     return html
 
 
@@ -3658,8 +3565,7 @@ def render_overview_panel(
             st.session_state.trade_history, all_analyses, df_close,
         )
         if journal:
-            stats = analyze_signal_accuracy(journal)
-            jhtml = _build_journal_html(journal, stats)
+            jhtml = _build_journal_html(journal, {})
             if jhtml:
                 st.markdown(
                     f"<div style='padding:10px 12px;background:#ffffff;"
