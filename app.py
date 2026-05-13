@@ -1249,7 +1249,7 @@ def build_trade_journal(
         # 가중평균 단가 추적 (수익률 계산용)
         avg_p = 0.0
         hqty = 0
-        for r in sorted_recs:
+        for orig_idx, r in enumerate(sorted_recs):
             try:
                 rd = datetime.date.fromisoformat(r['date'])
             except Exception:
@@ -1260,6 +1260,9 @@ def build_trade_journal(
                 'ticker': tk, 'date': r['date'], 'type': r['type'],
                 'qty': qty, 'price': float(r['price']),
                 'z': None, 'm': None, 'dd': None, 'pnl_pct': None,
+                'memo': r.get('memo', ''),
+                # 편집용: 원본 trade_history 리스트에서의 인덱스
+                'record_idx': trade_history[tk].index(r) if r in trade_history[tk] else -1,
             }
 
             # 매매 시점 신호 추출 (df_t에서 ts 또는 가장 가까운 영업일)
@@ -1415,6 +1418,17 @@ def _build_journal_html(journal: list[dict], stats: dict) -> str:
             f"<span style='color:#6b7280;flex:1;min-width:0;'>{sig_html}{pnl_html}</span>"
             f"</div>"
         )
+        # 메모 인라인 (있는 경우만)
+        if e.get('memo'):
+            memo_safe = (
+                e['memo']
+                .replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+            )
+            html += (
+                f"<div style='font-size:0.55rem;color:#9ca3af;"
+                f"margin:0 0 4px 50px;font-style:italic;line-height:1.3;'>"
+                f"📝 {memo_safe}</div>"
+            )
 
     html += "</div>"
 
@@ -1834,15 +1848,20 @@ def render_sidebar(
             t_col1, t_col2 = st.columns(2)
             t_qty = t_col1.number_input("수량", min_value=0, value=0, step=1, format="%d")
             t_price = t_col2.number_input("단가($)", min_value=0.0, value=0.0, step=0.01, format="%.4f")
+            t_memo = st.text_input(
+                "메모 (선택)", value="", key="trade_memo_input",
+                placeholder="예: 추세선 -2σ 매수, 익절 등",
+            )
             if st.button("기록 저장", key="trade_save_btn"):
                 record = {'date': t_date.strftime("%Y-%m-%d"), 'type': t_type}
                 if t_qty > 0:
                     record['qty'] = int(t_qty)
                 if t_price > 0:
                     record['price'] = t_price
+                if t_memo.strip():
+                    record['memo'] = t_memo.strip()
                 st.session_state.trade_history.setdefault(t_ticker, []).append(record)
                 save_trade_history(st.session_state.trade_history)
-                # #14 햅틱 피드백 (모바일에서 진동)
                 st.markdown(
                     "<script>if(navigator.vibrate){navigator.vibrate(50);}</script>",
                     unsafe_allow_html=True,
@@ -1850,14 +1869,34 @@ def render_sidebar(
                 st.success("저장 완료!")
                 st.rerun()
 
-            st.markdown("**🗑️ 기존 기록 삭제**")
+            st.markdown("**🗑️ 기존 기록 삭제 / 메모 편집**")
             history = st.session_state.trade_history
             if selected_ticker in history and history[selected_ticker]:
                 for i, record in enumerate(history[selected_ticker]):
                     qty_str = f" {record['qty']}주" if record.get('qty') else ""
                     prc_str = f" @${record['price']:.2f}" if record.get('price') else ""
-                    label = f"✕  {record['date']}  {record['type'].upper()}{qty_str}{prc_str}"
-                    if st.button(label, key=f"del_{selected_ticker}_{i}"):
+                    type_icon = '🔴' if record['type'] == 'buy' else '🔵'
+                    label = f"{type_icon} {record['date']} {record['type'].upper()}{qty_str}{prc_str}"
+                    st.markdown(f"<div style='font-size:0.78rem;color:#374151;"
+                                f"margin-top:6px;'>{label}</div>",
+                                unsafe_allow_html=True)
+                    # 메모 편집 (인라인)
+                    cur_memo = record.get('memo', '')
+                    new_memo = st.text_input(
+                        "메모", value=cur_memo,
+                        key=f"trade_memo_edit_{selected_ticker}_{i}",
+                        label_visibility="collapsed",
+                        placeholder="메모 (편집 후 엔터)",
+                    )
+                    if new_memo.strip() != cur_memo:
+                        if new_memo.strip():
+                            st.session_state.trade_history[selected_ticker][i]['memo'] = new_memo.strip()
+                        elif 'memo' in record:
+                            del st.session_state.trade_history[selected_ticker][i]['memo']
+                        save_trade_history(st.session_state.trade_history)
+                        st.rerun()
+                    if st.button(f"✕ 삭제 ({record['date']})", key=f"del_{selected_ticker}_{i}",
+                                 use_container_width=True):
                         st.session_state.trade_history[selected_ticker].pop(i)
                         save_trade_history(st.session_state.trade_history)
                         st.rerun()
@@ -3630,6 +3669,42 @@ def render_overview_panel(
                     f"</div>",
                     unsafe_allow_html=True,
                 )
+
+            # 메모 편집 expander (최근 20건)
+            recent_journal = sorted(journal, key=lambda x: x['date'], reverse=True)[:20]
+            with st.expander("📝 매매 메모 편집", expanded=False):
+                st.caption("최근 20건의 매매 메모 편집")
+                for e in recent_journal:
+                    if e.get('record_idx', -1) < 0:
+                        continue
+                    type_icon = '🔴' if e['type'] == 'buy' else '🔵'
+                    label = (
+                        f"{type_icon} {e['date']} {display_name(e['ticker'])} "
+                        f"{e['qty']}주 @${e['price']:.2f}"
+                    )
+                    st.markdown(
+                        f"<div style='font-size:0.72rem;color:#374151;"
+                        f"margin-top:8px;'>{label}</div>",
+                        unsafe_allow_html=True,
+                    )
+                    cur_memo = e.get('memo', '')
+                    new_memo = st.text_input(
+                        f"memo_{e['ticker']}_{e['record_idx']}",
+                        value=cur_memo,
+                        key=f"ov_memo_{e['ticker']}_{e['record_idx']}_{e['date']}",
+                        label_visibility="collapsed",
+                        placeholder="메모 (편집 후 엔터)",
+                    )
+                    if new_memo.strip() != cur_memo:
+                        idx = e['record_idx']
+                        recs = st.session_state.trade_history.get(e['ticker'], [])
+                        if 0 <= idx < len(recs):
+                            if new_memo.strip():
+                                recs[idx]['memo'] = new_memo.strip()
+                            elif 'memo' in recs[idx]:
+                                del recs[idx]['memo']
+                            save_trade_history(st.session_state.trade_history)
+                            st.rerun()
 
     # ── 4. 자산 추이 통합 카드 (시드 대비 누적 막대) ──
     equity_series = st.session_state.get('equity_series_cache')
