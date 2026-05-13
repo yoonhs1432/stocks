@@ -806,11 +806,21 @@ def process_asset_data(
 
 @st.cache_data(show_spinner=False, ttl=CFG.DATA_TTL_SEC)
 def compute_all_analyses(
-    df_close: pd.DataFrame, _version: int = 9, candle_type: str = '일봉'
+    df_close: pd.DataFrame, _version: int = 9, candle_type: str = '일봉',
+    extra_tickers: Optional[tuple] = None,
 ) -> dict:
+    """전체 종목 분석. TARGET_TICKERS + extra_tickers (매매 기록 종목 등).
+
+    extra_tickers는 tuple (해시 가능) — st.cache_data 호환.
+    """
     df_x = df_close[[f'{X_ASSET_FIXED}_Close']]
     results = {}
-    for ticker in TARGET_TICKERS:
+    tickers_to_analyze = list(TARGET_TICKERS)
+    if extra_tickers:
+        for t in extra_tickers:
+            if t not in tickers_to_analyze:
+                tickers_to_analyze.append(t)
+    for ticker in tickers_to_analyze:
         col = f'{ticker}_Close'
         results[ticker] = (
             process_asset_data(df_x, df_close[[col]], X_ASSET_FIXED, ticker)
@@ -4197,7 +4207,12 @@ def main() -> None:
             df_close = df_close[df_close.index <= last_trading_date]
 
     with st.spinner("전체 종목 분석 중..."):
-        all_analyses = compute_all_analyses(df_close, _version=8, candle_type=candle_type)
+        # 매매 기록 종목도 분석에 포함 (현재 리스트에 없는 종목도)
+        history_tickers = tuple(sorted(st.session_state.trade_history.keys()))
+        all_analyses = compute_all_analyses(
+            df_close, _version=8, candle_type=candle_type,
+            extra_tickers=history_tickers,
+        )
 
     # ── β·SPY 계산 (한눈에 보기 + 산점도용) ──
     spy_betas = compute_spy_betas(df_close, TARGET_TICKERS)
