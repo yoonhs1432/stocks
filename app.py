@@ -832,6 +832,97 @@ def compute_all_analyses(
 # ====================================================
 # 9-A. 사이클 통계 (#1)
 # ====================================================
+def extract_cycles_avgs(records: list) -> list[dict]:
+    """매매 기록 → 사이클별 (시작, 끝, 평균 매수가, 평균 매도가, 진행 여부).
+
+    한 사이클 = 0주 → 매수 → 매수/매도 → 0주 (완료) 또는 보유중 (진행)
+    그래프에 평균 매수/매도가 수평선 그리기 위함.
+
+    Returns:
+        list of dict: [
+            {
+                'start': date,        # 매수 시작일
+                'end': date,          # 매도 완료일 (진행 중이면 None)
+                'avg_buy': float,     # 평균 매수가 (cost / qty)
+                'avg_sell': float,    # 평균 매도가 (proceeds / qty), 매도 0이면 None
+                'is_active': bool,    # 진행 중 여부
+                'buy_qty': int,
+                'sell_qty': int,
+            },
+            ...
+        ]  # 시간순
+    """
+    valid = [r for r in records if r.get('qty', 0) > 0 and r.get('price', 0) > 0]
+    if not valid:
+        return []
+
+    sorted_recs = sorted(valid, key=lambda r: r['date'])
+    cycles = []
+    hold_qty = 0
+    buy_qty = 0
+    sell_qty = 0
+    buy_cost = 0.0
+    sell_proceeds = 0.0
+    first_sell_date: Optional[datetime.date] = None  # 사이클 내 첫 매도일
+    cycle_start: Optional[datetime.date] = None
+
+    for r in sorted_recs:
+        date = datetime.date.fromisoformat(r['date'])
+        qty = int(r['qty'])
+        price = float(r['price'])
+
+        if r['type'] == 'buy':
+            if hold_qty == 0:
+                # 새 사이클 시작
+                cycle_start = date
+                buy_qty = 0
+                sell_qty = 0
+                buy_cost = 0.0
+                sell_proceeds = 0.0
+                first_sell_date = None
+            hold_qty += qty
+            buy_qty += qty
+            buy_cost += qty * price
+
+        elif r['type'] == 'sell' and hold_qty > 0:
+            if first_sell_date is None:
+                first_sell_date = date
+            sell_proceeds += qty * price
+            sell_qty += qty
+            hold_qty = max(hold_qty - qty, 0)
+
+            if hold_qty == 0 and buy_qty > 0:
+                # 사이클 완료
+                cycles.append({
+                    'start': cycle_start,
+                    'end': date,
+                    'avg_buy': buy_cost / buy_qty,
+                    'avg_sell': (sell_proceeds / sell_qty) if sell_qty > 0 else None,
+                    'first_sell_date': first_sell_date,
+                    'is_active': False,
+                    'buy_qty': buy_qty,
+                    'sell_qty': sell_qty,
+                })
+                # reset
+                cycle_start = None
+                first_sell_date = None
+
+    # 진행 중 사이클 (보유 중)
+    if hold_qty > 0 and buy_qty > 0:
+        cycles.append({
+            'start': cycle_start,
+            'end': None,
+            'avg_buy': buy_cost / buy_qty,
+            'avg_sell': (sell_proceeds / sell_qty) if sell_qty > 0 else None,
+            'first_sell_date': first_sell_date,
+            'is_active': True,
+            'buy_qty': buy_qty,
+            'sell_qty': sell_qty,
+        })
+
+    return cycles
+
+
 def compute_cycle_stats(records: list) -> Optional[dict]:
     """
     종목의 매매 기록에서 완료된 사이클들의 통계를 산출.
@@ -1946,7 +2037,7 @@ def render_chart(
     view_months: int,
     df_ohlc: Optional[pd.DataFrame] = None,
     df_daily_raw: Optional[pd.DataFrame] = None,
-    avg_price: Optional[float] = None,
+    trade_records: Optional[list] = None,
 ) -> None:
     st.markdown("""<style>
     .js-plotly-plot, .js-plotly-plot .plotly, .js-plotly-plot svg {
@@ -2011,19 +2102,39 @@ def render_chart(
         name='Current',
     ), row=row, col=1)
 
-    # ── 평단가 수평선 (보유 종목만) ──
+    # ── 사이클별 평균 매수/매도가 수평선 ──
     # 그래프 1 (회귀): Y축은 _Norm = Close / first_close
-    if avg_price is not None and avg_price > 0:
-        base_y_ticker = sc_df[f'{selected_ticker}_Close'].iloc[0]
-        if base_y_ticker > 0:
-            avg_norm_g1 = avg_price / base_y_ticker
+    # 진행 중 사이클: 진한 색 / 완료 사이클: 연한 색
+    # 가장 최근 완료 사이클 + 진행 중 사이클만 표시 (X축이 가격 차원이라 계단 불가)
+    cycles = extract_cycles_avgs(trade_records or [])
+    base_y_ticker = sc_df[f'{selected_ticker}_Close'].iloc[0]
+    if cycles and base_y_ticker > 0:
+        # 최근 완료 1개 + 진행 중
+        active = next((c for c in cycles if c['is_active']), None)
+        completed = [c for c in cycles if not c['is_active']]
+        recent_completed = completed[-1] if completed else None
+
+        def _hline_g1(y_norm: float, color: str, width: float = 1.0):
             fig.add_trace(go.Scatter(
                 x=[min_x * 0.98, max_x * 1.02],
-                y=[avg_norm_g1, avg_norm_g1],
+                y=[y_norm, y_norm],
                 mode='lines',
-                line=dict(color='#f97316', width=1, dash='dot'),
+                line=dict(color=color, width=width, dash='dot'),
                 hoverinfo='skip', showlegend=False,
             ), row=row, col=1)
+
+        # 완료 사이클 (연한 색)
+        if recent_completed and not active:
+            # 진행 중 없을 때만 완료 사이클 표시 (있으면 진행 중만 표시)
+            _hline_g1(recent_completed['avg_buy'] / base_y_ticker, '#fed7aa', 1.0)
+            if recent_completed.get('avg_sell'):
+                _hline_g1(recent_completed['avg_sell'] / base_y_ticker, '#bfdbfe', 1.0)
+
+        # 진행 중 사이클 (진한 색)
+        if active:
+            _hline_g1(active['avg_buy'] / base_y_ticker, '#f97316', 1.2)
+            if active.get('avg_sell'):
+                _hline_g1(active['avg_sell'] / base_y_ticker, '#2563eb', 1.2)
 
     band_upper = np.exp(np.log(sdf['Predicted'].values) + 1.5 * std_resid)
     band_lower = np.exp(np.log(sdf['Predicted'].values) - 1.5 * std_resid)
@@ -2100,23 +2211,50 @@ def render_chart(
         connectgaps=True,
     ), row=row, col=1)
 
-    # ── 평단가 수평선 (보유 종목만) ──
-    # 그래프 2 (price): 가격 → 정규화 변환
-    if avg_price is not None and avg_price > 0:
-        # scale 계산 (캔들 변환과 동일)
+    # ── 사이클별 평균 매수/매도가 수평선 (시간축 계단형) ──
+    # 사이클 시작 ~ 끝 (또는 last_date) 구간에만 수평선
+    # 매수가: 사이클 전체 기간
+    # 매도가: 첫 매도일 ~ 사이클 끝 기간만 (있을 때만)
+    # 진행 중 사이클: 진한 색 / 완료 사이클: 연한 색
+    cycles_g2 = extract_cycles_avgs(trade_records or [])
+    if cycles_g2:
         base_close_p = df_daily[f'{selected_ticker}_Close'].iloc[0]
         base_n_p = df_daily[f'{selected_ticker}_Norm'].iloc[0]
         base_vn_p = df_daily.loc[df_daily.index >= view_start, f'{selected_ticker}_Norm'].iloc[0]
         scale_p = base_n_p / base_vn_p / base_close_p if base_close_p != 0 else 1.0
-        avg_norm = avg_price * scale_p
-        # 주황 점선 수평선
-        fig.add_trace(go.Scatter(
-            x=[df_daily.index[0], df_daily.index[-1]],
-            y=[avg_norm, avg_norm],
-            mode='lines',
-            line=dict(color='#f97316', width=1, dash='dot'),
-            hoverinfo='skip', showlegend=False,
-        ), row=row, col=1)
+        last_date_in_data = df_daily.index[-1]
+
+        for c in cycles_g2:
+            start_ts = pd.Timestamp(c['start'])
+            end_ts = pd.Timestamp(c['end']) if c['end'] else last_date_in_data
+            is_active = c['is_active']
+
+            # 색
+            buy_color = '#f97316' if is_active else '#fed7aa'
+            sell_color = '#2563eb' if is_active else '#bfdbfe'
+            line_width = 1.2 if is_active else 1.0
+
+            # 평균 매수가 (사이클 전체 기간)
+            avg_buy_norm = c['avg_buy'] * scale_p
+            fig.add_trace(go.Scatter(
+                x=[start_ts, end_ts],
+                y=[avg_buy_norm, avg_buy_norm],
+                mode='lines',
+                line=dict(color=buy_color, width=line_width, dash='dot'),
+                hoverinfo='skip', showlegend=False,
+            ), row=row, col=1)
+
+            # 평균 매도가 (첫 매도일 ~ 사이클 끝)
+            if c.get('avg_sell') and c.get('first_sell_date'):
+                first_sell_ts = pd.Timestamp(c['first_sell_date'])
+                avg_sell_norm = c['avg_sell'] * scale_p
+                fig.add_trace(go.Scatter(
+                    x=[first_sell_ts, end_ts],
+                    y=[avg_sell_norm, avg_sell_norm],
+                    mode='lines',
+                    line=dict(color=sell_color, width=line_width, dash='dot'),
+                    hoverinfo='skip', showlegend=False,
+                ), row=row, col=1)
 
     if not ohlc_norm.empty:
         vc = ohlc_norm[ohlc_norm.index >= view_start]
@@ -2439,11 +2577,34 @@ def render_chart(
         range=[0, 100], autorange=False, fixedrange=True, row=row, col=1,
     )
 
-    # 매매 마커
+    # ── 매매 마커 (사이클별 opacity 차등) ──
+    # 진행 중 사이클 매매: 진하게 (opacity 1.0)
+    # 완료 사이클 매매: 연하게 (opacity 0.3)
+    cycles_for_markers = extract_cycles_avgs(
+        st.session_state.trade_history.get(selected_ticker, [])
+    )
+
+    def _trade_is_active(t_date_dt: datetime.date) -> bool:
+        """매매 날짜가 진행 중 사이클에 속하면 True."""
+        for c in cycles_for_markers:
+            if not c['is_active']:
+                continue
+            if c['start'] <= t_date_dt:
+                return True
+        return False
+
     for trade in st.session_state.trade_history.get(selected_ticker, []):
         t_date = pd.to_datetime(trade['date'])
+        try:
+            t_date_d = datetime.date.fromisoformat(trade['date'])
+        except Exception:
+            t_date_d = t_date.date()
         is_buy = trade['type'] == 'buy'
-        m_color = '#dc2626' if is_buy else '#1d4ed8'
+        is_active_cycle = _trade_is_active(t_date_d)
+        # 색
+        base_color = '#dc2626' if is_buy else '#1d4ed8'
+        m_opacity = 1.0 if is_active_cycle else 0.3
+        vline_opacity = 0.8 if is_active_cycle else 0.25
         idx_sc = sc_df.index.get_indexer([t_date], method='nearest')[0]
         d_sc = sc_df.index[idx_sc]
         fig.add_trace(go.Scatter(
@@ -2452,15 +2613,16 @@ def render_chart(
             mode='markers',
             marker=dict(
                 symbol='triangle-up' if is_buy else 'triangle-down',
-                size=10, color=m_color, line=dict(width=1, color='black'),
+                size=10, color=base_color, opacity=m_opacity,
+                line=dict(width=1, color='black'),
             ),
             name=f"{trade['type'].upper()} ({t_date.date()})", hoverinfo='skip',
         ), row=1, col=1)
         for r in range(3, total_rows + 1):
             fig.add_vline(
                 x=t_date, line_dash="solid", line_width=1,
-                line_color=m_color, opacity=0.8, row=r, col=1,
-                layer='below',   # 마커가 vline 위에 보이도록
+                line_color=base_color, opacity=vline_opacity, row=r, col=1,
+                layer='below',
             )
 
     # ── 메모 마커 (#8) ──
@@ -2493,54 +2655,6 @@ def render_chart(
                 symbol='square', size=8, color='#fbbf24',
                 line=dict(width=1, color='#92400e'),
             ),
-            text=memo_text,
-            hovertemplate='%{text}<extra></extra>',
-            hoverinfo='text',
-            showlegend=False, name='memos',
-        ), row=price_row, col=1)
-        # 메모 vline (옅은 노란색)
-        for d in memo_x:
-            for r in range(3, total_rows + 1):
-                fig.add_vline(
-                    x=d, line_dash="dot", line_width=1,
-                    line_color='#fbbf24', opacity=0.4, row=r, col=1,
-                    layer='below',
-                )
-
-    # 축 공통 스타일
-    fig.update_xaxes(showline=True, linewidth=1, linecolor='black', mirror=True)
-    fig.update_yaxes(showline=True, linewidth=1, linecolor='black', mirror=True)
-    fig.update_xaxes(visible=False, row=2, col=1)
-    fig.update_yaxes(visible=False, row=2, col=1)
-    for r in range(3, total_rows + 1):
-        fig.update_xaxes(
-            showgrid=True, gridcolor='rgba(156,163,175,0.28)',
-            gridwidth=0.6, griddash='dot', dtick=grid_dtick_ms,
-            matches=time_x_axis, rangebreaks=[dict(bounds=['sat', 'mon'])],
-            showticklabels=(r == total_rows), tickformat="%m/%d",
-            range=[view_start, last_date], row=r, col=1,
-            layer='below traces',   # grid가 라인 아래에 그려지도록
-        )
-        fig.update_yaxes(
-            showgrid=False, autorange=False, fixedrange=True, row=r, col=1,
-            layer='below traces',
-        )
-
-    fig.update_traces(hoverinfo='skip')
-    fig.update_layout(
-        height=total_h, showlegend=False, hovermode=False,
-        dragmode='pan', margin=dict(l=2, r=18, t=10, b=20),
-        paper_bgcolor='white', plot_bgcolor='white', uirevision='constant',
-    )
-
-    st.plotly_chart(
-        fig, use_container_width=True,
-        config={
-            'scrollZoom': True, 'displayModeBar': False,
-            'doubleClick': 'reset', 'responsive': True, 'showTips': False,
-        },
-    )
-
 
 # ====================================================
 # 15. 포지션 트래커
@@ -4368,16 +4482,12 @@ def main() -> None:
                             )
                             if result_raw[0] is not None:
                                 df_daily_raw = result_raw[0]
-                # 보유 종목이면 평단가 계산
-                cur_ts = portfolio_state.get(selected_ticker)
-                cur_avg = None
-                if (cur_ts and cur_ts['cycle']['buy_qty'] > 0
-                        and cur_ts['cycle']['hold_qty'] > 0):
-                    cur_avg = cur_ts['cycle']['buy_cost'] / cur_ts['cycle']['buy_qty']
+                # 매매 기록 전체 전달 (사이클별 평균 매수/매도가 표시용)
+                trade_records = st.session_state.trade_history.get(selected_ticker, [])
                 render_chart(
                     df_daily, selected_ticker, beta, std_resid,
                     cfg['guide_n'], st.session_state.view_months, df_ohlc, df_daily_raw,
-                    avg_price=cur_avg,
+                    trade_records=trade_records,
                 )
                 # 정보 카드 (그래프 아래)
                 render_position_tracker(
