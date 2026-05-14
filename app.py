@@ -2655,6 +2655,54 @@ def render_chart(
                 symbol='square', size=8, color='#fbbf24',
                 line=dict(width=1, color='#92400e'),
             ),
+            text=memo_text,
+            hovertemplate='%{text}<extra></extra>',
+            hoverinfo='text',
+            showlegend=False, name='memos',
+        ), row=price_row, col=1)
+        # 메모 vline (옅은 노란색)
+        for d in memo_x:
+            for r in range(3, total_rows + 1):
+                fig.add_vline(
+                    x=d, line_dash="dot", line_width=1,
+                    line_color='#fbbf24', opacity=0.4, row=r, col=1,
+                    layer='below',
+                )
+
+    # 축 공통 스타일
+    fig.update_xaxes(showline=True, linewidth=1, linecolor='black', mirror=True)
+    fig.update_yaxes(showline=True, linewidth=1, linecolor='black', mirror=True)
+    fig.update_xaxes(visible=False, row=2, col=1)
+    fig.update_yaxes(visible=False, row=2, col=1)
+    for r in range(3, total_rows + 1):
+        fig.update_xaxes(
+            showgrid=True, gridcolor='rgba(156,163,175,0.28)',
+            gridwidth=0.6, griddash='dot', dtick=grid_dtick_ms,
+            matches=time_x_axis, rangebreaks=[dict(bounds=['sat', 'mon'])],
+            showticklabels=(r == total_rows), tickformat="%m/%d",
+            range=[view_start, last_date], row=r, col=1,
+            layer='below traces',   # grid가 라인 아래에 그려지도록
+        )
+        fig.update_yaxes(
+            showgrid=False, autorange=False, fixedrange=True, row=r, col=1,
+            layer='below traces',
+        )
+
+    fig.update_traces(hoverinfo='skip')
+    fig.update_layout(
+        height=total_h, showlegend=False, hovermode=False,
+        dragmode='pan', margin=dict(l=2, r=18, t=10, b=20),
+        paper_bgcolor='white', plot_bgcolor='white', uirevision='constant',
+    )
+
+    st.plotly_chart(
+        fig, use_container_width=True,
+        config={
+            'scrollZoom': True, 'displayModeBar': False,
+            'doubleClick': 'reset', 'responsive': True, 'showTips': False,
+        },
+    )
+
 
 # ====================================================
 # 15. 포지션 트래커
