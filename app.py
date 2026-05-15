@@ -331,11 +331,9 @@ def html_progress_bar(width_pct: float, color: str, height: int = 7) -> str:
 # 5. 영속화 (로컬 + Gist)
 # ====================================================
 TRADE_FILE = 'trade_history.json'
-MEMO_FILE = 'memo_history.json'
 SETTINGS_FILE = 'settings.json'
 TICKERS_FILE = 'target_tickers.json'
 GIST_FILENAME = 'quant_trade_history.json'
-MEMO_GIST_FILENAME = 'quant_memo_history.json'
 TICKERS_GIST_FILENAME = 'quant_target_tickers.json'
 
 # 기본 종목 (사용자 설정이 없을 때 fallback)
@@ -422,8 +420,6 @@ def _save_json(local_file: str, gist_filename: str, data: dict) -> None:
 
 def load_trade_history() -> dict: return _load_json(TRADE_FILE, GIST_FILENAME)
 def save_trade_history(h: dict) -> None: _save_json(TRADE_FILE, GIST_FILENAME, h)
-def load_memo_history() -> dict: return _load_json(MEMO_FILE, MEMO_GIST_FILENAME)
-def save_memo_history(h: dict) -> None: _save_json(MEMO_FILE, MEMO_GIST_FILENAME, h)
 
 
 def load_target_tickers() -> list[str]:
@@ -469,7 +465,6 @@ def save_settings(s: dict) -> None:
 def init_session_state() -> None:
     defaults = {
         'trade_history':       load_trade_history,
-        'memo_history':        load_memo_history,
         'ticker_signals':      dict,
         'ticker_momentum_scores': dict,
         'ticker_momentum_smooth': dict,
@@ -483,8 +478,6 @@ def init_session_state() -> None:
             'analysis_start',
             (datetime.date.today() - datetime.timedelta(days=365)).strftime('%y-%m')
         ),
-        'memo_editing_idx':    lambda: None,
-        'memo_input_key':      int,
         'candle_type':         lambda: '일봉',
     }
     for key, factory in defaults.items():
@@ -1360,7 +1353,8 @@ def build_trade_journal(
             entry = {
                 'ticker': tk, 'date': r['date'], 'type': r['type'],
                 'qty': qty, 'price': float(r['price']),
-                'z': None, 'm': None, 'dd': None, 'pnl_pct': None,
+                'z': None, 'm': None, 'dd': None,
+                'pnl_pct': None, 'pnl_amount': None,
                 'memo': r.get('memo', ''),
                 # 편집용: 원본 trade_history 리스트에서의 인덱스
                 'record_idx': trade_history[tk].index(r) if r in trade_history[tk] else -1,
@@ -1399,6 +1393,7 @@ def build_trade_journal(
                 sq = min(qty, hqty)
                 if avg_p > 0:
                     entry['pnl_pct'] = (r['price'] / avg_p - 1) * 100
+                    entry['pnl_amount'] = sq * (r['price'] - avg_p)
                 hqty -= sq
                 if hqty == 0:
                     avg_p = 0.0
@@ -1408,53 +1403,71 @@ def build_trade_journal(
     return journal
 
 
-def _build_journal_html(journal: list[dict], stats: dict) -> str:
-    """매매 일지 카드 (최근 20건).
+def _build_journal_html(
+    journal: list[dict],
+    stats: dict,
+    show_ticker: bool = True,
+    filter_ticker: Optional[str] = None,
+    title: str = "📓 매매 일지",
+) -> str:
+    """매매 일지 카드.
 
-    각 매매 시점의 Z/M/DD 신호 + 메모 표시.
+    표시 항목: 날짜 / 방향(▲▼) / [티커] / 모멘텀(M) / 수익률(%) / 손익금($) / 메모
+
+    Args:
+        journal: 전체 매매 일지
+        stats: (현재 미사용)
+        show_ticker: 티커 컬럼 표시 여부
+        filter_ticker: 특정 종목만 필터링 (None이면 전체)
+        title: 카드 제목
     """
     if not journal:
         return ""
 
-    # 전체 (날짜 내림차순)
-    recent = sorted(journal, key=lambda x: x['date'], reverse=True)
+    # 필터링 + 최신순 정렬
+    if filter_ticker:
+        items = [j for j in journal if j['ticker'] == filter_ticker]
+    else:
+        items = list(journal)
+    if not items:
+        return ""
+    recent = sorted(items, key=lambda x: x['date'], reverse=True)
 
     html = (
         f"{html_section_divider()}"
         f"<div style='font-size:0.62rem;font-weight:700;color:{COLOR_LABEL};"
-        f"margin-bottom:6px;'>📓 매매 일지</div>"
+        f"margin-bottom:6px;'>{title}</div>"
         f"<div style='font-size:0.55rem;color:{COLOR_LABEL};margin-bottom:4px;'>"
         f"전체 {len(recent)}건</div>"
     )
 
     for e in recent:
-        # 매수=빨강▲, 매도=파랑▼
         is_buy = e['type'] == 'buy'
         type_col = '#dc2626' if is_buy else '#2563eb'
         type_icon = '▲' if is_buy else '▼'
-        tk_short = display_name(e['ticker'])
 
-        # 신호 표시: Z, M, DD
-        sig_parts = []
-        if e['z'] is not None:
-            z_col = '#dc2626' if e['z'] <= -1 else '#2563eb' if e['z'] >= 1 else '#9ca3af'
-            sig_parts.append(f"<span style='color:{z_col};'>Z{e['z']:+.1f}</span>")
+        # 모멘텀 (M)
+        m_html = ""
         if e['m'] is not None:
             m_int = max(-4, min(4, int(round(e['m']))))
             m_col = momentum_to_color(m_int)
-            sig_parts.append(f"<span style='color:{m_col};'>M{e['m']:+.1f}</span>")
-        if e['dd'] is not None:
-            dd_col = dd_color(e['dd'])
-            sig_parts.append(f"<span style='color:{dd_col};'>DD{e['dd']:.0f}%</span>")
-        sig_html = " ".join(sig_parts) if sig_parts else ""
+            m_html = f"<span style='color:{m_col};'>M{e['m']:+.1f}</span>"
 
-        # 수익률 (매도만)
+        # 수익률 + 손익금 (매도만)
         pnl_html = ""
-        if e['pnl_pct'] is not None:
+        if e.get('pnl_pct') is not None:
             pcol = pnl_color(e['pnl_pct'])
+            amt_html = ""
+            if e.get('pnl_amount') is not None:
+                amt = e['pnl_amount']
+                amt_sign = '+' if amt >= 0 else '-'
+                amt_html = (
+                    f" <span style='color:{pcol};font-weight:600;'>"
+                    f"({amt_sign}${abs(amt):.0f})</span>"
+                )
             pnl_html = (
                 f" → <span style='color:{pcol};font-weight:700;'>"
-                f"{signed_str(e['pnl_pct'], '{:.1f}')}%</span>"
+                f"{signed_str(e['pnl_pct'], '{:.1f}')}%</span>{amt_html}"
             )
 
         # 날짜 짧게 (MM/DD)
@@ -1463,24 +1476,38 @@ def _build_journal_html(journal: list[dict], stats: dict) -> str:
         except Exception:
             d_short = e['date']
 
-        html += (
-            f"<div style='font-size:0.65rem;color:#374151;margin-bottom:3px;"
-            f"display:flex;gap:6px;align-items:center;'>"
-            f"<span style='color:#9ca3af;width:36px;flex-shrink:0;'>{d_short}</span>"
-            f"<span style='color:{type_col};font-weight:700;width:14px;flex-shrink:0;'>{type_icon}</span>"
-            f"<span style='font-weight:600;width:50px;flex-shrink:0;'>{tk_short}</span>"
-            f"<span style='color:#6b7280;flex:1;min-width:0;'>{sig_html}{pnl_html}</span>"
-            f"</div>"
-        )
+        # 행 (티커 표시 옵션)
+        if show_ticker:
+            tk_short = display_name(e['ticker'])
+            html += (
+                f"<div style='font-size:0.65rem;color:#374151;margin-bottom:3px;"
+                f"display:flex;gap:6px;align-items:center;'>"
+                f"<span style='color:#9ca3af;width:36px;flex-shrink:0;'>{d_short}</span>"
+                f"<span style='color:{type_col};font-weight:700;width:14px;flex-shrink:0;'>{type_icon}</span>"
+                f"<span style='font-weight:600;width:50px;flex-shrink:0;'>{tk_short}</span>"
+                f"<span style='color:#6b7280;flex:1;min-width:0;'>{m_html}{pnl_html}</span>"
+                f"</div>"
+            )
+        else:
+            html += (
+                f"<div style='font-size:0.65rem;color:#374151;margin-bottom:3px;"
+                f"display:flex;gap:6px;align-items:center;'>"
+                f"<span style='color:#9ca3af;width:36px;flex-shrink:0;'>{d_short}</span>"
+                f"<span style='color:{type_col};font-weight:700;width:14px;flex-shrink:0;'>{type_icon}</span>"
+                f"<span style='color:#6b7280;flex:1;min-width:0;'>{m_html}{pnl_html}</span>"
+                f"</div>"
+            )
+
         # 메모 인라인 (있는 경우만)
         if e.get('memo'):
             memo_safe = (
                 e['memo']
                 .replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
             )
+            indent = '56px' if show_ticker else '50px'
             html += (
                 f"<div style='font-size:0.6rem;color:#9ca3af;"
-                f"margin:0 0 6px 56px;font-style:italic;line-height:1.3;'>"
+                f"margin:0 0 6px {indent};font-style:italic;line-height:1.3;'>"
                 f"📝 {memo_safe}</div>"
             )
 
@@ -1851,10 +1878,8 @@ def render_sidebar(
 
             st.caption("매매 기록은 삭제되지 않음 (자산 추이/실현손익엔 반영)")
 
-        # 매매 기록 / 메모를 탭으로 분리 (#4)
-        tab_trade, tab_memo = st.tabs(["📈 매매 기록", "📝 메모"])
-
-        with tab_trade:
+        # 매매 기록 (메모는 매매 시점에 함께 입력)
+        with st.container():
             ticker_options = (
                 TARGET_TICKERS if selected_ticker in TARGET_TICKERS
                 else [selected_ticker] + TARGET_TICKERS
@@ -1919,103 +1944,6 @@ def render_sidebar(
                         st.rerun()
             else:
                 st.caption("매매 기록이 없습니다.")
-
-        with tab_memo:
-            st.caption(f"현재 종목: **{display_name(selected_ticker)}**")
-            memo_date = st.date_input("날짜 ", datetime.date.today(), key="sb_memo_date")
-            memo_text = st.text_area(
-                "메모 내용", value="",
-                key=f"sb_memo_text_{st.session_state.memo_input_key}",
-                placeholder="메모를 입력하세요...", height=80,
-            )
-            if st.button("메모 저장", key="memo_save_btn"):
-                text = memo_text.strip()
-                if text:
-                    mh = st.session_state.memo_history
-                    mh.setdefault(selected_ticker, []).append(
-                        {'date': memo_date.strftime("%Y-%m-%d"), 'text': text}
-                    )
-                    mh[selected_ticker].sort(key=lambda x: x['date'], reverse=True)
-                    save_memo_history(mh)
-                    st.session_state.memo_input_key += 1
-                    st.markdown(
-                        "<script>if(navigator.vibrate){navigator.vibrate(50);}</script>",
-                        unsafe_allow_html=True,
-                    )
-                    st.rerun()
-                else:
-                    st.warning("메모 내용을 입력해 주세요.")
-
-            st.markdown("**📋 메모 목록**")
-            mh = st.session_state.memo_history
-            ticker_memos = mh.get(selected_ticker, [])
-            for i, memo in enumerate(ticker_memos):
-                preview = f"{memo['date']} {memo['text'][:12]}{'…' if len(memo['text']) > 12 else ''}"
-                c1, c2 = st.columns(2)
-                if c1.button(
-                    f"✏️ {preview}",
-                    key=f"memo_edit_btn_{safe_key(selected_ticker)}_{i}",
-                    use_container_width=True,
-                ):
-                    st.session_state.memo_editing_idx = i
-                    st.rerun()
-                if c2.button(
-                    f"✕ {preview}",
-                    key=f"memo_del_{safe_key(selected_ticker)}_{i}",
-                    use_container_width=True,
-                ):
-                    st.session_state.memo_history[selected_ticker].pop(i)
-                    if st.session_state.memo_editing_idx == i:
-                        st.session_state.memo_editing_idx = None
-                    save_memo_history(st.session_state.memo_history)
-                    st.rerun()
-                if st.session_state.memo_editing_idx == i:
-                    st.markdown(
-                        "<div style='background:#f3f4f6;padding:6px;"
-                        "border-radius:6px;margin:2px 0 6px 0;'>",
-                        unsafe_allow_html=True,
-                    )
-                    try:
-                        edit_date_default = datetime.date.fromisoformat(memo['date'])
-                    except ValueError:
-                        edit_date_default = datetime.date.today()
-                    edit_date = st.date_input(
-                        "날짜 수정", value=edit_date_default,
-                        key=f"memo_edit_date_{safe_key(selected_ticker)}_{i}",
-                    )
-                    edit_text = st.text_area(
-                        "내용 수정", value=memo['text'],
-                        key=f"memo_edit_text_{safe_key(selected_ticker)}_{i}", height=70,
-                    )
-                    ecols = st.columns(2)
-                    if ecols[0].button(
-                        "💾 저장",
-                        key=f"memo_edit_save_{safe_key(selected_ticker)}_{i}",
-                        use_container_width=True,
-                    ):
-                        new_text = edit_text.strip()
-                        if new_text:
-                            st.session_state.memo_history[selected_ticker][i] = {
-                                'date': edit_date.strftime("%Y-%m-%d"), 'text': new_text,
-                            }
-                            st.session_state.memo_history[selected_ticker].sort(
-                                key=lambda x: x['date'], reverse=True
-                            )
-                            save_memo_history(st.session_state.memo_history)
-                            st.session_state.memo_editing_idx = None
-                            st.rerun()
-                        else:
-                            st.warning("내용을 입력해 주세요.")
-                    if ecols[1].button(
-                        "✖ 취소",
-                        key=f"memo_edit_cancel_{safe_key(selected_ticker)}_{i}",
-                        use_container_width=True,
-                    ):
-                        st.session_state.memo_editing_idx = None
-                        st.rerun()
-                    st.markdown("</div>", unsafe_allow_html=True)
-            if not ticker_memos:
-                st.caption("메모가 없습니다.")
 
     return {
         'analysis_start': analysis_start.strip(),
@@ -2624,50 +2552,6 @@ def render_chart(
                 line_color=base_color, opacity=vline_opacity, row=r, col=1,
                 layer='below',
             )
-
-    # ── 메모 마커 (#8) ──
-    # 가격 차트(row=3)에 작은 마커 + Plot_Norm_Ticker 위에 점, 호버시 텍스트 표시
-    memos = st.session_state.memo_history.get(selected_ticker, [])
-    memo_view = [
-        m for m in memos
-        if pd.to_datetime(m['date']) >= view_start
-        and pd.to_datetime(m['date']) <= last_date
-    ]
-    if memo_view:
-        memo_x = []
-        memo_y = []
-        memo_text = []
-        for m in memo_view:
-            md = pd.to_datetime(m['date'])
-            # df_daily의 가장 가까운 날짜 찾기
-            idx_m = df_daily.index.get_indexer([md], method='nearest')[0]
-            d_m = df_daily.index[idx_m]
-            memo_x.append(d_m)
-            # 메모 마커 y 위치: 차트 상단 부근
-            memo_y.append(p_hi * 0.99)
-            # 텍스트 미리보기
-            preview = m['text'][:30] + ('…' if len(m['text']) > 30 else '')
-            memo_text.append(f"📝 {m['date']}<br>{preview}")
-        fig.add_trace(go.Scatter(
-            x=memo_x, y=memo_y,
-            mode='markers',
-            marker=dict(
-                symbol='square', size=8, color='#fbbf24',
-                line=dict(width=1, color='#92400e'),
-            ),
-            text=memo_text,
-            hovertemplate='%{text}<extra></extra>',
-            hoverinfo='text',
-            showlegend=False, name='memos',
-        ), row=price_row, col=1)
-        # 메모 vline (옅은 노란색)
-        for d in memo_x:
-            for r in range(3, total_rows + 1):
-                fig.add_vline(
-                    x=d, line_dash="dot", line_width=1,
-                    line_color='#fbbf24', opacity=0.4, row=r, col=1,
-                    layer='below',
-                )
 
     # 축 공통 스타일
     fig.update_xaxes(showline=True, linewidth=1, linecolor='black', mirror=True)
@@ -4046,26 +3930,33 @@ def render_overview_panel(
 # 18. 메모 섹션
 # ====================================================
 def render_memo_section(selected_ticker: str) -> None:
-    memos = sorted(
-        st.session_state.memo_history.get(selected_ticker, []),
-        key=lambda x: x['date'], reverse=True,
-    )
-    if not memos:
+    """탭1 하단 — 해당 종목의 매매 일지 표시.
+
+    매매 일지 카드 형식과 동일 (날짜/방향/모멘텀/수익률/손익/메모).
+    """
+    all_analyses = st.session_state.get('_all_analyses_cache')
+    df_close_c = st.session_state.get('_df_close_cache')
+    if all_analyses is None or df_close_c is None:
         return
-    rows_html = "".join(
-        f"<tr>"
-        f"<td style='color:#6b7280;font-size:0.72rem;white-space:nowrap;"
-        f"padding:4px 12px 4px 6px;vertical-align:top;'>{m['date']}</td>"
-        f"<td style='color:#111827;font-size:0.78rem;line-height:1.5;padding:4px;'>{m['text']}</td>"
-        f"</tr>"
-        for m in memos
+    journal = build_trade_journal(
+        st.session_state.trade_history, all_analyses, df_close_c,
     )
+    if not journal:
+        return
+    jhtml = _build_journal_html(
+        journal, {},
+        show_ticker=False,
+        filter_ticker=selected_ticker,
+        title=f"📓 {display_name(selected_ticker)} 매매 일지",
+    )
+    if not jhtml:
+        return
     st.markdown(
-        f"<div style='margin-top:8px;border-top:1px solid #e5e7eb;padding-top:6px;'>"
-        f"<span style='font-size:0.75rem;font-weight:700;color:#6b7280;'>"
-        f"📝 {display_name(selected_ticker)} 메모</span>"
-        f"<table style='width:100%;border-collapse:collapse;margin-top:4px;'>"
-        f"{rows_html}</table></div>",
+        f"<div style='padding:10px 12px;background:#ffffff;"
+        f"border:1px solid #e2e8f0;border-radius:10px;margin-top:8px;"
+        f"box-shadow:0 1px 3px rgba(0,0,0,0.06);'>"
+        f"{jhtml}"
+        f"</div>",
         unsafe_allow_html=True,
     )
 
@@ -4388,6 +4279,9 @@ def main() -> None:
     # ── β·SPY 계산 (한눈에 보기 + 산점도용) ──
     spy_betas = compute_spy_betas(df_close, TARGET_TICKERS)
     st.session_state['spy_betas'] = spy_betas
+    # 탭1 매매 일지에서 사용
+    st.session_state['_all_analyses_cache'] = all_analyses
+    st.session_state['_df_close_cache'] = df_close
 
     # ── 종목별 신호/모멘텀 계산 ──
     pct_changes = update_ticker_signals(df_close, all_analyses)
