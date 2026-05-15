@@ -579,28 +579,29 @@ def get_signal_combined(cz: float, mhz: float, rsi: float) -> str:
     return score_to_signal(compute_combined_score(cz, mhz, rsi))
 
 
-def compute_momentum_score_smooth(mhz: float, rsi: float) -> float:
+def compute_momentum_score_smooth(macd_z: float, rsi: float) -> float:
     """모멘텀 점수의 연속 버전 (시각화용).
 
-    선형 무제한 — 임계값 이상의 강도 차이도 그대로 보존.
     Z와 동일 척도 (±2.5 범위) 로 단일 Y축 표시 가능.
 
-    - MACD-Z를 MACD_HIGH 단위로 정규화, 가중 CFG.MACD_WEIGHT (1.2)
+    - MACD-Z (추세 강도)를 MACD_HIGH 단위로 정규화, 가중 CFG.MACD_WEIGHT (1.2)
     - RSI를 ±20 단위 (50 중심)로 정규화, 가중 CFG.RSI_WEIGHT (0.8)
     - 임계 ±1 (약), ±2 (강) → Z 임계와 동일
+
+    참고: 이전엔 MACD_Hist_Z 사용 (변곡점 선행) → 현재는 MACD_Z (추세 강도).
     """
-    s_mhz = CFG.MACD_WEIGHT * (mhz / CFG.MACD_HIGH)
+    s_macd = CFG.MACD_WEIGHT * (macd_z / CFG.MACD_HIGH)
     s_rsi = CFG.RSI_WEIGHT  * ((rsi - 50) / 20.0)
-    return s_mhz + s_rsi
+    return s_macd + s_rsi
 
 
-def compute_momentum_score(mhz: float, rsi: float) -> int:
+def compute_momentum_score(macd_z: float, rsi: float) -> int:
     """모멘텀 점수 정수 (-CFG.SCORE_MAX ~ +CFG.SCORE_MAX).
 
     smooth가 Z와 동일 척도이므로 직접 round.
     임계: ±1 약, ±2 강 (Z와 동일).
     """
-    smooth = compute_momentum_score_smooth(mhz, rsi)
+    smooth = compute_momentum_score_smooth(macd_z, rsi)
     return max(-CFG.SCORE_MAX, min(CFG.SCORE_MAX, int(round(smooth))))
 
 
@@ -783,9 +784,16 @@ def process_asset_data(
     df['MACD_Signal'] = df['MACD'].ewm(span=9, adjust=False).mean()
     df['MACD_Hist'] = df['MACD'] - df['MACD_Signal']
 
-    exp_std_macd = df['MACD_Hist'].expanding(min_periods=CFG.EXPANDING_MIN_PERIODS).std()
-    exp_mean_macd = df['MACD_Hist'].expanding(min_periods=CFG.EXPANDING_MIN_PERIODS).mean()
-    df['MACD_Hist_Z'] = (df['MACD_Hist'] - exp_mean_macd) / exp_std_macd.replace(0, np.nan)
+    # MACD-Hist Z (변곡점 선행 지표)
+    exp_std_hist = df['MACD_Hist'].expanding(min_periods=CFG.EXPANDING_MIN_PERIODS).std()
+    exp_mean_hist = df['MACD_Hist'].expanding(min_periods=CFG.EXPANDING_MIN_PERIODS).mean()
+    df['MACD_Hist_Z'] = (df['MACD_Hist'] - exp_mean_hist) / exp_std_hist.replace(0, np.nan)
+
+    # MACD Z (추세 자체의 강도) — 종목별 가격 단위 차이 정규화
+    # 모멘텀 계산에 사용 (MACD_Hist_Z 대신)
+    exp_std_macd = df['MACD'].expanding(min_periods=CFG.EXPANDING_MIN_PERIODS).std()
+    exp_mean_macd = df['MACD'].expanding(min_periods=CFG.EXPANDING_MIN_PERIODS).mean()
+    df['MACD_Z'] = (df['MACD'] - exp_mean_macd) / exp_std_macd.replace(0, np.nan)
 
     log_resid = np.log(df[f'{y_name}_Norm']) - np.log(df['Predicted'])
     std_resid = log_resid.std()
@@ -1368,12 +1376,12 @@ def build_trade_journal(
                     nearest = idx[-1]
                     row = df_t.loc[nearest]
                     z_v = row.get('Z_Score')
-                    mhz = row.get('MACD_Hist_Z')
+                    macd_z = row.get('MACD_Z')
                     rsi = row.get('RSI')
                     if pd.notna(z_v):
                         entry['z'] = float(z_v)
-                    if pd.notna(mhz) and pd.notna(rsi):
-                        entry['m'] = compute_momentum_score_smooth(float(mhz), float(rsi))
+                    if pd.notna(macd_z) and pd.notna(rsi):
+                        entry['m'] = compute_momentum_score_smooth(float(macd_z), float(rsi))
                     # DD: 그 시점까지의 cummax 대비
                     norm_col = f'{tk}_Norm'
                     if norm_col in df_t.columns:
@@ -2225,11 +2233,12 @@ def render_chart(
             z_series = df_daily[col_name].fillna(0)
 
             # 모멘텀 점수 시계열 — compute_momentum_score_smooth와 동일 식
-            mhz_v = df_daily['MACD_Hist_Z'].fillna(0).values
+            # MACD_Z (추세 강도) + RSI 기반
+            macd_z_v = df_daily['MACD_Z'].fillna(0).values
             rsi_v = df_daily['RSI'].fillna(50).values
-            s_mhz_smooth = CFG.MACD_WEIGHT * (mhz_v / CFG.MACD_HIGH)
+            s_macd_smooth = CFG.MACD_WEIGHT * (macd_z_v / CFG.MACD_HIGH)
             s_rsi_smooth = CFG.RSI_WEIGHT  * ((rsi_v - 50) / 20.0)
-            momentum_smooth = s_mhz_smooth + s_rsi_smooth   # × 2 제거: Z와 같은 척도
+            momentum_smooth = s_macd_smooth + s_rsi_smooth
             momentum_series = pd.Series(momentum_smooth, index=df_daily.index)
 
             # ── 임계 수평선 (Z축 기준, 양수=빨강, 음수=파랑) ──
@@ -2982,12 +2991,12 @@ def build_action_card_html(
     # 위치(σ)와 독립된 모멘텀 정보를 색으로 표시
     cur_momentum_score = 0
     cur_signal = 'H'
-    if ('MACD_Hist_Z' in df_daily.columns and 'RSI' in df_daily.columns):
-        last_mhz = df_daily['MACD_Hist_Z'].iloc[-1]
+    if ('MACD_Z' in df_daily.columns and 'RSI' in df_daily.columns):
+        last_macd_z = df_daily['MACD_Z'].iloc[-1]
         last_rsi = df_daily['RSI'].iloc[-1]
-        mhz_v = float(last_mhz) if pd.notna(last_mhz) else 0.0
+        macd_z_v = float(last_macd_z) if pd.notna(last_macd_z) else 0.0
         rsi_v = float(last_rsi) if pd.notna(last_rsi) else 50.0
-        cur_momentum_score = compute_momentum_score(mhz_v, rsi_v)
+        cur_momentum_score = compute_momentum_score(macd_z_v, rsi_v)
         cur_signal = momentum_score_to_signal(cur_momentum_score)
     marker_color = momentum_to_color(cur_momentum_score)
 
@@ -3322,12 +3331,12 @@ def build_mini_gradient_bar(
     # ── 현재 모멘텀 점수 (MACD + RSI만, Z 제외) ──
     cur_momentum_score = 0
     cur_signal = 'H'
-    if ('MACD_Hist_Z' in df_daily.columns and 'RSI' in df_daily.columns):
-        last_mhz = df_daily['MACD_Hist_Z'].iloc[-1]
+    if ('MACD_Z' in df_daily.columns and 'RSI' in df_daily.columns):
+        last_macd_z = df_daily['MACD_Z'].iloc[-1]
         last_rsi = df_daily['RSI'].iloc[-1]
-        mhz_v = float(last_mhz) if pd.notna(last_mhz) else 0.0
+        macd_z_v = float(last_macd_z) if pd.notna(last_macd_z) else 0.0
         rsi_v = float(last_rsi) if pd.notna(last_rsi) else 50.0
-        cur_momentum_score = compute_momentum_score(mhz_v, rsi_v)
+        cur_momentum_score = compute_momentum_score(macd_z_v, rsi_v)
         cur_signal = momentum_score_to_signal(cur_momentum_score)
     marker_color = momentum_to_color(cur_momentum_score)
 
@@ -4182,10 +4191,11 @@ def update_ticker_signals(df_close: pd.DataFrame, all_analyses: dict) -> dict[st
             df_t = result[0]
             cz = float(df_t['Z_Score'].iloc[-1]) if pd.notna(df_t['Z_Score'].iloc[-1]) else 0.0
             mhz = float(df_t['MACD_Hist_Z'].iloc[-1]) if pd.notna(df_t['MACD_Hist_Z'].iloc[-1]) else 0.0
+            macd_z = float(df_t['MACD_Z'].iloc[-1]) if pd.notna(df_t['MACD_Z'].iloc[-1]) else 0.0
             rsi = float(df_t['RSI'].iloc[-1]) if pd.notna(df_t['RSI'].iloc[-1]) else 50.0
             st.session_state.ticker_signals[ticker] = get_signal_combined(cz, mhz, rsi)
-            st.session_state.ticker_momentum_scores[ticker] = compute_momentum_score(mhz, rsi)
-            st.session_state.ticker_momentum_smooth[ticker] = compute_momentum_score_smooth(mhz, rsi)
+            st.session_state.ticker_momentum_scores[ticker] = compute_momentum_score(macd_z, rsi)
+            st.session_state.ticker_momentum_smooth[ticker] = compute_momentum_score_smooth(macd_z, rsi)
         else:
             st.session_state.ticker_signals.setdefault(ticker, 'H')
             st.session_state.ticker_momentum_scores.setdefault(ticker, 0)
@@ -4304,10 +4314,11 @@ def main() -> None:
             df_daily, beta, std_resid = result
             cz = float(df_daily['Z_Score'].iloc[-1]) if pd.notna(df_daily['Z_Score'].iloc[-1]) else 0.0
             mhz = float(df_daily['MACD_Hist_Z'].iloc[-1]) if pd.notna(df_daily['MACD_Hist_Z'].iloc[-1]) else 0.0
+            macd_z = float(df_daily['MACD_Z'].iloc[-1]) if pd.notna(df_daily['MACD_Z'].iloc[-1]) else 0.0
             rsi = float(df_daily['RSI'].iloc[-1]) if pd.notna(df_daily['RSI'].iloc[-1]) else 50.0
             st.session_state.ticker_signals[selected_ticker] = get_signal_combined(cz, mhz, rsi)
-            st.session_state.ticker_momentum_scores[selected_ticker] = compute_momentum_score(mhz, rsi)
-            st.session_state.ticker_momentum_smooth[selected_ticker] = compute_momentum_score_smooth(mhz, rsi)
+            st.session_state.ticker_momentum_scores[selected_ticker] = compute_momentum_score(macd_z, rsi)
+            st.session_state.ticker_momentum_smooth[selected_ticker] = compute_momentum_score_smooth(macd_z, rsi)
 
     holding_tickers = {
         tk for tk, ts in portfolio_state.items() if ts['cycle']['hold_qty'] > 0
