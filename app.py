@@ -1587,19 +1587,57 @@ def _build_realized_html(
         f"</div>"
     )
 
-    # ── 종목별 막대 ──
-    for tk, real in sorted(rows, key=lambda x: -abs(x[1])):
+    # ── 종목별 좌우 분기 막대 ──
+    # 중앙선을 기준으로 이익 종목은 오른쪽, 손실 종목은 왼쪽
+    # 손실 큰 순 → 손실 작은 순 → 이익 작은 순 → 이익 큰 순으로 정렬
+    # (손실이 위로 모이는 효과)
+    sorted_rows = sorted(rows, key=lambda x: x[1])
+
+    for tk, real in sorted_rows:
         ratio = abs(real) / total_abs * 100 if total_abs else 0
-        w = max(abs(real) / max_abs * 100, 2) if max_abs else 2
-        bar_c = '#dc2626' if real >= 0 else '#2563eb'
+        w_pct = max(abs(real) / max_abs * 100, 2) if max_abs else 2
+        is_loss = real < 0
+        bar_c = '#2563eb' if is_loss else '#dc2626'
         vc = pnl_color(real)
         real_krw_man = real * usd_krw / 10000
 
+        # 좌우 분기 막대: 중앙선 기준
+        # 왼쪽 50% 영역 (손실 막대 = 우측 끝에서 왼쪽으로)
+        # 오른쪽 50% 영역 (이익 막대 = 좌측 끝에서 오른쪽으로)
+        bar_html = (
+            f"<div style='flex:1;display:flex;align-items:center;min-width:0;"
+            f"position:relative;height:10px;'>"
+            # 중앙 분기선
+            f"<div style='position:absolute;left:50%;top:0;bottom:0;width:1px;"
+            f"background:#9ca3af;z-index:2;'></div>"
+            # 좌측 영역 (손실)
+            f"<div style='width:50%;height:7px;background:#f3f4f6;"
+            f"border-radius:3px 0 0 3px;display:flex;justify-content:flex-end;"
+            f"overflow:hidden;'>"
+            + (
+                f"<div style='width:{w_pct / 2:.1f}%;height:100%;background:{bar_c};"
+                f"border-radius:3px 0 0 3px;'></div>"
+                if is_loss else ""
+            )
+            + f"</div>"
+            # 우측 영역 (이익)
+            f"<div style='width:50%;height:7px;background:#f3f4f6;"
+            f"border-radius:0 3px 3px 0;display:flex;justify-content:flex-start;"
+            f"overflow:hidden;'>"
+            + (
+                f"<div style='width:{w_pct / 2:.1f}%;height:100%;background:{bar_c};"
+                f"border-radius:0 3px 3px 0;'></div>"
+                if not is_loss else ""
+            )
+            + f"</div>"
+            f"</div>"
+        )
+
         html += (
             f"<div style='display:flex;align-items:center;gap:5px;margin-bottom:4px;'>"
-            f"<div style='font-size:0.7rem;color:{COLOR_TEXT};width:42px;"
+            f"<div style='font-size:0.7rem;color:{vc};width:42px;"
             f"flex-shrink:0;font-weight:600;'>{display_name(tk)}</div>"
-            f"{html_progress_bar(w, bar_c)}"
+            f"{bar_html}"
             # 비율%
             f"<div style='font-size:0.6rem;color:#9ca3af;width:30px;text-align:right;"
             f"flex-shrink:0;'>{ratio:.0f}%</div>"
@@ -2002,18 +2040,25 @@ def render_chart(
     </style>""", unsafe_allow_html=True)
 
     PX = {'main': 150, 'spacer': 20, 'price': 100, 'zscore': 100, 'macd': 100, 'rsi': 100}
-    plot_order = ['main', 'spacer', 'price', 'zscore', 'macd', 'rsi']
+    # 회귀(main)을 가장 아래로 이동 - spacer는 회귀 위
+    plot_order = ['price', 'zscore', 'macd', 'rsi', 'spacer', 'main']
     total_rows = len(plot_order)
     total_h = sum(PX[p] for p in plot_order)
-    # 모든 패널 단일 Y축 (Z + M 같은 척도)
     fig = make_subplots(
         rows=total_rows, cols=1,
         row_heights=[PX[p] / total_h for p in plot_order],
         vertical_spacing=0.02,
     )
-    row = 1
+    # 회귀(main)의 row 번호 = 마지막
+    MAIN_ROW = total_rows       # 6
+    PRICE_ROW = 1                # 캔들 = 첫번째
+    ZSCORE_ROW = 2
+    MACD_ROW = 3
+    RSI_ROW = 4
+    SPACER_ROW = 5
 
-    # [1] 로그-로그 산점도
+    # [1] 로그-로그 산점도 — 가장 아래
+    row = MAIN_ROW
     sc_df = (
         df_daily_raw if (df_daily_raw is not None and not df_daily_raw.empty) else df_daily
     )
@@ -2104,12 +2149,11 @@ def render_chart(
         bgcolor='white', bordercolor='black', borderwidth=1, borderpad=2,
         row=row, col=1,
     )
-    row += 1
+    # 회귀가 마지막 row — row 증가 없음
 
-    # [2] Spacer
-    fig.update_xaxes(visible=False, row=row, col=1)
-    fig.update_yaxes(visible=False, row=row, col=1)
-    row += 1
+    # [2] Spacer (회귀 위에 위치)
+    fig.update_xaxes(visible=False, row=SPACER_ROW, col=1)
+    fig.update_yaxes(visible=False, row=SPACER_ROW, col=1)
 
     # 뷰 기간
     last_date = df_daily.index[-1]
@@ -2124,7 +2168,8 @@ def render_chart(
     df_daily['Plot_Norm_SPY'] = df_daily[f'{X_ASSET_FIXED}_Norm'] / base_spy
     df_daily['Plot_Norm_Ticker'] = df_daily[f'{selected_ticker}_Norm'] / base_tkr
 
-    # [3] Price
+    # [3] Price - 새 인덱스로 첫번째 row
+    row = PRICE_ROW
     price_row = row
 
     # 캔들스틱 먼저 (배경) — SPY 라인이 위로 가도록
@@ -2574,8 +2619,8 @@ def render_chart(
                 line=dict(width=1.5, color='black'),
             ),
             name=f"{trade['type'].upper()} ({t_date.date()})", hoverinfo='skip',
-        ), row=1, col=1)
-        for r in range(3, total_rows + 1):
+        ), row=MAIN_ROW, col=1)
+        for r in range(PRICE_ROW, RSI_ROW + 1):
             fig.add_vline(
                 x=t_date, line_dash="solid", line_width=1,
                 line_color=base_color, opacity=vline_opacity, row=r, col=1,
@@ -2585,16 +2630,18 @@ def render_chart(
     # 축 공통 스타일
     fig.update_xaxes(showline=True, linewidth=1, linecolor='black', mirror=True)
     fig.update_yaxes(showline=True, linewidth=1, linecolor='black', mirror=True)
-    fig.update_xaxes(visible=False, row=2, col=1)
-    fig.update_yaxes(visible=False, row=2, col=1)
-    for r in range(3, total_rows + 1):
+    # spacer 숨김
+    fig.update_xaxes(visible=False, row=SPACER_ROW, col=1)
+    fig.update_yaxes(visible=False, row=SPACER_ROW, col=1)
+    # 시간축 패널 (price, zscore, macd, rsi = row 1~4)
+    for r in range(PRICE_ROW, RSI_ROW + 1):
         fig.update_xaxes(
             showgrid=True, gridcolor='rgba(156,163,175,0.28)',
             gridwidth=0.6, griddash='dot', dtick=grid_dtick_ms,
             matches=time_x_axis, rangebreaks=[dict(bounds=['sat', 'mon'])],
-            showticklabels=(r == total_rows), tickformat="%m/%d",
+            showticklabels=(r == RSI_ROW), tickformat="%m/%d",
             range=[view_start, last_date], row=r, col=1,
-            layer='below traces',   # grid가 라인 아래에 그려지도록
+            layer='below traces',
         )
         fig.update_yaxes(
             showgrid=False, autorange=False, fixedrange=True, row=r, col=1,
@@ -4354,6 +4401,11 @@ def main() -> None:
         return (mom_int, mom_smooth, TARGET_TICKERS.index(tk))
     sorted_tickers = sorted(TARGET_TICKERS, key=_ticker_sort_key)
 
+    # 매매 이력 있는 종목 (보유 여부 무관 — trade_history에 기록 있음)
+    history_tickers = {
+        tk for tk, recs in st.session_state.trade_history.items() if recs
+    }
+
     # ── 메인 영역 전체를 감싸는 탭 ──
     tab1, tab2, tab3 = st.tabs(["📊 종목 분석", "🗺️ 종목 비교", "💼 포트폴리오"])
 
@@ -4365,7 +4417,13 @@ def main() -> None:
         with btn_col:
             for ticker in sorted_tickers:
                 pct = pct_changes.get(ticker, 0)
-                star = "★ " if ticker in holding_tickers else ""
+                # ★ = 현재 보유 중, ☆ = 매매 이력만 있고 보유 0
+                if ticker in holding_tickers:
+                    star = "★ "
+                elif ticker in history_tickers:
+                    star = "☆ "
+                else:
+                    star = ""
                 if st.button(
                     f"{star}**{display_name(ticker)}**   {pct:+.1f}%",
                     key=f"ticker_btn_{safe_key(ticker)}", use_container_width=True,
