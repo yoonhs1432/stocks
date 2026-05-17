@@ -2040,25 +2040,18 @@ def render_chart(
     </style>""", unsafe_allow_html=True)
 
     PX = {'main': 150, 'spacer': 20, 'price': 100, 'zscore': 100, 'macd': 100, 'rsi': 100}
-    # 회귀(main)을 가장 아래로 이동 - spacer는 회귀 위
-    plot_order = ['price', 'zscore', 'macd', 'rsi', 'spacer', 'main']
+    plot_order = ['main', 'spacer', 'price', 'zscore', 'macd', 'rsi']
     total_rows = len(plot_order)
     total_h = sum(PX[p] for p in plot_order)
+    # 모든 패널 단일 Y축 (Z + M 같은 척도)
     fig = make_subplots(
         rows=total_rows, cols=1,
         row_heights=[PX[p] / total_h for p in plot_order],
         vertical_spacing=0.02,
     )
-    # 회귀(main)의 row 번호 = 마지막
-    MAIN_ROW = total_rows       # 6
-    PRICE_ROW = 1                # 캔들 = 첫번째
-    ZSCORE_ROW = 2
-    MACD_ROW = 3
-    RSI_ROW = 4
-    SPACER_ROW = 5
+    row = 1
 
-    # [1] 로그-로그 산점도 — 가장 아래
-    row = MAIN_ROW
+    # [1] 로그-로그 산점도
     sc_df = (
         df_daily_raw if (df_daily_raw is not None and not df_daily_raw.empty) else df_daily
     )
@@ -2149,11 +2142,12 @@ def render_chart(
         bgcolor='white', bordercolor='black', borderwidth=1, borderpad=2,
         row=row, col=1,
     )
-    # 회귀가 마지막 row — row 증가 없음
+    row += 1
 
-    # [2] Spacer (회귀 위에 위치)
-    fig.update_xaxes(visible=False, row=SPACER_ROW, col=1)
-    fig.update_yaxes(visible=False, row=SPACER_ROW, col=1)
+    # [2] Spacer
+    fig.update_xaxes(visible=False, row=row, col=1)
+    fig.update_yaxes(visible=False, row=row, col=1)
+    row += 1
 
     # 뷰 기간
     last_date = df_daily.index[-1]
@@ -2168,8 +2162,7 @@ def render_chart(
     df_daily['Plot_Norm_SPY'] = df_daily[f'{X_ASSET_FIXED}_Norm'] / base_spy
     df_daily['Plot_Norm_Ticker'] = df_daily[f'{selected_ticker}_Norm'] / base_tkr
 
-    # [3] Price - 새 인덱스로 첫번째 row
-    row = PRICE_ROW
+    # [3] Price
     price_row = row
 
     # 캔들스틱 먼저 (배경) — SPY 라인이 위로 가도록
@@ -2619,8 +2612,8 @@ def render_chart(
                 line=dict(width=1.5, color='black'),
             ),
             name=f"{trade['type'].upper()} ({t_date.date()})", hoverinfo='skip',
-        ), row=MAIN_ROW, col=1)
-        for r in range(PRICE_ROW, RSI_ROW + 1):
+        ), row=1, col=1)
+        for r in range(3, total_rows + 1):
             fig.add_vline(
                 x=t_date, line_dash="solid", line_width=1,
                 line_color=base_color, opacity=vline_opacity, row=r, col=1,
@@ -2630,16 +2623,14 @@ def render_chart(
     # 축 공통 스타일
     fig.update_xaxes(showline=True, linewidth=1, linecolor='black', mirror=True)
     fig.update_yaxes(showline=True, linewidth=1, linecolor='black', mirror=True)
-    # spacer 숨김
-    fig.update_xaxes(visible=False, row=SPACER_ROW, col=1)
-    fig.update_yaxes(visible=False, row=SPACER_ROW, col=1)
-    # 시간축 패널 (price, zscore, macd, rsi = row 1~4)
-    for r in range(PRICE_ROW, RSI_ROW + 1):
+    fig.update_xaxes(visible=False, row=2, col=1)
+    fig.update_yaxes(visible=False, row=2, col=1)
+    for r in range(3, total_rows + 1):
         fig.update_xaxes(
             showgrid=True, gridcolor='rgba(156,163,175,0.28)',
             gridwidth=0.6, griddash='dot', dtick=grid_dtick_ms,
             matches=time_x_axis, rangebreaks=[dict(bounds=['sat', 'mon'])],
-            showticklabels=(r == RSI_ROW), tickformat="%m/%d",
+            showticklabels=(r == total_rows), tickformat="%m/%d",
             range=[view_start, last_date], row=r, col=1,
             layer='below traces',
         )
