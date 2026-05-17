@@ -585,27 +585,26 @@ def compute_momentum_score_smooth(
     """모멘텀 점수 (연속, ±2.5 범위, Z와 동일 척도).
 
     세 정보 통합 (평균회귀 매매자 관점):
-    - MACD_Pct (50%): 추세 절대 높이 (MACD/EMA26 %)
+    - MACD_Pct (30%): 추세 절대 높이 (MACD/EMA26 %)
                       낮으면 매수 영역(-), 높으면 매도 영역(+)
-    - dMACD_Pct (30%): MACD 변곡 (1차 미분, smoothed, 부호 반전)
-                      MACD 하락→상승 변곡 → 양수→매수 시그널 약화
-                      MACD 상승→하락 변곡 → 양수→매도 시그널 강화
-                      (-dMACD/EMA26 × 100 — 평균회귀 방향 = 매도방향 양수)
-    - RSI (20%): 과매수/과매도 보조
+    - dMACD_Pct (20%): MACD 변곡 (1차 미분, smoothed, 부호 반전)
+                      MACD 하락→상승 변곡 → 음수 → 매수 시그널
+                      MACD 상승→하락 변곡 → 양수 → 매도 시그널
+    - RSI (50%): 과매수/과매도 — 매매 진입 핵심 지표
 
     임계:
-    - MACD_Pct ±2% = ±0.5 기여 (약), ±4% = ±1.0 (강)
-    - dMACD_Pct ±0.5%/일 = ±0.3 기여
-    - RSI ±20 (50 ± 20) = ±0.2 기여
+    - MACD_Pct ±2% = ±0.3 기여
+    - dMACD_Pct ±0.5%/일 = ±0.2 기여
+    - RSI ±20 = ±0.5 기여
 
     평균회귀 진입 (강 신호):
-    - 낮음(-) + 변곡 후 상승(dMACD>0 → dmacd_pct<0) → 둘 다 (-) → 강 매수
-    - 높음(+) + 변곡 후 하락(dMACD<0 → dmacd_pct>0) → 둘 다 (+) → 강 매도
+    - 낮음(-) + 변곡 후 상승(dmacd_pct<0) → 둘 다 (-) → 강 매수
+    - 높음(+) + 변곡 후 하락(dmacd_pct>0) → 둘 다 (+) → 강 매도
     """
     h = macd_pct / 2.0     # ±2% 도달 시 ±1
     d = dmacd_pct / 0.5    # ±0.5%/일 도달 시 ±1
     r = (rsi - 50) / 20.0  # ±2.5
-    return 0.5 * h + 0.3 * d + 0.2 * r
+    return 0.3 * h + 0.2 * d + 0.5 * r
 
 
 def compute_momentum_score(
@@ -2251,14 +2250,14 @@ def render_chart(
             z_series = df_daily[col_name].fillna(0)
 
             # 모멘텀 점수 시계열 — compute_momentum_score_smooth와 동일 식
-            # 통합 공식: MACD_Pct (높이, 50%) + dMACD_Pct (변곡, 30%) + RSI (20%)
+            # 통합 공식: MACD_Pct (높이, 30%) + dMACD_Pct (변곡, 20%) + RSI (50%)
             macd_pct_v = df_daily['MACD_Pct'].fillna(0).values
             dmacd_pct_v = df_daily['dMACD_Pct'].fillna(0).values
             rsi_v = df_daily['RSI'].fillna(50).values
             h_norm = macd_pct_v / 2.0
             d_norm = dmacd_pct_v / 0.5
             r_norm = (rsi_v - 50) / 20.0
-            momentum_smooth = 0.5 * h_norm + 0.3 * d_norm + 0.2 * r_norm
+            momentum_smooth = 0.3 * h_norm + 0.2 * d_norm + 0.5 * r_norm
             momentum_series = pd.Series(momentum_smooth, index=df_daily.index)
 
             # ── 임계 수평선 (Z축 기준, 양수=빨강, 음수=파랑) ──
