@@ -4309,7 +4309,11 @@ def _append_ticker_to_close(
             return df_close
         if candle_type == '주봉':
             df_new = _resample_weekly(df_new)
-        return pd.concat([df_close, df_new], axis=1).ffill()
+        merged = pd.concat([df_close, df_new], axis=1).ffill()
+        # 주말/비거래일 필터 적용 (fetch_all_data와 동일)
+        if candle_type == '일봉':
+            merged = _filter_trading_days(merged)
+        return merged
     except Exception as e:
         log.warning(f"Ticker fetch failed: {ticker}: {e}")
         return df_close
@@ -4457,6 +4461,9 @@ def main() -> None:
             if candle_type == '주봉':
                 df_custom = _resample_weekly(df_custom)
             df_close = pd.concat([df_close, df_custom], axis=1).ffill()
+            # 주말/비거래일 필터 (fetch_all_data와 동일)
+            if candle_type == '일봉':
+                df_close = _filter_trading_days(df_close)
         else:
             log.warning(f"Custom ticker fetch empty: {selected_ticker}")
             selected_ticker = None
