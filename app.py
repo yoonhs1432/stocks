@@ -4621,6 +4621,46 @@ def main() -> None:
                     unsafe_allow_html=True,
                 )
 
+            # ── 디버그: 데이터 진단 ──
+            with st.expander("🔍 데이터 진단", expanded=False):
+                if df_daily is not None:
+                    close_col = f'{selected_ticker}_Close'
+                    spy_col = f'{X_ASSET_FIXED}_Close'
+                    if close_col in df_daily.columns:
+                        # 전체 행수 / 요일 분포 / 연속 동일 가격 수
+                        n_rows = len(df_daily)
+                        wd_counts = pd.Series(df_daily.index.weekday).value_counts().sort_index()
+                        wd_str = ", ".join(
+                            f"{['월','화','수','목','금','토','일'][int(wd)]}={n}"
+                            for wd, n in wd_counts.items()
+                        )
+                        # 종목 가격 변화 0인 날
+                        ticker_close = df_daily[close_col].dropna()
+                        same_t = (ticker_close.diff() == 0).sum()
+                        # SPY 가격 변화 0인 날
+                        spy_close = df_daily[spy_col].dropna()
+                        same_s = (spy_close.diff() == 0).sum()
+
+                        st.caption(f"전체 행수: {n_rows}")
+                        st.caption(f"요일 분포: {wd_str}")
+                        st.caption(f"{selected_ticker} 변화 0인 날: {same_t}")
+                        st.caption(f"SPY 변화 0인 날: {same_s}")
+                        st.caption(f"날짜 범위: {df_daily.index[0].date()} ~ {df_daily.index[-1].date()}")
+
+                        # 연속 동일 가격 패턴 찾기 (3일 이상 연속 동일)
+                        diff_t = ticker_close.diff().fillna(1)
+                        consec = 0
+                        max_consec = 0
+                        for d in diff_t:
+                            if d == 0:
+                                consec += 1
+                                max_consec = max(max_consec, consec)
+                            else:
+                                consec = 0
+                        st.caption(f"{selected_ticker} 최대 연속 동일가격: {max_consec}일")
+                else:
+                    st.caption("데이터 없음")
+
         with chart_col:
             if df_daily is not None:
                 # 헤더 + 위치 바 (그래프 위)
