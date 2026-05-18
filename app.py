@@ -815,12 +815,14 @@ def process_asset_data(
 
     # ── 변곡 검출: dMACD = MACD 1차 미분 (EMA로 smoothing) ──
     # dMACD/dt = 0 → MACD 자체의 극값 (저점/고점 = 변곡점)
-    # 부호 반전 (-): 평균회귀 관점에서 "매도 방향 = 양수" 컨벤션 유지
-    #   MACD 상승 중 (dMACD > 0) → dMACD_Pct 음수 → 매수 방향 신호
-    #   MACD 하락 중 (dMACD < 0) → dMACD_Pct 양수 → 매도 방향 신호
     # smoothing: EMA span=3 으로 일간 노이즈 완화
     dmacd_smooth = df['MACD'].diff().ewm(span=3, adjust=False).mean()
-    df['dMACD_Pct'] = (-dmacd_smooth / ema26_safe) * 100  # ±0.5%/일 정도
+    # 시각화용: 부호 그대로 (MACD 상승 = 양수)
+    df['dMACD_Raw_Pct'] = (dmacd_smooth / ema26_safe) * 100
+    # 모멘텀 계산용: 부호 반전 (평균회귀 방향 = 매도방향 양수)
+    #   MACD 상승 중 (dMACD > 0) → dMACD_Pct 음수 → 매수 방향 신호
+    #   MACD 하락 중 (dMACD < 0) → dMACD_Pct 양수 → 매도 방향 신호
+    df['dMACD_Pct'] = -df['dMACD_Raw_Pct']
 
     log_resid = np.log(df[f'{y_name}_Norm']) - np.log(df['Predicted'])
     std_resid = log_resid.std()
@@ -2039,8 +2041,11 @@ def render_chart(
         touch-action: none !important; }
     </style>""", unsafe_allow_html=True)
 
-    PX = {'main': 150, 'spacer': 20, 'price': 100, 'zscore': 100, 'macd': 100, 'rsi': 100}
-    plot_order = ['main', 'spacer', 'price', 'zscore', 'macd', 'rsi']
+    PX = {
+        'main': 150, 'spacer': 20,
+        'price': 100, 'zscore': 100, 'macd': 100, 'dmacd': 80, 'rsi': 100,
+    }
+    plot_order = ['main', 'spacer', 'price', 'zscore', 'macd', 'dmacd', 'rsi']
     total_rows = len(plot_order)
     total_h = sum(PX[p] for p in plot_order)
     # 모든 패널 단일 Y축 (Z + M 같은 척도)
@@ -2522,6 +2527,64 @@ def render_chart(
             )
 
         row += 1
+
+    # ── dMACD 패널: MACD 변곡 (1차 미분, EMA span=3 smoothed) ──
+    # 부호 그대로 (raw): MACD 상승 중 → 양수, MACD 하락 중 → 음수
+    # 0 라인 + ±0.5%/일 임계선
+    dmacd_series = df_daily['dMACD_Raw_Pct'].fillna(0)
+
+    # 임계 수평선
+    for y_val, lc, ld, lw in [
+        (+0.5, '#dc2626', 'dash', 0.7),    # +0.5%/일 강 상승
+        (0.0,  '#9ca3af', 'solid', 0.5),   # 0 중립 (변곡점)
+        (-0.5, '#2563eb', 'dash', 0.7),    # -0.5%/일 강 하락
+    ]:
+        fig.add_trace(go.Scatter(
+            x=[df_daily.index[0], df_daily.index[-1]],
+            y=[y_val, y_val],
+            mode='lines',
+            line=dict(color=lc, width=lw, dash=ld),
+            hoverinfo='skip', showlegend=False,
+        ), row=row, col=1)
+
+    # 0 라인 위/아래 영역 색칠 (선택)
+    # dMACD 라인 (검정)
+    fig.add_trace(go.Scatter(
+        x=df_daily.index, y=dmacd_series,
+        mode='lines',
+        line=dict(color='#0f766e', width=1.8, shape='spline', smoothing=0.5),
+        name='dMACD', hoverinfo='skip', showlegend=False,
+        connectgaps=True,
+    ), row=row, col=1)
+
+    # 현재 값 라벨
+    last_dmacd = df_daily['dMACD_Raw_Pct'].iloc[-1]
+    dmacd_val = float(last_dmacd) if pd.notna(last_dmacd) else 0.0
+    dmacd_color = (
+        '#dc2626' if dmacd_val >= 0.5
+        else '#2563eb' if dmacd_val <= -0.5 else '#0f766e'
+    )
+    fig.add_annotation(
+        x=0, y=1, xref='x domain', yref='y domain',
+        text=f"<b>dMACD  {dmacd_val:+.2f}%</b>", showarrow=False,
+        font=dict(size=10, color=dmacd_color), xanchor='left', yanchor='top',
+        bgcolor='white', bordercolor='black', borderwidth=1, borderpad=2,
+        row=row, col=1,
+    )
+
+    # Y축: 0 대칭, view 범위 abs max 기반 (RSI와 동일 패턴)
+    view_dmacd = dmacd_series.loc[dmacd_series.index >= view_start]
+    dmacd_abs_max = max(
+        float(view_dmacd.abs().max()) if not view_dmacd.empty else 0,
+        0.7,  # 최소 ±0.7% 보이도록
+    )
+    dmacd_abs_max *= 1.1
+    fig.update_yaxes(
+        range=[-dmacd_abs_max, dmacd_abs_max],
+        autorange=False, fixedrange=True, row=row, col=1,
+    )
+
+    row += 1
 
     # ── RSI 패널: RSI-50 (0 중심) + 0 대칭 자동 범위 ──
     rsi_series = (df_daily['RSI'] - 50).fillna(0)
