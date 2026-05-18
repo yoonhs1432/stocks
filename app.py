@@ -2849,32 +2849,32 @@ def render_position_tracker(
 
     sigma_str_hdr = f"±{sigma_pct_int}%" if sigma_pct_int is not None else "—"
 
-    # Z 백분위 (숫자만)
+    # Z 백분위 (숫자만) - 색은 종목 버튼과 동일 (momentum_to_color)
     z_pct_str = "—"
-    z_pct_color = '#6b7280'
+    z_pct_color = Colors.MOM_HOLD
     if df_daily is not None and 'Z_Score' in df_daily.columns:
         last_z = df_daily['Z_Score'].iloc[-1]
         if pd.notna(last_z):
             z_pct_val = z_to_pct(float(last_z))
             z_pct_str = f"{int(round(z_pct_val))}"
-            if z_pct_val <= 30:
-                z_pct_color = '#2563eb'
-            elif z_pct_val >= 70:
-                z_pct_color = '#dc2626'
+            # 백분위 → 정수 점수 (-4~+4): (pct - 50) / 20 ≈ Z, round
+            z_score_int = max(-4, min(4, int(round((z_pct_val - 50) / 20))))
+            z_pct_color = momentum_to_color(z_score_int)
 
-    # M 백분위 (숫자만)
+    # M 백분위 (숫자만) - 색은 종목 버튼과 동일
     m_pct_str = "—"
-    m_pct_color = '#6b7280'
+    m_pct_color = Colors.MOM_HOLD
     cur_m_smooth = st.session_state.get(
         'ticker_momentum_smooth', {}
     ).get(selected_ticker)
+    cur_m_score_int = st.session_state.get(
+        'ticker_momentum_scores', {}
+    ).get(selected_ticker, 0)
     if cur_m_smooth is not None:
         m_pct_val = z_to_pct(float(cur_m_smooth))
         m_pct_str = f"{int(round(m_pct_val))}"
-        if m_pct_val <= 30:
-            m_pct_color = '#2563eb'
-        elif m_pct_val >= 70:
-            m_pct_color = '#dc2626'
+        # M은 이미 정수 점수가 ticker_momentum_scores 에 있음
+        m_pct_color = momentum_to_color(cur_m_score_int)
 
     header_right = (
         f"<span style='font-size:0.7rem;color:#6b7280;'>"
