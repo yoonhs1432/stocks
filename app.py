@@ -579,6 +579,45 @@ def get_signal_combined(cz: float, mhz: float, rsi: float) -> str:
     return score_to_signal(compute_combined_score(cz, mhz, rsi))
 
 
+def z_to_pct(z: float) -> float:
+    """Z/M 점수 → 0~100 백분위 변환 (선형 매핑).
+
+    매핑:
+    - Z = -2.5 → 0   (극단 매수)
+    - Z = -2.0 → 10  (강 매수)
+    - Z = -1.0 → 30  (약 매수 임계 ≈ RSI 30)
+    - Z = 0.0  → 50  (중립)
+    - Z = +1.0 → 70  (약 매도 임계 ≈ RSI 70)
+    - Z = +2.0 → 90  (강 매도)
+    - Z = +2.5 → 100 (극단 매도)
+
+    RSI 30/70 임계와 동일 척도 — 통일된 직관성.
+    """
+    pct = (z + 2.5) / 5.0 * 100
+    return max(0.0, min(100.0, pct))
+
+
+def pct_to_label(pct: float) -> str:
+    """백분위 → 카테고리 라벨.
+
+    임계:
+    - 0~10  : 극단 매수 (Z ≤ -2)
+    - 10~30 : 강 매수 (-2 < Z ≤ -1)
+    - 30~45 : 약 매수 (-1 < Z ≤ -0.25)
+    - 45~55 : 중립
+    - 55~70 : 약 매도 (+0.25 ≤ Z < +1)
+    - 70~90 : 강 매도 (+1 ≤ Z < +2)
+    - 90~100: 극단 매도 (Z ≥ +2)
+    """
+    if pct < 10:   return "극단 매수"
+    if pct < 30:   return "강 매수"
+    if pct < 45:   return "약 매수"
+    if pct < 55:   return "중립"
+    if pct < 70:   return "약 매도"
+    if pct < 90:   return "강 매도"
+    return "극단 매도"
+
+
 def compute_momentum_score_smooth(
     macd_pct: float, dmacd_pct: float, rsi: float,
 ) -> float:
@@ -1477,12 +1516,13 @@ def _build_journal_html(
         type_col = '#dc2626' if is_buy else '#2563eb'
         type_icon = '▲' if is_buy else '▼'
 
-        # 모멘텀 (M)
+        # 모멘텀 (M) — 백분위로 표시 (0~100, RSI 동일 척도)
         m_html = ""
         if e['m'] is not None:
             m_int = max(-4, min(4, int(round(e['m']))))
             m_col = momentum_to_color(m_int)
-            m_html = f"<span style='color:{m_col};'>M{e['m']:+.1f}</span>"
+            m_pct = z_to_pct(e['m'])
+            m_html = f"<span style='color:{m_col};'>M{int(round(m_pct))}</span>"
 
         # 수익률 + 손익금 (매도만)
         pnl_html = ""
@@ -1507,6 +1547,13 @@ def _build_journal_html(
         except Exception:
             d_short = e['date']
 
+        # 매매 수량 (×N) — 화살표 옆 작게
+        qty = e.get('qty', 0)
+        qty_html = (
+            f"<span style='color:#9ca3af;font-size:0.55rem;'>×{qty}</span>"
+            if qty else ""
+        )
+
         # 행 (티커 표시 옵션)
         if show_ticker:
             tk_short = display_name(e['ticker'])
@@ -1516,6 +1563,7 @@ def _build_journal_html(
                 f"<span style='color:#9ca3af;width:36px;flex-shrink:0;'>{d_short}</span>"
                 f"<span style='color:{type_col};font-weight:700;width:14px;flex-shrink:0;'>{type_icon}</span>"
                 f"<span style='font-weight:600;width:50px;flex-shrink:0;'>{tk_short}</span>"
+                f"<span style='width:28px;flex-shrink:0;'>{qty_html}</span>"
                 f"<span style='color:#6b7280;flex:1;min-width:0;'>{m_html}{pnl_html}</span>"
                 f"</div>"
             )
@@ -1525,6 +1573,7 @@ def _build_journal_html(
                 f"display:flex;gap:6px;align-items:center;'>"
                 f"<span style='color:#9ca3af;width:36px;flex-shrink:0;'>{d_short}</span>"
                 f"<span style='color:{type_col};font-weight:700;width:14px;flex-shrink:0;'>{type_icon}</span>"
+                f"<span style='width:28px;flex-shrink:0;'>{qty_html}</span>"
                 f"<span style='color:#6b7280;flex:1;min-width:0;'>{m_html}{pnl_html}</span>"
                 f"</div>"
             )
@@ -1535,7 +1584,7 @@ def _build_journal_html(
                 e['memo']
                 .replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
             )
-            indent = '56px' if show_ticker else '50px'
+            indent = '90px' if show_ticker else '84px'
             html += (
                 f"<div style='font-size:0.6rem;color:#9ca3af;"
                 f"margin:0 0 6px {indent};font-style:italic;line-height:1.3;'>"
@@ -2287,12 +2336,13 @@ def render_chart(
          lambda v: '#dc2626' if v <= -CFG.MACD_HIGH else '#1d4ed8' if v >= CFG.MACD_HIGH else 'black'),
     ]:
         if col_name == 'Z_Score':
-            # ── Z + 모멘텀 패널 ──
-            # Z 라인 (검정), 모멘텀 라인 (주황) — 동일 Y축 (같은 척도)
-            # + 임계 수평선 ±1 (약), ±2 (강)
-            z_series = df_daily[col_name].fillna(0)
+            # ── Z + 모멘텀 패널 (백분위 0~100 척도) ──
+            # Z 라인 (검정), 모멘텀 라인 (주황) — 동일 Y축
+            # 변환: z_to_pct(z) = (z + 2.5) / 5 * 100, clip 0~100
+            # 임계: 10 (강매수) / 30 (약매수) / 50 (중립) / 70 (약매도) / 90 (강매도)
+            z_raw = df_daily[col_name].fillna(0)
 
-            # 모멘텀 점수 시계열 — compute_momentum_score_smooth와 동일 식
+            # 모멘텀 점수 시계열 (raw Z 척도)
             # 통합 공식: MACD_Pct (높이, 30%) + dMACD_Pct (변곡, 20%) + RSI (50%)
             macd_pct_v = df_daily['MACD_Pct'].fillna(0).values
             dmacd_pct_v = df_daily['dMACD_Pct'].fillna(0).values
@@ -2300,19 +2350,22 @@ def render_chart(
             h_norm = macd_pct_v / 2.0
             d_norm = dmacd_pct_v / 0.5
             r_norm = (rsi_v - 50) / 20.0
-            momentum_smooth = 0.3 * h_norm + 0.2 * d_norm + 0.5 * r_norm
-            momentum_series = pd.Series(momentum_smooth, index=df_daily.index)
+            momentum_raw = 0.3 * h_norm + 0.2 * d_norm + 0.5 * r_norm
 
-            # ── 임계 수평선 (Z축 기준, 양수=빨강, 음수=파랑) ──
-            # Z ±1 (약 신호 점선), Z ±2 (강 신호 실선), 0 중립
-            # Y축 동기화로 모멘텀 ±2/±4도 같은 높이에 자동 표시
-            # 라인이 임계선보다 굵어야 가독성 ↑
+            # 백분위 변환 (0~100)
+            z_series = ((z_raw + 2.5) / 5.0 * 100).clip(0, 100)
+            momentum_series = pd.Series(
+                ((momentum_raw + 2.5) / 5.0 * 100).clip(0, 100),
+                index=df_daily.index,
+            )
+
+            # ── 임계 수평선 (0~100 척도) ──
             for y_val, lc, ld, lw in [
-                (2.0,   '#dc2626', 'solid', 0.7),   # +2 빨강 강 신호
-                (1.0,   '#fca5a5', 'dot',   0.6),   # +1 연빨강 약 신호
-                (0,     '#9ca3af', 'solid', 0.5),   # 중립
-                (-1.0,  '#93c5fd', 'dot',   0.6),   # -1 연파랑 약 신호
-                (-2.0,  '#2563eb', 'solid', 0.7),   # -2 파랑 강 신호
+                (90,   '#dc2626', 'solid', 0.7),   # 강 매도 (Z+2)
+                (70,   '#fca5a5', 'dot',   0.6),   # 약 매도 (Z+1)
+                (50,   '#9ca3af', 'solid', 0.5),   # 중립 (Z=0)
+                (30,   '#93c5fd', 'dot',   0.6),   # 약 매수 (Z-1)
+                (10,   '#2563eb', 'solid', 0.7),   # 강 매수 (Z-2)
             ]:
                 fig.add_trace(go.Scatter(
                     x=[df_daily.index[0], df_daily.index[-1]],
@@ -2493,18 +2546,9 @@ def render_chart(
         z_data_max = float(view_abs.max()) if not view_abs.empty else 0.0
 
         if col_name == 'Z_Score':
-            # ── Z + M 단일 Y축 (같은 척도, ±2가 강 임계) ──
-            # 0이 항상 가운데 (-max ~ +max 대칭)
-            mom_view = momentum_series.loc[momentum_series.index >= view_start]
-            m_data_max = float(abs(mom_view).max()) if not mom_view.empty else 0.0
-            z_axis_max = max(
-                z_data_max,
-                m_data_max,    # M이 Z와 같은 척도이므로 동일 비교
-                2.0,           # ±2 임계 항상 보이도록
-            ) + 0.3
-
+            # ── Z + M 단일 Y축: 백분위 0~100 고정 ──
             fig.update_yaxes(
-                range=[-z_axis_max, z_axis_max], autorange=False, fixedrange=True,
+                range=[0, 100], autorange=False, fixedrange=True,
                 row=row, col=1,
             )
         else:
@@ -2671,7 +2715,7 @@ def render_chart(
             mode='markers',
             marker=dict(
                 symbol='triangle-up' if is_buy else 'triangle-down',
-                size=14, color=base_color, opacity=m_opacity,
+                size=10, color=base_color, opacity=m_opacity,
                 line=dict(width=1.5, color='black'),
             ),
             name=f"{trade['type'].upper()} ({t_date.date()})", hoverinfo='skip',
@@ -2795,11 +2839,29 @@ def render_position_tracker(
     hl_str = f"{int(round(half_life))}d" if half_life is not None else "—"
     hl_col = halflife_color(half_life)
 
+    # Z 백분위 + 라벨
+    z_pct_str = "—"
+    z_pct_color = '#6b7280'
+    if df_daily is not None and 'Z_Score' in df_daily.columns:
+        last_z = df_daily['Z_Score'].iloc[-1]
+        if pd.notna(last_z):
+            z_pct_val = z_to_pct(float(last_z))
+            z_label = pct_to_label(z_pct_val)
+            z_pct_str = f"{int(round(z_pct_val))} ({z_label})"
+            # 색: 매수영역(0~30) 파랑, 매도영역(70~100) 빨강, 중립 회색
+            if z_pct_val <= 30:
+                z_pct_color = '#2563eb'
+            elif z_pct_val >= 70:
+                z_pct_color = '#dc2626'
+
     header_right = (
         f"<span style='font-size:0.7rem;color:#6b7280;'>"
         f"<span title='1σ 변동성' style='font-weight:600;'>σ {sigma_str_hdr}</span>"
         f" · <span title='SPY 대비 로그회귀 슬로프 (장기 가격 관계)' style='font-weight:600;'>"
         f"β·SPY {beta_str_hdr}</span>"
+        f" · <span title='Z 백분위 (0=극단매수, 50=중립, 100=극단매도). RSI와 동일 척도.' "
+        f"style='color:{z_pct_color};font-weight:600;'>"
+        f"Z {z_pct_str}</span>"
         f" · <span title='잔차 평균회귀 반감기 (영업일) — 짧을수록 평균회귀 매매 효율 ↑' "
         f"style='color:{hl_col};font-weight:600;'>"
         f"t½ {hl_str}</span>"
