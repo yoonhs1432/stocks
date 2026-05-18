@@ -2849,21 +2849,20 @@ def render_position_tracker(
 
     sigma_str_hdr = f"±{sigma_pct_int}%" if sigma_pct_int is not None else "—"
 
-    # Z 백분위 + 라벨
+    # Z 백분위 (숫자만)
     z_pct_str = "—"
     z_pct_color = '#6b7280'
     if df_daily is not None and 'Z_Score' in df_daily.columns:
         last_z = df_daily['Z_Score'].iloc[-1]
         if pd.notna(last_z):
             z_pct_val = z_to_pct(float(last_z))
-            z_label = pct_to_label(z_pct_val)
-            z_pct_str = f"{int(round(z_pct_val))} ({z_label})"
+            z_pct_str = f"{int(round(z_pct_val))}"
             if z_pct_val <= 30:
                 z_pct_color = '#2563eb'
             elif z_pct_val >= 70:
                 z_pct_color = '#dc2626'
 
-    # M 백분위 + 라벨 (모멘텀)
+    # M 백분위 (숫자만)
     m_pct_str = "—"
     m_pct_color = '#6b7280'
     cur_m_smooth = st.session_state.get(
@@ -2871,8 +2870,7 @@ def render_position_tracker(
     ).get(selected_ticker)
     if cur_m_smooth is not None:
         m_pct_val = z_to_pct(float(cur_m_smooth))
-        m_label = pct_to_label(m_pct_val)
-        m_pct_str = f"{int(round(m_pct_val))} ({m_label})"
+        m_pct_str = f"{int(round(m_pct_val))}"
         if m_pct_val <= 30:
             m_pct_color = '#2563eb'
         elif m_pct_val >= 70:
