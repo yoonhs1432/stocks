@@ -2727,6 +2727,18 @@ def render_chart(
                 layer='below',
             )
 
+    # 별표 (현재 위치) — 매매 마커보다 위 layer로 표시
+    fig.add_trace(go.Scatter(
+        x=[sc_df[f'{X_ASSET_FIXED}_Norm'].iloc[-1]],
+        y=[sc_df[f'{selected_ticker}_Norm'].iloc[-1]],
+        mode='markers',
+        marker=dict(
+            symbol='star', color='hotpink', size=14,
+            line=dict(color='black', width=1.5),
+        ),
+        name='Current_Top', hoverinfo='skip', showlegend=False,
+    ), row=1, col=1)
+
     # 축 공통 스타일
     fig.update_xaxes(showline=True, linewidth=1, linecolor='black', mirror=True)
     fig.update_yaxes(showline=True, linewidth=1, linecolor='black', mirror=True)
@@ -2836,8 +2848,6 @@ def render_position_tracker(
             half_life = compute_halflife(log_resid)
 
     sigma_str_hdr = f"±{sigma_pct_int}%" if sigma_pct_int is not None else "—"
-    hl_str = f"{int(round(half_life))}d" if half_life is not None else "—"
-    hl_col = halflife_color(half_life)
 
     # Z 백분위 + 라벨
     z_pct_str = "—"
@@ -2848,23 +2858,37 @@ def render_position_tracker(
             z_pct_val = z_to_pct(float(last_z))
             z_label = pct_to_label(z_pct_val)
             z_pct_str = f"{int(round(z_pct_val))} ({z_label})"
-            # 색: 매수영역(0~30) 파랑, 매도영역(70~100) 빨강, 중립 회색
             if z_pct_val <= 30:
                 z_pct_color = '#2563eb'
             elif z_pct_val >= 70:
                 z_pct_color = '#dc2626'
+
+    # M 백분위 + 라벨 (모멘텀)
+    m_pct_str = "—"
+    m_pct_color = '#6b7280'
+    cur_m_smooth = st.session_state.get(
+        'ticker_momentum_smooth', {}
+    ).get(selected_ticker)
+    if cur_m_smooth is not None:
+        m_pct_val = z_to_pct(float(cur_m_smooth))
+        m_label = pct_to_label(m_pct_val)
+        m_pct_str = f"{int(round(m_pct_val))} ({m_label})"
+        if m_pct_val <= 30:
+            m_pct_color = '#2563eb'
+        elif m_pct_val >= 70:
+            m_pct_color = '#dc2626'
 
     header_right = (
         f"<span style='font-size:0.7rem;color:#6b7280;'>"
         f"<span title='1σ 변동성' style='font-weight:600;'>σ {sigma_str_hdr}</span>"
         f" · <span title='SPY 대비 로그회귀 슬로프 (장기 가격 관계)' style='font-weight:600;'>"
         f"β·SPY {beta_str_hdr}</span>"
-        f" · <span title='Z 백분위 (0=극단매수, 50=중립, 100=극단매도). RSI와 동일 척도.' "
+        f" · <span title='Z 백분위 (0=극단매수, 50=중립, 100=극단매도)' "
         f"style='color:{z_pct_color};font-weight:600;'>"
         f"Z {z_pct_str}</span>"
-        f" · <span title='잔차 평균회귀 반감기 (영업일) — 짧을수록 평균회귀 매매 효율 ↑' "
-        f"style='color:{hl_col};font-weight:600;'>"
-        f"t½ {hl_str}</span>"
+        f" · <span title='M 모멘텀 백분위 (MACD/dMACD/RSI 통합 점수)' "
+        f"style='color:{m_pct_color};font-weight:600;'>"
+        f"M {m_pct_str}</span>"
         f"</span>"
     )
     # 종목명 색깔: 현재 모멘텀 점수 기반
@@ -4036,7 +4060,31 @@ def render_overview_panel(
             st.session_state.trade_history, all_analyses, df_close,
         )
         if journal:
-            jhtml = _build_journal_html(journal, {})
+            # 종목별 필터 selectbox
+            journal_tickers = sorted({e['ticker'] for e in journal})
+            filter_options = ['전체'] + [display_name(tk) + f" ({tk})" for tk in journal_tickers]
+            ticker_label_to_code = {
+                display_name(tk) + f" ({tk})": tk for tk in journal_tickers
+            }
+            filter_label = st.selectbox(
+                "종목 필터",
+                filter_options,
+                index=0,
+                key="tab3_journal_filter",
+                label_visibility='collapsed',
+            )
+            filter_ticker = (
+                ticker_label_to_code.get(filter_label) if filter_label != '전체' else None
+            )
+
+            jhtml = _build_journal_html(
+                journal, {},
+                show_ticker=(filter_ticker is None),
+                filter_ticker=filter_ticker,
+                title="📓 매매 일지" + (
+                    f" — {display_name(filter_ticker)}" if filter_ticker else ""
+                ),
+            )
             if jhtml:
                 st.markdown(
                     f"<div style='padding:10px 12px;background:#ffffff;"
@@ -4157,12 +4205,13 @@ def build_css(selected_option: str, holding_tickers: set) -> str:
     )
     btn_parts.append(f"""
     div.st-key-ticker_btn_direct button {{
-        height:1.1rem!important; font-size:0.55rem!important;
-        padding:0!important; min-height:0!important; border-radius:3px!important; {di_border}
+        height:1.7rem!important; font-size:0.62rem!important;
+        padding:0 2px!important; min-height:0!important; border-radius:3px!important;
+        line-height:1!important; {di_border}
     }}
     div.st-key-full_refresh_btn button {{
-        height:1.1rem!important; min-height:0!important; border-radius:3px!important;
-        font-size:0.55rem!important; font-weight:700!important; padding:0!important;
+        height:1.7rem!important; min-height:0!important; border-radius:3px!important;
+        font-size:0.62rem!important; font-weight:700!important; padding:0 2px!important;
         border:1px solid #cbd5e1!important; background:#f8fafc!important;
         color:#0f172a!important; line-height:1!important;
     }}
