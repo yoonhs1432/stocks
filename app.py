@@ -2091,11 +2091,14 @@ def render_chart(
     </style>""", unsafe_allow_html=True)
 
     PX = {
-        'main': 150, 'spacer': 20,
-        'price': 100, 'zscore': 100, 'macd': 100, 'dmacd': 80, 'rsi': 100,
-        'zm_scatter': 150,   # Z-M 산점도 (그래프 1처럼 정사각형 비율)
+        'main': 150, 'spacer': 20, 'spacer2': 30,
+        'price': 100, 'zscore': 100, 'macd': 100, 'rsi': 100,
+        'zm_scatter': 150,
     }
-    plot_order = ['main', 'spacer', 'price', 'zscore', 'macd', 'dmacd', 'rsi', 'zm_scatter']
+    plot_order = [
+        'main', 'spacer', 'price', 'zscore', 'macd', 'rsi',
+        'spacer2', 'zm_scatter',
+    ]
     total_rows = len(plot_order)
     total_h = sum(PX[p] for p in plot_order)
     # 모든 패널 단일 Y축 (Z + M 같은 척도)
@@ -2573,64 +2576,6 @@ def render_chart(
 
         row += 1
 
-    # ── dMACD 패널: MACD 변곡 (1차 미분, EMA span=3 smoothed) ──
-    # 부호 그대로 (raw): MACD 상승 중 → 양수, MACD 하락 중 → 음수
-    # 0 라인 + ±0.5%/일 임계선
-    dmacd_series = df_daily['dMACD_Raw_Pct'].fillna(0)
-
-    # 임계 수평선
-    for y_val, lc, ld, lw in [
-        (+0.5, '#dc2626', 'dash', 0.7),    # +0.5%/일 강 상승
-        (0.0,  '#9ca3af', 'solid', 0.5),   # 0 중립 (변곡점)
-        (-0.5, '#2563eb', 'dash', 0.7),    # -0.5%/일 강 하락
-    ]:
-        fig.add_trace(go.Scatter(
-            x=[df_daily.index[0], df_daily.index[-1]],
-            y=[y_val, y_val],
-            mode='lines',
-            line=dict(color=lc, width=lw, dash=ld),
-            hoverinfo='skip', showlegend=False,
-        ), row=row, col=1)
-
-    # 0 라인 위/아래 영역 색칠 (선택)
-    # dMACD 라인 (검정)
-    fig.add_trace(go.Scatter(
-        x=df_daily.index, y=dmacd_series,
-        mode='lines',
-        line=dict(color='#0f766e', width=1.8, shape='spline', smoothing=0.5),
-        name='dMACD', hoverinfo='skip', showlegend=False,
-        connectgaps=True,
-    ), row=row, col=1)
-
-    # 현재 값 라벨
-    last_dmacd = df_daily['dMACD_Raw_Pct'].iloc[-1]
-    dmacd_val = float(last_dmacd) if pd.notna(last_dmacd) else 0.0
-    dmacd_color = (
-        '#dc2626' if dmacd_val >= 0.5
-        else '#2563eb' if dmacd_val <= -0.5 else '#0f766e'
-    )
-    fig.add_annotation(
-        x=0, y=1, xref='x domain', yref='y domain',
-        text=f"<b>dMACD  {dmacd_val:+.2f}%</b>", showarrow=False,
-        font=dict(size=10, color=dmacd_color), xanchor='left', yanchor='top',
-        bgcolor='white', bordercolor='black', borderwidth=1, borderpad=2,
-        row=row, col=1,
-    )
-
-    # Y축: 0 대칭, view 범위 abs max 기반 (RSI와 동일 패턴)
-    view_dmacd = dmacd_series.loc[dmacd_series.index >= view_start]
-    dmacd_abs_max = max(
-        float(view_dmacd.abs().max()) if not view_dmacd.empty else 0,
-        0.7,  # 최소 ±0.7% 보이도록
-    )
-    dmacd_abs_max *= 1.1
-    fig.update_yaxes(
-        range=[-dmacd_abs_max, dmacd_abs_max],
-        autorange=False, fixedrange=True, row=row, col=1,
-    )
-
-    row += 1
-
     # ── RSI 패널: RSI-50 (0 중심) + 0 대칭 자동 범위 ──
     rsi_series = (df_daily['RSI'] - 50).fillna(0)
 
@@ -2721,8 +2666,9 @@ def render_chart(
             ),
             name=f"{trade['type'].upper()} ({t_date.date()})", hoverinfo='skip',
         ), row=1, col=1)
-        # vline은 시간축 패널만 (RSI까지, Z-M 산점도 제외)
-        for r in range(3, total_rows):
+        # vline은 시간축 패널만 (price~rsi, spacer2/Z-M 제외)
+        # rsi row = total_rows - 2, spacer2 = total_rows - 1, zm_scatter = total_rows
+        for r in range(3, total_rows - 1):
             fig.add_vline(
                 x=t_date, line_dash="solid", line_width=1,
                 line_color=base_color, opacity=vline_opacity, row=r, col=1,
@@ -2785,32 +2731,30 @@ def render_chart(
     if n_pts > 0:
         color_indices = list(range(n_pts))
 
-        # 사분면 배경 영역 (옅은 색)
-        # Q2 (우상단 외측, 70~100 × 0~30): 강 매도
-        # Q4 (좌하단 외측, 0~30 × 70~100): 강 매수
-        # 영역 사각형 그리기 (shape add)
-        fig.add_shape(
-            type='rect', x0=70, x1=100, y0=0, y1=30,
-            fillcolor='rgba(220, 38, 38, 0.08)', line=dict(width=0),
-            row=zm_row, col=1, layer='below',
-        )
-        fig.add_shape(
-            type='rect', x0=0, x1=30, y0=70, y1=100,
-            fillcolor='rgba(37, 99, 235, 0.08)', line=dict(width=0),
-            row=zm_row, col=1, layer='below',
-        )
-
-        # 사분면 분할선 (50% 가로/세로)
-        fig.add_shape(
-            type='line', x0=50, x1=50, y0=0, y1=100,
-            line=dict(color='#9ca3af', width=0.5, dash='dot'),
-            row=zm_row, col=1, layer='below',
-        )
-        fig.add_shape(
-            type='line', x0=0, x1=100, y0=50, y1=50,
-            line=dict(color='#9ca3af', width=0.5, dash='dot'),
-            row=zm_row, col=1, layer='below',
-        )
+        # 사분면 분할선 + 그래프 3과 동일한 Z/M 임계선
+        # X축 (Z) 임계선
+        # Y축 (M) 임계선
+        # 색/스타일 = 그래프 3 (Z+M 패널) 와 동일
+        threshold_lines = [
+            (10, '#2563eb', 'solid', 0.7),   # 강 매수 임계
+            (30, '#93c5fd', 'dot',   0.6),   # 약 매수 임계
+            (50, '#9ca3af', 'solid', 0.5),   # 중립
+            (70, '#fca5a5', 'dot',   0.6),   # 약 매도 임계
+            (90, '#dc2626', 'solid', 0.7),   # 강 매도 임계
+        ]
+        for val, lc, ld, lw in threshold_lines:
+            # X축 임계선 (세로)
+            fig.add_shape(
+                type='line', x0=val, x1=val, y0=0, y1=100,
+                line=dict(color=lc, width=lw, dash=ld),
+                row=zm_row, col=1, layer='below',
+            )
+            # Y축 임계선 (가로)
+            fig.add_shape(
+                type='line', x0=0, x1=100, y0=val, y1=val,
+                line=dict(color=lc, width=lw, dash=ld),
+                row=zm_row, col=1, layer='below',
+            )
 
         # 산점도 — 시간 색 (viridis)
         fig.add_trace(go.Scatter(
@@ -2841,28 +2785,13 @@ def render_chart(
             showlegend=False,
         ), row=zm_row, col=1)
 
-        # 사분면 라벨 (각 모서리)
-        for x_pos, y_pos, label_text in [
-            (85, 85, "↗ 추세상승"),
-            (85, 15, "↘ 매도신호"),
-            (15, 15, "↙ 추세하락"),
-            (15, 85, "↖ 매수신호"),
-        ]:
-            fig.add_annotation(
-                x=x_pos, y=y_pos, text=label_text, showarrow=False,
-                font=dict(size=8, color='#6b7280'),
-                row=zm_row, col=1,
-            )
-
-    # Z-M 산점도 축
+    # Z-M 산점도 축 (제목 없음, 숫자만)
     fig.update_xaxes(
         range=[0, 100], autorange=False, fixedrange=True,
-        title=dict(text='Z (위치)', font=dict(size=9)),
         row=zm_row, col=1,
     )
     fig.update_yaxes(
         range=[0, 100], autorange=False, fixedrange=True,
-        title=dict(text='M (모멘텀)', font=dict(size=9)),
         row=zm_row, col=1,
     )
 
@@ -2871,13 +2800,17 @@ def render_chart(
     fig.update_yaxes(showline=True, linewidth=1, linecolor='black', mirror=True)
     fig.update_xaxes(visible=False, row=2, col=1)
     fig.update_yaxes(visible=False, row=2, col=1)
-    # 시간축 그리드 — Z-M 산점도(zm_row) 제외, RSI까지만 (zm_row - 1)
-    for r in range(3, zm_row):
+    # spacer2 (RSI와 Z-M 사이) 숨김
+    fig.update_xaxes(visible=False, row=zm_row - 1, col=1)
+    fig.update_yaxes(visible=False, row=zm_row - 1, col=1)
+    # 시간축 그리드 — price ~ rsi (3 ~ zm_row - 2)
+    # RSI X 라벨은 RSI (zm_row - 2) 에서 표시 → spacer2가 아래라 겹침 없음
+    for r in range(3, zm_row - 1):
         fig.update_xaxes(
             showgrid=True, gridcolor='rgba(156,163,175,0.28)',
             gridwidth=0.6, griddash='dot', dtick=grid_dtick_ms,
             matches=time_x_axis, rangebreaks=[dict(bounds=['sat', 'mon'])],
-            showticklabels=(r == zm_row - 1), tickformat="%m/%d",
+            showticklabels=(r == zm_row - 2), tickformat="%m/%d",
             range=[view_start, last_date], row=r, col=1,
             layer='below traces',
         )
@@ -4755,46 +4688,6 @@ def main() -> None:
                     f"margin-top:-4px;'>updated {last_refresh}</div>",
                     unsafe_allow_html=True,
                 )
-
-            # ── 디버그: 데이터 진단 ──
-            with st.expander("🔍 데이터 진단", expanded=False):
-                if df_daily is not None:
-                    close_col = f'{selected_ticker}_Close'
-                    spy_col = f'{X_ASSET_FIXED}_Close'
-                    if close_col in df_daily.columns:
-                        # 전체 행수 / 요일 분포 / 연속 동일 가격 수
-                        n_rows = len(df_daily)
-                        wd_counts = pd.Series(df_daily.index.weekday).value_counts().sort_index()
-                        wd_str = ", ".join(
-                            f"{['월','화','수','목','금','토','일'][int(wd)]}={n}"
-                            for wd, n in wd_counts.items()
-                        )
-                        # 종목 가격 변화 0인 날
-                        ticker_close = df_daily[close_col].dropna()
-                        same_t = (ticker_close.diff() == 0).sum()
-                        # SPY 가격 변화 0인 날
-                        spy_close = df_daily[spy_col].dropna()
-                        same_s = (spy_close.diff() == 0).sum()
-
-                        st.caption(f"전체 행수: {n_rows}")
-                        st.caption(f"요일 분포: {wd_str}")
-                        st.caption(f"{selected_ticker} 변화 0인 날: {same_t}")
-                        st.caption(f"SPY 변화 0인 날: {same_s}")
-                        st.caption(f"날짜 범위: {df_daily.index[0].date()} ~ {df_daily.index[-1].date()}")
-
-                        # 연속 동일 가격 패턴 찾기 (3일 이상 연속 동일)
-                        diff_t = ticker_close.diff().fillna(1)
-                        consec = 0
-                        max_consec = 0
-                        for d in diff_t:
-                            if d == 0:
-                                consec += 1
-                                max_consec = max(max_consec, consec)
-                            else:
-                                consec = 0
-                        st.caption(f"{selected_ticker} 최대 연속 동일가격: {max_consec}일")
-                else:
-                    st.caption("데이터 없음")
 
         with chart_col:
             if df_daily is not None:
