@@ -2093,8 +2093,9 @@ def render_chart(
     PX = {
         'main': 150, 'spacer': 20,
         'price': 100, 'zscore': 100, 'macd': 100, 'dmacd': 80, 'rsi': 100,
+        'zm_scatter': 150,   # Z-M 산점도 (그래프 1처럼 정사각형 비율)
     }
-    plot_order = ['main', 'spacer', 'price', 'zscore', 'macd', 'dmacd', 'rsi']
+    plot_order = ['main', 'spacer', 'price', 'zscore', 'macd', 'dmacd', 'rsi', 'zm_scatter']
     total_rows = len(plot_order)
     total_h = sum(PX[p] for p in plot_order)
     # 모든 패널 단일 Y축 (Z + M 같은 척도)
@@ -2720,7 +2721,8 @@ def render_chart(
             ),
             name=f"{trade['type'].upper()} ({t_date.date()})", hoverinfo='skip',
         ), row=1, col=1)
-        for r in range(3, total_rows + 1):
+        # vline은 시간축 패널만 (RSI까지, Z-M 산점도 제외)
+        for r in range(3, total_rows):
             fig.add_vline(
                 x=t_date, line_dash="solid", line_width=1,
                 line_color=base_color, opacity=vline_opacity, row=r, col=1,
@@ -2739,17 +2741,143 @@ def render_chart(
         name='Current_Top', hoverinfo='skip', showlegend=False,
     ), row=1, col=1)
 
+    # ── Z-M 산점도 패널 (마지막) ──
+    # X = Z 백분위 (위치, 0~100)
+    # Y = M 백분위 (모멘텀, 0~100)
+    # 색 = 시간 (viridis, 그래프 1과 동일)
+    # 사분면 의미:
+    #   Q1 (X>50, Y>50): 비싸고 더 오름 → 추세 추종
+    #   Q2 (X>50, Y<50): 비싼데 꺾임 → 매도 신호
+    #   Q3 (X<50, Y<50): 싸고 더 떨어짐 → 매수 대기
+    #   Q4 (X<50, Y>50): 싼데 반등 시작 → 매수 진입
+    zm_row = row + 1  # zm_scatter는 마지막 row
+    # row가 RSI 끝나고 한 번 더 +1 되어야 하지만, 위 코드에서 RSI 끝에 row+=1이 없음
+    # plot_order에서 RSI는 7번째 (1-indexed: row=7), zm_scatter는 8
+    # 현재 row는 RSI panel 그릴 때 사용된 값 = 7
+    # 따라서 zm_row = total_rows
+    zm_row = total_rows
+
+    # Z와 M 백분위 계산
+    z_raw = df_daily['Z_Score'].fillna(0)
+    macd_pct_v_2 = df_daily['MACD_Pct'].fillna(0).values
+    dmacd_pct_v_2 = df_daily['dMACD_Pct'].fillna(0).values
+    rsi_v_2 = df_daily['RSI'].fillna(50).values
+    momentum_raw_full = (
+        0.3 * (macd_pct_v_2 / 2.0)
+        + 0.2 * (dmacd_pct_v_2 / 0.5)
+        + 0.5 * ((rsi_v_2 - 50) / 20.0)
+    )
+
+    z_pct_series = ((z_raw + 2.5) / 5.0 * 100).clip(0, 100)
+    m_pct_series = pd.Series(
+        ((momentum_raw_full + 2.5) / 5.0 * 100).clip(0, 100),
+        index=df_daily.index,
+    )
+
+    # view 기간으로 필터
+    zm_mask = z_pct_series.index >= view_start
+    zm_x = z_pct_series[zm_mask].values
+    zm_y = m_pct_series[zm_mask].values
+    zm_dates = z_pct_series.index[zm_mask]
+
+    # 시간 색 (viridis)
+    n_pts = len(zm_x)
+    if n_pts > 0:
+        color_indices = list(range(n_pts))
+
+        # 사분면 배경 영역 (옅은 색)
+        # Q2 (우상단 외측, 70~100 × 0~30): 강 매도
+        # Q4 (좌하단 외측, 0~30 × 70~100): 강 매수
+        # 영역 사각형 그리기 (shape add)
+        fig.add_shape(
+            type='rect', x0=70, x1=100, y0=0, y1=30,
+            fillcolor='rgba(220, 38, 38, 0.08)', line=dict(width=0),
+            row=zm_row, col=1, layer='below',
+        )
+        fig.add_shape(
+            type='rect', x0=0, x1=30, y0=70, y1=100,
+            fillcolor='rgba(37, 99, 235, 0.08)', line=dict(width=0),
+            row=zm_row, col=1, layer='below',
+        )
+
+        # 사분면 분할선 (50% 가로/세로)
+        fig.add_shape(
+            type='line', x0=50, x1=50, y0=0, y1=100,
+            line=dict(color='#9ca3af', width=0.5, dash='dot'),
+            row=zm_row, col=1, layer='below',
+        )
+        fig.add_shape(
+            type='line', x0=0, x1=100, y0=50, y1=50,
+            line=dict(color='#9ca3af', width=0.5, dash='dot'),
+            row=zm_row, col=1, layer='below',
+        )
+
+        # 산점도 — 시간 색 (viridis)
+        fig.add_trace(go.Scatter(
+            x=zm_x, y=zm_y, mode='markers',
+            marker=dict(
+                size=5,
+                color=color_indices,
+                colorscale='Viridis',
+                showscale=False,
+                line=dict(width=0),
+            ),
+            hovertext=[d.strftime('%Y-%m-%d') for d in zm_dates],
+            hovertemplate='Z: %{x:.0f}<br>M: %{y:.0f}<br>%{hovertext}<extra></extra>',
+            showlegend=False,
+        ), row=zm_row, col=1)
+
+        # 현재 위치 별표
+        fig.add_trace(go.Scatter(
+            x=[zm_x[-1]], y=[zm_y[-1]],
+            mode='markers',
+            marker=dict(
+                symbol='star', color='hotpink', size=14,
+                line=dict(color='black', width=1.5),
+            ),
+            hovertemplate=(
+                f'<b>현재</b><br>Z: %{{x:.0f}}<br>M: %{{y:.0f}}<extra></extra>'
+            ),
+            showlegend=False,
+        ), row=zm_row, col=1)
+
+        # 사분면 라벨 (각 모서리)
+        for x_pos, y_pos, label_text in [
+            (85, 85, "↗ 추세상승"),
+            (85, 15, "↘ 매도신호"),
+            (15, 15, "↙ 추세하락"),
+            (15, 85, "↖ 매수신호"),
+        ]:
+            fig.add_annotation(
+                x=x_pos, y=y_pos, text=label_text, showarrow=False,
+                font=dict(size=8, color='#6b7280'),
+                row=zm_row, col=1,
+            )
+
+    # Z-M 산점도 축
+    fig.update_xaxes(
+        range=[0, 100], autorange=False, fixedrange=True,
+        title=dict(text='Z (위치)', font=dict(size=9)),
+        row=zm_row, col=1,
+    )
+    fig.update_yaxes(
+        range=[0, 100], autorange=False, fixedrange=True,
+        title=dict(text='M (모멘텀)', font=dict(size=9)),
+        row=zm_row, col=1,
+    )
+
     # 축 공통 스타일
     fig.update_xaxes(showline=True, linewidth=1, linecolor='black', mirror=True)
     fig.update_yaxes(showline=True, linewidth=1, linecolor='black', mirror=True)
     fig.update_xaxes(visible=False, row=2, col=1)
     fig.update_yaxes(visible=False, row=2, col=1)
-    for r in range(3, total_rows + 1):
+    # 시간축 그리드 — Z-M 산점도(zm_row) 제외, RSI까지만 (zm_row - 1)
+    for r in range(3, zm_row):
         fig.update_xaxes(
             showgrid=True, gridcolor='rgba(156,163,175,0.28)',
             gridwidth=0.6, griddash='dot', dtick=grid_dtick_ms,
             matches=time_x_axis, rangebreaks=[dict(bounds=['sat', 'mon'])],
-            showticklabels=(r == total_rows), tickformat="%m/%d",
+            showticklabels=(r == zm_row - 1), tickformat="%m/%d",
             range=[view_start, last_date], row=r, col=1,
             layer='below traces',
         )
