@@ -2220,10 +2220,12 @@ def render_chart(
         bgcolor='white', bordercolor='black', borderwidth=1, borderpad=2,
         row=row, col=1,
     )
-    # row=1 (main, 회귀) 완료
-    # zm_scatter는 row=2에 별도로 그림 (아래에서 zm_row=2 사용)
-    # 여기선 spacer로 넘어가도록 row를 2번 증가
-    row += 2  # row=3 (spacer 위치)
+    # 회귀 산점도 X축 라벨 숨김
+    fig.update_xaxes(showticklabels=False, row=row, col=1)
+    # row=1 (main) 완료
+    # row=2는 zm_scatter (별도 코드에서 zm_row=2로 그림)
+    # row=3 = spacer로 점프
+    row += 2
 
     # [3] Spacer
     fig.update_xaxes(visible=False, row=row, col=1)
@@ -2689,7 +2691,7 @@ def render_chart(
             ),
             name=f"{trade['type'].upper()} ({t_date.date()})", hoverinfo='skip',
         ), row=1, col=1)
-        # vline은 시간축 패널만 (price~rsi = row 4~7, main/zm/spacer 제외)
+        # vline은 시간축 패널만 (price~rsi = row 4~7)
         # plot_order: main(1), zm_scatter(2), spacer(3), price(4), zscore(5), macd(6), rsi(7)
         for r in range(4, total_rows + 1):
             fig.add_vline(
@@ -2719,7 +2721,7 @@ def render_chart(
     #   Q2 (X>50, Y<50): 비싼데 꺾임 → 매도 신호
     #   Q3 (X<50, Y<50): 싸고 더 떨어짐 → 매수 대기
     #   Q4 (X<50, Y>50): 싼데 반등 시작 → 매수 진입
-    zm_row = 2  # zm_scatter는 회귀(1) 바로 아래
+    zm_row = 2  # zm_scatter는 회귀(1) 바로 아래 (row=2)
 
     # Z와 M 백분위 계산
     z_raw = df_daily['Z_Score'].fillna(0)
@@ -2864,14 +2866,28 @@ def render_chart(
     # 축 공통 스타일
     fig.update_xaxes(showline=True, linewidth=1, linecolor='black', mirror=True)
     fig.update_yaxes(showline=True, linewidth=1, linecolor='black', mirror=True)
-    # spacer (row 3, 회귀+zm과 시간축 사이) 숨김
+    # spacer (row 3, 회귀/zm 산점도와 시간축 사이) 숨김
     fig.update_xaxes(visible=False, row=3, col=1)
     fig.update_yaxes(visible=False, row=3, col=1)
     # 시간축 그리드 — price ~ rsi (row 4 ~ total_rows = 7)
-    # RSI X 라벨은 마지막 (row=total_rows) 에서 표시
-    # 오른쪽 마진: last_date + 3일 (가장 최근 데이터 마커 잘리지 않도록)
+    # RSI X 라벨은 마지막 row(total_rows) 에서 표시
+    # price row(4)는 time_x_axis = 'x4' 자체이므로 matches 미적용 (자기참조 회피)
     x_max_with_margin = last_date + pd.Timedelta(days=3)
-    for r in range(4, total_rows + 1):
+    # price row (4) 별도 처리 - 자기 자신을 matches하면 안 됨
+    fig.update_xaxes(
+        showgrid=True, gridcolor='rgba(156,163,175,0.28)',
+        gridwidth=0.6, griddash='dot', dtick=grid_dtick_ms,
+        rangebreaks=[dict(bounds=['sat', 'mon'])],
+        showticklabels=False, tickformat="%m/%d",
+        range=[view_start, x_max_with_margin], row=4, col=1,
+        layer='below traces',
+    )
+    fig.update_yaxes(
+        showgrid=False, autorange=False, fixedrange=True, row=4, col=1,
+        layer='below traces',
+    )
+    # zscore, macd, rsi (row 5~7) - price와 matches
+    for r in range(5, total_rows + 1):
         fig.update_xaxes(
             showgrid=True, gridcolor='rgba(156,163,175,0.28)',
             gridwidth=0.6, griddash='dot', dtick=grid_dtick_ms,
