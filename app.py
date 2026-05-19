@@ -2720,11 +2720,10 @@ def render_chart(
         index=df_daily.index,
     )
 
-    # view 기간으로 필터
-    zm_mask = z_pct_series.index >= view_start
-    zm_x = z_pct_series[zm_mask].values
-    zm_y = m_pct_series[zm_mask].values
-    zm_dates = z_pct_series.index[zm_mask]
+    # 분석 기간 전체 사용 (보기 기간이 아님 — 장기 Z-M 궤적)
+    zm_x = z_pct_series.values
+    zm_y = m_pct_series.values
+    zm_dates = z_pct_series.index
 
     # 시간 색 (viridis)
     n_pts = len(zm_x)
