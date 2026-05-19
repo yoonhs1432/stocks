@@ -2091,7 +2091,7 @@ def render_chart(
     </style>""", unsafe_allow_html=True)
 
     PX = {
-        'main': 150, 'spacer': 20, 'spacer2': 30,
+        'main': 150, 'spacer': 20, 'spacer2': 50,
         'price': 100, 'zscore': 100, 'macd': 100, 'rsi': 100,
         'zm_scatter': 150,
     }
@@ -2786,12 +2786,13 @@ def render_chart(
         ), row=zm_row, col=1)
 
     # Z-M 산점도 축 (제목 없음, 숫자만)
+    # 범위 -5 ~ 105: 별표가 극단(0 또는 100)에 가도 잘리지 않도록 마진
     fig.update_xaxes(
-        range=[0, 100], autorange=False, fixedrange=True,
+        range=[-5, 105], autorange=False, fixedrange=True,
         row=zm_row, col=1,
     )
     fig.update_yaxes(
-        range=[0, 100], autorange=False, fixedrange=True,
+        range=[-5, 105], autorange=False, fixedrange=True,
         row=zm_row, col=1,
     )
 
@@ -2805,13 +2806,15 @@ def render_chart(
     fig.update_yaxes(visible=False, row=zm_row - 1, col=1)
     # 시간축 그리드 — price ~ rsi (3 ~ zm_row - 2)
     # RSI X 라벨은 RSI (zm_row - 2) 에서 표시 → spacer2가 아래라 겹침 없음
+    # 오른쪽 마진: last_date + 2 영업일 (가장 최근 데이터 마커 잘리지 않도록)
+    x_max_with_margin = last_date + pd.Timedelta(days=3)
     for r in range(3, zm_row - 1):
         fig.update_xaxes(
             showgrid=True, gridcolor='rgba(156,163,175,0.28)',
             gridwidth=0.6, griddash='dot', dtick=grid_dtick_ms,
             matches=time_x_axis, rangebreaks=[dict(bounds=['sat', 'mon'])],
             showticklabels=(r == zm_row - 2), tickformat="%m/%d",
-            range=[view_start, last_date], row=r, col=1,
+            range=[view_start, x_max_with_margin], row=r, col=1,
             layer='below traces',
         )
         fig.update_yaxes(
