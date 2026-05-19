@@ -2264,7 +2264,8 @@ def render_chart(
             decreasing=dict(line=dict(color='#1d4ed8', width=1), fillcolor='#1d4ed8'),
             showlegend=False, hoverinfo='skip',
         ), row=row, col=1)
-        fig.update_layout(xaxis3_rangeslider_visible=False)
+        # 캔들 rangeslider 끄기 - price row의 xaxis 동적 매칭
+        fig.update_layout(**{f'xaxis{row}_rangeslider_visible': False})
     else:
         fig.add_trace(go.Scatter(
             x=df_daily.index, y=df_daily['Plot_Norm_Ticker'],
