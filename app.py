@@ -2770,7 +2770,55 @@ def render_chart(
             showlegend=False,
         ), row=zm_row, col=1)
 
-        # 현재 위치 별표
+        # 매매 마커 — 그래프 1과 동일 (Z, M 위치)
+        # 현재 사이클은 진하게, 완료 사이클은 연하게
+        cycles_for_zm = extract_cycles_avgs(
+            st.session_state.trade_history.get(selected_ticker, [])
+        )
+
+        def _zm_trade_is_active(t_date_dt) -> bool:
+            for c in cycles_for_zm:
+                if not c['is_active']:
+                    continue
+                if c['start'] <= t_date_dt:
+                    return True
+            return False
+
+        for trade in st.session_state.trade_history.get(selected_ticker, []):
+            try:
+                t_date_d = datetime.date.fromisoformat(trade['date'])
+            except Exception:
+                continue
+            t_ts = pd.Timestamp(trade['date'])
+            # 가장 가까운 영업일 매핑
+            if t_ts not in z_pct_series.index:
+                idx = z_pct_series.index[z_pct_series.index <= t_ts]
+                if len(idx) == 0:
+                    continue
+                t_ts = idx[-1]
+            z_val = z_pct_series.loc[t_ts]
+            m_val = m_pct_series.loc[t_ts]
+            if pd.isna(z_val) or pd.isna(m_val):
+                continue
+
+            is_buy = trade['type'] == 'buy'
+            is_active_cycle = _zm_trade_is_active(t_date_d)
+            base_color = '#dc2626' if is_buy else '#1d4ed8'
+            m_opacity = 1.0 if is_active_cycle else 0.6
+
+            fig.add_trace(go.Scatter(
+                x=[z_val], y=[m_val],
+                mode='markers',
+                marker=dict(
+                    symbol='triangle-up' if is_buy else 'triangle-down',
+                    size=10, color=base_color, opacity=m_opacity,
+                    line=dict(width=1, color='black'),
+                ),
+                name=f"{trade['type'].upper()} ({trade['date']})",
+                hoverinfo='skip', showlegend=False,
+            ), row=zm_row, col=1)
+
+        # 현재 위치 별표 (매매 마커보다 위 layer)
         fig.add_trace(go.Scatter(
             x=[zm_x[-1]], y=[zm_y[-1]],
             mode='markers',
