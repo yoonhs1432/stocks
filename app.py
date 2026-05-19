@@ -4598,12 +4598,24 @@ def main() -> None:
             log.warning(f"Invalid analysis_start format: {raw_start}, using fallback")
             analysis_start = '2025-01-01'
 
+    # ── Warmup 기간: EMA/expanding 안정화를 위해 fetch는 60일 일찍 시작 ──
+    # 사용자 설정 시작일(analysis_start) 이전 60일 데이터를 추가로 fetch.
+    # 그래프 표시할 때는 analysis_start 이후만 사용 (warmup 데이터는 계산용).
+    try:
+        _start_dt = pd.Timestamp(analysis_start)
+        _fetch_start_dt = _start_dt - pd.Timedelta(days=60)
+        fetch_start = _fetch_start_dt.strftime('%Y-%m-%d')
+    except Exception:
+        fetch_start = analysis_start
+    # 사용자 분석 시작일 (표시 마스킹용)
+    st.session_state['_display_analysis_start'] = analysis_start
+
     with st.spinner("데이터 로드 중..."):
-        df_close = fetch_all_data(TARGET_TICKERS, analysis_start, candle_type)
+        df_close = fetch_all_data(TARGET_TICKERS, fetch_start, candle_type)
 
     if selected_ticker and f'{selected_ticker}_Close' not in df_close.columns:
         with st.spinner(f"{selected_ticker} 데이터를 불러오는 중..."):
-            df_custom = fetch_single_ticker(selected_ticker, analysis_start)
+            df_custom = fetch_single_ticker(selected_ticker, fetch_start)
         if not df_custom.empty:
             if candle_type == '주봉':
                 df_custom = _resample_weekly(df_custom)
@@ -4676,9 +4688,16 @@ def main() -> None:
     }
 
     # 드로다운 계산 (#6) + 자산 시계열 캐싱 (#15)
+    # 표시 시점은 사용자 분석 시작 이후만 (warmup 60일은 계산용)
     if portfolio_state and not df_close.empty:
+        display_start = st.session_state.get('_display_analysis_start', analysis_start)
+        try:
+            _ds_eq = pd.Timestamp(display_start)
+            df_close_for_equity = df_close[df_close.index >= _ds_eq]
+        except Exception:
+            df_close_for_equity = df_close
         equity = compute_portfolio_equity(
-            portfolio_state, df_close, st.session_state.trade_history
+            portfolio_state, df_close_for_equity, st.session_state.trade_history
         )
         if equity is not None and not equity.empty:
             st.session_state['dd_info_cache'] = compute_drawdown(equity)
@@ -4783,10 +4802,10 @@ def main() -> None:
                     phase='top',
                 )
                 with st.spinner("캔들 데이터 로드 중..."):
-                    df_ohlc = fetch_ohlc(selected_ticker, analysis_start, candle_type)
+                    df_ohlc = fetch_ohlc(selected_ticker, fetch_start, candle_type)
                 df_daily_raw = None
                 if candle_type == '주봉':
-                    df_raw = fetch_all_data(TARGET_TICKERS, analysis_start, '일봉')
+                    df_raw = fetch_all_data(TARGET_TICKERS, fetch_start, '일봉')
                     if not df_raw.empty:
                         df_raw = df_raw[df_raw.index <= last_trading_date]
                         col_raw = f'{selected_ticker}_Close'
@@ -4799,9 +4818,27 @@ def main() -> None:
                                 df_daily_raw = result_raw[0]
                 # 매매 기록 전체 전달 (사이클별 평균 매수/매도가 표시용)
                 trade_records = st.session_state.trade_history.get(selected_ticker, [])
+                # 표시용 마스킹: 사용자 분석 시작일 이전 (warmup) 데이터 제외
+                display_start = st.session_state.get('_display_analysis_start', analysis_start)
+                try:
+                    _ds = pd.Timestamp(display_start)
+                    df_daily_display = df_daily[df_daily.index >= _ds].copy()
+                    if df_daily_raw is not None:
+                        df_daily_raw_display = df_daily_raw[df_daily_raw.index >= _ds].copy()
+                    else:
+                        df_daily_raw_display = None
+                    if df_ohlc is not None and not df_ohlc.empty:
+                        df_ohlc_display = df_ohlc[df_ohlc.index >= _ds].copy()
+                    else:
+                        df_ohlc_display = df_ohlc
+                except Exception:
+                    df_daily_display = df_daily
+                    df_daily_raw_display = df_daily_raw
+                    df_ohlc_display = df_ohlc
                 render_chart(
-                    df_daily, selected_ticker, beta, std_resid,
-                    cfg['guide_n'], st.session_state.view_months, df_ohlc, df_daily_raw,
+                    df_daily_display, selected_ticker, beta, std_resid,
+                    cfg['guide_n'], st.session_state.view_months,
+                    df_ohlc_display, df_daily_raw_display,
                     trade_records=trade_records,
                 )
             elif selected_option == DIRECT_INPUT_LABEL:
@@ -4814,12 +4851,19 @@ def main() -> None:
 
         # 분석 패널 + 메모 (탭1 안)
         if df_daily is not None and selected_ticker:
+            # 표시용 마스킹 (warmup 데이터 제외)
+            display_start = st.session_state.get('_display_analysis_start', analysis_start)
+            try:
+                _ds_p = pd.Timestamp(display_start)
+                df_daily_panel = df_daily[df_daily.index >= _ds_p].copy()
+            except Exception:
+                df_daily_panel = df_daily
             st.markdown(
                 "<div data-analytics-panel style='margin-top:8px;'></div>",
                 unsafe_allow_html=True,
             )
             render_analytics_panel(
-                selected_ticker, df_daily, df_close, portfolio_state, beta, std_resid,
+                selected_ticker, df_daily_panel, df_close, portfolio_state, beta, std_resid,
             )
         if selected_ticker:
             render_memo_section(selected_ticker)
