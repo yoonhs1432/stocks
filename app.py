@@ -48,8 +48,9 @@ st.set_page_config(page_title="퀀트 트레이딩 대시보드", layout="wide")
 @dataclass(frozen=True)
 class Config:
     """매직 넘버 모음. frozen으로 불변 보장."""
-    # 시드/자금
-    SEED_KRW: int = 30_000_000
+    # 시드/자금 (달러 기준 — 환전 시점에 결정된 값)
+    SEED_USD: float = 20_000.0
+    SEED_KRW_LEGACY: int = 30_000_000  # 호환용 (사용 안 함)
     USD_KRW_FALLBACK: float = 1400.0
 
     # 베타 경고 임계값
@@ -577,6 +578,11 @@ def score_to_signal(score: int) -> str:
 
 def get_signal_combined(cz: float, mhz: float, rsi: float) -> str:
     return score_to_signal(compute_combined_score(cz, mhz, rsi))
+
+
+def get_seed_usd() -> float:
+    """현재 설정된 시드 (USD) 반환 — 사이드바 입력 우선."""
+    return float(st.session_state.get('seed_usd', CFG.SEED_USD))
 
 
 def z_to_pct(z: float) -> float:
@@ -1250,9 +1256,9 @@ def compute_drawdown(equity: pd.Series) -> dict:
     if equity is None or equity.empty:
         return {'current_dd': 0.0, 'mdd': 0.0, 'mdd_date': None}
 
-    # 누적 평가액의 cummax 대비 하락률 (단, 시드 대비 절대값으로 계산)
-    seed = CFG.SEED_KRW / fetch_usd_krw()[0]  # USD 환산 시드 (근사)
-    portfolio_value = equity + seed         # 평가 자산 = 시드 + 누적손익
+    # 누적 평가액의 cummax 대비 하락률 (시드 USD 기반)
+    seed = get_seed_usd()
+    portfolio_value = equity + seed         # 평가 자산 = 시드(USD) + 누적손익(USD)
     running_max = portfolio_value.cummax()
     dd = (portfolio_value - running_max) / running_max * 100
     current_dd = float(dd.iloc[-1])
@@ -1900,6 +1906,21 @@ def render_sidebar(
             value=st.session_state.view_months, step=1,
         )
         guide_n = 4
+
+        # ── 시드 (달러) 입력 ──
+        # 환전 시점 달러 시드 (예: 3,000만원 / 환율 1,500 = $20,000)
+        st.caption("시드 ($)")
+        cur_seed_usd = st.session_state.get('seed_usd', CFG.SEED_USD)
+        seed_usd_input = st.number_input(
+            "시드 (USD)",
+            min_value=100.0, max_value=10_000_000.0,
+            value=float(cur_seed_usd), step=100.0,
+            key="seed_usd_input_sidebar",
+            label_visibility="collapsed",
+        )
+        if abs(seed_usd_input - cur_seed_usd) > 0.01:
+            st.session_state['seed_usd'] = seed_usd_input
+            st.rerun()
 
         # ── 통계 막대 단위 (탭3 일별손익 + 자산추이 공통) ──
         st.caption("자산 추이 단위")
@@ -3915,30 +3936,45 @@ def render_overview_panel(
     )
 
     # ── 3. 자산 추이 통합 카드 (매매 일지 위로 이동) (시드 대비 누적 막대) ──
+    # 모든 계산 달러 기반 — 환율 변동 영향 제거
     equity_series = st.session_state.get('equity_series_cache')
-    seed_krw = CFG.SEED_KRW / 10000
+    seed_usd = get_seed_usd()
+    seed_krw_man_approx = seed_usd * usd_krw / 10000   # 현재 환율 기준 원화 환산 (참고용)
 
-    # 카드 헤더 - 시드/평가/손익률
+    # 카드 헤더 - 시드/평가/손익률 (USD 메인 + KRW 병기)
     if portfolio_pnl is not None:
-        cur_value_krw = (CFG.SEED_KRW + portfolio_pnl * usd_krw) / 10000
-        ret_pct = portfolio_pnl * usd_krw / CFG.SEED_KRW * 100
+        # 달러 기반 계산
+        cur_value_usd = seed_usd + portfolio_pnl
+        ret_pct = portfolio_pnl / seed_usd * 100
         ret_color = pnl_color(ret_pct)
+        # 원화 환산 (참고용, 현재 환율)
+        cur_value_krw_man = cur_value_usd * usd_krw / 10000
         pnl_krw_man = portfolio_pnl * usd_krw / 10000
+
         header_summary = (
             f"<div style='font-size:0.7rem;color:#6b7280;margin-bottom:2px;'>"
-            f"시드 {int(round(seed_krw)):,}만 → 평가 "
+            f"시드 <b>${seed_usd:,.0f}</b> "
+            f"<span style='color:#9ca3af;'>(≈{int(round(seed_krw_man_approx)):,}만원)</span>"
+            f" → 평가 "
             f"<span style='color:{ret_color};font-weight:700;'>"
-            f"{int(round(cur_value_krw)):,}만원</span></div>"
+            f"${cur_value_usd:,.0f}</span>"
+            f" <span style='color:#9ca3af;'>(≈{int(round(cur_value_krw_man)):,}만원)</span>"
+            f"</div>"
             f"<div style='font-size:1rem;color:{ret_color};font-weight:800;"
-            f"margin-bottom:6px;'>"
-            f"{signed_str(int(round(pnl_krw_man)), '{:,}')}만원 "
+            f"margin-bottom:2px;'>"
+            f"{signed_str(int(round(portfolio_pnl)), '${:,}')} "
             f"<span style='font-size:0.85rem;'>({signed_str(round(ret_pct), '{:d}')}%)</span>"
+            f"</div>"
+            f"<div style='font-size:0.65rem;color:#9ca3af;margin-bottom:6px;'>"
+            f"≈ {signed_str(int(round(pnl_krw_man)), '{:,}')}만원"
             f"</div>"
         )
     else:
         header_summary = (
             f"<div style='font-size:0.85rem;color:#6b7280;margin-bottom:6px;'>"
-            f"시드 {int(round(seed_krw)):,}만원</div>"
+            f"시드 <b>${seed_usd:,.0f}</b> "
+            f"<span style='color:#9ca3af;'>(≈{int(round(seed_krw_man_approx)):,}만원)</span>"
+            f"</div>"
         )
 
     # DD/MDD 텍스트
@@ -3985,26 +4021,26 @@ def render_overview_panel(
         unsafe_allow_html=True,
     )
 
-    # 시드 대비 누적 손익 막대 그래프
+    # 시드 대비 누적 손익 막대 그래프 (USD 단위)
     if equity_series is not None and not equity_series.empty:
-        seed_usd = CFG.SEED_KRW / usd_krw
-        # 시드 대비 누적 손익 (KRW 만원)
-        pnl_krw_series = (equity_series * usd_krw) / 10000  # equity = USD 누적손익
+        # equity_series = USD 누적 손익 시계열
+        # 막대 차트 Y축: USD 단위
+        pnl_usd_series = equity_series.copy()
 
         # 일/주/월 단위로 마지막 값 추출 (누적값이라 resample.last())
         if bar_unit == '일':
-            last_idx = pnl_krw_series.index.max()
+            last_idx = pnl_usd_series.index.max()
             first_idx = last_idx - pd.Timedelta(days=20 * 2)
             full_idx = pd.date_range(first_idx, last_idx, freq='D')
-            equity_resampled = pnl_krw_series.reindex(
+            equity_resampled = pnl_usd_series.reindex(
                 full_idx, method='ffill'
             ).iloc[-20:]
         elif bar_unit == '주':
-            equity_resampled = pnl_krw_series.resample(
+            equity_resampled = pnl_usd_series.resample(
                 'W-MON', label='left', closed='left'
             ).last().dropna().iloc[-20:]
         else:  # 월
-            equity_resampled = pnl_krw_series.resample('MS').last().dropna().iloc[-20:]
+            equity_resampled = pnl_usd_series.resample('MS').last().dropna().iloc[-20:]
 
         if not equity_resampled.empty:
             # 막대 색: 양수=빨강 (시드 위), 음수=파랑 (시드 아래)
@@ -4025,7 +4061,7 @@ def render_overview_panel(
                 x=x_labels_eq,
                 y=equity_resampled.values,
                 marker_color=bar_colors_eq,
-                hovertemplate='%{x}<br>%{y:,.0f}만원<extra></extra>',
+                hovertemplate='%{x}<br>$%{y:,.0f}<extra></extra>',
                 showlegend=False,
             ))
             fig_eq.add_hline(y=0, line_color='#9ca3af', line_width=0.8)
