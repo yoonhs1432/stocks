@@ -1979,20 +1979,20 @@ def render_sidebar(
         )
         guide_n = 4
 
-        # ── 시드 (달러) 입력 ──
-        # 환전 시점 달러 시드 (예: 3,000만원 / 환율 1,500 = $20,000)
-        st.caption("시드 ($)")
-        cur_seed_usd = st.session_state.get('seed_usd', CFG.SEED_USD)
-        seed_usd_input = st.number_input(
-            "시드 (USD)",
-            min_value=100.0, max_value=10_000_000.0,
-            value=float(cur_seed_usd), step=100.0,
-            key="seed_usd_input_sidebar",
-            label_visibility="collapsed",
-        )
-        if abs(seed_usd_input - cur_seed_usd) > 0.01:
-            st.session_state['seed_usd'] = seed_usd_input
-            st.rerun()
+        # ── 시드 (달러) 입력 — 로그인 시에만 ──
+        if is_authenticated():
+            st.caption("시드 ($)")
+            cur_seed_usd = st.session_state.get('seed_usd', CFG.SEED_USD)
+            seed_usd_input = st.number_input(
+                "시드 (USD)",
+                min_value=100.0, max_value=10_000_000.0,
+                value=float(cur_seed_usd), step=100.0,
+                key="seed_usd_input_sidebar",
+                label_visibility="collapsed",
+            )
+            if abs(seed_usd_input - cur_seed_usd) > 0.01:
+                st.session_state['seed_usd'] = seed_usd_input
+                st.rerun()
 
         # ── 통계 막대 단위 (탭3 일별손익 + 자산추이 공통) ──
         st.caption("자산 추이 단위")
@@ -3145,26 +3145,26 @@ def render_position_tracker(
 
     ts = portfolio_state.get(selected_ticker)
 
-    # 매매 기록 없는 경우
+    # 매매 기록 없는 경우 — 정보 카드 (로그인 시에만)
     if ts is None or ts['cycle']['cycle_start'] is None or ts['cycle']['buy_qty'] == 0:
-        price_html = (
-            html_metric("현재가", f"${current_price:,.2f}")
-            if current_price is not None else html_dash_cell("현재가")
-        )
         if phase in ('top', 'all'):
-            # 헤더 + 정보 카드 (σ 바 제거)
             st.markdown(header_html, unsafe_allow_html=True)
-            st.markdown(f"""
-            <div style='display:flex;gap:12px;flex-wrap:wrap;margin:0 0 8px 0;
-                        padding:8px 12px;background:#f3f4f6;
-                        border:1px solid #d1d5db;border-radius:8px;font-size:0.78rem;'>
-              {price_html}
-              {html_dash_cell("평균단가")}
-              {html_dash_cell("보유수량")}
-              {html_dash_cell("보유기간")}
-              {html_dash_cell("평가손익")}
-              {html_dash_cell("누적실현손익")}
-            </div>""", unsafe_allow_html=True)
+            if is_authenticated():
+                price_html = (
+                    html_metric("현재가", f"${current_price:,.2f}")
+                    if current_price is not None else html_dash_cell("현재가")
+                )
+                st.markdown(f"""
+                <div style='display:flex;gap:12px;flex-wrap:wrap;margin:0 0 8px 0;
+                            padding:8px 12px;background:#f3f4f6;
+                            border:1px solid #d1d5db;border-radius:8px;font-size:0.78rem;'>
+                  {price_html}
+                  {html_dash_cell("평균단가")}
+                  {html_dash_cell("보유수량")}
+                  {html_dash_cell("보유기간")}
+                  {html_dash_cell("평가손익")}
+                  {html_dash_cell("누적실현손익")}
+                </div>""", unsafe_allow_html=True)
         return
 
     cyc = ts['cycle']
@@ -3230,19 +3230,21 @@ def render_position_tracker(
     border_c = '#86efac' if hold_qty > 0 else '#d1d5db'
 
     if phase in ('top', 'all'):
-        # 헤더 + 정보 카드 (σ 바 제거)
+        # 헤더 (σ, β, Z, M) — 항상 표시
         st.markdown(header_html, unsafe_allow_html=True)
-        st.markdown(f"""
-        <div style='display:flex;gap:12px;flex-wrap:wrap;margin:0 0 8px 0;
-                    padding:8px 12px;background:{bg_color};
-                    border:1px solid {border_c};border-radius:8px;font-size:0.78rem;'>
-          {price_html}
-          {avg_html}
-          {qty_html}
-          {period_html}
-          {pnl_html}
-          {cumulative_html}
-        </div>""", unsafe_allow_html=True)
+        # 정보 카드 (현재가/평균단가/보유 등) — 로그인 시에만
+        if is_authenticated():
+            st.markdown(f"""
+            <div style='display:flex;gap:12px;flex-wrap:wrap;margin:0 0 8px 0;
+                        padding:8px 12px;background:{bg_color};
+                        border:1px solid {border_c};border-radius:8px;font-size:0.78rem;'>
+              {price_html}
+              {avg_html}
+              {qty_html}
+              {period_html}
+              {pnl_html}
+              {cumulative_html}
+            </div>""", unsafe_allow_html=True)
 
 
 # ====================================================
@@ -3856,6 +3858,10 @@ def render_analytics_panel(
     std_resid: Optional[float] = None,
 ) -> None:
     """차트 아래 expander (세로 stack, 모바일 친화)."""
+
+    # 인증 가드: 비로그인 시 개인 정보 표시 안 함
+    if not is_authenticated():
+        return
 
     # ── #1 사이클 통계 + #5 진행 게이지 ──
     with st.expander("📈 사이클 통계", expanded=False):
