@@ -209,6 +209,41 @@ class TickerState(TypedDict):
 # ====================================================
 # 3. 유틸리티
 # ====================================================
+# ─────────────────────── 인증 (간단 비밀번호 보호) ───────────────────────
+# 개인 정보 (매매 기록, 평가, 자산 추이) 는 로그인 후에만 표시.
+# 종목 분석, 그래프, Z+M, MACD/RSI 등 시장 정보는 비로그인도 볼 수 있음.
+
+import hashlib
+
+# salt + 비밀번호의 sha256 hash (코드/git에 평문 비밀번호 X)
+_AUTH_SALT = "quant_dashboard_2026"
+_AUTH_HASH_FALLBACK = (
+    "d23564ed156d528873bcb00378b20e2610000502010879ec7edfa661ef4016b8"
+)
+
+
+def _get_auth_hash() -> str:
+    """비밀번호 hash 반환. st.secrets 우선, 없으면 코드 fallback."""
+    try:
+        return st.secrets["auth"]["password_hash"]
+    except Exception:
+        return _AUTH_HASH_FALLBACK
+
+
+def _hash_password(pw: str) -> str:
+    return hashlib.sha256((_AUTH_SALT + pw).encode()).hexdigest()
+
+
+def verify_password(pw: str) -> bool:
+    """입력 비밀번호 검증."""
+    return _hash_password(pw) == _get_auth_hash()
+
+
+def is_authenticated() -> bool:
+    """현재 세션이 로그인 상태인지."""
+    return st.session_state.get('authenticated', False)
+
+
 def display_name(ticker: str) -> str:
     return TICKER_DISPLAY_NAMES.get(ticker, ticker)
 
@@ -1862,6 +1897,43 @@ def render_sidebar(
     portfolio_state: dict[str, TickerState],
 ) -> dict:
     with st.sidebar:
+        # ─────────── 로그인 영역 (개인 정보 보호) ───────────
+        if is_authenticated():
+            # 로그인 상태: 로그아웃 버튼
+            c_a, c_b = st.columns([3, 1])
+            with c_a:
+                st.markdown(
+                    "<div style='font-size:0.7rem;color:#16a34a;padding-top:4px;'>"
+                    "🔓 로그인됨</div>",
+                    unsafe_allow_html=True,
+                )
+            with c_b:
+                if st.button("⏏", key="logout_btn", help="로그아웃"):
+                    st.session_state.pop('authenticated', None)
+                    st.rerun()
+        else:
+            # 비로그인: 로그인 폼 (collapsed expander로 작게)
+            with st.expander("🔐 로그인", expanded=False):
+                pw_input = st.text_input(
+                    "비밀번호",
+                    type="password",
+                    key="login_pw_input",
+                    label_visibility="collapsed",
+                    placeholder="비밀번호",
+                )
+                if st.button("로그인", key="login_submit_btn",
+                             use_container_width=True):
+                    if pw_input and verify_password(pw_input):
+                        st.session_state['authenticated'] = True
+                        st.rerun()
+                    else:
+                        st.error("비밀번호 오류")
+                st.caption("개인 정보 (매매/평가) 는 로그인 후 표시")
+        st.markdown(
+            "<div style='border-bottom:1px solid #e5e7eb;margin:4px 0 8px 0;'></div>",
+            unsafe_allow_html=True,
+        )
+
         portfolio_pnl = st.session_state.get('portfolio_pnl_cache')
         usd_krw = st.session_state.get('usd_krw_cache', CFG.USD_KRW_FALLBACK)
         usd_krw_fallback = st.session_state.get('usd_krw_fallback', False)
@@ -2017,7 +2089,15 @@ def render_sidebar(
 
             st.caption("매매 기록은 삭제되지 않음 (자산 추이/실현손익엔 반영)")
 
-        # 매매 기록 (메모는 매매 시점에 함께 입력)
+        # 매매 기록 (메모는 매매 시점에 함께 입력) — 로그인 시에만
+        if not is_authenticated():
+            st.caption("🔒 매매 입력 및 기록 보기는 로그인 후 가능")
+            return {
+                'analysis_start': analysis_start.strip(),
+                'view_months': int(view_months),
+                'guide_n': guide_n,
+                'candle_type': candle_type,
+            }
         with st.container():
             ticker_options = (
                 TARGET_TICKERS if selected_ticker in TARGET_TICKERS
@@ -2667,7 +2747,8 @@ def render_chart(
                 return True
         return False
 
-    for trade in st.session_state.trade_history.get(selected_ticker, []):
+    for trade in (st.session_state.trade_history.get(selected_ticker, [])
+                  if is_authenticated() else []):
         t_date = pd.to_datetime(trade['date'])
         try:
             t_date_d = datetime.date.fromisoformat(trade['date'])
@@ -2805,7 +2886,8 @@ def render_chart(
                     return True
             return False
 
-        for trade in st.session_state.trade_history.get(selected_ticker, []):
+        for trade in (st.session_state.trade_history.get(selected_ticker, [])
+                      if is_authenticated() else []):
             try:
                 t_date_d = datetime.date.fromisoformat(trade['date'])
             except Exception:
@@ -4765,8 +4847,10 @@ def main() -> None:
         with btn_col:
             for ticker in sorted_tickers:
                 pct = pct_changes.get(ticker, 0)
-                # ★ = 현재 보유 중, ☆ = 매매 이력만 있고 보유 0
-                if ticker in holding_tickers:
+                # ★ = 현재 보유 중, ☆ = 매매 이력만 (로그인 시에만 표시)
+                if not is_authenticated():
+                    star = ""
+                elif ticker in holding_tickers:
                     star = "★ "
                 elif ticker in history_tickers:
                     star = "☆ "
@@ -5203,7 +5287,19 @@ def main() -> None:
     # 탭 3: 전체 통계 (시드/실현/비중/달력/자산추이)
     # ====================================================
     with tab3:
-        render_overview_panel(portfolio_state, df_close, all_analyses)
+        if not is_authenticated():
+            st.markdown(
+                "<div style='padding:32px 16px;text-align:center;color:#6b7280;'>"
+                "<div style='font-size:2rem;margin-bottom:8px;'>🔒</div>"
+                "<div style='font-weight:600;color:#374151;margin-bottom:4px;'>"
+                "포트폴리오 정보는 로그인 후 표시됩니다</div>"
+                "<div style='font-size:0.8rem;'>"
+                "사이드바의 🔐 로그인 버튼을 사용하세요</div>"
+                "</div>",
+                unsafe_allow_html=True,
+            )
+        else:
+            render_overview_panel(portfolio_state, df_close, all_analyses)
 
     st.markdown("<div style='height:80px;'></div>", unsafe_allow_html=True)
 
