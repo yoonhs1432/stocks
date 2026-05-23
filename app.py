@@ -243,8 +243,8 @@ def verify_password(pw: str) -> bool:
 
 
 def is_authenticated() -> bool:
-    """현재 세션이 로그인 상태인지."""
-    return st.session_state.get('authenticated', False)
+    """로그인 기능 비활성화 — 항상 True (개인 데이터 자유롭게 표시)."""
+    return True
 
 
 # ─── 쿠키 자동 로그인 (30일) ───
@@ -2000,44 +2000,7 @@ def render_sidebar(
 ) -> dict:
     # 사이드바 → 탭4(설정)로 이전. 들여쓰기 유지를 위해 container 컨텍스트 사용.
     with st.container():
-        # ─────────── 로그인 영역 (개인 정보 보호) ───────────
-        if is_authenticated():
-            # 로그인 상태: 로그아웃 버튼
-            c_a, c_b = st.columns([3, 1])
-            with c_a:
-                st.markdown(
-                    "<div style='font-size:0.7rem;color:#16a34a;padding-top:4px;'>"
-                    "🔓 로그인됨</div>",
-                    unsafe_allow_html=True,
-                )
-            with c_b:
-                if st.button("⏏", key="logout_btn", help="로그아웃"):
-                    st.session_state.pop('authenticated', None)
-                    clear_auth_cookie()
-                    st.rerun()
-        else:
-            # 비로그인: 로그인 폼 (collapsed expander로 작게)
-            with st.expander("🔐 로그인", expanded=False):
-                pw_input = st.text_input(
-                    "비밀번호",
-                    type="password",
-                    key="login_pw_input",
-                    label_visibility="collapsed",
-                    placeholder="비밀번호",
-                )
-                if st.button("로그인", key="login_submit_btn",
-                             use_container_width=True):
-                    if pw_input and verify_password(pw_input):
-                        st.session_state['authenticated'] = True
-                        save_auth_cookie()
-                        st.rerun()
-                    else:
-                        st.error("비밀번호 오류")
-                st.caption("로그인 시 30일 자동 유지 · 개인 정보(매매/평가)는 로그인 후 표시")
-        st.markdown(
-            "<div style='border-bottom:1px solid #e5e7eb;margin:4px 0 8px 0;'></div>",
-            unsafe_allow_html=True,
-        )
+        # 로그인 기능 비활성화 (사용자 요청) — 항상 인증 상태로 동작
 
         portfolio_pnl = st.session_state.get('portfolio_pnl_cache')
         usd_krw = st.session_state.get('usd_krw_cache', CFG.USD_KRW_FALLBACK)
