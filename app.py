@@ -4564,31 +4564,9 @@ def build_css(selected_option: str, holding_tickers: set) -> str:
         --text-lg:   1rem;    --text-xl: 1.2rem;
     }}
 
-    /* ─────────── Streamlit 기본 UI 숨김 (앱 같은 느낌) ─────────── */
-    #MainMenu {{ visibility: hidden !important; }}
+    /* ─────────── Streamlit 기본 UI 숨김 (보수적: footer만) ─────────── */
+    /* 주의: stToolbar/header 안의 selector를 가리면 사이드바 토글이 사라짐 */
     footer {{ visibility: hidden !important; }}
-    /* header는 사이드바 토글이 들어있어 절대 숨기지 않음 */
-    header[data-testid="stHeader"] {{
-        background: transparent !important;
-    }}
-    [data-testid="stToolbar"],
-    [data-testid="stDecoration"],
-    [data-testid="stStatusWidget"],
-    [data-testid="stAppDeployButton"],
-    .stDeployButton,
-    .stAppDeployButton,
-    [class*="viewerBadge"],
-    [class*="_terminalButton_"],
-    a[href*="share.streamlit"],
-    a[href*="streamlit.io"] {{ display: none !important; }}
-
-    /* 사이드바 토글 버튼은 반드시 보이게 (header 숨김에 영향받지 않도록) */
-    [data-testid="stSidebarCollapsedControl"],
-    [data-testid="collapsedControl"],
-    button[kind="header"] {{
-        display: flex !important;
-        visibility: visible !important;
-    }}
 
     /* ─────────── 공통 카드 클래스 ─────────── */
     .app-card {{
@@ -4616,7 +4594,7 @@ def build_css(selected_option: str, holding_tickers: set) -> str:
     }}
 
     .block-container {{
-        padding-top:2.5rem!important; padding-bottom:0.5rem!important; max-width:100%!important;
+        padding-top:3.5rem!important; padding-bottom:0.5rem!important; max-width:100%!important;
     }}
     section[data-testid="stMain"] div[data-testid="stHorizontalBlock"] {{
         flex-wrap:nowrap!important; gap:5px!important; align-items:flex-start!important;
