@@ -2082,83 +2082,7 @@ def render_sidebar(
 
             st.caption("매매 기록은 삭제되지 않음 (자산 추이/실현손익엔 반영)")
 
-        # 매매 기록 (메모는 매매 시점에 함께 입력) — 로그인 시에만
-        if not is_authenticated():
-            st.caption("🔒 매매 입력 및 기록 보기는 로그인 후 가능")
-            return {
-                'analysis_start': analysis_start.strip(),
-                'view_months': int(view_months),
-                'guide_n': guide_n,
-                'candle_type': candle_type,
-            }
-        # ── 매매 기록 입력 (expander 박스) ──
-        with st.expander("📝 매매 기록 입력", expanded=True):
-            ticker_options = (
-                TARGET_TICKERS if selected_ticker in TARGET_TICKERS
-                else [selected_ticker] + TARGET_TICKERS
-            )
-            t_ticker = st.selectbox("종목", ticker_options, index=ticker_options.index(selected_ticker))
-            t_date = st.date_input("날짜", datetime.date.today())
-            t_type = st.radio("종류", ['buy', 'sell'], horizontal=True)
-            t_col1, t_col2 = st.columns(2)
-            t_qty = t_col1.number_input("수량", min_value=0, value=0, step=1, format="%d")
-            t_price = t_col2.number_input("단가($)", min_value=0.0, value=0.0, step=0.01, format="%.4f")
-            t_memo = st.text_input(
-                "메모 (선택)", value="", key="trade_memo_input",
-                placeholder="예: 추세선 -2σ 매수, 익절 등",
-            )
-            if st.button("💾 기록 저장", key="trade_save_btn",
-                         type="primary", use_container_width=True):
-                record = {'date': t_date.strftime("%Y-%m-%d"), 'type': t_type}
-                if t_qty > 0:
-                    record['qty'] = int(t_qty)
-                if t_price > 0:
-                    record['price'] = t_price
-                if t_memo.strip():
-                    record['memo'] = t_memo.strip()
-                st.session_state.trade_history.setdefault(t_ticker, []).append(record)
-                save_trade_history(st.session_state.trade_history)
-                st.markdown(
-                    "<script>if(navigator.vibrate){navigator.vibrate(50);}</script>",
-                    unsafe_allow_html=True,
-                )
-                st.success("저장 완료!")
-                st.rerun()
-
-        # ── 매매 기록 삭제 / 메모 편집 (expander, 기본 접힘) ──
-        with st.expander("🗑️ 매매 기록 삭제 / 메모 편집", expanded=False):
-            history = st.session_state.trade_history
-            if selected_ticker in history and history[selected_ticker]:
-                for i, record in enumerate(history[selected_ticker]):
-                    qty_str = f" {record['qty']}주" if record.get('qty') else ""
-                    prc_str = f" @${record['price']:.2f}" if record.get('price') else ""
-                    type_icon = '🔴' if record['type'] == 'buy' else '🔵'
-                    label = f"{type_icon} {record['date']} {record['type'].upper()}{qty_str}{prc_str}"
-                    st.markdown(f"<div style='font-size:0.78rem;color:var(--text-primary);"
-                                f"margin-top:6px;'>{label}</div>",
-                                unsafe_allow_html=True)
-                    # 메모 편집 (인라인)
-                    cur_memo = record.get('memo', '')
-                    new_memo = st.text_input(
-                        "메모", value=cur_memo,
-                        key=f"trade_memo_edit_{selected_ticker}_{i}",
-                        label_visibility="collapsed",
-                        placeholder="메모 (편집 후 엔터)",
-                    )
-                    if new_memo.strip() != cur_memo:
-                        if new_memo.strip():
-                            st.session_state.trade_history[selected_ticker][i]['memo'] = new_memo.strip()
-                        elif 'memo' in record:
-                            del st.session_state.trade_history[selected_ticker][i]['memo']
-                        save_trade_history(st.session_state.trade_history)
-                        st.rerun()
-                    if st.button(f"✕ 삭제 ({record['date']})", key=f"del_{selected_ticker}_{i}",
-                                 use_container_width=True):
-                        st.session_state.trade_history[selected_ticker].pop(i)
-                        save_trade_history(st.session_state.trade_history)
-                        st.rerun()
-            else:
-                st.caption("매매 기록이 없습니다.")
+        # 매매 기록 입력/삭제는 탭1(종목 분석) 사이클 통계 위로 이전됨
 
     return {
         'analysis_start': analysis_start.strip(),
@@ -2166,6 +2090,91 @@ def render_sidebar(
         'guide_n': guide_n,
         'candle_type': candle_type,
     }
+
+
+def render_trade_record_section(selected_ticker: str) -> None:
+    """매매 기록 입력 + 삭제 expander 섹션 (탭1 차트 아래)."""
+    if not is_authenticated():
+        return
+
+    # ── 매매 기록 입력 (expander 박스) ──
+    with st.expander("📝 매매 기록 입력", expanded=False):
+        ticker_options = (
+            TARGET_TICKERS if selected_ticker in TARGET_TICKERS
+            else [selected_ticker] + TARGET_TICKERS
+        )
+        t_ticker = st.selectbox(
+            "종목", ticker_options,
+            index=ticker_options.index(selected_ticker),
+            key=f"trade_t_ticker_{selected_ticker}",
+        )
+        t_date = st.date_input("날짜", datetime.date.today(),
+                               key=f"trade_t_date_{selected_ticker}")
+        t_type = st.radio("종류", ['buy', 'sell'], horizontal=True,
+                          key=f"trade_t_type_{selected_ticker}")
+        t_col1, t_col2 = st.columns(2)
+        t_qty = t_col1.number_input(
+            "수량", min_value=0, value=0, step=1, format="%d",
+            key=f"trade_t_qty_{selected_ticker}",
+        )
+        t_price = t_col2.number_input(
+            "단가($)", min_value=0.0, value=0.0, step=0.01, format="%.4f",
+            key=f"trade_t_price_{selected_ticker}",
+        )
+        t_memo = st.text_input(
+            "메모 (선택)", value="",
+            key=f"trade_memo_input_{selected_ticker}",
+            placeholder="예: 추세선 -2σ 매수, 익절 등",
+        )
+        if st.button("💾 기록 저장",
+                     key=f"trade_save_btn_{selected_ticker}",
+                     type="primary", use_container_width=True):
+            record = {'date': t_date.strftime("%Y-%m-%d"), 'type': t_type}
+            if t_qty > 0:
+                record['qty'] = int(t_qty)
+            if t_price > 0:
+                record['price'] = t_price
+            if t_memo.strip():
+                record['memo'] = t_memo.strip()
+            st.session_state.trade_history.setdefault(t_ticker, []).append(record)
+            save_trade_history(st.session_state.trade_history)
+            st.success("저장 완료!")
+            st.rerun()
+
+    # ── 매매 기록 삭제 / 메모 편집 ──
+    with st.expander("🗑️ 매매 기록 삭제 / 메모 편집", expanded=False):
+        history = st.session_state.trade_history
+        if selected_ticker in history and history[selected_ticker]:
+            for i, record in enumerate(history[selected_ticker]):
+                qty_str = f" {record['qty']}주" if record.get('qty') else ""
+                prc_str = f" @${record['price']:.2f}" if record.get('price') else ""
+                type_icon = '🔴' if record['type'] == 'buy' else '🔵'
+                label = f"{type_icon} {record['date']} {record['type'].upper()}{qty_str}{prc_str}"
+                st.markdown(f"<div style='font-size:0.78rem;color:var(--text-primary);"
+                            f"margin-top:6px;'>{label}</div>",
+                            unsafe_allow_html=True)
+                cur_memo = record.get('memo', '')
+                new_memo = st.text_input(
+                    "메모", value=cur_memo,
+                    key=f"trade_memo_edit_{selected_ticker}_{i}",
+                    label_visibility="collapsed",
+                    placeholder="메모 (편집 후 엔터)",
+                )
+                if new_memo.strip() != cur_memo:
+                    if new_memo.strip():
+                        st.session_state.trade_history[selected_ticker][i]['memo'] = new_memo.strip()
+                    elif 'memo' in record:
+                        del st.session_state.trade_history[selected_ticker][i]['memo']
+                    save_trade_history(st.session_state.trade_history)
+                    st.rerun()
+                if st.button(f"✕ 삭제 ({record['date']})",
+                             key=f"del_{selected_ticker}_{i}",
+                             use_container_width=True):
+                    st.session_state.trade_history[selected_ticker].pop(i)
+                    save_trade_history(st.session_state.trade_history)
+                    st.rerun()
+        else:
+            st.caption("매매 기록이 없습니다.")
 
 
 # ====================================================
@@ -3994,6 +4003,9 @@ def render_analytics_panel(
     if not is_authenticated():
         return
 
+    # ── 매매 기록 입력 / 삭제 (사이클 통계 위) ──
+    render_trade_record_section(selected_ticker)
+
     # ── #1 사이클 통계 + #5 진행 게이지 ──
     with st.expander("📈 사이클 통계", expanded=False):
         records = st.session_state.trade_history.get(selected_ticker, [])
@@ -4410,42 +4422,40 @@ def render_overview_panel(
                             config={'displayModeBar': False, 'staticPlot': True})
 
 
-    # ── 4. 매매 일지 + 신호 분석 ──
+    # ── 4. 매매 일지 + 신호 분석 (expander) ──
     if all_analyses is not None:
         journal = build_trade_journal(
             st.session_state.trade_history, all_analyses, df_close,
         )
         if journal:
-            # 종목별 필터 selectbox
-            journal_tickers = sorted({e['ticker'] for e in journal})
-            filter_options = ['전체'] + [display_name(tk) + f" ({tk})" for tk in journal_tickers]
-            ticker_label_to_code = {
-                display_name(tk) + f" ({tk})": tk for tk in journal_tickers
-            }
-            filter_label = st.selectbox(
-                "종목 필터",
-                filter_options,
-                index=0,
-                key="tab3_journal_filter",
-                label_visibility='collapsed',
-            )
-            filter_ticker = (
-                ticker_label_to_code.get(filter_label) if filter_label != '전체' else None
-            )
-
-            jhtml = _build_journal_html(
-                journal, {},
-                show_ticker=(filter_ticker is None),
-                filter_ticker=filter_ticker,
-                title="📓 매매 일지" + (
-                    f" — {display_name(filter_ticker)}" if filter_ticker else ""
-                ),
-            )
-            if jhtml:
-                st.markdown(
-                    f"<div class='app-card'>{jhtml}</div>",
-                    unsafe_allow_html=True,
+            with st.expander(f"📓 매매 일지 ({len(journal)}건)", expanded=False):
+                # 종목별 필터 selectbox
+                journal_tickers = sorted({e['ticker'] for e in journal})
+                filter_options = ['전체'] + [display_name(tk) + f" ({tk})" for tk in journal_tickers]
+                ticker_label_to_code = {
+                    display_name(tk) + f" ({tk})": tk for tk in journal_tickers
+                }
+                filter_label = st.selectbox(
+                    "종목 필터",
+                    filter_options,
+                    index=0,
+                    key="tab3_journal_filter",
+                    label_visibility='collapsed',
                 )
+                filter_ticker = (
+                    ticker_label_to_code.get(filter_label) if filter_label != '전체' else None
+                )
+
+                jhtml = _build_journal_html(
+                    journal, {},
+                    show_ticker=(filter_ticker is None),
+                    filter_ticker=filter_ticker,
+                    title="📓 매매 일지" + (
+                        f" — {display_name(filter_ticker)}" if filter_ticker else ""
+                    ),
+                )
+                if jhtml:
+                    st.markdown(jhtml, unsafe_allow_html=True)
 
             # 메모 편집 expander (전체)
             recent_journal = sorted(journal, key=lambda x: x['date'], reverse=True)
