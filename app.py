@@ -3064,7 +3064,25 @@ def render_chart(
 
         # 사분면 분할선 + 그래프 3과 동일한 Z/M 임계선
         # X축 (Z) 임계선
-        # Z-M 산점도 임계선 제거 (사용자 요청)
+        # Z-M 산점도 임계선 — 실선만 복구 (점선은 제거)
+        threshold_lines_solid = [
+            (10, '#2563eb', 0.7),   # 강 매수 임계
+            (50, '#8b949e', 0.5),   # 중립
+            (90, '#dc2626', 0.7),   # 강 매도 임계
+        ]
+        for val, lc, lw in threshold_lines_solid:
+            # X축 임계선 (세로)
+            fig.add_shape(
+                type='line', x0=val, x1=val, y0=0, y1=100,
+                line=dict(color=lc, width=lw),
+                row=zm_row, col=1, layer='below',
+            )
+            # Y축 임계선 (가로)
+            fig.add_shape(
+                type='line', x0=0, x1=100, y0=val, y1=val,
+                line=dict(color=lc, width=lw),
+                row=zm_row, col=1, layer='below',
+            )
 
         # 산점도 — 시간 색 (viridis)
         fig.add_trace(go.Scatter(
