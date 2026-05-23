@@ -2490,27 +2490,10 @@ def render_chart(
 
             avg_buy_norm = c['avg_buy'] * scale_p
 
-            # 진행 중 사이클: 평균 매수가 작은 점선 + 매수 마커
+            # 진행 중 사이클: 매수가 점선 제거 (사용자 요청)
             if is_active:
                 end_ts = last_date_in_data
-                fig.add_trace(go.Scatter(
-                    x=[start_ts, end_ts],
-                    y=[avg_buy_norm, avg_buy_norm],
-                    mode='lines',
-                    line=dict(color='#f97316', width=1.2, dash='dot'),
-                    hoverinfo='skip', showlegend=False,
-                ), row=row, col=1)
-                # 매도가 일부 있으면 함께
-                if c.get('avg_sell') and c.get('first_sell_date'):
-                    first_sell_ts = pd.Timestamp(c['first_sell_date'])
-                    avg_sell_norm = c['avg_sell'] * scale_p
-                    fig.add_trace(go.Scatter(
-                        x=[first_sell_ts, end_ts],
-                        y=[avg_sell_norm, avg_sell_norm],
-                        mode='lines',
-                        line=dict(color='#2563eb', width=1.2, dash='dot'),
-                        hoverinfo='skip', showlegend=False,
-                    ), row=row, col=1)
+                # 매도가 점선 제거 (사용자 요청)
 
             # 완료된 사이클: 평균 매수 → 평균 매도 화살표
             elif c.get('avg_sell'):
