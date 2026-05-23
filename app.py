@@ -2951,10 +2951,51 @@ def render_chart(
             ),
             name=f"{trade['type'].upper()} ({t_date.date()})", hoverinfo='skip',
         ), row=1, col=1)
-        # vline은 시간축 패널만 (price~rsi = row 4~7)
-        # plot_order: main(1), zm_scatter(2), spacer(3), price(4), zscore(5), macd(6), rsi(7)
-        # 점선 + 옅은 opacity로 캔들 가독성 보호
-        for r in range(4, total_rows + 1):
+
+        # ── 가격(row 4) · Z+M(row 5) 풍선 마커 (원 + ▲/▼) ──
+        idx_d = df_daily.index.get_indexer([t_date], method='nearest')[0]
+        d_d = df_daily.index[idx_d]
+        arrow = '▲' if is_buy else '▼'
+
+        # 가격 패널 풍선 마커
+        if 'Plot_Norm_Ticker' in df_daily.columns:
+            y_price = df_daily.loc[d_d, 'Plot_Norm_Ticker']
+            if pd.notna(y_price):
+                fig.add_trace(go.Scatter(
+                    x=[d_d], y=[y_price],
+                    mode='markers+text',
+                    marker=dict(
+                        symbol='circle', size=14, color=base_color,
+                        opacity=m_opacity,
+                        line=dict(width=1.5, color='#ffffff'),
+                    ),
+                    text=[arrow],
+                    textfont=dict(size=9, color='#ffffff'),
+                    textposition='middle center',
+                    hoverinfo='skip', showlegend=False,
+                ), row=4, col=1)
+
+        # Z+M 패널 풍선 마커 (Z 백분위 위치)
+        if 'Z_Score' in df_daily.columns:
+            z_raw = df_daily.loc[d_d, 'Z_Score']
+            if pd.notna(z_raw):
+                y_z = max(0, min(100, (z_raw + 2.5) / 5.0 * 100))
+                fig.add_trace(go.Scatter(
+                    x=[d_d], y=[y_z],
+                    mode='markers+text',
+                    marker=dict(
+                        symbol='circle', size=14, color=base_color,
+                        opacity=m_opacity,
+                        line=dict(width=1.5, color='#ffffff'),
+                    ),
+                    text=[arrow],
+                    textfont=dict(size=9, color='#ffffff'),
+                    textposition='middle center',
+                    hoverinfo='skip', showlegend=False,
+                ), row=5, col=1)
+
+        # vline은 가격(row 4) + Z+M(row 5)만 — MACD/RSI는 제거
+        for r in (4, 5):
             fig.add_vline(
                 x=t_date, line_dash="dot", line_width=1.5,
                 line_color=base_color, opacity=vline_opacity * 0.5, row=r, col=1,
