@@ -3364,7 +3364,9 @@ def render_position_tracker(
                 st.markdown(f"""
                 <div style='display:flex;gap:12px;flex-wrap:wrap;margin:0 0 8px 0;
                             padding:8px 12px;background:#000000;
-                            border:1px solid #30363d;border-radius:8px;font-size:0.78rem;'>
+                            border:1.5px solid #6b7280;border-radius:8px;
+                            box-shadow:0 0 0 1px rgba(255,255,255,0.04);
+                            font-size:0.78rem;'>
                   {price_html}
                   {html_dash_cell("평균단가")}
                   {html_dash_cell("보유수량")}
@@ -3433,8 +3435,9 @@ def render_position_tracker(
         if has_cumulative else html_dash_cell("누적실현손익")
     )
 
-    bg_color = '#f0fdf4' if hold_qty > 0 else '#f3f4f6'
-    border_c = '#86efac' if hold_qty > 0 else '#d1d5db'
+    # 카드: 검정 배경 (보유 유무 무관) + 보유 시 녹색 border로만 구분
+    bg_color = '#000000'
+    border_c = '#3fb950' if hold_qty > 0 else '#6b7280'
 
     if phase in ('top', 'all'):
         # 헤더 (σ, β, Z, M) — 항상 표시
@@ -3444,7 +3447,9 @@ def render_position_tracker(
             st.markdown(f"""
             <div style='display:flex;gap:12px;flex-wrap:wrap;margin:0 0 8px 0;
                         padding:8px 12px;background:{bg_color};
-                        border:1px solid {border_c};border-radius:8px;font-size:0.78rem;'>
+                        border:1.5px solid {border_c};border-radius:8px;
+                        box-shadow:0 0 0 1px rgba(255,255,255,0.04);
+                        font-size:0.78rem;'>
               {price_html}
               {avg_html}
               {qty_html}
