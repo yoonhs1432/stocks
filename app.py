@@ -2251,7 +2251,8 @@ def render_chart(
         x=[sc_df[f'{X_ASSET_FIXED}_Norm'].iloc[-1]],
         y=[sc_df[f'{selected_ticker}_Norm'].iloc[-1]],
         mode='markers',
-        marker=dict(symbol='star', color='hotpink', size=12, line=dict(color='black', width=1)),
+        marker=dict(symbol='diamond', color='#fbbf24', size=11,
+                    line=dict(color='white', width=2)),
         name='Current',
     ), row=row, col=1)
 
@@ -2775,21 +2776,32 @@ def render_chart(
         ), row=1, col=1)
         # vline은 시간축 패널만 (price~rsi = row 4~7)
         # plot_order: main(1), zm_scatter(2), spacer(3), price(4), zscore(5), macd(6), rsi(7)
+        # 점선 + 옅은 opacity로 캔들 가독성 보호
         for r in range(4, total_rows + 1):
             fig.add_vline(
-                x=t_date, line_dash="solid", line_width=1,
-                line_color=base_color, opacity=vline_opacity, row=r, col=1,
+                x=t_date, line_dash="dot", line_width=1.5,
+                line_color=base_color, opacity=vline_opacity * 0.5, row=r, col=1,
                 layer='below',
             )
 
-    # 별표 (현재 위치) — 매매 마커보다 위 layer로 표시
+    # 현재 위치 — 매매 마커보다 위 layer (앰버 후광 + 다이아몬드)
+    # 후광 (반투명 큰 원)
+    fig.add_trace(go.Scatter(
+        x=[sc_df[f'{X_ASSET_FIXED}_Norm'].iloc[-1]],
+        y=[sc_df[f'{selected_ticker}_Norm'].iloc[-1]],
+        mode='markers',
+        marker=dict(symbol='circle', color='rgba(251,191,36,0.25)',
+                    size=26, line=dict(width=0)),
+        hoverinfo='skip', showlegend=False,
+    ), row=1, col=1)
+    # 본체 (앰버 다이아몬드)
     fig.add_trace(go.Scatter(
         x=[sc_df[f'{X_ASSET_FIXED}_Norm'].iloc[-1]],
         y=[sc_df[f'{selected_ticker}_Norm'].iloc[-1]],
         mode='markers',
         marker=dict(
-            symbol='star', color='hotpink', size=14,
-            line=dict(color='black', width=1.5),
+            symbol='diamond', color='#fbbf24', size=12,
+            line=dict(color='white', width=2),
         ),
         name='Current_Top', hoverinfo='skip', showlegend=False,
     ), row=1, col=1)
@@ -2921,13 +2933,22 @@ def render_chart(
                 hoverinfo='skip', showlegend=False,
             ), row=zm_row, col=1)
 
-        # 현재 위치 별표 (매매 마커보다 위 layer)
+        # 현재 위치 — 매매 마커보다 위 layer (앰버 후광 + 다이아몬드)
+        # 후광
+        fig.add_trace(go.Scatter(
+            x=[zm_x[-1]], y=[zm_y[-1]],
+            mode='markers',
+            marker=dict(symbol='circle', color='rgba(251,191,36,0.25)',
+                        size=26, line=dict(width=0)),
+            hoverinfo='skip', showlegend=False,
+        ), row=zm_row, col=1)
+        # 본체
         fig.add_trace(go.Scatter(
             x=[zm_x[-1]], y=[zm_y[-1]],
             mode='markers',
             marker=dict(
-                symbol='star', color='hotpink', size=14,
-                line=dict(color='black', width=1.5),
+                symbol='diamond', color='#fbbf24', size=12,
+                line=dict(color='white', width=2),
             ),
             hovertemplate=(
                 f'<b>현재</b><br>Z: %{{x:.0f}}<br>M: %{{y:.0f}}<extra></extra>'
