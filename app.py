@@ -2447,16 +2447,22 @@ def render_chart(
             x=ohlc_norm.index,
             open=ohlc_norm['Open'], high=ohlc_norm['High'],
             low=ohlc_norm['Low'], close=ohlc_norm['Close'],
-            increasing=dict(line=dict(color='#dc2626', width=1), fillcolor='#dc2626'),
-            decreasing=dict(line=dict(color='#1d4ed8', width=1), fillcolor='#1d4ed8'),
+            increasing=dict(line=dict(color='#f85149', width=1), fillcolor='#f85149'),
+            decreasing=dict(line=dict(color='#58a6ff', width=1), fillcolor='#58a6ff'),
             showlegend=False, hoverinfo='skip',
+        ), row=row, col=1)
+        # 캔들 위 종가 라인 오버레이 (흰색 얇은 라인)
+        fig.add_trace(go.Scatter(
+            x=df_daily.index, y=df_daily['Plot_Norm_Ticker'],
+            mode='lines', line=dict(color='#e6edf3', width=1.2),
+            hoverinfo='skip', showlegend=False,
         ), row=row, col=1)
         # 캔들 rangeslider 끄기 - price row의 xaxis 동적 매칭
         fig.update_layout(**{f'xaxis{row}_rangeslider_visible': False})
     else:
         fig.add_trace(go.Scatter(
             x=df_daily.index, y=df_daily['Plot_Norm_Ticker'],
-            mode='lines', line=dict(color='#adbac7', width=1.5), name=selected_ticker,
+            mode='lines', line=dict(color='#e6edf3', width=1.5), name=selected_ticker,
         ), row=row, col=1)
 
     # SPY 라인 제거됨 (사용자 요청)
@@ -2537,11 +2543,37 @@ def render_chart(
     fig.add_annotation(
         x=0, y=1, xref='x domain', yref='y domain',
         text=f"<b>${df_daily[f'{selected_ticker}_Close'].iloc[-1]:,.2f}</b>",
-        showarrow=False, font=dict(size=11, color='#adbac7'),
+        showarrow=False, font=dict(size=11, color='#e6edf3'),
         xanchor='left', yanchor='top',
-        bgcolor='#161b22', bordercolor='#adbac7', borderwidth=1, borderpad=2,
+        bgcolor='rgba(22,27,34,0.85)', bordercolor='#30363d',
+        borderwidth=1, borderpad=2,
         row=row, col=1,
     )
+    # 우측 현재가 말풍선
+    last_close_disp = float(df_daily['Plot_Norm_Ticker'].iloc[-1])
+    last_close_raw = float(df_daily[f'{selected_ticker}_Close'].iloc[-1])
+    fig.add_annotation(
+        x=df_daily.index[-1], y=last_close_disp,
+        text=f" ${last_close_raw:,.2f} ", showarrow=False,
+        font=dict(size=10, color='#0d1117'),
+        bgcolor='#fbbf24', bordercolor='#fbbf24', borderwidth=1, borderpad=3,
+        xanchor='left', yanchor='middle', xshift=6,
+        row=row, col=1,
+    )
+    # 매수평균가 말풍선 (진행 중 사이클이 있을 때)
+    if cycles_g2:
+        active_cycle = next((c for c in cycles_g2 if c['is_active']), None)
+        if active_cycle and active_cycle.get('avg_buy'):
+            avg_buy_disp = active_cycle['avg_buy'] * scale_p
+            fig.add_annotation(
+                x=df_daily.index[-1], y=avg_buy_disp,
+                text=f" ${active_cycle['avg_buy']:,.2f} ", showarrow=False,
+                font=dict(size=9, color='#ffffff'),
+                bgcolor='#f97316', bordercolor='#f97316',
+                borderwidth=1, borderpad=2,
+                xanchor='left', yanchor='middle', xshift=6,
+                row=row, col=1,
+            )
     time_x_axis = f'x{row}'
     row += 1
 
@@ -2592,16 +2624,42 @@ def render_chart(
                     hoverinfo='skip', showlegend=False,
                 ), row=row, col=1)
 
-            # ── Z 실선 (검정) — 임계선보다 굵게 ──
+            # ── 면적: Z > 70 (Z+1σ↑) 빨강 / Z < 30 (Z-1σ↓) 파랑 ──
+            fig.add_trace(go.Scatter(
+                x=df_daily.index, y=[70]*len(df_daily),
+                mode='lines', line=dict(color='rgba(0,0,0,0)', width=0),
+                hoverinfo='skip', showlegend=False,
+            ), row=row, col=1)
+            fig.add_trace(go.Scatter(
+                x=df_daily.index,
+                y=z_series.where(z_series > 70, other=70),
+                mode='lines', line=dict(color='rgba(0,0,0,0)', width=0),
+                fill='tonexty', fillcolor='rgba(248,81,73,0.25)',
+                hoverinfo='skip', showlegend=False,
+            ), row=row, col=1)
+            fig.add_trace(go.Scatter(
+                x=df_daily.index, y=[30]*len(df_daily),
+                mode='lines', line=dict(color='rgba(0,0,0,0)', width=0),
+                hoverinfo='skip', showlegend=False,
+            ), row=row, col=1)
+            fig.add_trace(go.Scatter(
+                x=df_daily.index,
+                y=z_series.where(z_series < 30, other=30),
+                mode='lines', line=dict(color='rgba(0,0,0,0)', width=0),
+                fill='tonexty', fillcolor='rgba(88,166,255,0.25)',
+                hoverinfo='skip', showlegend=False,
+            ), row=row, col=1)
+
+            # ── Z 실선 (밝은 톤 — 다크 배경) ──
             fig.add_trace(go.Scatter(
                 x=df_daily.index, y=z_series,
                 mode='lines',
-                line=dict(color='#111827', width=2.0, shape='spline', smoothing=0.5),
+                line=dict(color='#e6edf3', width=2.0, shape='spline', smoothing=0.5),
                 name='Z', hoverinfo='skip', showlegend=False,
                 connectgaps=True,
             ), row=row, col=1)
 
-            # ── 모멘텀 실선 (주황) — Z와 같은 Y축 (척도 동일) ──
+            # ── 모멘텀 실선 (주황) — Z와 같은 Y축 ──
             fig.add_trace(go.Scatter(
                 x=df_daily.index, y=momentum_series,
                 mode='lines',
@@ -2612,20 +2670,32 @@ def render_chart(
 
             last_v = z_series.iloc[-1]
             val = float(last_v) if pd.notna(last_v) else 0.0
+            last_m = momentum_series.iloc[-1]
+            mval = float(last_m) if pd.notna(last_m) else 50.0
 
             # ── 범례 (좌측 상단) ──
             fig.add_annotation(
                 x=0, y=1, xref='x domain', yref='y domain',
                 text=(
-                    "<span style='color:#111827;'>━ Z</span>"
+                    "<span style='color:#e6edf3;'>━ Z</span>"
                     "  "
                     "<span style='color:#f97316;'>━ M</span>"
                 ),
                 showarrow=False,
-                font=dict(size=11),
+                font=dict(size=10),
                 xanchor='left', yanchor='top',
-                bgcolor='rgba(255,255,255,0.85)', bordercolor='#d1d5db',
-                borderwidth=1, borderpad=3,
+                bgcolor='rgba(22,27,34,0.85)', bordercolor='#30363d',
+                borderwidth=1, borderpad=2,
+                row=row, col=1,
+            )
+            # ── 우측 현재값 말풍선 (Z) ──
+            z_pill_color = '#f85149' if val >= 70 else '#58a6ff' if val <= 30 else '#e6edf3'
+            fig.add_annotation(
+                x=df_daily.index[-1], y=val,
+                text=f" Z{val:.0f} ", showarrow=False,
+                font=dict(size=10, color='#0d1117' if z_pill_color == '#e6edf3' else '#ffffff'),
+                bgcolor=z_pill_color, bordercolor=z_pill_color, borderwidth=1, borderpad=3,
+                xanchor='left', yanchor='middle', xshift=6,
                 row=row, col=1,
             )
         else:
@@ -2644,11 +2714,11 @@ def render_chart(
                 connectgaps=True,
             ), row=row, col=1)
 
-            # Signal 라인 (검정) — MACD 위에 그림 (사용자 요청)
+            # Signal 라인 (밝은 톤 — 다크 배경) — MACD 위에 그림
             fig.add_trace(go.Scatter(
                 x=df_daily.index, y=signal_series,
                 mode='lines',
-                line=dict(color='#111827', width=1.5, shape='spline', smoothing=0.5),
+                line=dict(color='#e6edf3', width=1.5, shape='spline', smoothing=0.5),
                 name='Signal', hoverinfo='skip', showlegend=False,
                 connectgaps=True,
             ), row=row, col=1)
@@ -2658,9 +2728,23 @@ def render_chart(
                 x=[df_daily.index[0], df_daily.index[-1]],
                 y=[0, 0],
                 mode='lines',
-                line=dict(color='#9ca3af', width=0.5),
+                line=dict(color='#768390', width=0.5),
                 hoverinfo='skip', showlegend=False,
             ), row=row, col=1)
+
+            # 우측 현재값 말풍선 (MACD)
+            last_macd = macd_series.iloc[-1] if not macd_series.empty else 0.0
+            macd_val = float(last_macd) if pd.notna(last_macd) else 0.0
+            macd_pill_color = '#f85149' if macd_val < 0 else '#58a6ff'
+            fig.add_annotation(
+                x=df_daily.index[-1], y=macd_val,
+                text=f" {macd_val:.2f} ", showarrow=False,
+                font=dict(size=10, color='#ffffff'),
+                bgcolor=macd_pill_color, bordercolor=macd_pill_color,
+                borderwidth=1, borderpad=3,
+                xanchor='left', yanchor='middle', xshift=6,
+                row=row, col=1,
+            )
 
             # ── MACD-Signal 교차점 화살표 ──
             # hist = MACD - Signal
@@ -2789,15 +2873,14 @@ def render_chart(
 
         row += 1
 
-    # ── RSI 패널: RSI-50 (0 중심) + 0 대칭 자동 범위 ──
-    rsi_series = (df_daily['RSI'] - 50).fillna(0)
+    # ── RSI 패널: 0-100 범위 + 70/30 면적 ──
+    rsi_series = df_daily['RSI'].fillna(50)
 
-    # 임계 수평선: ±20 (RSI 70 / 30 에 해당)
-    # 0 = 중립
+    # 임계 수평선: 70 (과매수) / 50 (중립) / 30 (과매도)
     for y_val, lc, ld, lw in [
-        (CFG.RSI_OVERBOUGHT - 50, '#dc2626', 'solid', 0.7),   # +20 빨강 (RSI 70)
-        (0,                       '#9ca3af', 'solid', 0.5),   # 중립
-        (CFG.RSI_OVERSOLD - 50,   '#2563eb', 'solid', 0.7),   # -20 파랑 (RSI 30)
+        (CFG.RSI_OVERBOUGHT, '#f85149', 'solid', 0.7),
+        (50,                 '#768390', 'solid', 0.5),
+        (CFG.RSI_OVERSOLD,   '#58a6ff', 'solid', 0.7),
     ]:
         fig.add_trace(go.Scatter(
             x=[df_daily.index[0], df_daily.index[-1]],
@@ -2807,11 +2890,38 @@ def render_chart(
             hoverinfo='skip', showlegend=False,
         ), row=row, col=1)
 
-    # RSI 라인 (청록)
+    # 면적: RSI > 70 빨강 / RSI < 30 파랑
+    # baseline + clipped 라인의 fill='tonexty'
+    fig.add_trace(go.Scatter(
+        x=df_daily.index, y=[CFG.RSI_OVERBOUGHT]*len(df_daily),
+        mode='lines', line=dict(color='rgba(0,0,0,0)', width=0),
+        hoverinfo='skip', showlegend=False,
+    ), row=row, col=1)
+    fig.add_trace(go.Scatter(
+        x=df_daily.index,
+        y=rsi_series.where(rsi_series > CFG.RSI_OVERBOUGHT, other=CFG.RSI_OVERBOUGHT),
+        mode='lines', line=dict(color='rgba(0,0,0,0)', width=0),
+        fill='tonexty', fillcolor='rgba(248,81,73,0.28)',
+        hoverinfo='skip', showlegend=False,
+    ), row=row, col=1)
+    fig.add_trace(go.Scatter(
+        x=df_daily.index, y=[CFG.RSI_OVERSOLD]*len(df_daily),
+        mode='lines', line=dict(color='rgba(0,0,0,0)', width=0),
+        hoverinfo='skip', showlegend=False,
+    ), row=row, col=1)
+    fig.add_trace(go.Scatter(
+        x=df_daily.index,
+        y=rsi_series.where(rsi_series < CFG.RSI_OVERSOLD, other=CFG.RSI_OVERSOLD),
+        mode='lines', line=dict(color='rgba(0,0,0,0)', width=0),
+        fill='tonexty', fillcolor='rgba(88,166,255,0.28)',
+        hoverinfo='skip', showlegend=False,
+    ), row=row, col=1)
+
+    # RSI 라인 (청록) — 면적 위에 그림
     fig.add_trace(go.Scatter(
         x=df_daily.index, y=rsi_series,
         mode='lines',
-        line=dict(color='#0891b2', width=2.0, shape='spline', smoothing=0.5),
+        line=dict(color='#22d3ee', width=2.0, shape='spline', smoothing=0.5),
         name='RSI', hoverinfo='skip', showlegend=False,
         connectgaps=True,
     ), row=row, col=1)
@@ -2819,22 +2929,29 @@ def render_chart(
     last_rsi = df_daily['RSI'].iloc[-1]
     rsi_val = float(last_rsi) if pd.notna(last_rsi) else 50.0
     rsi_color = (
-        '#dc2626' if rsi_val >= CFG.RSI_OVERBOUGHT
-        else '#2563eb' if rsi_val <= CFG.RSI_OVERSOLD else '#0891b2'
+        '#f85149' if rsi_val >= CFG.RSI_OVERBOUGHT
+        else '#58a6ff' if rsi_val <= CFG.RSI_OVERSOLD else '#22d3ee'
     )
+    # 좌측 상단 RSI 라벨
     fig.add_annotation(
         x=0, y=1, xref='x domain', yref='y domain',
-        text=f"<b>RSI  {rsi_val:.1f}</b>", showarrow=False,
-        font=dict(size=11, color=rsi_color), xanchor='left', yanchor='top',
-        bgcolor='#161b22', bordercolor='#adbac7', borderwidth=1, borderpad=2,
+        text=f"<b>RSI</b>", showarrow=False,
+        font=dict(size=10, color=rsi_color), xanchor='left', yanchor='top',
+        bgcolor='rgba(22,27,34,0.85)', bordercolor=rsi_color, borderwidth=1, borderpad=2,
         row=row, col=1,
     )
-    # Y축: 0 대칭, view 범위 내 데이터의 max 기반 자동 조절
-    view_rsi = rsi_series.loc[rsi_series.index >= view_start]
-    rsi_abs_max = max(float(view_rsi.abs().max()) if not view_rsi.empty else 0, 25.0)
-    rsi_abs_max *= 1.1
+    # 우측 현재값 말풍선
+    fig.add_annotation(
+        x=df_daily.index[-1], y=rsi_val,
+        text=f" {rsi_val:.1f} ", showarrow=False,
+        font=dict(size=10, color='#ffffff'),
+        bgcolor=rsi_color, bordercolor=rsi_color, borderwidth=1, borderpad=3,
+        xanchor='left', yanchor='middle', xshift=6,
+        row=row, col=1,
+    )
+    # Y축: 0-100 고정
     fig.update_yaxes(
-        range=[-rsi_abs_max, rsi_abs_max],
+        range=[0, 100],
         autorange=False, fixedrange=True, row=row, col=1,
     )
 
