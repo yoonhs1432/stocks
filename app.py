@@ -459,7 +459,7 @@ def html_dash_cell(label: str) -> str:
 def html_progress_bar(width_pct: float, color: str, height: int = 7) -> str:
     """단일 색상 진행바."""
     return (
-        f"<div style='flex:1;background:#e5e7eb;border-radius:3px;height:{height}px;'>"
+        f"<div style='flex:1;background:#30363d;border-radius:3px;height:{height}px;'>"
         f"<div style='width:{max(width_pct, 0):.1f}%;background:{color};"
         f"border-radius:3px;height:{height}px;'></div></div>"
     )
@@ -1805,7 +1805,7 @@ def _build_realized_html(
             f"<div style='position:absolute;left:50%;top:0;bottom:0;width:1px;"
             f"background:#9ca3af;z-index:2;'></div>"
             # 좌측 영역 (손실)
-            f"<div style='width:50%;height:7px;background:#f3f4f6;"
+            f"<div style='width:50%;height:7px;background:#30363d;"
             f"border-radius:3px 0 0 3px;display:flex;justify-content:flex-end;"
             f"overflow:hidden;'>"
             + (
@@ -1815,7 +1815,7 @@ def _build_realized_html(
             )
             + f"</div>"
             # 우측 영역 (이익)
-            f"<div style='width:50%;height:7px;background:#f3f4f6;"
+            f"<div style='width:50%;height:7px;background:#30363d;"
             f"border-radius:0 3px 3px 0;display:flex;justify-content:flex-start;"
             f"overflow:hidden;'>"
             + (
@@ -1972,7 +1972,7 @@ def _build_alloc_html(
             f"<div style='display:flex;align-items:center;gap:5px;margin-bottom:4px;'>"
             f"<div style='font-size:0.7rem;color:{COLOR_TEXT};width:42px;"
             f"flex-shrink:0;font-weight:600;'>{display_name(tk)}</div>"
-            f"<div style='flex:1;background:#f3f4f6;border-radius:3px;height:7px;"
+            f"<div style='flex:1;background:#30363d;border-radius:3px;height:7px;"
             f"display:flex;align-items:center;overflow:hidden;min-width:0;'>"
             f"{bar_inner}"
             f"</div>"
@@ -2061,22 +2061,28 @@ def render_sidebar(
             index=1 if st.session_state.candle_type == '주봉' else 0,
         )
 
-        st.caption("분석 시작일")
         today = datetime.date.today()
         presets = [('6개월', 182), ('1년', 365), ('1년6개월', 548), ('2년', 730)]
-        p_cols = st.columns(len(presets))
-        for pc, (plabel, pdays) in zip(p_cols, presets):
-            pdate = (today - datetime.timedelta(days=pdays)).strftime('%y-%m')
-            is_active = st.session_state.analysis_start == pdate
-            if pc.button(
-                plabel, key=f"astart_{plabel}", use_container_width=True,
-                type="primary" if is_active else "secondary",
-            ):
-                st.session_state.analysis_start = pdate
-                s = load_settings()
-                s['analysis_start'] = pdate
-                save_settings(s)
-                st.rerun()
+        preset_labels = [p[0] for p in presets]
+        preset_dates = [
+            (today - datetime.timedelta(days=d)).strftime('%y-%m')
+            for _, d in presets
+        ]
+        try:
+            cur_idx = preset_dates.index(st.session_state.analysis_start)
+        except ValueError:
+            cur_idx = 1
+        choice_lbl = st.radio(
+            "분석 시작일", preset_labels, index=cur_idx, horizontal=True,
+            key="analysis_start_radio",
+        )
+        new_date = preset_dates[preset_labels.index(choice_lbl)]
+        if new_date != st.session_state.analysis_start:
+            st.session_state.analysis_start = new_date
+            s = load_settings()
+            s['analysis_start'] = new_date
+            save_settings(s)
+            st.rerun()
         analysis_start = st.session_state.analysis_start
         view_months = st.number_input(
             "차트 조회 기간 (최근 N개월)", min_value=1, max_value=240,
@@ -2549,32 +2555,6 @@ def render_chart(
         borderwidth=1, borderpad=2,
         row=row, col=1,
     )
-    # 우측 현재가 말풍선 (paper x=1로 차트 우측 끝 고정)
-    last_close_disp = float(df_daily['Plot_Norm_Ticker'].iloc[-1])
-    last_close_raw = float(df_daily[f'{selected_ticker}_Close'].iloc[-1])
-    fig.add_annotation(
-        xref=f'x{row} domain', yref=f'y{row}',
-        x=1, y=last_close_disp,
-        text=f" ${last_close_raw:,.2f} ", showarrow=False,
-        font=dict(size=10, color='#0d1117'),
-        bgcolor='#fbbf24', bordercolor='#fbbf24', borderwidth=1, borderpad=3,
-        xanchor='left', yanchor='middle', xshift=4,
-    )
-    # 매수평균가 말풍선 (진행 중 사이클이 있을 때)
-    if cycles_g2:
-        active_cycle = next((c for c in cycles_g2 if c['is_active']), None)
-        if active_cycle and active_cycle.get('avg_buy'):
-            avg_buy_disp = active_cycle['avg_buy'] * scale_p
-            fig.add_annotation(
-                xref=f'x{row} domain', yref=f'y{row}',
-                x=1, y=avg_buy_disp,
-                text=f"${active_cycle['avg_buy']:,.2f}<br><span style='font-size:8px;'>매수단가</span>",
-                showarrow=False,
-                font=dict(size=9, color='#ffffff'),
-                bgcolor='#f97316', bordercolor='#f97316',
-                borderwidth=1, borderpad=3,
-                xanchor='left', yanchor='middle', xshift=4,
-            )
     time_x_axis = f'x{row}'
     row += 1
 
@@ -2674,29 +2654,19 @@ def render_chart(
             last_m = momentum_series.iloc[-1]
             mval = float(last_m) if pd.notna(last_m) else 50.0
 
-            # ── 범례 (좌측 상단) ──
+            # ── 좌측 상단: 현재 Z, M 값 ──
             fig.add_annotation(
                 x=0, y=1, xref='x domain', yref='y domain',
                 text=(
-                    "<span style='color:#e6edf3;'>━ Z</span>"
-                    "  "
-                    "<span style='color:#f97316;'>━ M</span>"
+                    f"<span style='color:#e6edf3;'>Z {val:.0f}</span>"
+                    "  ·  "
+                    f"<span style='color:#f97316;'>M {mval:.0f}</span>"
                 ),
                 showarrow=False,
                 font=dict(size=10),
                 xanchor='left', yanchor='top',
                 bgcolor='rgba(22,27,34,0.85)', bordercolor='#30363d',
                 borderwidth=1, borderpad=2,
-                row=row, col=1,
-            )
-            # ── 우측 현재값 말풍선 (Z) ──
-            z_pill_color = '#f85149' if val >= 70 else '#58a6ff' if val <= 30 else '#e6edf3'
-            fig.add_annotation(
-                x=df_daily.index[-1], y=val,
-                text=f" Z{val:.0f} ", showarrow=False,
-                font=dict(size=10, color='#0d1117' if z_pill_color == '#e6edf3' else '#ffffff'),
-                bgcolor=z_pill_color, bordercolor=z_pill_color, borderwidth=1, borderpad=3,
-                xanchor='left', yanchor='middle', xshift=6,
                 row=row, col=1,
             )
         else:
@@ -2715,11 +2685,11 @@ def render_chart(
                 connectgaps=True,
             ), row=row, col=1)
 
-            # Signal 라인 (밝은 톤 — 다크 배경) — MACD 위에 그림
+            # Signal 라인 (얇은 흰색) — MACD 위에 그림
             fig.add_trace(go.Scatter(
                 x=df_daily.index, y=signal_series,
                 mode='lines',
-                line=dict(color='#e6edf3', width=1.5, shape='spline', smoothing=0.5),
+                line=dict(color='#e6edf3', width=0.8, shape='spline', smoothing=0.5),
                 name='Signal', hoverinfo='skip', showlegend=False,
                 connectgaps=True,
             ), row=row, col=1)
@@ -2733,17 +2703,18 @@ def render_chart(
                 hoverinfo='skip', showlegend=False,
             ), row=row, col=1)
 
-            # 우측 현재값 말풍선 (MACD)
+            # 좌측 상단 MACD 현재값
             last_macd = macd_series.iloc[-1] if not macd_series.empty else 0.0
             macd_val = float(last_macd) if pd.notna(last_macd) else 0.0
-            macd_pill_color = '#f85149' if macd_val < 0 else '#58a6ff'
+            macd_color = '#f85149' if macd_val < 0 else '#58a6ff'
             fig.add_annotation(
-                x=df_daily.index[-1], y=macd_val,
-                text=f" {macd_val:.2f} ", showarrow=False,
-                font=dict(size=10, color='#ffffff'),
-                bgcolor=macd_pill_color, bordercolor=macd_pill_color,
-                borderwidth=1, borderpad=3,
-                xanchor='left', yanchor='middle', xshift=6,
+                x=0, y=1, xref='x domain', yref='y domain',
+                text=f"<b>MACD {macd_val:.2f}</b>",
+                showarrow=False,
+                font=dict(size=10, color=macd_color),
+                xanchor='left', yanchor='top',
+                bgcolor='rgba(22,27,34,0.85)', bordercolor=macd_color,
+                borderwidth=1, borderpad=2,
                 row=row, col=1,
             )
 
@@ -2933,21 +2904,12 @@ def render_chart(
         '#f85149' if rsi_val >= CFG.RSI_OVERBOUGHT
         else '#58a6ff' if rsi_val <= CFG.RSI_OVERSOLD else '#22d3ee'
     )
-    # 좌측 상단 RSI 라벨
+    # 좌측 상단 RSI 현재값
     fig.add_annotation(
         x=0, y=1, xref='x domain', yref='y domain',
-        text=f"<b>RSI</b>", showarrow=False,
+        text=f"<b>RSI {rsi_val:.1f}</b>", showarrow=False,
         font=dict(size=10, color=rsi_color), xanchor='left', yanchor='top',
         bgcolor='rgba(22,27,34,0.85)', bordercolor=rsi_color, borderwidth=1, borderpad=2,
-        row=row, col=1,
-    )
-    # 우측 현재값 말풍선
-    fig.add_annotation(
-        x=df_daily.index[-1], y=rsi_val,
-        text=f" {rsi_val:.1f} ", showarrow=False,
-        font=dict(size=10, color='#ffffff'),
-        bgcolor=rsi_color, bordercolor=rsi_color, borderwidth=1, borderpad=3,
-        xanchor='left', yanchor='middle', xshift=6,
         row=row, col=1,
     )
     # Y축: 0-100 고정
@@ -3232,7 +3194,7 @@ def render_chart(
     fig.update_traces(hoverinfo='skip')
     fig.update_layout(
         height=total_h, showlegend=False, hovermode=False,
-        dragmode='pan', margin=dict(l=2, r=58, t=10, b=20),
+        dragmode='pan', margin=dict(l=2, r=2, t=10, b=20),
         paper_bgcolor='#0d1117', plot_bgcolor='#161b22', uirevision='constant',
         font=dict(color='#e6edf3', size=10),
     )
@@ -3410,7 +3372,7 @@ def render_position_tracker(
                 )
                 st.markdown(f"""
                 <div style='display:flex;gap:12px;flex-wrap:wrap;margin:0 0 8px 0;
-                            padding:8px 12px;background:#f3f4f6;
+                            padding:8px 12px;background:#30363d;
                             border:1px solid #d1d5db;border-radius:8px;font-size:0.78rem;'>
                   {price_html}
                   {html_dash_cell("평균단가")}
@@ -4193,7 +4155,7 @@ def render_analytics_panel(
                         f"<div style='display:flex;align-items:center;gap:6px;margin-bottom:5px;'>"
                         f"<div style='width:90px;font-size:0.7rem;color:{value_color};font-weight:700;'>"
                         f"{cur_label}</div>"
-                        f"<div style='flex:1;background:#e5e7eb;border-radius:3px;height:8px;'>"
+                        f"<div style='flex:1;background:#30363d;border-radius:3px;height:8px;'>"
                         f"<div style='width:{bar_pct:.1f}%;background:{bar_color};"
                         f"border-radius:3px;height:8px;'></div></div>"
                         f"<div style='width:48px;font-size:0.65rem;color:var(--text-secondary);text-align:right;'>"
@@ -4401,10 +4363,16 @@ def render_overview_panel(
                 x_labels_eq = [d.strftime('%y.%m') for d in equity_resampled.index]
 
             fig_eq = go.Figure()
-            fig_eq.add_trace(go.Bar(
+            # 점 + 선 (라인 + 마커) — 막대 대신
+            fig_eq.add_trace(go.Scatter(
                 x=x_labels_eq,
                 y=equity_resampled.values,
-                marker_color=bar_colors_eq,
+                mode='lines+markers',
+                line=dict(color='#f85149', width=2, shape='spline', smoothing=0.4),
+                marker=dict(
+                    color=bar_colors_eq, size=7,
+                    line=dict(color='#0d1117', width=1),
+                ),
                 hovertemplate='%{x}<br>$%{y:,.0f}<extra></extra>',
                 showlegend=False,
             ))
@@ -4538,7 +4506,6 @@ def render_overview_panel(
                            zerolinewidth=0.8),
                 paper_bgcolor='#0d1117', plot_bgcolor='#161b22',
                 font=dict(color='#c9d1d9'),
-                bargap=0.15,
             )
             st.plotly_chart(fig_eq, use_container_width=True,
                             config={'displayModeBar': False, 'staticPlot': True})
@@ -4660,11 +4627,13 @@ def build_css(selected_option: str, holding_tickers: set) -> str:
         padding:0 2px!important; min-height:0!important; border-radius:3px!important;
         line-height:1!important; {di_border}
     }}
-    div.st-key-full_refresh_btn button {{
+    div.st-key-full_refresh_btn button,
+    div.st-key-full_refresh_btn button p,
+    div.st-key-full_refresh_btn button span {{
         height:1.7rem!important; min-height:0!important; border-radius:3px!important;
         font-size:0.62rem!important; font-weight:700!important; padding:0 2px!important;
         border:1px solid #cbd5e1!important; background:#f8fafc!important;
-        color:var(--text-primary)!important; line-height:1!important;
+        color:#0f172a!important; line-height:1!important;
     }}
     div.st-key-full_refresh_btn button:hover {{
         border-color:#94a3b8!important; background:#eef2f7!important; }}""")
@@ -4870,12 +4839,19 @@ def build_css(selected_option: str, holding_tickers: set) -> str:
 
     /* ─────────── Phase C: 탭 헤더 톤 통일 ─────────── */
     [data-testid="stTabs"] [role="tab"] {{
-        font-size: var(--text-base) !important;
-        padding: var(--space-2) var(--space-3) !important;
+        font-size: 0.72rem !important;
+        padding: 4px 6px !important;
+        min-width: 0 !important;
+        flex: 1 1 auto !important;
+    }}
+    [data-testid="stTabs"] [role="tablist"] {{
+        gap: 2px !important;
+        flex-wrap: nowrap !important;
+        overflow-x: visible !important;
     }}
     [data-testid="stTabs"] [role="tab"][aria-selected="true"] {{
         font-weight: 700 !important;
-        color: var(--accent-buy) !important;
+        color: var(--accent-warn) !important;
     }}
 
     .block-container {{
