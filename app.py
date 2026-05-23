@@ -4623,6 +4623,54 @@ def build_css(selected_option: str, holding_tickers: set) -> str:
         letter-spacing: -0.01em;
     }}
 
+    /* ─────────── 타이포 위계 통일 (탭 전체) ─────────── */
+    section[data-testid="stMain"] h3 {{
+        font-size: 0.95rem !important;
+        font-weight: 600 !important;
+        margin: var(--space-3) 0 var(--space-2) 0 !important;
+        color: var(--text-secondary) !important;
+        letter-spacing: -0.01em !important;
+    }}
+    /* 캡션(라벨 역할) 통일 */
+    section[data-testid="stMain"] [data-testid="stCaptionContainer"],
+    section[data-testid="stMain"] small {{
+        font-size: var(--text-sm) !important;
+        color: var(--text-secondary) !important;
+        margin-bottom: var(--space-1) !important;
+        font-weight: 500 !important;
+    }}
+    /* 라디오 라벨 */
+    section[data-testid="stMain"] .stRadio label p {{
+        font-size: var(--text-sm) !important;
+    }}
+    /* 입력 위젯 통일 */
+    section[data-testid="stMain"] .stNumberInput input,
+    section[data-testid="stMain"] .stTextInput input,
+    section[data-testid="stMain"] .stDateInput input,
+    section[data-testid="stMain"] .stSelectbox > div > div {{
+        font-size: var(--text-base) !important;
+        border-radius: var(--radius-md) !important;
+    }}
+
+    /* ─────────── 탭4 분석 시작일 버튼 컴팩트화 ─────────── */
+    div.st-key-astart_6개월 button,
+    div.st-key-astart_1년 button,
+    div.st-key-astart_1년6개월 button,
+    div.st-key-astart_2년 button {{
+        height: 2rem !important;
+        min-height: 0 !important;
+        padding: 0.2rem 0.4rem !important;
+        font-size: var(--text-sm) !important;
+        border-radius: var(--radius-sm) !important;
+    }}
+    div.st-key-add_ticker_btn button,
+    div.st-key-logout_btn button {{
+        height: 2rem !important;
+        min-height: 0 !important;
+        font-size: var(--text-sm) !important;
+        border-radius: var(--radius-sm) !important;
+    }}
+
     .block-container {{
         padding-top:0.8rem!important; padding-bottom:0.5rem!important; max-width:100%!important;
     }}
@@ -4631,8 +4679,8 @@ def build_css(selected_option: str, holding_tickers: set) -> str:
     }}
     section[data-testid="stMain"] div[data-testid="stHorizontalBlock"]
         > div[data-testid="stColumn"]:first-child {{
-        flex:0 0 88px!important; min-width:88px!important;
-        max-width:88px!important; padding:0!important;
+        flex:0 0 92px!important; min-width:92px!important;
+        max-width:92px!important; padding:0!important;
     }}
     section[data-testid="stMain"] div[data-testid="stHorizontalBlock"]
         > div[data-testid="stColumn"]:last-child {{
@@ -5464,7 +5512,7 @@ def main() -> None:
                 "<div style='font-weight:600;color:#374151;margin-bottom:4px;'>"
                 "포트폴리오 정보는 로그인 후 표시됩니다</div>"
                 "<div style='font-size:0.8rem;'>"
-                "사이드바의 🔐 로그인 버튼을 사용하세요</div>"
+                "⚙️ 설정 탭에서 로그인하세요</div>"
                 "</div>",
                 unsafe_allow_html=True,
             )
