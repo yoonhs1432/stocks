@@ -2940,10 +2940,39 @@ def render_chart(
         vline_opacity = 0.8 if is_active_cycle else 0.4
         idx_sc = sc_df.index.get_indexer([t_date], method='nearest')[0]
         d_sc = sc_df.index[idx_sc]
-        # ── 그래프 1 (회귀) 풍선 마커 ──
+        # ── 매매 가격 → 정규화 y값 변환 (실제 매매가 위치) ──
+        # trade['price'] 있으면 실제 매매가, 없으면 종가 fallback
+        idx_d = df_daily.index.get_indexer([t_date], method='nearest')[0]
+        d_d = df_daily.index[idx_d]
+        close_at = df_daily.loc[d_d, f'{selected_ticker}_Close']
+        norm_at = df_daily.loc[d_d, 'Plot_Norm_Ticker'] if 'Plot_Norm_Ticker' in df_daily.columns else None
+        norm_scale = (
+            float(norm_at) / float(close_at)
+            if pd.notna(norm_at) and pd.notna(close_at) and close_at > 0
+            else None
+        )
+        trade_price = trade.get('price')
+        y_trade_norm = (
+            trade_price * norm_scale
+            if trade_price and norm_scale else
+            (float(norm_at) if pd.notna(norm_at) else None)
+        )
+
+        # ── 그래프 1 (회귀) 풍선 마커 — 매매가 정규화 위치 ──
+        sc_norm_at = sc_df.loc[d_sc, f'{selected_ticker}_Norm']
+        sc_close_at = sc_df.loc[d_sc, f'{selected_ticker}_Close'] if f'{selected_ticker}_Close' in sc_df.columns else None
+        sc_scale = (
+            float(sc_norm_at) / float(sc_close_at)
+            if pd.notna(sc_norm_at) and sc_close_at is not None and pd.notna(sc_close_at) and sc_close_at > 0
+            else None
+        )
+        y_sc = (
+            trade_price * sc_scale
+            if trade_price and sc_scale else float(sc_norm_at)
+        )
         fig.add_trace(go.Scatter(
             x=[sc_df.loc[d_sc, f'{X_ASSET_FIXED}_Norm']],
-            y=[sc_df.loc[d_sc, f'{selected_ticker}_Norm']],
+            y=[y_sc],
             mode='markers+text',
             marker=dict(
                 symbol='circle', size=8, color=base_color,
@@ -2957,28 +2986,23 @@ def render_chart(
             showlegend=False,
         ), row=1, col=1)
 
-        # ── 가격(row 4) · Z+M(row 5) 풍선 마커 ──
-        idx_d = df_daily.index.get_indexer([t_date], method='nearest')[0]
-        d_d = df_daily.index[idx_d]
         arrow = '↑' if is_buy else '↓'
 
-        # 가격 패널 풍선 마커
-        if 'Plot_Norm_Ticker' in df_daily.columns:
-            y_price = df_daily.loc[d_d, 'Plot_Norm_Ticker']
-            if pd.notna(y_price):
-                fig.add_trace(go.Scatter(
-                    x=[d_d], y=[y_price],
-                    mode='markers+text',
-                    marker=dict(
-                        symbol='circle', size=8, color=base_color,
-                        opacity=m_opacity,
-                        line=dict(width=1, color='#ffffff'),
-                    ),
-                    text=[arrow],
-                    textfont=dict(size=9, color='#ffffff'),
-                    textposition='middle center',
-                    hoverinfo='skip', showlegend=False,
-                ), row=4, col=1)
+        # 가격 패널 (row 4) 풍선 마커 — 실제 매매가 위치
+        if y_trade_norm is not None:
+            fig.add_trace(go.Scatter(
+                x=[d_d], y=[y_trade_norm],
+                mode='markers+text',
+                marker=dict(
+                    symbol='circle', size=8, color=base_color,
+                    opacity=m_opacity,
+                    line=dict(width=1, color='#ffffff'),
+                ),
+                text=[arrow],
+                textfont=dict(size=9, color='#ffffff'),
+                textposition='middle center',
+                hoverinfo='skip', showlegend=False,
+            ), row=4, col=1)
 
         # Z+M 패널 풍선 마커 — M (모멘텀) 위치 사용
         if 'MACD_Pct' in df_daily.columns and 'RSI' in df_daily.columns:
