@@ -2363,8 +2363,8 @@ def render_chart(
         x=[sc_df[f'{X_ASSET_FIXED}_Norm'].iloc[-1]],
         y=[sc_df[f'{selected_ticker}_Norm'].iloc[-1]],
         mode='markers',
-        marker=dict(symbol='diamond', color='#fbbf24', size=11,
-                    line=dict(color='white', width=2)),
+        marker=dict(symbol='diamond', color='#ec4899', size=8,
+                    line=dict(color='#ffffff', width=1.5)),
         name='Current',
     ), row=row, col=1)
 
@@ -3012,22 +3012,14 @@ def render_chart(
 
     # 현재 위치 — 매매 마커보다 위 layer (앰버 후광 + 다이아몬드)
     # 후광 (반투명 큰 원)
-    fig.add_trace(go.Scatter(
-        x=[sc_df[f'{X_ASSET_FIXED}_Norm'].iloc[-1]],
-        y=[sc_df[f'{selected_ticker}_Norm'].iloc[-1]],
-        mode='markers',
-        marker=dict(symbol='circle', color='rgba(251,191,36,0.25)',
-                    size=26, line=dict(width=0)),
-        hoverinfo='skip', showlegend=False,
-    ), row=1, col=1)
-    # 본체 (앰버 다이아몬드)
+    # 현재 위치 — 후광 제거, 마젠타 다이아 (viridis와 차별)
     fig.add_trace(go.Scatter(
         x=[sc_df[f'{X_ASSET_FIXED}_Norm'].iloc[-1]],
         y=[sc_df[f'{selected_ticker}_Norm'].iloc[-1]],
         mode='markers',
         marker=dict(
-            symbol='diamond', color='#fbbf24', size=12,
-            line=dict(color='white', width=2),
+            symbol='diamond', color='#ec4899', size=8,
+            line=dict(color='#ffffff', width=1.5),
         ),
         name='Current_Top', hoverinfo='skip', showlegend=False,
     ), row=1, col=1)
@@ -3143,20 +3135,13 @@ def render_chart(
 
         # 현재 위치 — 매매 마커보다 위 layer (앰버 후광 + 다이아몬드)
         # 후광
-        fig.add_trace(go.Scatter(
-            x=[zm_x[-1]], y=[zm_y[-1]],
-            mode='markers',
-            marker=dict(symbol='circle', color='rgba(251,191,36,0.25)',
-                        size=26, line=dict(width=0)),
-            hoverinfo='skip', showlegend=False,
-        ), row=zm_row, col=1)
-        # 본체
+        # 현재 위치 — 후광 제거, 마젠타 다이아 (viridis와 차별)
         fig.add_trace(go.Scatter(
             x=[zm_x[-1]], y=[zm_y[-1]],
             mode='markers',
             marker=dict(
-                symbol='diamond', color='#fbbf24', size=12,
-                line=dict(color='white', width=2),
+                symbol='diamond', color='#ec4899', size=8,
+                line=dict(color='#ffffff', width=1.5),
             ),
             hovertemplate=(
                 f'<b>현재</b><br>Z: %{{x:.0f}}<br>M: %{{y:.0f}}<extra></extra>'
