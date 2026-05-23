@@ -2173,12 +2173,14 @@ def render_trade_record_section(selected_ticker: str) -> None:
                             f"margin-top:6px;'>{label}</div>",
                             unsafe_allow_html=True)
                 cur_memo = record.get('memo', '')
-                new_memo = st.text_input(
-                    "메모", value=cur_memo,
-                    key=f"trade_memo_edit_{selected_ticker}_{i}",
-                    label_visibility="collapsed",
-                    placeholder="메모 (편집 후 엔터)",
-                )
+                m_col, btn_col = st.columns([4, 1])
+                with m_col:
+                    new_memo = st.text_input(
+                        "메모", value=cur_memo,
+                        key=f"trade_memo_edit_{selected_ticker}_{i}",
+                        label_visibility="collapsed",
+                        placeholder="메모 (편집 후 엔터)",
+                    )
                 if new_memo.strip() != cur_memo:
                     if new_memo.strip():
                         st.session_state.trade_history[selected_ticker][i]['memo'] = new_memo.strip()
@@ -2186,12 +2188,13 @@ def render_trade_record_section(selected_ticker: str) -> None:
                         del st.session_state.trade_history[selected_ticker][i]['memo']
                     save_trade_history(st.session_state.trade_history)
                     st.rerun()
-                if st.button(f"✕ 삭제 ({record['date']})",
-                             key=f"del_{selected_ticker}_{i}",
-                             use_container_width=True):
-                    st.session_state.trade_history[selected_ticker].pop(i)
-                    save_trade_history(st.session_state.trade_history)
-                    st.rerun()
+                with btn_col:
+                    if st.button("삭제",
+                                 key=f"del_{selected_ticker}_{i}",
+                                 use_container_width=True):
+                        st.session_state.trade_history[selected_ticker].pop(i)
+                        save_trade_history(st.session_state.trade_history)
+                        st.rerun()
         else:
             st.caption("매매 기록이 없습니다.")
 
