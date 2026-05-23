@@ -4141,22 +4141,14 @@ def render_overview_panel(
     # ── 1. 보유 종목 평가 ──
     alloc_html = _build_alloc_html(portfolio_state, df_close_last, usd_krw)
     st.markdown(
-        f"<div style='padding:10px 12px;background:#ffffff;"
-        f"border:1px solid #e2e8f0;border-radius:10px;margin-bottom:10px;"
-        f"box-shadow:0 1px 3px rgba(0,0,0,0.06);'>"
-        f"{alloc_html}"
-        f"</div>",
+        f"<div class='app-card'>{alloc_html}</div>",
         unsafe_allow_html=True,
     )
 
     # ── 2. 실현손익 카드 ──
     real_html = _build_realized_html(portfolio_state, usd_krw)
     st.markdown(
-        f"<div style='padding:10px 12px;background:#ffffff;"
-        f"border:1px solid #e2e8f0;border-radius:10px;margin-bottom:10px;"
-        f"box-shadow:0 1px 3px rgba(0,0,0,0.06);'>"
-        f"{real_html}"
-        f"</div>",
+        f"<div class='app-card'>{real_html}</div>",
         unsafe_allow_html=True,
     )
 
@@ -4231,9 +4223,7 @@ def render_overview_panel(
     bar_unit = st.session_state.get('overview_bar_unit', '일')
     bar_unit_label = {'일': '일별', '주': '주별', '월': '월별'}[bar_unit]
     st.markdown(
-        f"<div style='padding:10px 12px;background:#ffffff;"
-        f"border:1px solid #e2e8f0;border-radius:10px;margin-bottom:10px;"
-        f"margin-top:10px;box-shadow:0 1px 3px rgba(0,0,0,0.06);'>"
+        f"<div class='app-card'>"
         f"<div style='display:flex;justify-content:space-between;align-items:baseline;"
         f"font-size:0.65rem;color:{COLOR_LABEL};margin-bottom:4px;'>"
         f"<span style='font-weight:700;'>💼 자산 추이 ({bar_unit_label})</span>"
@@ -4457,11 +4447,7 @@ def render_overview_panel(
             )
             if jhtml:
                 st.markdown(
-                    f"<div style='padding:10px 12px;background:#ffffff;"
-                    f"border:1px solid #e2e8f0;border-radius:10px;margin-bottom:10px;"
-                    f"box-shadow:0 1px 3px rgba(0,0,0,0.06);'>"
-                    f"{jhtml}"
-                    f"</div>",
+                    f"<div class='app-card'>{jhtml}</div>",
                     unsafe_allow_html=True,
                 )
 
@@ -4554,8 +4540,75 @@ def build_css(selected_option: str, holding_tickers: set) -> str:
         border-color:#94a3b8!important; background:#eef2f7!important; }}""")
 
     return f"""<style>
+    /* ─────────── 디자인 토큰 ─────────── */
+    :root {{
+        --bg-app:         #fafafa;
+        --bg-card:        #ffffff;
+        --bg-subtle:      #f8fafc;
+        --border:         #e5e7eb;
+        --border-strong:  #cbd5e1;
+        --text-primary:   #0f172a;
+        --text-secondary: #475569;
+        --text-muted:     #94a3b8;
+        --accent-buy:     #dc2626;
+        --accent-sell:    #2563eb;
+        --accent-success: #16a34a;
+        --accent-warn:    #f59e0b;
+        --space-1: 4px;  --space-2: 8px;  --space-3: 12px;
+        --space-4: 16px; --space-5: 24px;
+        --radius-sm: 4px; --radius-md: 8px; --radius-lg: 12px;
+        --shadow-sm: 0 1px 2px rgba(0,0,0,0.04);
+        --shadow-md: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+        --shadow-lg: 0 4px 6px rgba(0,0,0,0.04), 0 2px 4px rgba(0,0,0,0.04);
+        --text-xs:   0.62rem; --text-sm: 0.72rem; --text-base: 0.85rem;
+        --text-lg:   1rem;    --text-xl: 1.2rem;
+    }}
+
+    /* ─────────── Streamlit 기본 UI 숨김 (앱 같은 느낌) ─────────── */
+    #MainMenu {{ visibility: hidden !important; }}
+    footer {{ visibility: hidden !important; }}
+    header[data-testid="stHeader"] {{
+        background: transparent !important;
+        height: 0 !important;
+    }}
+    [data-testid="stToolbar"],
+    [data-testid="stDecoration"],
+    [data-testid="stStatusWidget"],
+    [data-testid="stAppDeployButton"],
+    .stDeployButton,
+    .stAppDeployButton,
+    [class*="viewerBadge"],
+    [class*="_terminalButton_"] {{ display: none !important; }}
+    /* 우측 하단 ⛵ 및 가운데 🏯 캐릭터 (Streamlit Cloud) */
+    iframe[title="streamlitApp"] ~ * {{ display: none !important; }}
+
+    /* ─────────── 공통 카드 클래스 ─────────── */
+    .app-card {{
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-md);
+        padding: var(--space-3) var(--space-4);
+        box-shadow: var(--shadow-md);
+        margin: var(--space-2) 0;
+    }}
+    .app-card-tight {{
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-md);
+        padding: var(--space-2) var(--space-3);
+        box-shadow: var(--shadow-sm);
+        margin: var(--space-1) 0;
+    }}
+    .app-card-header {{
+        font-size: var(--text-sm);
+        font-weight: 600;
+        color: var(--text-secondary);
+        margin-bottom: var(--space-2);
+        letter-spacing: -0.01em;
+    }}
+
     .block-container {{
-        padding-top:3.5rem!important; padding-bottom:0.5rem!important; max-width:100%!important;
+        padding-top:1rem!important; padding-bottom:0.5rem!important; max-width:100%!important;
     }}
     section[data-testid="stMain"] div[data-testid="stHorizontalBlock"] {{
         flex-wrap:nowrap!important; gap:5px!important; align-items:flex-start!important;
