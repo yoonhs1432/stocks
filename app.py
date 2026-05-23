@@ -2797,21 +2797,7 @@ def render_chart(
             last_sig = signal_series.iloc[-1]
             sig_v = float(last_sig) if pd.notna(last_sig) else 0.0
 
-            # 범례 (좌측 상단)
-            fig.add_annotation(
-                x=0, y=1, xref='x domain', yref='y domain',
-                text=(
-                    "<span style='color:#7c3aed;'>━ MACD</span>"
-                    "  "
-                    "<span style='color:#111827;'>━ Signal</span>"
-                ),
-                showarrow=False,
-                font=dict(size=11),
-                xanchor='left', yanchor='top',
-                bgcolor='rgba(255,255,255,0.85)', bordercolor='#d1d5db',
-                borderwidth=1, borderpad=3,
-                row=row, col=1,
-            )
+            # 범례 제거 — 좌측 상단 'MACD 값' 라벨이 이미 표시됨
 
         view_abs = abs(df_daily.loc[df_daily.index >= view_start, col_name].dropna())
         z_data_max = float(view_abs.max()) if not view_abs.empty else 0.0
@@ -4625,13 +4611,18 @@ def build_css(selected_option: str, holding_tickers: set) -> str:
         padding:0 2px!important; min-height:0!important; border-radius:3px!important;
         line-height:1!important; {di_border}
     }}
-    div.st-key-full_refresh_btn button,
-    div.st-key-full_refresh_btn button p,
-    div.st-key-full_refresh_btn button span {{
+    div.st-key-full_refresh_btn button {{
         height:1.7rem!important; min-height:0!important; border-radius:3px!important;
         font-size:0.62rem!important; font-weight:700!important; padding:0 2px!important;
-        border:1px solid #30363d!important; background:#0d1117!important;
-        color:#ffffff!important; line-height:1!important;
+        border:1px solid #30363d!important; background:#000000!important;
+        line-height:1!important;
+    }}
+    section[data-testid="stMain"] div.st-key-full_refresh_btn button,
+    section[data-testid="stMain"] div.st-key-full_refresh_btn button *,
+    section[data-testid="stMain"] div.st-key-full_refresh_btn button p,
+    section[data-testid="stMain"] div.st-key-full_refresh_btn button span,
+    section[data-testid="stMain"] div.st-key-full_refresh_btn button div {{
+        color:#ffffff!important;
     }}
     div.st-key-full_refresh_btn button:hover {{
         border-color:#58a6ff!important; background:#161b22!important; }}""")
