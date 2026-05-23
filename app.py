@@ -2940,19 +2940,24 @@ def render_chart(
         vline_opacity = 0.8 if is_active_cycle else 0.4
         idx_sc = sc_df.index.get_indexer([t_date], method='nearest')[0]
         d_sc = sc_df.index[idx_sc]
+        # ── 그래프 1 (회귀) 풍선 마커 ──
         fig.add_trace(go.Scatter(
             x=[sc_df.loc[d_sc, f'{X_ASSET_FIXED}_Norm']],
             y=[sc_df.loc[d_sc, f'{selected_ticker}_Norm']],
-            mode='markers',
+            mode='markers+text',
             marker=dict(
-                symbol='triangle-up' if is_buy else 'triangle-down',
-                size=10, color=base_color, opacity=m_opacity,
-                line=dict(width=1.5, color='#adbac7'),
+                symbol='circle', size=8, color=base_color,
+                opacity=m_opacity,
+                line=dict(width=1, color='#ffffff'),
             ),
+            text=['↑' if is_buy else '↓'],
+            textfont=dict(size=9, color='#ffffff'),
+            textposition='middle center',
             name=f"{trade['type'].upper()} ({t_date.date()})", hoverinfo='skip',
+            showlegend=False,
         ), row=1, col=1)
 
-        # ── 가격(row 4) · Z+M(row 5) 풍선 마커 (원 + ▲/▼) ──
+        # ── 가격(row 4) · Z+M(row 5) 풍선 마커 ──
         idx_d = df_daily.index.get_indexer([t_date], method='nearest')[0]
         d_d = df_daily.index[idx_d]
         arrow = '↑' if is_buy else '↓'
@@ -2965,42 +2970,42 @@ def render_chart(
                     x=[d_d], y=[y_price],
                     mode='markers+text',
                     marker=dict(
-                        symbol='circle', size=5, color=base_color,
+                        symbol='circle', size=8, color=base_color,
                         opacity=m_opacity,
                         line=dict(width=1, color='#ffffff'),
                     ),
                     text=[arrow],
-                    textfont=dict(size=6, color='#ffffff'),
+                    textfont=dict(size=9, color='#ffffff'),
                     textposition='middle center',
                     hoverinfo='skip', showlegend=False,
                 ), row=4, col=1)
 
-        # Z+M 패널 풍선 마커 (Z 백분위 위치)
-        if 'Z_Score' in df_daily.columns:
-            z_raw = df_daily.loc[d_d, 'Z_Score']
-            if pd.notna(z_raw):
-                y_z = max(0, min(100, (z_raw + 2.5) / 5.0 * 100))
-                fig.add_trace(go.Scatter(
-                    x=[d_d], y=[y_z],
-                    mode='markers+text',
-                    marker=dict(
-                        symbol='circle', size=5, color=base_color,
-                        opacity=m_opacity,
-                        line=dict(width=1, color='#ffffff'),
-                    ),
-                    text=[arrow],
-                    textfont=dict(size=6, color='#ffffff'),
-                    textposition='middle center',
-                    hoverinfo='skip', showlegend=False,
-                ), row=5, col=1)
-
-        # vline은 가격(row 4) + Z+M(row 5)만 — MACD/RSI는 제거
-        for r in (4, 5):
-            fig.add_vline(
-                x=t_date, line_dash="dot", line_width=1.5,
-                line_color=base_color, opacity=vline_opacity * 0.5, row=r, col=1,
-                layer='below',
+        # Z+M 패널 풍선 마커 — M (모멘텀) 위치 사용
+        if 'MACD_Pct' in df_daily.columns and 'RSI' in df_daily.columns:
+            macd_pct_v = df_daily.loc[d_d, 'MACD_Pct'] if pd.notna(df_daily.loc[d_d, 'MACD_Pct']) else 0
+            dmacd_pct_v = df_daily.loc[d_d, 'dMACD_Pct'] if 'dMACD_Pct' in df_daily.columns and pd.notna(df_daily.loc[d_d, 'dMACD_Pct']) else 0
+            rsi_v = df_daily.loc[d_d, 'RSI'] if pd.notna(df_daily.loc[d_d, 'RSI']) else 50
+            m_raw = (
+                0.3 * (macd_pct_v / 2.0)
+                + 0.2 * (dmacd_pct_v / 0.5)
+                + 0.5 * ((rsi_v - 50) / 20.0)
             )
+            y_m = max(0, min(100, (m_raw + 2.5) / 5.0 * 100))
+            fig.add_trace(go.Scatter(
+                x=[d_d], y=[y_m],
+                mode='markers+text',
+                marker=dict(
+                    symbol='circle', size=8, color=base_color,
+                    opacity=m_opacity,
+                    line=dict(width=1, color='#ffffff'),
+                ),
+                text=[arrow],
+                textfont=dict(size=9, color='#ffffff'),
+                textposition='middle center',
+                hoverinfo='skip', showlegend=False,
+            ), row=5, col=1)
+
+        # vline 완전 제거 (사용자 요청)
 
     # 현재 위치 — 매매 마커보다 위 layer (앰버 후광 + 다이아몬드)
     # 후광 (반투명 큰 원)
@@ -3141,12 +3146,15 @@ def render_chart(
 
             fig.add_trace(go.Scatter(
                 x=[z_val], y=[m_val],
-                mode='markers',
+                mode='markers+text',
                 marker=dict(
-                    symbol='triangle-up' if is_buy else 'triangle-down',
-                    size=10, color=base_color, opacity=m_opacity,
-                    line=dict(width=1, color='#adbac7'),
+                    symbol='circle', size=8, color=base_color,
+                    opacity=m_opacity,
+                    line=dict(width=1, color='#ffffff'),
                 ),
+                text=['↑' if is_buy else '↓'],
+                textfont=dict(size=9, color='#ffffff'),
+                textposition='middle center',
                 name=f"{trade['type'].upper()} ({trade['date']})",
                 hoverinfo='skip', showlegend=False,
             ), row=zm_row, col=1)
