@@ -4377,41 +4377,6 @@ def render_overview_panel(
                             st.rerun()
 
 # ====================================================
-# 18. 메모 섹션
-# ====================================================
-def render_memo_section(selected_ticker: str) -> None:
-    """탭1 하단 — 해당 종목의 매매 일지 표시.
-
-    매매 일지 카드 형식과 동일 (날짜/방향/모멘텀/수익률/손익/메모).
-    """
-    all_analyses = st.session_state.get('_all_analyses_cache')
-    df_close_c = st.session_state.get('_df_close_cache')
-    if all_analyses is None or df_close_c is None:
-        return
-    journal = build_trade_journal(
-        st.session_state.trade_history, all_analyses, df_close_c,
-    )
-    if not journal:
-        return
-    jhtml = _build_journal_html(
-        journal, {},
-        show_ticker=False,
-        filter_ticker=selected_ticker,
-        title=f"📓 {display_name(selected_ticker)} 매매 일지",
-    )
-    if not jhtml:
-        return
-    st.markdown(
-        f"<div style='padding:10px 12px;background:#ffffff;"
-        f"border:1px solid #e2e8f0;border-radius:10px;margin-top:8px;"
-        f"box-shadow:0 1px 3px rgba(0,0,0,0.06);'>"
-        f"{jhtml}"
-        f"</div>",
-        unsafe_allow_html=True,
-    )
-
-
-# ====================================================
 # 17. CSS
 # ====================================================
 def build_css(selected_option: str, holding_tickers: set) -> str:
@@ -4967,8 +4932,6 @@ def main() -> None:
             render_analytics_panel(
                 selected_ticker, df_daily_panel, df_close, portfolio_state, beta, std_resid,
             )
-        if selected_ticker:
-            render_memo_section(selected_ticker)
 
     # ====================================================
     # 탭 2: 한눈에 보기 (풀폭 22개 종목 미니바 리스트)
