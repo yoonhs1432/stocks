@@ -2363,8 +2363,8 @@ def render_chart(
         x=[sc_df[f'{X_ASSET_FIXED}_Norm'].iloc[-1]],
         y=[sc_df[f'{selected_ticker}_Norm'].iloc[-1]],
         mode='markers',
-        marker=dict(symbol='diamond', color='#ec4899', size=8,
-                    line=dict(color='#ffffff', width=1.5)),
+        marker=dict(symbol='diamond', color='#ffffff', size=8,
+                    line=dict(color='#000000', width=1.5)),
         name='Current',
     ), row=row, col=1)
 
@@ -3018,8 +3018,8 @@ def render_chart(
         y=[sc_df[f'{selected_ticker}_Norm'].iloc[-1]],
         mode='markers',
         marker=dict(
-            symbol='diamond', color='#ec4899', size=8,
-            line=dict(color='#ffffff', width=1.5),
+            symbol='diamond', color='#ffffff', size=8,
+            line=dict(color='#000000', width=1.5),
         ),
         name='Current_Top', hoverinfo='skip', showlegend=False,
     ), row=1, col=1)
@@ -3140,8 +3140,8 @@ def render_chart(
             x=[zm_x[-1]], y=[zm_y[-1]],
             mode='markers',
             marker=dict(
-                symbol='diamond', color='#ec4899', size=8,
-                line=dict(color='#ffffff', width=1.5),
+                symbol='diamond', color='#ffffff', size=8,
+                line=dict(color='#000000', width=1.5),
             ),
             hovertemplate=(
                 f'<b>현재</b><br>Z: %{{x:.0f}}<br>M: %{{y:.0f}}<extra></extra>'
