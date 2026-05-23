@@ -100,22 +100,22 @@ class Colors:
     MOM_SELL        = '#2563eb'     # 매도 (+2, +3)
     MOM_SELL_STRONG = '#1e3a8a'     # 강 매도 (+4)
 
-    # ── UI 기본 ──
-    TEXT            = '#374151'     # 본문
-    TEXT_DARK       = '#111827'     # 강조 본문
-    LABEL           = '#9ca3af'     # 라벨
-    LABEL_DARK      = '#6b7280'
-    BORDER          = '#e5e7eb'
-    BORDER_LIGHT    = '#f3f4f6'
-    BG              = '#ffffff'
-    BG_HOLDING      = '#f0fdf4'     # 보유 종목 행 배경
-    BG_HOLDING_BORDER = '#86efac'
-    BG_NEUTRAL      = '#f3f4f6'
-    BG_NEUTRAL_BORDER = '#d1d5db'
+    # ── UI 기본 (다크 모드) ──
+    TEXT            = '#adbac7'     # 본문
+    TEXT_DARK       = '#e6edf3'     # 강조 본문
+    LABEL           = '#768390'     # 라벨
+    LABEL_DARK      = '#adbac7'
+    BORDER          = '#30363d'
+    BORDER_LIGHT    = '#21262d'
+    BG              = '#161b22'
+    BG_HOLDING      = '#0f2c1a'     # 보유 종목 행 배경 (어두운 녹)
+    BG_HOLDING_BORDER = '#3fb950'
+    BG_NEUTRAL      = '#21262d'
+    BG_NEUTRAL_BORDER = '#484f58'
 
     # ── 게이지/바 ──
-    GAUGE_BG        = '#f3f4f6'
-    PRINCIPAL       = '#d1d5db'     # 원금 회색 (보유 평가 막대)
+    GAUGE_BG        = '#21262d'
+    PRINCIPAL       = '#484f58'     # 원금 회색 (보유 평가 막대)
 
     # ── DD 단계 ──
     DD_RISK         = '#dc2626'     # 0~-3%: 거의 고점
@@ -438,7 +438,7 @@ def html_metric(label: str, value: str, sub: str = "", color: str = "#111827") -
     sub_html = f"<div style='color:{COLOR_LABEL};font-size:0.62rem;'>{sub}</div>" if sub else ""
     return (
         f"<div>"
-        f"<div style='color:#6b7280;font-size:0.68rem;'>{label}</div>"
+        f"<div style='color:var(--text-secondary);font-size:0.68rem;'>{label}</div>"
         f"<div style='font-weight:700;color:{color};'>{value}</div>"
         f"{sub_html}"
         f"</div>"
@@ -451,8 +451,8 @@ def html_section_divider() -> str:
 
 def html_dash_cell(label: str) -> str:
     return (
-        f"<div><div style='color:#6b7280;font-size:0.68rem;'>{label}</div>"
-        f"<div style='font-weight:700;color:#9ca3af;'>-</div></div>"
+        f"<div><div style='color:var(--text-secondary);font-size:0.68rem;'>{label}</div>"
+        f"<div style='font-weight:700;color:var(--text-muted);'>-</div></div>"
     )
 
 
@@ -1693,7 +1693,7 @@ def _build_journal_html(
         # 매매 수량 (×N) — 화살표 옆 작게
         qty = e.get('qty', 0)
         qty_html = (
-            f"<span style='color:#9ca3af;font-size:0.55rem;'>×{qty}</span>"
+            f"<span style='color:var(--text-muted);font-size:0.55rem;'>×{qty}</span>"
             if qty else ""
         )
 
@@ -1701,23 +1701,23 @@ def _build_journal_html(
         if show_ticker:
             tk_short = display_name(e['ticker'])
             html += (
-                f"<div style='font-size:0.65rem;color:#374151;margin-bottom:3px;"
+                f"<div style='font-size:0.65rem;color:var(--text-primary);margin-bottom:3px;"
                 f"display:flex;gap:6px;align-items:center;'>"
-                f"<span style='color:#9ca3af;width:36px;flex-shrink:0;'>{d_short}</span>"
+                f"<span style='color:var(--text-muted);width:36px;flex-shrink:0;'>{d_short}</span>"
                 f"<span style='color:{type_col};font-weight:700;width:14px;flex-shrink:0;'>{type_icon}</span>"
                 f"<span style='font-weight:600;width:50px;flex-shrink:0;'>{tk_short}</span>"
                 f"<span style='width:28px;flex-shrink:0;'>{qty_html}</span>"
-                f"<span style='color:#6b7280;flex:1;min-width:0;'>{m_html}{pnl_html}</span>"
+                f"<span style='color:var(--text-secondary);flex:1;min-width:0;'>{m_html}{pnl_html}</span>"
                 f"</div>"
             )
         else:
             html += (
-                f"<div style='font-size:0.65rem;color:#374151;margin-bottom:3px;"
+                f"<div style='font-size:0.65rem;color:var(--text-primary);margin-bottom:3px;"
                 f"display:flex;gap:6px;align-items:center;'>"
-                f"<span style='color:#9ca3af;width:36px;flex-shrink:0;'>{d_short}</span>"
+                f"<span style='color:var(--text-muted);width:36px;flex-shrink:0;'>{d_short}</span>"
                 f"<span style='color:{type_col};font-weight:700;width:14px;flex-shrink:0;'>{type_icon}</span>"
                 f"<span style='width:28px;flex-shrink:0;'>{qty_html}</span>"
-                f"<span style='color:#6b7280;flex:1;min-width:0;'>{m_html}{pnl_html}</span>"
+                f"<span style='color:var(--text-secondary);flex:1;min-width:0;'>{m_html}{pnl_html}</span>"
                 f"</div>"
             )
 
@@ -1729,7 +1729,7 @@ def _build_journal_html(
             )
             indent = '90px' if show_ticker else '84px'
             html += (
-                f"<div style='font-size:0.6rem;color:#9ca3af;"
+                f"<div style='font-size:0.6rem;color:var(--text-muted);"
                 f"margin:0 0 6px {indent};font-style:italic;line-height:1.3;'>"
                 f"📝 {memo_safe}</div>"
             )
@@ -1775,7 +1775,7 @@ def _build_realized_html(
         f"<div style='font-size:0.55rem;color:{COLOR_LABEL};margin-bottom:2px;'>합계</div>"
         f"<div style='font-size:0.92rem;color:{net_col};font-weight:700;'>"
         f"{signed_str(int(round(net_sum)), '{:,}')}</div>"
-        f"<div style='font-size:0.55rem;color:#9ca3af;'>"
+        f"<div style='font-size:0.55rem;color:var(--text-muted);'>"
         f"({signed_str(int(round(net_krw_man)), '{:,}')}만원)</div>"
         f"</div>"
         f"</div>"
@@ -1833,13 +1833,13 @@ def _build_realized_html(
             f"flex-shrink:0;font-weight:600;'>{display_name(tk)}</div>"
             f"{bar_html}"
             # 비율%
-            f"<div style='font-size:0.6rem;color:#9ca3af;width:30px;text-align:right;"
+            f"<div style='font-size:0.6rem;color:var(--text-muted);width:30px;text-align:right;"
             f"flex-shrink:0;'>{ratio:.0f}%</div>"
             # 손익 ($, 만원)
             f"<div style='font-size:0.7rem;font-weight:700;color:{vc};"
             f"width:54px;text-align:right;flex-shrink:0;line-height:1.15;'>"
             f"<div>{signed_str(int(round(real)), '{:,}')}</div>"
-            f"<div style='font-size:0.5rem;color:#9ca3af;font-weight:400;'>"
+            f"<div style='font-size:0.5rem;color:var(--text-muted);font-weight:400;'>"
             f"{signed_str(int(round(real_krw_man)), '{:,}')}만</div>"
             f"</div>"
             f"</div>"
@@ -1906,19 +1906,19 @@ def _build_alloc_html(
 
         f"<div style='text-align:left;flex:1;'>"
         f"<div style='font-size:0.55rem;color:{COLOR_LABEL};margin-bottom:2px;'>원금</div>"
-        f"<div style='font-size:0.92rem;color:#374151;font-weight:700;'>"
+        f"<div style='font-size:0.92rem;color:var(--text-primary);font-weight:700;'>"
         f"${int(round(total_inv)):,}</div>"
-        f"<div style='font-size:0.55rem;color:#9ca3af;'>"
+        f"<div style='font-size:0.55rem;color:var(--text-muted);'>"
         f"({int(round(inv_krw_man)):,}만원)</div>"
         f"</div>"
 
-        f"<div style='color:#9ca3af;font-size:0.85rem;padding:0 4px 8px 4px;'>→</div>"
+        f"<div style='color:var(--text-muted);font-size:0.85rem;padding:0 4px 8px 4px;'>→</div>"
 
         f"<div style='text-align:center;flex:1;'>"
         f"<div style='font-size:0.55rem;color:{COLOR_LABEL};margin-bottom:2px;'>평가</div>"
         f"<div style='font-size:0.92rem;color:{total_pnl_color};font-weight:700;'>"
         f"${int(round(total_eval)):,}</div>"
-        f"<div style='font-size:0.55rem;color:#9ca3af;'>"
+        f"<div style='font-size:0.55rem;color:var(--text-muted);'>"
         f"({int(round(eval_krw_man)):,}만원)</div>"
         f"</div>"
 
@@ -1927,7 +1927,7 @@ def _build_alloc_html(
         f"손익 ({signed_str(round(total_ret), '{:d}')}%)</div>"
         f"<div style='font-size:0.92rem;color:{total_pnl_color};font-weight:700;'>"
         f"{signed_str(int(round(total_pnl)), '{:,}')}</div>"
-        f"<div style='font-size:0.55rem;color:#9ca3af;'>"
+        f"<div style='font-size:0.55rem;color:var(--text-muted);'>"
         f"({signed_str(int(round(pnl_krw_man)), '{:,}')}만원)</div>"
         f"</div>"
 
@@ -1976,10 +1976,10 @@ def _build_alloc_html(
             f"display:flex;align-items:center;overflow:hidden;min-width:0;'>"
             f"{bar_inner}"
             f"</div>"
-            f"<div style='font-size:0.62rem;color:#374151;width:84px;text-align:right;"
+            f"<div style='font-size:0.62rem;color:var(--text-primary);width:84px;text-align:right;"
             f"flex-shrink:0;line-height:1.2;'>"
             f"<div style='font-weight:700;'>${int(round(r['eval'])):,}</div>"
-            f"<div style='font-size:0.52rem;color:#9ca3af;white-space:nowrap;'>"
+            f"<div style='font-size:0.52rem;color:var(--text-muted);white-space:nowrap;'>"
             f"${int(round(r['inv'])):,}"
             f"<span style='color:{pnl_color_v};font-weight:700;'>"
             f"{sign}${int(round(pnl_abs)):,}</span>"
@@ -2244,7 +2244,7 @@ def render_sidebar(
                     prc_str = f" @${record['price']:.2f}" if record.get('price') else ""
                     type_icon = '🔴' if record['type'] == 'buy' else '🔵'
                     label = f"{type_icon} {record['date']} {record['type'].upper()}{qty_str}{prc_str}"
-                    st.markdown(f"<div style='font-size:0.78rem;color:#374151;"
+                    st.markdown(f"<div style='font-size:0.78rem;color:var(--text-primary);"
                                 f"margin-top:6px;'>{label}</div>",
                                 unsafe_allow_html=True)
                     # 메모 편집 (인라인)
@@ -2345,7 +2345,7 @@ def render_chart(
     ), row=row, col=1)
     fig.add_trace(go.Scatter(
         x=sdf[f'{X_ASSET_FIXED}_Norm'], y=sdf['Predicted'],
-        mode='lines', line=dict(color='black', width=2), name='Predicted Trend',
+        mode='lines', line=dict(color='#adbac7', width=2), name='Predicted Trend',
     ), row=row, col=1)
     fig.add_trace(go.Scatter(
         x=sc_df[f'{X_ASSET_FIXED}_Norm'], y=sc_df[f'{selected_ticker}_Norm'],
@@ -2403,8 +2403,8 @@ def render_chart(
     fig.add_annotation(
         x=0, y=1, xref='x domain', yref='y domain',
         text=f"<b>β = {beta:.2f}</b>", showarrow=False,
-        font=dict(size=11, color='black'), xanchor='left', yanchor='top',
-        bgcolor='white', bordercolor='black', borderwidth=1, borderpad=2,
+        font=dict(size=11, color='#adbac7'), xanchor='left', yanchor='top',
+        bgcolor='#161b22', bordercolor='#adbac7', borderwidth=1, borderpad=2,
         row=row, col=1,
     )
     # 회귀 산점도 X축 라벨 숨김
@@ -2456,7 +2456,7 @@ def render_chart(
     else:
         fig.add_trace(go.Scatter(
             x=df_daily.index, y=df_daily['Plot_Norm_Ticker'],
-            mode='lines', line=dict(color='black', width=1.5), name=selected_ticker,
+            mode='lines', line=dict(color='#adbac7', width=1.5), name=selected_ticker,
         ), row=row, col=1)
 
     # SPY 라인 제거됨 (사용자 요청)
@@ -2537,9 +2537,9 @@ def render_chart(
     fig.add_annotation(
         x=0, y=1, xref='x domain', yref='y domain',
         text=f"<b>${df_daily[f'{selected_ticker}_Close'].iloc[-1]:,.2f}</b>",
-        showarrow=False, font=dict(size=11, color='black'),
+        showarrow=False, font=dict(size=11, color='#adbac7'),
         xanchor='left', yanchor='top',
-        bgcolor='white', bordercolor='black', borderwidth=1, borderpad=2,
+        bgcolor='#161b22', bordercolor='#adbac7', borderwidth=1, borderpad=2,
         row=row, col=1,
     )
     time_x_axis = f'x{row}'
@@ -2826,7 +2826,7 @@ def render_chart(
         x=0, y=1, xref='x domain', yref='y domain',
         text=f"<b>RSI  {rsi_val:.1f}</b>", showarrow=False,
         font=dict(size=11, color=rsi_color), xanchor='left', yanchor='top',
-        bgcolor='white', bordercolor='black', borderwidth=1, borderpad=2,
+        bgcolor='#161b22', bordercolor='#adbac7', borderwidth=1, borderpad=2,
         row=row, col=1,
     )
     # Y축: 0 대칭, view 범위 내 데이터의 max 기반 자동 조절
@@ -2876,7 +2876,7 @@ def render_chart(
             marker=dict(
                 symbol='triangle-up' if is_buy else 'triangle-down',
                 size=10, color=base_color, opacity=m_opacity,
-                line=dict(width=1.5, color='black'),
+                line=dict(width=1.5, color='#adbac7'),
             ),
             name=f"{trade['type'].upper()} ({t_date.date()})", hoverinfo='skip',
         ), row=1, col=1)
@@ -3033,7 +3033,7 @@ def render_chart(
                 marker=dict(
                     symbol='triangle-up' if is_buy else 'triangle-down',
                     size=10, color=base_color, opacity=m_opacity,
-                    line=dict(width=1, color='black'),
+                    line=dict(width=1, color='#adbac7'),
                 ),
                 name=f"{trade['type'].upper()} ({trade['date']})",
                 hoverinfo='skip', showlegend=False,
@@ -3074,8 +3074,8 @@ def render_chart(
     )
 
     # 축 공통 스타일
-    fig.update_xaxes(showline=True, linewidth=1, linecolor='black', mirror=True)
-    fig.update_yaxes(showline=True, linewidth=1, linecolor='black', mirror=True)
+    fig.update_xaxes(showline=True, linewidth=1, linecolor='#adbac7', mirror=True)
+    fig.update_yaxes(showline=True, linewidth=1, linecolor='#adbac7', mirror=True)
     # spacer (row 3, 회귀/zm 산점도와 시간축 사이) 숨김
     fig.update_xaxes(visible=False, row=3, col=1)
     fig.update_yaxes(visible=False, row=3, col=1)
@@ -3114,8 +3114,17 @@ def render_chart(
     fig.update_traces(hoverinfo='skip')
     fig.update_layout(
         height=total_h, showlegend=False, hovermode=False,
-        dragmode='pan', margin=dict(l=2, r=18, t=10, b=20),
-        paper_bgcolor='white', plot_bgcolor='white', uirevision='constant',
+        dragmode='pan', margin=dict(l=2, r=58, t=10, b=20),
+        paper_bgcolor='#0d1117', plot_bgcolor='#161b22', uirevision='constant',
+        font=dict(color='#e6edf3', size=10),
+    )
+    fig.update_xaxes(
+        gridcolor='#30363d', linecolor='#30363d', zerolinecolor='#30363d',
+        tickfont=dict(color='#adbac7'),
+    )
+    fig.update_yaxes(
+        gridcolor='#30363d', linecolor='#30363d', zerolinecolor='#30363d',
+        tickfont=dict(color='#adbac7'),
     )
 
     st.plotly_chart(
@@ -3230,7 +3239,7 @@ def render_position_tracker(
         m_pct_color = momentum_to_color(cur_m_score_int)
 
     header_right = (
-        f"<span style='font-size:0.7rem;color:#6b7280;'>"
+        f"<span style='font-size:0.7rem;color:var(--text-secondary);'>"
         f"<span title='1σ 변동성' style='font-weight:600;'>σ {sigma_str_hdr}</span>"
         f" · <span title='SPY 대비 로그회귀 슬로프 (장기 가격 관계)' style='font-weight:600;'>"
         f"β·SPY {beta_str_hdr}</span>"
@@ -3262,8 +3271,8 @@ def render_position_tracker(
         trend_diff_pct = (trend_price / current_price - 1) * 100
         trend_color = pnl_color(-trend_diff_pct)
         trend_html = (
-            f"<div><div style='color:#6b7280;font-size:0.68rem;'>회귀선</div>"
-            f"<div style='font-weight:700;color:#374151;'>${trend_price:,.2f}"
+            f"<div><div style='color:var(--text-secondary);font-size:0.68rem;'>회귀선</div>"
+            f"<div style='font-weight:700;color:var(--text-primary);'>${trend_price:,.2f}"
             f" <span style='font-size:0.7rem;color:{trend_color};'>"
             f"{signed_str(trend_diff_pct, '{:.1f}')}%</span></div></div>"
         )
@@ -3305,7 +3314,7 @@ def render_position_tracker(
         price_pct = (current_price - avg_price) / avg_price * 100
         price_color = pnl_color(price_pct)
         price_html = (
-            f"<div><div style='color:#6b7280;font-size:0.68rem;'>현재가</div>"
+            f"<div><div style='color:var(--text-secondary);font-size:0.68rem;'>현재가</div>"
             f"<div style='font-weight:700;color:{price_color};'>"
             f"${current_price:,.2f}&nbsp;<span style='font-size:0.72rem;'>"
             f"({signed_str(price_pct, '{:.0f}')}%)</span></div></div>"
@@ -3337,7 +3346,7 @@ def render_position_tracker(
         pnl_dollar = (current_price - avg_price) * hold_qty if current_price is not None else 0.0
         pnl_label = "평가손익"
     pnl_html = (
-        f"<div><div style='color:#6b7280;font-size:0.68rem;'>{pnl_label}</div>"
+        f"<div><div style='color:var(--text-secondary);font-size:0.68rem;'>{pnl_label}</div>"
         f"<div>{_fmt_pnl(pnl_dollar)}</div></div>"
     )
 
@@ -3348,7 +3357,7 @@ def render_position_tracker(
     )
     has_cumulative = (cumulative_pnl != 0.0) or has_realized_in_cycle
     cumulative_html = (
-        f"<div><div style='color:#6b7280;font-size:0.68rem;'>누적실현손익</div>"
+        f"<div><div style='color:var(--text-secondary);font-size:0.68rem;'>누적실현손익</div>"
         f"<div>{_fmt_pnl(total_realized)}</div></div>"
         if has_cumulative else html_dash_cell("누적실현손익")
     )
@@ -3478,7 +3487,7 @@ def build_action_card_html(
         bar_html += (
             f"<div style='position:absolute;left:{pos}%;top:28px;"
             f"transform:translateX(-50%);font-size:0.55rem;"
-            f"color:#9ca3af;'>{lbl}</div>"
+            f"color:var(--text-muted);'>{lbl}</div>"
         )
     if avg_pct_bar is not None:
         avg_tf, avg_ta = _label_align(avg_pct_bar)
@@ -3496,7 +3505,7 @@ def build_action_card_html(
             f"title='평균단가 ${avg_price:.2f}'></div>"
             f"<div style='position:absolute;left:{avg_pct_bar:.1f}%;top:0;"
             f"transform:{avg_tf};text-align:{avg_ta};font-size:0.6rem;"
-            f"font-weight:700;color:#374151;white-space:nowrap;"
+            f"font-weight:700;color:var(--text-primary);white-space:nowrap;"
             f"padding:0 3px;background:rgba(255,255,255,0.85);"
             f"border-radius:3px;'>"
             f"평균 ${avg_price:.2f}{out_arrow}</div>"
@@ -3638,7 +3647,7 @@ def build_action_card_html(
         if cyc_count > 0:
             shown = min(cyc_count, 5)
             legend_html = (
-                f"<span style='font-size:0.6rem;color:#9ca3af;font-weight:400;'>"
+                f"<span style='font-size:0.6rem;color:var(--text-muted);font-weight:400;'>"
                 f"<span style='display:inline-block;width:8px;height:8px;"
                 f"border-radius:50%;background:#dc2626;border:1.5px solid #fff;"
                 f"box-shadow:0 0 0 1px #7f1d1d;vertical-align:middle;'></span>"
@@ -3718,9 +3727,9 @@ def build_action_card_html(
         lbl, p, sk, c = next_buy
         drop_pct = (p / cur_price - 1) * 100
         action_html += (
-            f"<div style='flex:1;background:#fff;padding:5px 7px;"
+            f"<div style='flex:1;background:var(--bg-subtle);padding:5px 7px;"
             f"border-radius:5px;border:1px solid #fecaca;'>"
-            f"<div style='color:#9ca3af;font-size:0.58rem;'>다음 매수</div>"
+            f"<div style='color:var(--text-muted);font-size:0.58rem;'>다음 매수</div>"
             f"<div style='display:flex;align-items:baseline;gap:4px;'>"
             f"<span style='background:{c};color:#fff;padding:1px 4px;"
             f"border-radius:3px;font-size:0.55rem;font-weight:700;'>{lbl}</span>"
@@ -3732,19 +3741,19 @@ def build_action_card_html(
         )
     else:
         action_html += (
-            f"<div style='flex:1;background:#fff;padding:5px 7px;"
-            f"border-radius:5px;border:1px solid #e5e7eb;'>"
-            f"<div style='color:#9ca3af;font-size:0.58rem;'>다음 매수</div>"
-            f"<div style='color:#9ca3af;font-size:0.65rem;'>-2σ보다 낮음</div>"
+            f"<div style='flex:1;background:var(--bg-subtle);padding:5px 7px;"
+            f"border-radius:5px;border:1px solid var(--border);'>"
+            f"<div style='color:var(--text-muted);font-size:0.58rem;'>다음 매수</div>"
+            f"<div style='color:var(--text-muted);font-size:0.65rem;'>-2σ보다 낮음</div>"
             f"</div>"
         )
     if next_sell:
         lbl, p, sk, c = next_sell
         rise_pct = (p / cur_price - 1) * 100
         action_html += (
-            f"<div style='flex:1;background:#fff;padding:5px 7px;"
+            f"<div style='flex:1;background:var(--bg-subtle);padding:5px 7px;"
             f"border-radius:5px;border:1px solid #bfdbfe;'>"
-            f"<div style='color:#9ca3af;font-size:0.58rem;'>다음 익절</div>"
+            f"<div style='color:var(--text-muted);font-size:0.58rem;'>다음 익절</div>"
             f"<div style='display:flex;align-items:baseline;gap:4px;'>"
             f"<span style='background:{c};color:#fff;padding:1px 4px;"
             f"border-radius:3px;font-size:0.55rem;font-weight:700;'>{lbl}</span>"
@@ -3756,10 +3765,10 @@ def build_action_card_html(
         )
     else:
         action_html += (
-            f"<div style='flex:1;background:#fff;padding:5px 7px;"
-            f"border-radius:5px;border:1px solid #e5e7eb;'>"
-            f"<div style='color:#9ca3af;font-size:0.58rem;'>다음 익절</div>"
-            f"<div style='color:#9ca3af;font-size:0.65rem;'>+2σ보다 높음</div>"
+            f"<div style='flex:1;background:var(--bg-subtle);padding:5px 7px;"
+            f"border-radius:5px;border:1px solid var(--border);'>"
+            f"<div style='color:var(--text-muted);font-size:0.58rem;'>다음 익절</div>"
+            f"<div style='color:var(--text-muted);font-size:0.65rem;'>+2σ보다 높음</div>"
             f"</div>"
         )
     action_html += "</div></div>"
@@ -4007,21 +4016,21 @@ def render_analytics_panel(
             st.markdown(
                 f"<div style='display:grid;grid-template-columns:repeat(3,1fr);"
                 f"gap:8px;font-size:0.78rem;'>"
-                f"<div><div style='color:#6b7280;font-size:0.7rem;'>사이클</div>"
+                f"<div><div style='color:var(--text-secondary);font-size:0.7rem;'>사이클</div>"
                 f"<b>{stats['count']}회</b></div>"
-                f"<div><div style='color:#6b7280;font-size:0.7rem;'>승률</div>"
+                f"<div><div style='color:var(--text-secondary);font-size:0.7rem;'>승률</div>"
                 f"<b style='color:{wr_color};'>{stats['win_rate']:.0f}%</b></div>"
-                f"<div><div style='color:#6b7280;font-size:0.7rem;'>PF</div>"
+                f"<div><div style='color:var(--text-secondary);font-size:0.7rem;'>PF</div>"
                 f"<b>{pf_str}</b></div>"
-                f"<div><div style='color:#6b7280;font-size:0.7rem;'>평균수익</div>"
+                f"<div><div style='color:var(--text-secondary);font-size:0.7rem;'>평균수익</div>"
                 f"<b style='color:{avg_color};'>{signed_str(stats['avg_ret_pct'], '{:.1f}')}%</b></div>"
-                f"<div><div style='color:#6b7280;font-size:0.7rem;'>평균보유</div>"
+                f"<div><div style='color:var(--text-secondary);font-size:0.7rem;'>평균보유</div>"
                 f"<b>{stats['avg_hold_days']:.0f}일</b></div>"
-                f"<div><div style='color:#6b7280;font-size:0.7rem;'>최고/최저</div>"
+                f"<div><div style='color:var(--text-secondary);font-size:0.7rem;'>최고/최저</div>"
                 f"<span style='color:#b91c1c;font-weight:700;'>+{stats['best_pct']:.1f}%</span>"
                 f" / <span style='color:#1d4ed8;font-weight:700;'>{stats['worst_pct']:.1f}%</span></div>"
                 f"</div>"
-                f"<div style='font-size:0.65rem;color:#9ca3af;margin-top:6px;'>"
+                f"<div style='font-size:0.65rem;color:var(--text-muted);margin-top:6px;'>"
                 f"최고: {stats['best_date']} · 최저: {stats['worst_date']}"
                 f"</div>",
                 unsafe_allow_html=True,
@@ -4069,9 +4078,9 @@ def render_analytics_panel(
                         f"<div style='flex:1;background:#e5e7eb;border-radius:3px;height:8px;'>"
                         f"<div style='width:{bar_pct:.1f}%;background:{bar_color};"
                         f"border-radius:3px;height:8px;'></div></div>"
-                        f"<div style='width:48px;font-size:0.65rem;color:#6b7280;text-align:right;'>"
+                        f"<div style='width:48px;font-size:0.65rem;color:var(--text-secondary);text-align:right;'>"
                         f"{pct:.0f}%{over_badge}</div>"
-                        f"<div style='width:80px;font-size:0.65rem;color:#9ca3af;text-align:right;'>"
+                        f"<div style='width:80px;font-size:0.65rem;color:var(--text-muted);text-align:right;'>"
                         f"평균 {avg_label}</div>"
                         f"</div>"
                     )
@@ -4085,7 +4094,7 @@ def render_analytics_panel(
 
                 gauge_html = (
                     f"<div style='border-top:1px dashed #e5e7eb;margin-top:10px;padding-top:8px;'>"
-                    f"<div style='font-size:0.7rem;color:#6b7280;font-weight:600;margin-bottom:6px;'>"
+                    f"<div style='font-size:0.7rem;color:var(--text-secondary);font-weight:600;margin-bottom:6px;'>"
                     f"🚀 이번 사이클 진행 (vs 평균)</div>"
                     f"{_progress_bar(day_progress, cur_days_str, avg_days_str, day_color)}"
                     f"{_progress_bar(ret_progress, cur_ret_str, avg_ret_str, ret_color)}"
@@ -4135,7 +4144,7 @@ def render_overview_panel(
         ov_last = st.session_state.get('overview_last_refresh')
         if ov_last:
             rc2.markdown(
-                f"<div style='font-size:0.7rem;color:#9ca3af;"
+                f"<div style='font-size:0.7rem;color:var(--text-muted);"
                 f"padding-top:8px;'>마지막 갱신 {ov_last}</div>",
                 unsafe_allow_html=True,
             )
@@ -4171,28 +4180,28 @@ def render_overview_panel(
         pnl_krw_man = portfolio_pnl * usd_krw / 10000
 
         header_summary = (
-            f"<div style='font-size:0.7rem;color:#6b7280;margin-bottom:2px;'>"
+            f"<div style='font-size:0.7rem;color:var(--text-secondary);margin-bottom:2px;'>"
             f"시드 <b>${seed_usd:,.0f}</b> "
-            f"<span style='color:#9ca3af;'>(≈{int(round(seed_krw_man_approx)):,}만원)</span>"
+            f"<span style='color:var(--text-muted);'>(≈{int(round(seed_krw_man_approx)):,}만원)</span>"
             f" → 평가 "
             f"<span style='color:{ret_color};font-weight:700;'>"
             f"${cur_value_usd:,.0f}</span>"
-            f" <span style='color:#9ca3af;'>(≈{int(round(cur_value_krw_man)):,}만원)</span>"
+            f" <span style='color:var(--text-muted);'>(≈{int(round(cur_value_krw_man)):,}만원)</span>"
             f"</div>"
             f"<div style='font-size:1rem;color:{ret_color};font-weight:800;"
             f"margin-bottom:2px;'>"
             f"{signed_str(int(round(portfolio_pnl)), '${:,}')} "
             f"<span style='font-size:0.85rem;'>({signed_str(round(ret_pct), '{:d}')}%)</span>"
             f"</div>"
-            f"<div style='font-size:0.65rem;color:#9ca3af;margin-bottom:6px;'>"
+            f"<div style='font-size:0.65rem;color:var(--text-muted);margin-bottom:6px;'>"
             f"≈ {signed_str(int(round(pnl_krw_man)), '{:,}')}만원"
             f"</div>"
         )
     else:
         header_summary = (
-            f"<div style='font-size:0.85rem;color:#6b7280;margin-bottom:6px;'>"
+            f"<div style='font-size:0.85rem;color:var(--text-secondary);margin-bottom:6px;'>"
             f"시드 <b>${seed_usd:,.0f}</b> "
-            f"<span style='color:#9ca3af;'>(≈{int(round(seed_krw_man_approx)):,}만원)</span>"
+            f"<span style='color:var(--text-muted);'>(≈{int(round(seed_krw_man_approx)):,}만원)</span>"
             f"</div>"
         )
 
@@ -4211,7 +4220,7 @@ def render_overview_panel(
             except Exception:
                 pass
         dd_text = (
-            f"<div style='font-size:0.62rem;color:#9ca3af;margin-bottom:8px;"
+            f"<div style='font-size:0.62rem;color:var(--text-muted);margin-bottom:8px;"
             f"display:flex;gap:10px;'>"
             f"<span title='최대 낙폭'>MDD <span style='color:#b91c1c;"
             f"font-weight:600;'>{mdd_str}</span></span>"
@@ -4229,7 +4238,7 @@ def render_overview_panel(
         f"<div style='display:flex;justify-content:space-between;align-items:baseline;"
         f"font-size:0.65rem;color:{COLOR_LABEL};margin-bottom:4px;'>"
         f"<span style='font-weight:700;'>💼 자산 추이 ({bar_unit_label})</span>"
-        f"<span style='font-size:0.6rem;color:#6b7280;font-weight:500;'>"
+        f"<span style='font-size:0.6rem;color:var(--text-secondary);font-weight:500;'>"
         f"💲 {usd_krw:,.0f}원</span>"
         f"</div>"
         f"{header_summary}"
@@ -4404,12 +4413,13 @@ def render_overview_panel(
                 margin=dict(l=4, r=8, t=4, b=4),
                 xaxis=dict(showgrid=False, tickfont=dict(size=9),
                            tickmode='array', tickvals=tick_vals_eq),
-                yaxis=dict(showgrid=True, gridcolor='rgba(156,163,175,0.2)',
+                yaxis=dict(showgrid=True, gridcolor='rgba(48,54,61,0.4)',
                            tickfont=dict(size=9),
                            ticksuffix='만',
                            zeroline=True, zerolinecolor='#9ca3af',
                            zerolinewidth=0.8),
-                paper_bgcolor='white', plot_bgcolor='white',
+                paper_bgcolor='#0d1117', plot_bgcolor='#161b22',
+                font=dict(color='#adbac7'),
                 bargap=0.15,
             )
             st.plotly_chart(fig_eq, use_container_width=True,
@@ -4466,7 +4476,7 @@ def render_overview_panel(
                         f"{e['qty']}주 @${e['price']:.2f}"
                     )
                     st.markdown(
-                        f"<div style='font-size:0.72rem;color:#374151;"
+                        f"<div style='font-size:0.72rem;color:var(--text-primary);"
                         f"margin-top:8px;'>{label}</div>",
                         unsafe_allow_html=True,
                     )
@@ -4536,32 +4546,32 @@ def build_css(selected_option: str, holding_tickers: set) -> str:
         height:1.7rem!important; min-height:0!important; border-radius:3px!important;
         font-size:0.62rem!important; font-weight:700!important; padding:0 2px!important;
         border:1px solid #cbd5e1!important; background:#f8fafc!important;
-        color:#0f172a!important; line-height:1!important;
+        color:var(--text-primary)!important; line-height:1!important;
     }}
     div.st-key-full_refresh_btn button:hover {{
         border-color:#94a3b8!important; background:#eef2f7!important; }}""")
 
     return f"""<style>
-    /* ─────────── 디자인 토큰 ─────────── */
+    /* ─────────── 디자인 토큰 (다크 기본) ─────────── */
     :root {{
-        --bg-app:         #fafafa;
-        --bg-card:        #ffffff;
-        --bg-subtle:      #f8fafc;
-        --border:         #e5e7eb;
-        --border-strong:  #cbd5e1;
-        --text-primary:   #0f172a;
-        --text-secondary: #475569;
-        --text-muted:     #94a3b8;
-        --accent-buy:     #dc2626;
-        --accent-sell:    #2563eb;
-        --accent-success: #16a34a;
-        --accent-warn:    #f59e0b;
+        --bg-app:         #0d1117;
+        --bg-card:        #161b22;
+        --bg-subtle:      #1c2128;
+        --border:         #30363d;
+        --border-strong:  #484f58;
+        --text-primary:   #e6edf3;
+        --text-secondary: #adbac7;
+        --text-muted:     #768390;
+        --accent-buy:     #f85149;
+        --accent-sell:    #58a6ff;
+        --accent-success: #3fb950;
+        --accent-warn:    #fbbf24;
         --space-1: 4px;  --space-2: 8px;  --space-3: 12px;
         --space-4: 16px; --space-5: 24px;
         --radius-sm: 4px; --radius-md: 8px; --radius-lg: 12px;
-        --shadow-sm: 0 1px 2px rgba(0,0,0,0.04);
-        --shadow-md: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
-        --shadow-lg: 0 4px 6px rgba(0,0,0,0.04), 0 2px 4px rgba(0,0,0,0.04);
+        --shadow-sm: 0 1px 2px rgba(0,0,0,0.3);
+        --shadow-md: 0 1px 3px rgba(0,0,0,0.4), 0 1px 2px rgba(0,0,0,0.3);
+        --shadow-lg: 0 4px 6px rgba(0,0,0,0.4), 0 2px 4px rgba(0,0,0,0.3);
         --text-xs:   0.62rem; --text-sm: 0.72rem; --text-base: 0.85rem;
         --text-lg:   1rem;    --text-xl: 1.2rem;
     }}
@@ -5149,7 +5159,7 @@ def main() -> None:
             last_refresh = st.session_state.get('last_refresh')
             if last_refresh:
                 st.markdown(
-                    f"<div style='font-size:0.65rem;color:#9ca3af;text-align:center;"
+                    f"<div style='font-size:0.65rem;color:var(--text-muted);text-align:center;"
                     f"margin-top:-4px;'>updated {last_refresh}</div>",
                     unsafe_allow_html=True,
                 )
@@ -5234,10 +5244,10 @@ def main() -> None:
         # [종목 70px] [σ 위치 라벨 flex] [기간 위치 라벨 flex]
         st.markdown(
             "<div style='display:flex;align-items:center;gap:6px;"
-            "padding:6px 4px 4px 4px;font-size:0.55rem;color:#9ca3af;"
+            "padding:6px 4px 4px 4px;font-size:0.55rem;color:var(--text-muted);"
             "border-bottom:1px solid #e5e7eb;margin-bottom:2px;'>"
             # 좌측 70px
-            "<div style='width:70px;flex-shrink:0;font-weight:700;color:#6b7280;"
+            "<div style='width:70px;flex-shrink:0;font-weight:700;color:var(--text-secondary);"
             "font-size:0.65rem;'>종목</div>"
             # σ 위치 라벨
             "<div style='flex:1;position:relative;height:14px;min-width:0;'>"
@@ -5328,7 +5338,7 @@ def main() -> None:
                 )
 
             is_holding = ticker in holding_tickers
-            row_bg = '#f0fdf4' if is_holding else '#ffffff'
+            row_bg = '#0f2c1a' if is_holding else 'var(--bg-card)'
             star = "★ " if is_holding else ""
 
             # 행: [티커 70px] [σ 바 flex] [위치 바 flex]
@@ -5358,7 +5368,7 @@ def main() -> None:
         st.markdown(
             "<div style='margin-top:16px;padding:8px 4px 4px 4px;"
             "border-top:1px solid #e5e7eb;font-size:0.7rem;font-weight:700;"
-            "color:#6b7280;'>📊 종목 변동성·시장민감도 분포</div>",
+            "color:var(--text-secondary);'>📊 종목 변동성·시장민감도 분포</div>",
             unsafe_allow_html=True,
         )
 
@@ -5521,7 +5531,7 @@ def main() -> None:
                 xaxis=dict(
                     title=dict(text='β·SPY (SPY 대비 로그회귀 슬로프)',
                                font=dict(size=11, color='#6b7280')),
-                    showgrid=True, gridcolor='rgba(229,231,235,0.6)',
+                    showgrid=True, gridcolor='rgba(48,54,61,0.6)',
                     tickfont=dict(size=9, color='#9ca3af'),
                     range=[beta_min, beta_max],
                     ticksuffix='×',
@@ -5531,12 +5541,13 @@ def main() -> None:
                     title=dict(text='σ% (변동성)',
                                font=dict(size=11, color='#6b7280')),
                     type='log',
-                    showgrid=True, gridcolor='rgba(229,231,235,0.6)',
+                    showgrid=True, gridcolor='rgba(48,54,61,0.6)',
                     tickfont=dict(size=9, color='#9ca3af'),
                     range=[np.log10(sigma_log_min), np.log10(sigma_log_max)],
                     ticksuffix='%',
                 ),
-                paper_bgcolor='white', plot_bgcolor='white',
+                paper_bgcolor='#0d1117', plot_bgcolor='#161b22',
+                font=dict(color='#adbac7'),
             )
             st.plotly_chart(fig_sc, use_container_width=True,
                             config={'displayModeBar': False, 'staticPlot': True})
@@ -5551,9 +5562,9 @@ def main() -> None:
     with tab3:
         if not is_authenticated():
             st.markdown(
-                "<div style='padding:32px 16px;text-align:center;color:#6b7280;'>"
+                "<div style='padding:32px 16px;text-align:center;color:var(--text-secondary);'>"
                 "<div style='font-size:2rem;margin-bottom:8px;'>🔒</div>"
-                "<div style='font-weight:600;color:#374151;margin-bottom:4px;'>"
+                "<div style='font-weight:600;color:var(--text-primary);margin-bottom:4px;'>"
                 "포트폴리오 정보는 로그인 후 표시됩니다</div>"
                 "<div style='font-size:0.8rem;'>"
                 "⚙️ 설정 탭에서 로그인하세요</div>"
