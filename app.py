@@ -617,6 +617,8 @@ def init_session_state() -> None:
             (datetime.date.today() - datetime.timedelta(days=365)).strftime('%y-%m')
         ),
         'candle_type':         lambda: '일봉',
+        'individual_tickers':  lambda: load_settings().get('individual_tickers', []),
+        'ticker_type_filter':  lambda: 'ETF',
     }
     for key, factory in defaults.items():
         if key not in st.session_state:
@@ -2162,6 +2164,23 @@ def render_sidebar(
                     st.rerun()
 
             st.caption("매매 기록은 삭제되지 않음 (자산 추이/실현손익엔 반영)")
+
+            # ── 개별 종목 분류 (선택 안 한 것은 ETF) ──
+            st.caption("🏷️ 개별 종목 분류 (선택 안 한 것은 ETF)")
+            cur_indiv = list(st.session_state.get('individual_tickers', []))
+            new_indiv = st.multiselect(
+                "개별 종목",
+                TARGET_TICKERS,
+                default=[t for t in cur_indiv if t in TARGET_TICKERS],
+                key='individual_tickers_input',
+                label_visibility='collapsed',
+            )
+            if set(new_indiv) != set(cur_indiv):
+                st.session_state['individual_tickers'] = new_indiv
+                s = load_settings()
+                s['individual_tickers'] = new_indiv
+                save_settings(s)
+                st.rerun()
 
         # 매매 기록 (메모는 매매 시점에 함께 입력) — 로그인 시에만
         if not is_authenticated():
@@ -4804,6 +4823,27 @@ def build_css(selected_option: str, holding_tickers: set) -> str:
         border-radius: var(--radius-sm) !important;
     }}
 
+    /* ─────────── 탭1 ETF/개별 라디오 (88px 컬럼 안에 컴팩트) ─────────── */
+    div.st-key-ticker_type_radio {{
+        max-width: 92px !important;
+        margin-bottom: 4px !important;
+    }}
+    div.st-key-ticker_type_radio [role="radiogroup"] {{
+        gap: 2px !important;
+        flex-wrap: nowrap !important;
+    }}
+    div.st-key-ticker_type_radio label {{
+        padding: 0 !important;
+        margin: 0 !important;
+    }}
+    div.st-key-ticker_type_radio label p {{
+        font-size: 0.58rem !important;
+    }}
+    div.st-key-ticker_type_radio label > div:first-child {{
+        transform: scale(0.7);
+        margin-right: -3px !important;
+    }}
+
     /* ─────────── Phase C: 매매 일지 행 hover ─────────── */
     .app-card > div[style*="display:flex"]:hover {{
         background: var(--bg-subtle) !important;
@@ -5253,7 +5293,23 @@ def main() -> None:
     with tab1:
         btn_col, chart_col = st.columns([1, 6])
         with btn_col:
-            for ticker in sorted_tickers:
+            # ETF / 개별 라디오 필터
+            t_type = st.radio(
+                "분류", ['ETF', '개별'],
+                horizontal=True, key='ticker_type_radio',
+                index=0 if st.session_state.get('ticker_type_filter', 'ETF') == 'ETF' else 1,
+                label_visibility='collapsed',
+            )
+            if t_type != st.session_state.get('ticker_type_filter'):
+                st.session_state['ticker_type_filter'] = t_type
+                st.rerun()
+            individual_set = set(st.session_state.get('individual_tickers', []))
+            filtered_tickers = [
+                tk for tk in sorted_tickers
+                if (tk in individual_set if t_type == '개별'
+                    else tk not in individual_set)
+            ]
+            for ticker in filtered_tickers:
                 pct = pct_changes.get(ticker, 0)
                 # ★ = 현재 보유 중, ☆ = 매매 이력만 (로그인 시에만 표시)
                 if not is_authenticated():
