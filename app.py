@@ -1742,7 +1742,7 @@ def _build_journal_html(
 def _build_realized_html(
     portfolio_state: dict[str, TickerState], usd_krw: float
 ) -> str:
-    """💵 실현손익 — 합계 헤더 + 종목별 막대 (달러 주, 원화 보조)."""
+    """💵 실현손익 — 캡처 스타일 (원화 메인, 상단 카드 + 종목 행)."""
     rows = []
     for tk, ts in portfolio_state.items():
         cyc = ts['cycle']
@@ -1755,94 +1755,47 @@ def _build_realized_html(
     if not rows:
         return ""
 
-    total_abs = sum(abs(v) for _, v in rows)
     net_sum = sum(v for _, v in rows)
     net_col = pnl_color(net_sum)
-    max_abs = max(abs(v) for _, v in rows)
+    net_krw = net_sum * usd_krw
+    today_str = datetime.date.today().strftime('%y.%m.%d')
 
-    net_krw_man = net_sum * usd_krw / 10000
-
-    # ── 라벨 ──
-    html = (
-        f"{html_section_divider()}"
-        f"<div style='font-size:0.62rem;font-weight:700;color:{COLOR_LABEL};"
-        f"margin-bottom:6px;'>💵 실현손익</div>"
-    )
-
-    # ── 합계 헤더 ──
-    html += (
-        f"<div style='display:flex;justify-content:flex-end;align-items:flex-end;"
-        f"padding:6px 4px 8px 4px;border-bottom:1px solid #f3f4f6;margin-bottom:8px;'>"
-        f"<div style='text-align:right;'>"
-        f"<div style='font-size:0.55rem;color:{COLOR_LABEL};margin-bottom:2px;'>합계</div>"
-        f"<div style='font-size:0.92rem;color:{net_col};font-weight:700;'>"
-        f"{signed_str(int(round(net_sum)), '{:,}')}</div>"
-        f"<div style='font-size:0.55rem;color:var(--text-muted);'>"
-        f"({signed_str(int(round(net_krw_man)), '{:,}')}만원)</div>"
-        f"</div>"
-        f"</div>"
-    )
-
-    # ── 종목별 좌우 분기 막대 ──
-    # 중앙선을 기준으로 이익 종목은 오른쪽, 손실 종목은 왼쪽
-    # 손실 큰 순 → 손실 작은 순 → 이익 작은 순 → 이익 큰 순으로 정렬
-    # (손실이 위로 모이는 효과)
     sorted_rows = sorted(rows, key=lambda x: x[1])
 
+    # ── 상단 헤더 카드 (누적 실현손익) ──
+    html = (
+        f"<div style='background:#1c2128;border-radius:12px;padding:14px 16px;"
+        f"margin-bottom:10px;'>"
+        f"<div style='display:flex;justify-content:space-between;align-items:center;"
+        f"margin-bottom:6px;'>"
+        f"<span style='font-size:0.8rem;color:#a4adb8;font-weight:600;'>누적 실현손익</span>"
+        f"<span style='font-size:0.72rem;color:#a4adb8;'>{today_str}</span>"
+        f"</div>"
+        f"<div style='font-size:1.6rem;color:{net_col};font-weight:700;"
+        f"letter-spacing:-0.02em;line-height:1.1;'>"
+        f"{signed_str(int(round(net_krw)), '{:,}')}원</div>"
+        f"</div>"
+    )
+
+    # ── 종목별 행 ──
     for tk, real in sorted_rows:
-        ratio = abs(real) / total_abs * 100 if total_abs else 0
-        w_pct = max(abs(real) / max_abs * 100, 2) if max_abs else 2
         is_loss = real < 0
-        bar_c = '#2563eb' if is_loss else '#dc2626'
         vc = pnl_color(real)
-        real_krw_man = real * usd_krw / 10000
-
-        # 좌우 분기 막대: 중앙선 기준
-        # 왼쪽 50% 영역 (손실 막대 = 우측 끝에서 왼쪽으로)
-        # 오른쪽 50% 영역 (이익 막대 = 좌측 끝에서 오른쪽으로)
-        bar_html = (
-            f"<div style='flex:1;display:flex;align-items:center;min-width:0;"
-            f"position:relative;height:10px;'>"
-            # 중앙 분기선
-            f"<div style='position:absolute;left:50%;top:0;bottom:0;width:1px;"
-            f"background:#9ca3af;z-index:2;'></div>"
-            # 좌측 영역 (손실)
-            f"<div style='width:50%;height:7px;background:#30363d;"
-            f"border-radius:3px 0 0 3px;display:flex;justify-content:flex-end;"
-            f"overflow:hidden;'>"
-            + (
-                f"<div style='width:{w_pct / 2:.1f}%;height:100%;background:{bar_c};"
-                f"border-radius:3px 0 0 3px;'></div>"
-                if is_loss else ""
-            )
-            + f"</div>"
-            # 우측 영역 (이익)
-            f"<div style='width:50%;height:7px;background:#30363d;"
-            f"border-radius:0 3px 3px 0;display:flex;justify-content:flex-start;"
-            f"overflow:hidden;'>"
-            + (
-                f"<div style='width:{w_pct / 2:.1f}%;height:100%;background:{bar_c};"
-                f"border-radius:0 3px 3px 0;'></div>"
-                if not is_loss else ""
-            )
-            + f"</div>"
-            f"</div>"
-        )
-
+        real_krw = real * usd_krw
+        dot_color = '#2563eb' if is_loss else '#dc2626'
         html += (
-            f"<div style='display:flex;align-items:center;gap:5px;margin-bottom:4px;'>"
-            f"<div style='font-size:0.7rem;color:{vc};width:42px;"
-            f"flex-shrink:0;font-weight:600;'>{display_name(tk)}</div>"
-            f"{bar_html}"
-            # 비율%
-            f"<div style='font-size:0.6rem;color:var(--text-muted);width:30px;text-align:right;"
-            f"flex-shrink:0;'>{ratio:.0f}%</div>"
-            # 손익 ($, 만원)
-            f"<div style='font-size:0.7rem;font-weight:700;color:{vc};"
-            f"width:54px;text-align:right;flex-shrink:0;line-height:1.15;'>"
-            f"<div>{signed_str(int(round(real)), '{:,}')}</div>"
-            f"<div style='font-size:0.5rem;color:var(--text-muted);font-weight:400;'>"
-            f"{signed_str(int(round(real_krw_man)), '{:,}')}만</div>"
+            f"<div style='padding:10px 4px;border-bottom:1px solid #21262d;'>"
+            f"<div style='display:flex;justify-content:space-between;align-items:center;'>"
+            # 좌: dot + 종목명
+            f"<div style='display:flex;align-items:center;gap:6px;'>"
+            f"<span style='width:7px;height:7px;border-radius:50%;"
+            f"background:{dot_color};display:inline-block;flex-shrink:0;'></span>"
+            f"<span style='font-size:0.92rem;color:#ffffff;font-weight:600;'>"
+            f"{display_name(tk)}</span>"
+            f"</div>"
+            # 우: 실현손익
+            f"<span style='font-size:0.92rem;color:{vc};font-weight:600;'>"
+            f"{signed_str(int(round(real_krw)), '{:,}')}원</span>"
             f"</div>"
             f"</div>"
         )
@@ -1854,7 +1807,7 @@ def _build_alloc_html(
     df_close_last: dict,
     usd_krw: float,
 ) -> str:
-    """💼 보유 종목 평가 — 3숫자 헤더 (원금→평가, 손익) + 달러 주, 원화 보조."""
+    """💼 보유 종목 평가 — 캡처 스타일 (원화 메인, 상단 카드 + 종목 행)."""
     rows = []
     for tk, ts in portfolio_state.items():
         cyc = ts['cycle']
@@ -1870,7 +1823,7 @@ def _build_alloc_html(
         ret_pct = (cur / avg - 1) * 100 if avg > 0 else 0
         rows.append({
             'tk': tk, 'inv': inv_usd, 'eval': eval_usd,
-            'pnl': pnl_usd, 'ret': ret_pct,
+            'pnl': pnl_usd, 'ret': ret_pct, 'qty': int(cyc['hold_qty']),
         })
 
     if not rows:
@@ -1878,121 +1831,71 @@ def _build_alloc_html(
 
     rows.sort(key=lambda r: -r['eval'])
 
-    total_inv = sum(r['inv'] for r in rows)
     total_eval = sum(r['eval'] for r in rows)
+    total_inv = sum(r['inv'] for r in rows)
     total_pnl = total_eval - total_inv
     total_ret = (total_pnl / total_inv * 100) if total_inv > 0 else 0
-    total_pnl_color = pnl_color(total_pnl)
+    pnl_c = pnl_color(total_pnl)
 
-    inv_krw_man = total_inv * usd_krw / 10000
-    eval_krw_man = total_eval * usd_krw / 10000
-    pnl_krw_man = total_pnl * usd_krw / 10000
+    eval_krw = total_eval * usd_krw
+    pnl_krw = total_pnl * usd_krw
+    today_str = datetime.date.today().strftime('%y.%m.%d')
 
-    max_bar_value = max(max(r['inv'], r['eval']) for r in rows)
-
-    C_PRINCIPAL = '#d1d5db'
-    C_PROFIT    = '#dc2626'
-    C_LOSS      = '#2563eb'
-
-    # ── 라벨 ──
+    # ── 상단 헤더 카드 (평가금액 + 평가손익) ──
     html = (
-        f"{html_section_divider()}"
-        f"<div style='font-size:0.62rem;font-weight:700;color:{COLOR_LABEL};"
-        f"margin-bottom:6px;'>💼 보유 종목 평가</div>"
-    )
-
-    # ── 3숫자 헤더 (원금 → 평가, 손익) ──
-    html += (
-        f"<div style='display:flex;justify-content:space-between;align-items:flex-end;"
-        f"padding:6px 4px 8px 4px;border-bottom:1px solid #f3f4f6;margin-bottom:8px;'>"
-
-        f"<div style='text-align:left;flex:1;'>"
-        f"<div style='font-size:0.55rem;color:{COLOR_LABEL};margin-bottom:2px;'>원금</div>"
-        f"<div style='font-size:0.92rem;color:var(--text-primary);font-weight:700;'>"
-        f"${int(round(total_inv)):,}</div>"
-        f"<div style='font-size:0.55rem;color:var(--text-muted);'>"
-        f"({int(round(inv_krw_man)):,}만원)</div>"
+        f"<div style='background:#1c2128;border-radius:12px;padding:14px 16px;"
+        f"margin-bottom:10px;'>"
+        # 헤더 (제목 + 날짜)
+        f"<div style='display:flex;justify-content:space-between;align-items:center;"
+        f"margin-bottom:6px;'>"
+        f"<span style='font-size:0.8rem;color:#a4adb8;font-weight:600;'>평가금액</span>"
+        f"<span style='font-size:0.72rem;color:#a4adb8;'>{today_str}</span>"
         f"</div>"
-
-        f"<div style='color:var(--text-muted);font-size:0.85rem;padding:0 4px 8px 4px;'>→</div>"
-
-        f"<div style='text-align:center;flex:1;'>"
-        f"<div style='font-size:0.55rem;color:{COLOR_LABEL};margin-bottom:2px;'>평가</div>"
-        f"<div style='font-size:0.92rem;color:{total_pnl_color};font-weight:700;'>"
-        f"${int(round(total_eval)):,}</div>"
-        f"<div style='font-size:0.55rem;color:var(--text-muted);'>"
-        f"({int(round(eval_krw_man)):,}만원)</div>"
+        # 큰 금액
+        f"<div style='font-size:1.6rem;color:#ffffff;font-weight:700;"
+        f"letter-spacing:-0.02em;margin-bottom:10px;line-height:1.1;'>"
+        f"{int(round(eval_krw)):,}원</div>"
+        # 구분선 + 평가손익
+        f"<div style='display:flex;justify-content:space-between;align-items:center;"
+        f"border-top:1px solid #30363d;padding-top:8px;'>"
+        f"<span style='font-size:0.78rem;color:#a4adb8;'>평가손익</span>"
+        f"<span style='font-size:0.85rem;color:{pnl_c};font-weight:600;'>"
+        f"{signed_str(int(round(pnl_krw)), '{:,}')}원"
+        f"&nbsp;&nbsp;<span style='color:#30363d;'>|</span>&nbsp;&nbsp;"
+        f"{signed_str(total_ret, '{:.2f}')}%"
+        f"</span>"
         f"</div>"
-
-        f"<div style='text-align:right;flex:1;'>"
-        f"<div style='font-size:0.55rem;color:{COLOR_LABEL};margin-bottom:2px;'>"
-        f"손익 ({signed_str(round(total_ret), '{:d}')}%)</div>"
-        f"<div style='font-size:0.92rem;color:{total_pnl_color};font-weight:700;'>"
-        f"{signed_str(int(round(total_pnl)), '{:,}')}</div>"
-        f"<div style='font-size:0.55rem;color:var(--text-muted);'>"
-        f"({signed_str(int(round(pnl_krw_man)), '{:,}')}만원)</div>"
-        f"</div>"
-
         f"</div>"
     )
 
-    # ── 종목별 막대 ──
+    # ── 종목별 행 ──
     for r in rows:
-        tk = r['tk']
-        inv_w = (r['inv'] / max_bar_value) * 100 if max_bar_value > 0 else 0
-        eval_w = (r['eval'] / max_bar_value) * 100 if max_bar_value > 0 else 0
-        pnl_w = abs(eval_w - inv_w)
-
-        is_profit = r['pnl'] >= 0
-        pnl_color_v = pnl_color(r['pnl'])
-
-        if is_profit:
-            seg1_w = inv_w; seg1_c = C_PRINCIPAL
-            seg2_w = pnl_w; seg2_c = C_PROFIT
-        else:
-            seg1_w = eval_w; seg1_c = C_PRINCIPAL
-            seg2_w = pnl_w; seg2_c = C_LOSS
-
-        bar_inner = (
-            f"<div style='width:{seg1_w:.1f}%;background:{seg1_c};height:7px;"
-            f"flex-shrink:0;border-radius:3px 0 0 3px;'></div>"
-        )
-        if seg2_w > 0.3:
-            bar_inner += (
-                f"<div style='width:{seg2_w:.1f}%;background:{seg2_c};height:7px;"
-                f"flex-shrink:0;border-radius:0 3px 3px 0;'></div>"
-            )
-
-        inv_krw_man_t = r['inv'] * usd_krw / 10000
-
-        # 평가 금액 분해: $평가 ($원금±$손익)
-        # 손익은 색깔로 (빨강=이익, 파랑=손실)
-        pnl_abs = abs(r['pnl'])
-        sign = '+' if r['pnl'] >= 0 else '-'
-
+        eval_krw_v = r['eval'] * usd_krw
+        pnl_krw_v = r['pnl'] * usd_krw
+        pnl_c_v = pnl_color(r['pnl'])
         html += (
-            f"<div style='display:flex;align-items:center;gap:5px;margin-bottom:4px;'>"
-            f"<div style='font-size:0.7rem;color:{COLOR_TEXT};width:42px;"
-            f"flex-shrink:0;font-weight:600;'>{display_name(tk)}</div>"
-            f"<div style='flex:1;background:#30363d;border-radius:3px;height:7px;"
-            f"display:flex;align-items:center;overflow:hidden;min-width:0;'>"
-            f"{bar_inner}"
+            f"<div style='padding:10px 4px;border-bottom:1px solid #21262d;'>"
+            # 종목명 (dot + 이름)
+            f"<div style='display:flex;align-items:center;gap:6px;margin-bottom:6px;'>"
+            f"<span style='width:7px;height:7px;border-radius:50%;"
+            f"background:#3fb950;display:inline-block;flex-shrink:0;'></span>"
+            f"<span style='font-size:0.92rem;color:#ffffff;font-weight:600;'>"
+            f"{display_name(r['tk'])}</span>"
             f"</div>"
-            f"<div style='font-size:0.62rem;color:var(--text-primary);width:84px;text-align:right;"
-            f"flex-shrink:0;line-height:1.2;'>"
-            f"<div style='font-weight:700;'>${int(round(r['eval'])):,}</div>"
-            f"<div style='font-size:0.52rem;color:var(--text-muted);white-space:nowrap;'>"
-            f"${int(round(r['inv'])):,}"
-            f"<span style='color:{pnl_color_v};font-weight:700;'>"
-            f"{sign}${int(round(pnl_abs)):,}</span>"
+            # 수량 + 평가금액/손익
+            f"<div style='display:flex;justify-content:space-between;align-items:flex-end;'>"
+            f"<span style='font-size:0.78rem;color:#a4adb8;'>{r['qty']}주</span>"
+            f"<div style='text-align:right;'>"
+            f"<div style='font-size:0.92rem;color:#ffffff;font-weight:600;'>"
+            f"{int(round(eval_krw_v)):,}원</div>"
+            f"<div style='font-size:0.72rem;color:{pnl_c_v};margin-top:2px;'>"
+            f"{signed_str(int(round(pnl_krw_v)), '{:,}')}원"
+            f"&nbsp;&nbsp;<span style='color:#30363d;'>|</span>&nbsp;&nbsp;"
+            f"{signed_str(r['ret'], '{:.2f}')}%</div>"
             f"</div>"
             f"</div>"
-            f"<div style='font-size:0.7rem;width:38px;text-align:right;flex-shrink:0;"
-            f"color:{pnl_color_v};font-weight:700;'>"
-            f"{signed_str(int(round(r['ret'])), '{:d}')}%</div>"
             f"</div>"
         )
-
     return html
 
 
@@ -4244,17 +4147,11 @@ def render_overview_panel(
 
     # ── 1. 보유 종목 평가 ──
     alloc_html = _build_alloc_html(portfolio_state, df_close_last, usd_krw)
-    st.markdown(
-        f"<div class='app-card'>{alloc_html}</div>",
-        unsafe_allow_html=True,
-    )
+    st.markdown(alloc_html, unsafe_allow_html=True)
 
     # ── 2. 실현손익 카드 ──
     real_html = _build_realized_html(portfolio_state, usd_krw)
-    st.markdown(
-        f"<div class='app-card'>{real_html}</div>",
-        unsafe_allow_html=True,
-    )
+    st.markdown(real_html, unsafe_allow_html=True)
 
     # ── 3. 자산 추이 통합 카드 (매매 일지 위로 이동) (시드 대비 누적 막대) ──
     # 모든 계산 달러 기반 — 환율 변동 영향 제거
