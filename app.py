@@ -3303,7 +3303,7 @@ def render_position_tracker(
         m_pct_color = momentum_to_color(cur_m_score_int)
 
     header_right = (
-        f"<span style='font-size:0.7rem;color:#1a1a1a;'>"
+        f"<span style='font-size:0.7rem;color:#c9d1d9;'>"
         f"<span title='1σ 변동성' style='font-weight:600;'>σ {sigma_str_hdr}</span>"
         f" · <span title='SPY 대비 로그회귀 슬로프 (장기 가격 관계)' style='font-weight:600;'>"
         f"β·SPY {beta_str_hdr}</span>"
@@ -3335,8 +3335,8 @@ def render_position_tracker(
         trend_diff_pct = (trend_price / current_price - 1) * 100
         trend_color = pnl_color(-trend_diff_pct)
         trend_html = (
-            f"<div><div style='color:#1a1a1a;font-size:0.68rem;'>회귀선</div>"
-            f"<div style='font-weight:700;color:#0f172a;'>${trend_price:,.2f}"
+            f"<div><div style='color:#c9d1d9;font-size:0.68rem;'>회귀선</div>"
+            f"<div style='font-weight:700;color:#ffffff;'>${trend_price:,.2f}"
             f" <span style='font-size:0.7rem;color:{trend_color};'>"
             f"{signed_str(trend_diff_pct, '{:.1f}')}%</span></div></div>"
         )
@@ -3356,8 +3356,8 @@ def render_position_tracker(
                 )
                 st.markdown(f"""
                 <div style='display:flex;gap:12px;flex-wrap:wrap;margin:0 0 8px 0;
-                            padding:8px 12px;background:#e5e7eb;
-                            border:1px solid #94a3b8;border-radius:8px;font-size:0.78rem;'>
+                            padding:8px 12px;background:#000000;
+                            border:1px solid #30363d;border-radius:8px;font-size:0.78rem;'>
                   {price_html}
                   {html_dash_cell("평균단가")}
                   {html_dash_cell("보유수량")}
@@ -3378,7 +3378,7 @@ def render_position_tracker(
         price_pct = (current_price - avg_price) / avg_price * 100
         price_color = pnl_color(price_pct)
         price_html = (
-            f"<div><div style='color:#1a1a1a;font-size:0.68rem;'>현재가</div>"
+            f"<div><div style='color:#c9d1d9;font-size:0.68rem;'>현재가</div>"
             f"<div style='font-weight:700;color:{price_color};'>"
             f"${current_price:,.2f}&nbsp;<span style='font-size:0.72rem;'>"
             f"({signed_str(price_pct, '{:.0f}')}%)</span></div></div>"
@@ -3410,7 +3410,7 @@ def render_position_tracker(
         pnl_dollar = (current_price - avg_price) * hold_qty if current_price is not None else 0.0
         pnl_label = "평가손익"
     pnl_html = (
-        f"<div><div style='color:#1a1a1a;font-size:0.68rem;'>{pnl_label}</div>"
+        f"<div><div style='color:#c9d1d9;font-size:0.68rem;'>{pnl_label}</div>"
         f"<div>{_fmt_pnl(pnl_dollar)}</div></div>"
     )
 
@@ -3421,7 +3421,7 @@ def render_position_tracker(
     )
     has_cumulative = (cumulative_pnl != 0.0) or has_realized_in_cycle
     cumulative_html = (
-        f"<div><div style='color:#1a1a1a;font-size:0.68rem;'>누적실현손익</div>"
+        f"<div><div style='color:#c9d1d9;font-size:0.68rem;'>누적실현손익</div>"
         f"<div>{_fmt_pnl(total_realized)}</div></div>"
         if has_cumulative else html_dash_cell("누적실현손익")
     )
