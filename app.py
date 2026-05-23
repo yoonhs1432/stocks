@@ -2218,7 +2218,8 @@ def render_sidebar(
                 "메모 (선택)", value="", key="trade_memo_input",
                 placeholder="예: 추세선 -2σ 매수, 익절 등",
             )
-            if st.button("기록 저장", key="trade_save_btn"):
+            if st.button("💾 기록 저장", key="trade_save_btn",
+                         type="primary", use_container_width=True):
                 record = {'date': t_date.strftime("%Y-%m-%d"), 'type': t_type}
                 if t_qty > 0:
                     record['qty'] = int(t_qty)
@@ -4669,6 +4670,49 @@ def build_css(selected_option: str, holding_tickers: set) -> str:
         min-height: 0 !important;
         font-size: var(--text-sm) !important;
         border-radius: var(--radius-sm) !important;
+    }}
+
+    /* ─────────── Phase C: 매매 일지 행 hover ─────────── */
+    .app-card > div[style*="display:flex"]:hover {{
+        background: var(--bg-subtle) !important;
+        border-radius: var(--radius-sm);
+    }}
+
+    /* ─────────── Phase C: 매매 기록 삭제 버튼 컴팩트화 ─────────── */
+    [class*="st-key-del_"] button {{
+        height: 1.8rem !important;
+        min-height: 0 !important;
+        font-size: var(--text-sm) !important;
+        border-radius: var(--radius-sm) !important;
+        color: var(--accent-sell) !important;
+        border-color: var(--border) !important;
+    }}
+    [class*="st-key-del_"] button:hover {{
+        background: var(--bg-subtle) !important;
+        border-color: var(--accent-sell) !important;
+    }}
+
+    /* ─────────── Phase C: 기록 저장 버튼 강조 ─────────── */
+    div[class*="st-key-"] button[kind="secondary"] {{
+        transition: all 0.15s ease;
+    }}
+
+    /* ─────────── Phase C: expander 헤더 톤 다운 ─────────── */
+    [data-testid="stExpander"] summary,
+    [data-testid="stExpander"] details > summary {{
+        font-size: var(--text-base) !important;
+        font-weight: 600 !important;
+        color: var(--text-secondary) !important;
+    }}
+
+    /* ─────────── Phase C: 탭 헤더 톤 통일 ─────────── */
+    [data-testid="stTabs"] [role="tab"] {{
+        font-size: var(--text-base) !important;
+        padding: var(--space-2) var(--space-3) !important;
+    }}
+    [data-testid="stTabs"] [role="tab"][aria-selected="true"] {{
+        font-weight: 700 !important;
+        color: var(--accent-buy) !important;
     }}
 
     .block-container {{
