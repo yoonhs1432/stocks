@@ -5074,14 +5074,12 @@ def main() -> None:
     st.markdown(
         build_css(selected_option, holding_tickers), unsafe_allow_html=True
     )
-    KST = datetime.timezone(datetime.timedelta(hours=9))
-    queried = datetime.datetime.now(KST).strftime('%Y-%m-%d %H:%M')
     data_lbl = (
-        f"🟢 장중&nbsp;·&nbsp;조회: {queried}" if mkt['is_open']
-        else f"🔴 장마감&nbsp;·&nbsp;{mkt['last_trading_label']}&nbsp;·&nbsp;조회: {queried}"
+        "🟢 장중" if mkt['is_open']
+        else f"🔴 장마감&nbsp;·&nbsp;{mkt['last_trading_label']}"
     )
     st.markdown(
-        f"<div style='display:flex;align-items:center;gap:10px;flex-wrap:wrap;"
+        f"<div style='display:flex;align-items:center;gap:10px;flex-wrap:nowrap;"
         f"margin-bottom:6px;padding-bottom:1px;'>"
         f"<b style='font-size:1.15rem;white-space:nowrap;color:#f0f6fc;'>📊 퀀트 대시보드</b>"
         f"<span style='font-size:10px;color:#adbac7;white-space:nowrap;'>{data_lbl}</span></div>",
