@@ -1998,7 +1998,8 @@ def render_sidebar(
     selected_ticker: str,
     portfolio_state: dict[str, TickerState],
 ) -> dict:
-    with st.sidebar:
+    # 사이드바 → 탭4(설정)로 이전. 들여쓰기 유지를 위해 container 컨텍스트 사용.
+    with st.container():
         # ─────────── 로그인 영역 (개인 정보 보호) ───────────
         if is_authenticated():
             # 로그인 상태: 로그아웃 버튼
@@ -4564,9 +4565,25 @@ def build_css(selected_option: str, holding_tickers: set) -> str:
         --text-lg:   1rem;    --text-xl: 1.2rem;
     }}
 
-    /* ─────────── Streamlit 기본 UI 숨김 (보수적: footer만) ─────────── */
-    /* 주의: stToolbar/header 안의 selector를 가리면 사이드바 토글이 사라짐 */
-    footer {{ visibility: hidden !important; }}
+    /* ─────────── Streamlit 기본 UI 완전 숨김 ─────────── */
+    /* 사이드바 → 탭4로 이전했으므로 사이드바·토글 모두 제거 */
+    [data-testid="stSidebar"],
+    [data-testid="stSidebarCollapsedControl"],
+    [data-testid="collapsedControl"] {{ display: none !important; }}
+    /* 상단 헤더 (Fork·GitHub·⋮ 메뉴) 통째로 숨김 */
+    header[data-testid="stHeader"] {{ display: none !important; }}
+    /* 하단 푸터, 메뉴, ⛵·🏯 등 잔여 UI */
+    #MainMenu, footer {{ visibility: hidden !important; }}
+    [data-testid="stToolbar"],
+    [data-testid="stDecoration"],
+    [data-testid="stStatusWidget"],
+    [data-testid="stAppDeployButton"],
+    .stDeployButton,
+    .stAppDeployButton,
+    [class*="viewerBadge"],
+    a[href*="streamlit.app"],
+    a[href*="streamlit.io"],
+    a[href*="share.streamlit"] {{ display: none !important; }}
 
     /* ─────────── 공통 카드 클래스 ─────────── */
     .app-card {{
@@ -4594,7 +4611,7 @@ def build_css(selected_option: str, holding_tickers: set) -> str:
     }}
 
     .block-container {{
-        padding-top:3.5rem!important; padding-bottom:0.5rem!important; max-width:100%!important;
+        padding-top:0.8rem!important; padding-bottom:0.5rem!important; max-width:100%!important;
     }}
     section[data-testid="stMain"] div[data-testid="stHorizontalBlock"] {{
         flex-wrap:nowrap!important; gap:5px!important; align-items:flex-start!important;
@@ -4802,7 +4819,13 @@ def main() -> None:
     # ★ 핵심 최적화: 사이클 정보 한 번만 계산
     portfolio_state = build_portfolio_state(st.session_state.trade_history)
 
-    cfg = render_sidebar(selected_ticker or TARGET_TICKERS[0], portfolio_state)
+    # ── 탭 컨테이너 생성 (탭4 = 설정, 사이드바 대체) ──
+    tab1, tab2, tab3, tab4 = st.tabs([
+        "📊 종목 분석", "🗺️ 종목 비교", "💼 포트폴리오", "⚙️ 설정"
+    ])
+    # 설정 위젯을 탭4 안에 렌더 → 이후 cfg 사용
+    with tab4:
+        cfg = render_sidebar(selected_ticker or TARGET_TICKERS[0], portfolio_state)
 
     if (st.session_state.analysis_start != cfg['analysis_start']
             or st.session_state.view_months != cfg['view_months']):
@@ -4973,8 +4996,7 @@ def main() -> None:
         tk for tk, recs in st.session_state.trade_history.items() if recs
     }
 
-    # ── 메인 영역 전체를 감싸는 탭 ──
-    tab1, tab2, tab3 = st.tabs(["📊 종목 분석", "🗺️ 종목 비교", "💼 포트폴리오"])
+    # 탭은 cfg 결정 시점(위쪽)에서 이미 생성됨 (tab1, tab2, tab3, tab4)
 
     # ====================================================
     # 탭 1: 기존 화면 (종목버튼 + 차트 + 분석패널 + 메모)
