@@ -4738,11 +4738,12 @@ def build_css(selected_option: str, holding_tickers: set) -> str:
         letter-spacing: -0.01em !important;
     }}
     /* 본문 / 라벨 / 위젯 텍스트 다크 가독성 강화 */
-    section[data-testid="stMain"] p,
+    /* :not([style*="color"]) — 인라인 color 지정된 요소는 보존 (신호색 등) */
+    section[data-testid="stMain"] p:not([style*="color"]),
     section[data-testid="stMain"] label,
-    section[data-testid="stMain"] span:not([class*="badge"]):not([class*="pill"]),
-    section[data-testid="stMain"] li,
-    section[data-testid="stMain"] .stMarkdown {{
+    section[data-testid="stMain"] span:not([class*="badge"]):not([class*="pill"]):not([style*="color"]),
+    section[data-testid="stMain"] li:not([style*="color"]),
+    section[data-testid="stMain"] .stMarkdown:not([style*="color"]) {{
         color: var(--text-primary) !important;
     }}
     /* 캡션(라벨 역할) — 항상 밝은 회색 */
