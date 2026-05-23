@@ -2701,15 +2701,22 @@ def render_chart(
                 hoverinfo='skip', showlegend=False,
             ), row=row, col=1)
 
-            # 좌측 상단 MACD 현재값
+            # 좌측 상단 MACD 현재값: signal + (macd-signal)
             last_macd = macd_series.iloc[-1] if not macd_series.empty else 0.0
             macd_val = float(last_macd) if pd.notna(last_macd) else 0.0
-            macd_color = '#f85149' if macd_val < 0 else '#58a6ff'
+            last_sig_now = signal_series.iloc[-1] if not signal_series.empty else 0.0
+            sig_val = float(last_sig_now) if pd.notna(last_sig_now) else 0.0
+            diff_val = macd_val - sig_val
+            diff_color = '#58a6ff' if diff_val >= 0 else '#f85149'
             fig.add_annotation(
                 x=0, y=1, xref='x domain', yref='y domain',
-                text=f"<b>MACD {macd_val:.2f}</b>",
+                text=(
+                    f"<b>{sig_val:.2f} "
+                    f"<span style='color:{diff_color};'>"
+                    f"({diff_val:+.2f})</span></b>"
+                ),
                 showarrow=False,
-                font=dict(size=10, color=macd_color),
+                font=dict(size=10, color='#e6edf3'),
                 xanchor='left', yanchor='top',
                 bgcolor='rgba(0,0,0,0)', bordercolor='rgba(0,0,0,0)',
                 borderwidth=0,
