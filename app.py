@@ -2363,7 +2363,7 @@ def render_chart(
         x=[sc_df[f'{X_ASSET_FIXED}_Norm'].iloc[-1]],
         y=[sc_df[f'{selected_ticker}_Norm'].iloc[-1]],
         mode='markers',
-        marker=dict(symbol='diamond', color='#ffffff', size=8,
+        marker=dict(symbol='star', color='#f97316', size=12,
                     line=dict(color='#000000', width=1.5)),
         name='Current',
     ), row=row, col=1)
@@ -3018,7 +3018,7 @@ def render_chart(
         y=[sc_df[f'{selected_ticker}_Norm'].iloc[-1]],
         mode='markers',
         marker=dict(
-            symbol='diamond', color='#ffffff', size=8,
+            symbol='star', color='#f97316', size=12,
             line=dict(color='#000000', width=1.5),
         ),
         name='Current_Top', hoverinfo='skip', showlegend=False,
@@ -3066,9 +3066,9 @@ def render_chart(
         # X축 (Z) 임계선
         # Z-M 산점도 임계선 — 실선만 복구 (점선은 제거)
         threshold_lines_solid = [
-            (10, '#2563eb', 0.7),   # 강 매수 임계
+            (10, '#dc2626', 0.7),   # 강 매수 임계 (한국식 빨강)
             (50, '#8b949e', 0.5),   # 중립
-            (90, '#dc2626', 0.7),   # 강 매도 임계
+            (90, '#2563eb', 0.7),   # 강 매도 임계 (한국식 파랑)
         ]
         for val, lc, lw in threshold_lines_solid:
             # X축 임계선 (세로)
@@ -3158,7 +3158,7 @@ def render_chart(
             x=[zm_x[-1]], y=[zm_y[-1]],
             mode='markers',
             marker=dict(
-                symbol='diamond', color='#ffffff', size=8,
+                symbol='star', color='#f97316', size=12,
                 line=dict(color='#000000', width=1.5),
             ),
             hovertemplate=(
