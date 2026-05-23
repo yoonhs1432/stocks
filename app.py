@@ -2549,16 +2549,16 @@ def render_chart(
         borderwidth=1, borderpad=2,
         row=row, col=1,
     )
-    # 우측 현재가 말풍선
+    # 우측 현재가 말풍선 (paper x=1로 차트 우측 끝 고정)
     last_close_disp = float(df_daily['Plot_Norm_Ticker'].iloc[-1])
     last_close_raw = float(df_daily[f'{selected_ticker}_Close'].iloc[-1])
     fig.add_annotation(
-        x=df_daily.index[-1], y=last_close_disp,
+        xref=f'x{row} domain', yref=f'y{row}',
+        x=1, y=last_close_disp,
         text=f" ${last_close_raw:,.2f} ", showarrow=False,
         font=dict(size=10, color='#0d1117'),
         bgcolor='#fbbf24', bordercolor='#fbbf24', borderwidth=1, borderpad=3,
-        xanchor='left', yanchor='middle', xshift=6,
-        row=row, col=1,
+        xanchor='left', yanchor='middle', xshift=4,
     )
     # 매수평균가 말풍선 (진행 중 사이클이 있을 때)
     if cycles_g2:
@@ -2566,13 +2566,14 @@ def render_chart(
         if active_cycle and active_cycle.get('avg_buy'):
             avg_buy_disp = active_cycle['avg_buy'] * scale_p
             fig.add_annotation(
-                x=df_daily.index[-1], y=avg_buy_disp,
-                text=f" ${active_cycle['avg_buy']:,.2f} ", showarrow=False,
+                xref=f'x{row} domain', yref=f'y{row}',
+                x=1, y=avg_buy_disp,
+                text=f"${active_cycle['avg_buy']:,.2f}<br><span style='font-size:8px;'>매수단가</span>",
+                showarrow=False,
                 font=dict(size=9, color='#ffffff'),
                 bgcolor='#f97316', bordercolor='#f97316',
-                borderwidth=1, borderpad=2,
-                xanchor='left', yanchor='middle', xshift=6,
-                row=row, col=1,
+                borderwidth=1, borderpad=3,
+                xanchor='left', yanchor='middle', xshift=4,
             )
     time_x_axis = f'x{row}'
     row += 1
