@@ -2023,20 +2023,38 @@ def render_sidebar(
 
             st.caption("⚠️ 잘못된 티커 추가 시 데이터 로드 실패 (yfinance 의존)")
 
-            # 삭제 (체크박스)
-            st.caption(f"🗑️ 삭제 (현재 {len(TARGET_TICKERS)}개, 최소 {MIN_TICKERS}개 유지)")
+            # 종목별 1행: [삭제 체크 + 종목명] [개별 토글]
+            st.caption(f"🗑️ 삭제 / 🏷️ 개별 토글 (현재 {len(TARGET_TICKERS)}개, 최소 {MIN_TICKERS}개 유지)")
             to_delete = []
-            # 5열 그리드
-            cols_per_row = 5
-            for i in range(0, len(TARGET_TICKERS), cols_per_row):
-                cols = st.columns(cols_per_row)
-                for j, tk in enumerate(TARGET_TICKERS[i:i+cols_per_row]):
-                    if cols[j].checkbox(
+            cur_indiv = list(st.session_state.get('individual_tickers', []))
+            new_indiv = set(cur_indiv)
+            for tk in TARGET_TICKERS:
+                c1, c2 = st.columns([3, 2])
+                with c1:
+                    if st.checkbox(
                         display_name(tk),
                         key=f"del_chk_{tk}",
                         help=tk,
                     ):
                         to_delete.append(tk)
+                with c2:
+                    is_individual = st.checkbox(
+                        "개별",
+                        key=f"indiv_chk_{tk}",
+                        value=tk in cur_indiv,
+                    )
+                    if is_individual:
+                        new_indiv.add(tk)
+                    else:
+                        new_indiv.discard(tk)
+
+            # 개별 종목 변경 감지 → 저장
+            if new_indiv != set(cur_indiv):
+                st.session_state['individual_tickers'] = list(new_indiv)
+                s = load_settings()
+                s['individual_tickers'] = list(new_indiv)
+                save_settings(s)
+                st.rerun()
 
             del_col1, del_col2 = st.columns([1, 1])
             if to_delete:
@@ -2063,23 +2081,6 @@ def render_sidebar(
                     st.rerun()
 
             st.caption("매매 기록은 삭제되지 않음 (자산 추이/실현손익엔 반영)")
-
-            # ── 개별 종목 분류 (선택 안 한 것은 ETF) ──
-            st.caption("🏷️ 개별 종목 분류 (선택 안 한 것은 ETF)")
-            cur_indiv = list(st.session_state.get('individual_tickers', []))
-            new_indiv = st.multiselect(
-                "개별 종목",
-                TARGET_TICKERS,
-                default=[t for t in cur_indiv if t in TARGET_TICKERS],
-                key='individual_tickers_input',
-                label_visibility='collapsed',
-            )
-            if set(new_indiv) != set(cur_indiv):
-                st.session_state['individual_tickers'] = new_indiv
-                s = load_settings()
-                s['individual_tickers'] = new_indiv
-                save_settings(s)
-                st.rerun()
 
         # 매매 기록 (메모는 매매 시점에 함께 입력) — 로그인 시에만
         if not is_authenticated():
@@ -4704,6 +4705,25 @@ def build_css(selected_option: str, holding_tickers: set) -> str:
         min-height: 0 !important;
         font-size: var(--text-sm) !important;
         border-radius: var(--radius-sm) !important;
+    }}
+
+    /* ─────────── 종목 관리 expander 내부 그리드 안정화 ─────────── */
+    [data-testid="stExpander"] [data-testid="stHorizontalBlock"] {{
+        flex-wrap: nowrap !important;
+        gap: 4px !important;
+        overflow: hidden;
+    }}
+    [data-testid="stExpander"] [data-testid="stHorizontalBlock"] > div[data-testid="stColumn"] {{
+        flex: 1 1 0 !important;
+        min-width: 0 !important;
+        max-width: none !important;
+        overflow: hidden;
+    }}
+    [data-testid="stExpander"] [data-testid="stCheckbox"] label p {{
+        font-size: 0.78rem !important;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
     }}
 
     /* ─────────── 탭1 ETF/개별 라디오 (88px 컬럼 안에 컴팩트) ─────────── */
