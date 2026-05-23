@@ -1777,15 +1777,29 @@ def _build_realized_html(
         f"</div>"
     )
 
-    # ── 종목별 행 ──
+    # ── 종목별 행 (간격 축소 + 사이클 평균 수익률) ──
     for tk, real in sorted_rows:
         is_loss = real < 0
         vc = pnl_color(real)
         real_krw = real * usd_krw
         dot_color = '#2563eb' if is_loss else '#dc2626'
+
+        # 사이클 평균 수익률
+        stats = compute_cycle_stats(
+            st.session_state.trade_history.get(tk, [])
+        )
+        avg_ret_html = ""
+        if stats and stats.get('avg_ret_pct') is not None:
+            avg_pct = stats['avg_ret_pct']
+            avg_c = pnl_color(avg_pct)
+            avg_ret_html = (
+                f"&nbsp;<span style='font-size:0.76rem;color:{avg_c};font-weight:600;'>"
+                f"({signed_str(avg_pct, '{:.1f}')}%)</span>"
+            )
+
         html += (
-            f"<div style='padding:10px 4px;border-bottom:1px solid #21262d;'>"
-            f"<div style='display:flex;justify-content:space-between;align-items:center;'>"
+            f"<div style='padding:4px 4px;border-bottom:1px solid #21262d;"
+            f"display:flex;justify-content:space-between;align-items:center;'>"
             # 좌: dot + 종목명
             f"<div style='display:flex;align-items:center;gap:6px;'>"
             f"<span style='width:7px;height:7px;border-radius:50%;"
@@ -1793,9 +1807,11 @@ def _build_realized_html(
             f"<span style='font-size:0.92rem;color:#ffffff;font-weight:600;'>"
             f"{display_name(tk)}</span>"
             f"</div>"
-            # 우: 실현손익
-            f"<span style='font-size:0.92rem;color:{vc};font-weight:600;'>"
+            # 우: 실현손익 + 평균 수익률
+            f"<div style='text-align:right;'>"
+            f"<span style='font-size:0.88rem;color:{vc};font-weight:600;'>"
             f"{signed_str(int(round(real_krw)), '{:,}')}원</span>"
+            f"{avg_ret_html}"
             f"</div>"
             f"</div>"
         )
@@ -1868,12 +1884,13 @@ def _build_alloc_html(
         f"</div>"
     )
 
-    # ── 종목별 행 (한 줄) ──
+    # ── 종목별 행 (한 줄, 간격 축소) ──
     for r in rows:
         eval_krw_v = r['eval'] * usd_krw
+        pnl_krw_v = r['pnl'] * usd_krw
         pnl_c_v = pnl_color(r['pnl'])
         html += (
-            f"<div style='padding:8px 4px;border-bottom:1px solid #21262d;"
+            f"<div style='padding:4px 4px;border-bottom:1px solid #21262d;"
             f"display:flex;justify-content:space-between;align-items:center;gap:8px;'>"
             # 좌: dot + 종목명 + 수량
             f"<div style='display:flex;align-items:center;gap:6px;min-width:0;'>"
@@ -1883,12 +1900,14 @@ def _build_alloc_html(
             f"{display_name(r['tk'])}</span>"
             f"<span style='font-size:0.7rem;color:#a4adb8;'>{r['qty']}주</span>"
             f"</div>"
-            # 우: 평가금액 + %
+            # 우: 평가금액 + 수익금 + %
             f"<div style='text-align:right;flex-shrink:0;'>"
             f"<span style='font-size:0.88rem;color:#ffffff;font-weight:600;'>"
             f"{int(round(eval_krw_v)):,}원</span>"
-            f"&nbsp;&nbsp;<span style='font-size:0.78rem;color:{pnl_c_v};font-weight:600;'>"
-            f"{signed_str(r['ret'], '{:.2f}')}%</span>"
+            f"&nbsp;&nbsp;<span style='font-size:0.76rem;color:{pnl_c_v};font-weight:600;'>"
+            f"{signed_str(int(round(pnl_krw_v)), '{:,}')}원</span>"
+            f"&nbsp;<span style='font-size:0.76rem;color:{pnl_c_v};font-weight:600;'>"
+            f"({signed_str(r['ret'], '{:.2f}')}%)</span>"
             f"</div>"
             f"</div>"
         )
