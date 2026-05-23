@@ -3358,7 +3358,7 @@ def render_position_tracker(
             st.markdown(header_html, unsafe_allow_html=True)
             if is_authenticated():
                 price_html = (
-                    html_metric("현재가", f"${current_price:,.2f}")
+                    html_metric("현재가", f"${current_price:,.2f}", color='#ffffff')
                     if current_price is not None else html_dash_cell("현재가")
                 )
                 st.markdown(f"""
@@ -3388,27 +3388,28 @@ def render_position_tracker(
         price_color = pnl_color(price_pct)
         price_html = (
             f"<div><div style='color:#c9d1d9;font-size:0.68rem;'>현재가</div>"
-            f"<div style='font-weight:700;color:{price_color};'>"
-            f"${current_price:,.2f}&nbsp;<span style='font-size:0.72rem;'>"
+            f"<div style='font-weight:700;color:#ffffff;'>"
+            f"${current_price:,.2f}&nbsp;"
+            f"<span style='font-size:0.72rem;color:{price_color};'>"
             f"({signed_str(price_pct, '{:.0f}')}%)</span></div></div>"
         )
     else:
         price_html = (
-            html_metric("현재가", f"${current_price:,.2f}")
+            html_metric("현재가", f"${current_price:,.2f}", color='#ffffff')
             if current_price is not None else html_dash_cell("현재가")
         )
 
     avg_html = (
-        html_metric("평균단가", f"${avg_price:,.2f}")
+        html_metric("평균단가", f"${avg_price:,.2f}", color='#ffffff')
         if not is_closed else html_dash_cell("평균단가")
     )
     qty_html = (
-        html_metric("보유수량", f"{hold_qty:,}주")
+        html_metric("보유수량", f"{hold_qty:,}주", color='#ffffff')
         if not is_closed else html_dash_cell("보유수량")
     )
     if not is_closed:
         hold_days = (datetime.date.today() - cyc['cycle_start']).days
-        period_html = html_metric("보유기간", f"{hold_days}일")
+        period_html = html_metric("보유기간", f"{hold_days}일", color='#ffffff')
     else:
         period_html = html_dash_cell("보유기간")
 
