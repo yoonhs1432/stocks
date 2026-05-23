@@ -2385,11 +2385,7 @@ def render_chart(
                 hoverinfo='skip', showlegend=False,
             ), row=row, col=1)
 
-        # 진행 중 사이클만 (진한 색)
-        if active:
-            _hline_g1(active['avg_buy'] / base_y_ticker, '#f97316', 1.2)
-            if active.get('avg_sell'):
-                _hline_g1(active['avg_sell'] / base_y_ticker, '#2563eb', 1.2)
+        # 평단가 가로 점선 제거 (사용자 요청)
 
     band_upper = np.exp(np.log(sdf['Predicted'].values) + 1.5 * std_resid)
     band_lower = np.exp(np.log(sdf['Predicted'].values) - 1.5 * std_resid)
@@ -3076,28 +3072,7 @@ def render_chart(
 
         # 사분면 분할선 + 그래프 3과 동일한 Z/M 임계선
         # X축 (Z) 임계선
-        # Y축 (M) 임계선
-        # 색/스타일 = 그래프 3 (Z+M 패널) 와 동일
-        threshold_lines = [
-            (10, '#2563eb', 'solid', 0.7),   # 강 매수 임계
-            (30, '#93c5fd', 'dot',   0.6),   # 약 매수 임계
-            (50, '#8b949e', 'solid', 0.5),   # 중립
-            (70, '#fca5a5', 'dot',   0.6),   # 약 매도 임계
-            (90, '#dc2626', 'solid', 0.7),   # 강 매도 임계
-        ]
-        for val, lc, ld, lw in threshold_lines:
-            # X축 임계선 (세로)
-            fig.add_shape(
-                type='line', x0=val, x1=val, y0=0, y1=100,
-                line=dict(color=lc, width=lw, dash=ld),
-                row=zm_row, col=1, layer='below',
-            )
-            # Y축 임계선 (가로)
-            fig.add_shape(
-                type='line', x0=0, x1=100, y0=val, y1=val,
-                line=dict(color=lc, width=lw, dash=ld),
-                row=zm_row, col=1, layer='below',
-            )
+        # Z-M 산점도 임계선 제거 (사용자 요청)
 
         # 산점도 — 시간 색 (viridis)
         fig.add_trace(go.Scatter(
