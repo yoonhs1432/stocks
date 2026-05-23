@@ -3316,9 +3316,6 @@ def render_position_tracker(
                   {price_html}
                   {html_dash_cell("평균단가")}
                   {html_dash_cell("보유수량")}
-                  {html_dash_cell("보유기간")}
-                  {html_dash_cell("평가손익")}
-                  {html_dash_cell("누적실현손익")}
                 </div>""", unsafe_allow_html=True)
         return
 
@@ -3400,9 +3397,6 @@ def render_position_tracker(
               {price_html}
               {avg_html}
               {qty_html}
-              {period_html}
-              {pnl_html}
-              {cumulative_html}
             </div>""", unsafe_allow_html=True)
 
 
