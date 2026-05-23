@@ -101,10 +101,10 @@ class Colors:
     MOM_SELL_STRONG = '#1e3a8a'     # 강 매도 (+4)
 
     # ── UI 기본 (다크 모드) ──
-    TEXT            = '#adbac7'     # 본문
-    TEXT_DARK       = '#e6edf3'     # 강조 본문
-    LABEL           = '#768390'     # 라벨
-    LABEL_DARK      = '#adbac7'
+    TEXT            = '#c9d1d9'     # 본문
+    TEXT_DARK       = '#f0f6fc'     # 강조 본문
+    LABEL           = '#a4adb8'     # 라벨
+    LABEL_DARK      = '#c9d1d9'
     BORDER          = '#30363d'
     BORDER_LIGHT    = '#21262d'
     BG              = '#161b22'
@@ -2613,7 +2613,7 @@ def render_chart(
             for y_val, lc, ld, lw in [
                 (90,   '#dc2626', 'solid', 0.7),   # 강 매도 (Z+2)
                 (70,   '#fca5a5', 'dot',   0.6),   # 약 매도 (Z+1)
-                (50,   '#9ca3af', 'solid', 0.5),   # 중립 (Z=0)
+                (50,   '#8b949e', 'solid', 0.5),   # 중립 (Z=0)
                 (30,   '#93c5fd', 'dot',   0.6),   # 약 매수 (Z-1)
                 (10,   '#2563eb', 'solid', 0.7),   # 강 매수 (Z-2)
             ]:
@@ -3075,7 +3075,7 @@ def render_chart(
         threshold_lines = [
             (10, '#2563eb', 'solid', 0.7),   # 강 매수 임계
             (30, '#93c5fd', 'dot',   0.6),   # 약 매수 임계
-            (50, '#9ca3af', 'solid', 0.5),   # 중립
+            (50, '#8b949e', 'solid', 0.5),   # 중립
             (70, '#fca5a5', 'dot',   0.6),   # 약 매도 임계
             (90, '#dc2626', 'solid', 0.7),   # 강 매도 임계
         ]
@@ -3238,11 +3238,11 @@ def render_chart(
     )
     fig.update_xaxes(
         gridcolor='#30363d', linecolor='#30363d', zerolinecolor='#30363d',
-        tickfont=dict(color='#adbac7'),
+        tickfont=dict(color='#c9d1d9'),
     )
     fig.update_yaxes(
         gridcolor='#30363d', linecolor='#30363d', zerolinecolor='#30363d',
-        tickfont=dict(color='#adbac7'),
+        tickfont=dict(color='#c9d1d9'),
     )
 
     st.plotly_chart(
@@ -4408,7 +4408,7 @@ def render_overview_panel(
                 hovertemplate='%{x}<br>$%{y:,.0f}<extra></extra>',
                 showlegend=False,
             ))
-            fig_eq.add_hline(y=0, line_color='#9ca3af', line_width=0.8)
+            fig_eq.add_hline(y=0, line_color='#8b949e', line_width=0.8)
 
             # MDD 마커 (시점이 표시 범위 안일 때만)
             if dd_info and dd_info.get('mdd', 0) < 0:
@@ -4534,10 +4534,10 @@ def render_overview_panel(
                 yaxis=dict(showgrid=True, gridcolor='rgba(48,54,61,0.4)',
                            tickfont=dict(size=9),
                            ticksuffix='만',
-                           zeroline=True, zerolinecolor='#9ca3af',
+                           zeroline=True, zerolinecolor='#8b949e',
                            zerolinewidth=0.8),
                 paper_bgcolor='#0d1117', plot_bgcolor='#161b22',
-                font=dict(color='#adbac7'),
+                font=dict(color='#c9d1d9'),
                 bargap=0.15,
             )
             st.plotly_chart(fig_eq, use_container_width=True,
@@ -4677,9 +4677,9 @@ def build_css(selected_option: str, holding_tickers: set) -> str:
         --bg-subtle:      #1c2128;
         --border:         #30363d;
         --border-strong:  #484f58;
-        --text-primary:   #e6edf3;
-        --text-secondary: #adbac7;
-        --text-muted:     #768390;
+        --text-primary:   #f0f6fc;
+        --text-secondary: #c9d1d9;
+        --text-muted:     #a4adb8;
         --accent-buy:     #f85149;
         --accent-sell:    #58a6ff;
         --accent-success: #3fb950;
@@ -4753,32 +4753,67 @@ def build_css(selected_option: str, holding_tickers: set) -> str:
     }}
 
     /* ─────────── 타이포 위계 통일 (탭 전체) ─────────── */
+    section[data-testid="stMain"] h1,
+    section[data-testid="stMain"] h2,
+    section[data-testid="stMain"] h3,
+    section[data-testid="stMain"] h4,
+    section[data-testid="stMain"] h5 {{
+        color: var(--text-primary) !important;
+    }}
     section[data-testid="stMain"] h3 {{
         font-size: 0.95rem !important;
         font-weight: 600 !important;
         margin: var(--space-3) 0 var(--space-2) 0 !important;
-        color: var(--text-secondary) !important;
         letter-spacing: -0.01em !important;
     }}
-    /* 캡션(라벨 역할) 통일 */
+    /* 본문 / 라벨 / 위젯 텍스트 다크 가독성 강화 */
+    section[data-testid="stMain"] p,
+    section[data-testid="stMain"] label,
+    section[data-testid="stMain"] span:not([class*="badge"]):not([class*="pill"]),
+    section[data-testid="stMain"] li,
+    section[data-testid="stMain"] .stMarkdown {{
+        color: var(--text-primary) !important;
+    }}
+    /* 캡션(라벨 역할) — 항상 밝은 회색 */
     section[data-testid="stMain"] [data-testid="stCaptionContainer"],
+    section[data-testid="stMain"] [data-testid="stCaptionContainer"] *,
     section[data-testid="stMain"] small {{
         font-size: var(--text-sm) !important;
         color: var(--text-secondary) !important;
         margin-bottom: var(--space-1) !important;
         font-weight: 500 !important;
     }}
-    /* 라디오 라벨 */
-    section[data-testid="stMain"] .stRadio label p {{
+    /* 위젯 라벨 (st.number_input, st.text_input의 라벨) */
+    section[data-testid="stMain"] [data-testid="stWidgetLabel"],
+    section[data-testid="stMain"] [data-testid="stWidgetLabel"] p,
+    section[data-testid="stMain"] .stRadio > label,
+    section[data-testid="stMain"] .stRadio > label p,
+    section[data-testid="stMain"] .stCheckbox > label p {{
+        color: var(--text-secondary) !important;
         font-size: var(--text-sm) !important;
+        font-weight: 500 !important;
     }}
-    /* 입력 위젯 통일 */
+    /* 라디오 선택지 텍스트 */
+    section[data-testid="stMain"] .stRadio label[data-baseweb="radio"] p {{
+        color: var(--text-primary) !important;
+        font-size: var(--text-base) !important;
+    }}
+    /* 입력 위젯 통일 — 값 텍스트도 밝게 */
     section[data-testid="stMain"] .stNumberInput input,
     section[data-testid="stMain"] .stTextInput input,
     section[data-testid="stMain"] .stDateInput input,
-    section[data-testid="stMain"] .stSelectbox > div > div {{
+    section[data-testid="stMain"] .stSelectbox > div > div,
+    section[data-testid="stMain"] textarea {{
         font-size: var(--text-base) !important;
         border-radius: var(--radius-md) !important;
+        color: var(--text-primary) !important;
+        background: var(--bg-subtle) !important;
+    }}
+    /* placeholder 색 */
+    section[data-testid="stMain"] input::placeholder,
+    section[data-testid="stMain"] textarea::placeholder {{
+        color: var(--text-muted) !important;
+        opacity: 0.7;
     }}
 
     /* ─────────── 탭4 분석 시작일 버튼 컴팩트화 ─────────── */
@@ -5362,11 +5397,11 @@ def main() -> None:
         # [종목 70px] [σ 위치 라벨 flex] [기간 위치 라벨 flex]
         st.markdown(
             "<div style='display:flex;align-items:center;gap:6px;"
-            "padding:6px 4px 4px 4px;font-size:0.55rem;color:var(--text-muted);"
-            "border-bottom:1px solid #e5e7eb;margin-bottom:2px;'>"
+            "padding:6px 4px 4px 4px;font-size:0.6rem;color:var(--text-secondary);"
+            "border-bottom:1px solid var(--border);margin-bottom:2px;'>"
             # 좌측 70px
-            "<div style='width:70px;flex-shrink:0;font-weight:700;color:var(--text-secondary);"
-            "font-size:0.65rem;'>종목</div>"
+            "<div style='width:70px;flex-shrink:0;font-weight:700;color:var(--text-primary);"
+            "font-size:0.7rem;'>종목</div>"
             # σ 위치 라벨
             "<div style='flex:1;position:relative;height:14px;min-width:0;'>"
             "<span style='position:absolute;left:0%;transform:translateX(-50%);'>-3σ</span>"
@@ -5463,10 +5498,10 @@ def main() -> None:
             st.markdown(
                 f"<div style='display:flex;align-items:center;gap:6px;"
                 f"padding:2px 4px;background:{row_bg};"
-                f"border-bottom:1px solid #f3f4f6;'>"
+                f"border-bottom:1px solid var(--border);'>"
                 # 좌측 70px - 티커만
                 f"<div style='width:70px;flex-shrink:0;font-size:0.78rem;"
-                f"font-weight:700;color:#111827;white-space:nowrap;"
+                f"font-weight:700;color:var(--text-primary);white-space:nowrap;"
                 f"overflow:hidden;text-overflow:ellipsis;'>"
                 f"{star}{display_name(ticker)}</div>"
                 # σ 바
@@ -5485,8 +5520,8 @@ def main() -> None:
         # ── σ vs β 산점도 ──
         st.markdown(
             "<div style='margin-top:16px;padding:8px 4px 4px 4px;"
-            "border-top:1px solid #e5e7eb;font-size:0.7rem;font-weight:700;"
-            "color:var(--text-secondary);'>📊 종목 변동성·시장민감도 분포</div>",
+            "border-top:1px solid var(--border);font-size:0.7rem;font-weight:700;"
+            "color:var(--text-primary);'>📊 종목 변동성·시장민감도 분포</div>",
             unsafe_allow_html=True,
         )
 
@@ -5616,7 +5651,7 @@ def main() -> None:
                 ),
                 text=[display_name(d['ticker']) for d in scatter_data],
                 textposition=text_positions,
-                textfont=dict(size=10, color='#374151', weight=500),
+                textfont=dict(size=10, color='#c9d1d9', weight=500),
                 hovertemplate=(
                     '<b>%{text}</b><br>'
                     'β·SPY: %{x:+.2f}×<br>'
@@ -5648,24 +5683,24 @@ def main() -> None:
                 margin=dict(l=44, r=24, t=20, b=44),
                 xaxis=dict(
                     title=dict(text='β·SPY (SPY 대비 로그회귀 슬로프)',
-                               font=dict(size=11, color='#6b7280')),
+                               font=dict(size=11, color='#c9d1d9')),
                     showgrid=True, gridcolor='rgba(48,54,61,0.6)',
-                    tickfont=dict(size=9, color='#9ca3af'),
+                    tickfont=dict(size=9, color='#c9d1d9'),
                     range=[beta_min, beta_max],
                     ticksuffix='×',
-                    zeroline=True, zerolinecolor='#9ca3af', zerolinewidth=1.2,
+                    zeroline=True, zerolinecolor='#8b949e', zerolinewidth=1.2,
                 ),
                 yaxis=dict(
                     title=dict(text='σ% (변동성)',
-                               font=dict(size=11, color='#6b7280')),
+                               font=dict(size=11, color='#c9d1d9')),
                     type='log',
                     showgrid=True, gridcolor='rgba(48,54,61,0.6)',
-                    tickfont=dict(size=9, color='#9ca3af'),
+                    tickfont=dict(size=9, color='#c9d1d9'),
                     range=[np.log10(sigma_log_min), np.log10(sigma_log_max)],
                     ticksuffix='%',
                 ),
                 paper_bgcolor='#0d1117', plot_bgcolor='#161b22',
-                font=dict(color='#adbac7'),
+                font=dict(color='#c9d1d9'),
             )
             st.plotly_chart(fig_sc, use_container_width=True,
                             config={'displayModeBar': False, 'staticPlot': True})
