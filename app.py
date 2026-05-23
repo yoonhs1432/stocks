@@ -2410,7 +2410,7 @@ def render_chart(
         x=0, y=1, xref='x domain', yref='y domain',
         text=f"<b>β = {beta:.2f}</b>", showarrow=False,
         font=dict(size=11, color='#adbac7'), xanchor='left', yanchor='top',
-        bgcolor='#161b22', bordercolor='#adbac7', borderwidth=1, borderpad=2,
+        bgcolor='rgba(0,0,0,0)', bordercolor='rgba(0,0,0,0)', borderwidth=0,
         row=row, col=1,
     )
     # 회귀 산점도 X축 라벨 숨김
@@ -2551,8 +2551,7 @@ def render_chart(
         text=f"<b>${df_daily[f'{selected_ticker}_Close'].iloc[-1]:,.2f}</b>",
         showarrow=False, font=dict(size=11, color='#e6edf3'),
         xanchor='left', yanchor='top',
-        bgcolor='rgba(22,27,34,0.85)', bordercolor='#30363d',
-        borderwidth=1, borderpad=2,
+        bgcolor='rgba(0,0,0,0)', bordercolor='rgba(0,0,0,0)', borderwidth=0,
         row=row, col=1,
     )
     time_x_axis = f'x{row}'
@@ -2665,8 +2664,7 @@ def render_chart(
                 showarrow=False,
                 font=dict(size=10),
                 xanchor='left', yanchor='top',
-                bgcolor='rgba(22,27,34,0.85)', bordercolor='#30363d',
-                borderwidth=1, borderpad=2,
+                bgcolor='rgba(0,0,0,0)', bordercolor='rgba(0,0,0,0)', borderwidth=0,
                 row=row, col=1,
             )
         else:
@@ -2713,8 +2711,8 @@ def render_chart(
                 showarrow=False,
                 font=dict(size=10, color=macd_color),
                 xanchor='left', yanchor='top',
-                bgcolor='rgba(22,27,34,0.85)', bordercolor=macd_color,
-                borderwidth=1, borderpad=2,
+                bgcolor='rgba(0,0,0,0)', bordercolor='rgba(0,0,0,0)',
+                borderwidth=0,
                 row=row, col=1,
             )
 
@@ -2909,7 +2907,7 @@ def render_chart(
         x=0, y=1, xref='x domain', yref='y domain',
         text=f"<b>RSI {rsi_val:.1f}</b>", showarrow=False,
         font=dict(size=10, color=rsi_color), xanchor='left', yanchor='top',
-        bgcolor='rgba(22,27,34,0.85)', bordercolor=rsi_color, borderwidth=1, borderpad=2,
+        bgcolor='rgba(0,0,0,0)', bordercolor='rgba(0,0,0,0)', borderwidth=0,
         row=row, col=1,
     )
     # Y축: 0-100 고정
@@ -3319,7 +3317,7 @@ def render_position_tracker(
         m_pct_color = momentum_to_color(cur_m_score_int)
 
     header_right = (
-        f"<span style='font-size:0.7rem;color:var(--text-secondary);'>"
+        f"<span style='font-size:0.7rem;color:#1a1a1a;'>"
         f"<span title='1σ 변동성' style='font-weight:600;'>σ {sigma_str_hdr}</span>"
         f" · <span title='SPY 대비 로그회귀 슬로프 (장기 가격 관계)' style='font-weight:600;'>"
         f"β·SPY {beta_str_hdr}</span>"
@@ -3351,8 +3349,8 @@ def render_position_tracker(
         trend_diff_pct = (trend_price / current_price - 1) * 100
         trend_color = pnl_color(-trend_diff_pct)
         trend_html = (
-            f"<div><div style='color:var(--text-secondary);font-size:0.68rem;'>회귀선</div>"
-            f"<div style='font-weight:700;color:var(--text-primary);'>${trend_price:,.2f}"
+            f"<div><div style='color:#1a1a1a;font-size:0.68rem;'>회귀선</div>"
+            f"<div style='font-weight:700;color:#0f172a;'>${trend_price:,.2f}"
             f" <span style='font-size:0.7rem;color:{trend_color};'>"
             f"{signed_str(trend_diff_pct, '{:.1f}')}%</span></div></div>"
         )
@@ -3372,8 +3370,8 @@ def render_position_tracker(
                 )
                 st.markdown(f"""
                 <div style='display:flex;gap:12px;flex-wrap:wrap;margin:0 0 8px 0;
-                            padding:8px 12px;background:#30363d;
-                            border:1px solid #d1d5db;border-radius:8px;font-size:0.78rem;'>
+                            padding:8px 12px;background:#e5e7eb;
+                            border:1px solid #94a3b8;border-radius:8px;font-size:0.78rem;'>
                   {price_html}
                   {html_dash_cell("평균단가")}
                   {html_dash_cell("보유수량")}
@@ -3394,7 +3392,7 @@ def render_position_tracker(
         price_pct = (current_price - avg_price) / avg_price * 100
         price_color = pnl_color(price_pct)
         price_html = (
-            f"<div><div style='color:var(--text-secondary);font-size:0.68rem;'>현재가</div>"
+            f"<div><div style='color:#1a1a1a;font-size:0.68rem;'>현재가</div>"
             f"<div style='font-weight:700;color:{price_color};'>"
             f"${current_price:,.2f}&nbsp;<span style='font-size:0.72rem;'>"
             f"({signed_str(price_pct, '{:.0f}')}%)</span></div></div>"
@@ -3426,7 +3424,7 @@ def render_position_tracker(
         pnl_dollar = (current_price - avg_price) * hold_qty if current_price is not None else 0.0
         pnl_label = "평가손익"
     pnl_html = (
-        f"<div><div style='color:var(--text-secondary);font-size:0.68rem;'>{pnl_label}</div>"
+        f"<div><div style='color:#1a1a1a;font-size:0.68rem;'>{pnl_label}</div>"
         f"<div>{_fmt_pnl(pnl_dollar)}</div></div>"
     )
 
@@ -3437,7 +3435,7 @@ def render_position_tracker(
     )
     has_cumulative = (cumulative_pnl != 0.0) or has_realized_in_cycle
     cumulative_html = (
-        f"<div><div style='color:var(--text-secondary);font-size:0.68rem;'>누적실현손익</div>"
+        f"<div><div style='color:#1a1a1a;font-size:0.68rem;'>누적실현손익</div>"
         f"<div>{_fmt_pnl(total_realized)}</div></div>"
         if has_cumulative else html_dash_cell("누적실현손익")
     )
@@ -4632,11 +4630,11 @@ def build_css(selected_option: str, holding_tickers: set) -> str:
     div.st-key-full_refresh_btn button span {{
         height:1.7rem!important; min-height:0!important; border-radius:3px!important;
         font-size:0.62rem!important; font-weight:700!important; padding:0 2px!important;
-        border:1px solid #cbd5e1!important; background:#f8fafc!important;
-        color:#0f172a!important; line-height:1!important;
+        border:1px solid #30363d!important; background:#0d1117!important;
+        color:#ffffff!important; line-height:1!important;
     }}
     div.st-key-full_refresh_btn button:hover {{
-        border-color:#94a3b8!important; background:#eef2f7!important; }}""")
+        border-color:#58a6ff!important; background:#161b22!important; }}""")
 
     return f"""<style>
     /* ─────────── 디자인 토큰 (다크 기본) ─────────── */
