@@ -5066,6 +5066,28 @@ def main() -> None:
     # ★ 핵심 최적화: 사이클 정보 한 번만 계산
     portfolio_state = build_portfolio_state(st.session_state.trade_history)
 
+    # ── 페이지 헤더 (탭보다 먼저 그려서 페이지 최상단에 위치) ──
+    holding_tickers = {
+        tk for tk, ts in portfolio_state.items() if ts['cycle']['hold_qty'] > 0
+    }
+    mkt = get_market_status()
+    st.markdown(
+        build_css(selected_option, holding_tickers), unsafe_allow_html=True
+    )
+    KST = datetime.timezone(datetime.timedelta(hours=9))
+    queried = datetime.datetime.now(KST).strftime('%Y-%m-%d %H:%M')
+    data_lbl = (
+        f"🟢 장중&nbsp;·&nbsp;조회: {queried}" if mkt['is_open']
+        else f"🔴 장마감&nbsp;·&nbsp;{mkt['last_trading_label']}&nbsp;·&nbsp;조회: {queried}"
+    )
+    st.markdown(
+        f"<div style='display:flex;align-items:center;gap:10px;flex-wrap:wrap;"
+        f"margin-bottom:6px;padding-bottom:1px;'>"
+        f"<b style='font-size:1.15rem;white-space:nowrap;color:#f0f6fc;'>📊 퀀트 대시보드</b>"
+        f"<span style='font-size:10px;color:#adbac7;white-space:nowrap;'>{data_lbl}</span></div>",
+        unsafe_allow_html=True,
+    )
+
     # ── 탭 컨테이너 생성 (탭4 = 설정, 사이드바 대체) ──
     tab1, tab2, tab3, tab4 = st.tabs([
         "📊 종목 분석", "🗺️ 종목 비교", "💼 포트폴리오", "⚙️ 설정"
@@ -5133,7 +5155,7 @@ def main() -> None:
         df_close, st.session_state.trade_history, analysis_start, candle_type,
     )
 
-    mkt = get_market_status()
+    # mkt는 페이지 헤더에서 이미 호출됨
     last_trading_date = pd.Timestamp(mkt['last_trading_date'])
     if not df_close.empty:
         st.session_state.last_data_date = df_close.index[-1].strftime('%Y-%m-%d')
@@ -5184,9 +5206,7 @@ def main() -> None:
             st.session_state.ticker_momentum_scores[selected_ticker] = compute_momentum_score(macd_pct, dmacd_pct, rsi)
             st.session_state.ticker_momentum_smooth[selected_ticker] = compute_momentum_score_smooth(macd_pct, dmacd_pct, rsi)
 
-    holding_tickers = {
-        tk for tk, ts in portfolio_state.items() if ts['cycle']['hold_qty'] > 0
-    }
+    # holding_tickers는 페이지 헤더에서 이미 계산됨
 
     # 드로다운 계산 (#6) + 자산 시계열 캐싱 (#15)
     # 표시 시점은 사용자 분석 시작 이후만 (warmup 60일은 계산용)
@@ -5212,20 +5232,7 @@ def main() -> None:
         st.session_state['dd_info_cache'] = None
         st.session_state['equity_series_cache'] = None
 
-    st.markdown(build_css(selected_option, holding_tickers), unsafe_allow_html=True)
-    KST = datetime.timezone(datetime.timedelta(hours=9))
-    queried = datetime.datetime.now(KST).strftime('%Y-%m-%d %H:%M')
-    data_lbl = (
-        f"🟢 장중&nbsp;·&nbsp;조회: {queried}" if mkt['is_open']
-        else f"🔴 장마감&nbsp;·&nbsp;{mkt['last_trading_label']}&nbsp;·&nbsp;조회: {queried}"
-    )
-    st.markdown(
-        f"<div style='display:flex;align-items:center;gap:10px;"
-        f"margin-bottom:1px;padding-bottom:1px;'>"
-        f"<b style='font-size:1.15rem;white-space:nowrap;color:#111;'>📊 퀀트 대시보드</b>"
-        f"<span style='font-size:10px;color:#999;white-space:nowrap;'>{data_lbl}</span></div>",
-        unsafe_allow_html=True,
-    )
+    # CSS/제목/시장 상태는 페이지 헤더에서 이미 그려짐
 
     # ── sorted_tickers 미리 계산 (탭 1, 탭 2 모두 사용) ──
     # 정렬 우선순위:
