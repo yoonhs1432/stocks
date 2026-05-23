@@ -2190,8 +2190,7 @@ def render_trade_record_section(selected_ticker: str) -> None:
                     st.rerun()
                 with btn_col:
                     if st.button("삭제",
-                                 key=f"del_{selected_ticker}_{i}",
-                                 use_container_width=True):
+                                 key=f"del_{selected_ticker}_{i}"):
                         st.session_state.trade_history[selected_ticker].pop(i)
                         save_trade_history(st.session_state.trade_history)
                         st.rerun()
@@ -4781,14 +4780,10 @@ def build_css(selected_option: str, holding_tickers: set) -> str:
         border-radius: var(--radius-sm);
     }}
 
-    /* ─────────── 매매 기록 삭제 버튼 컴팩트화 ─────────── */
-    [class*="st-key-del_"] button,
-    [class*="st-key-del_"] button p {{
-        height: 1.5rem !important;
-        min-height: 0 !important;
-        padding: 0 4px !important;
-        font-size: 0.65rem !important;
-        line-height: 1 !important;
+    /* ─────────── 매매 기록 삭제 버튼 (너비만 글자에 맞춤) ─────────── */
+    [class*="st-key-del_"] button {{
+        width: auto !important;
+        min-width: 0 !important;
         border-radius: var(--radius-sm) !important;
         color: var(--accent-sell) !important;
         border-color: var(--border) !important;
