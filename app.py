@@ -2955,7 +2955,7 @@ def render_chart(
         # ── 가격(row 4) · Z+M(row 5) 풍선 마커 (원 + ▲/▼) ──
         idx_d = df_daily.index.get_indexer([t_date], method='nearest')[0]
         d_d = df_daily.index[idx_d]
-        arrow = '▲' if is_buy else '▼'
+        arrow = '↑' if is_buy else '↓'
 
         # 가격 패널 풍선 마커
         if 'Plot_Norm_Ticker' in df_daily.columns:
@@ -2965,12 +2965,12 @@ def render_chart(
                     x=[d_d], y=[y_price],
                     mode='markers+text',
                     marker=dict(
-                        symbol='circle', size=14, color=base_color,
+                        symbol='circle', size=5, color=base_color,
                         opacity=m_opacity,
-                        line=dict(width=1.5, color='#ffffff'),
+                        line=dict(width=1, color='#ffffff'),
                     ),
                     text=[arrow],
-                    textfont=dict(size=9, color='#ffffff'),
+                    textfont=dict(size=6, color='#ffffff'),
                     textposition='middle center',
                     hoverinfo='skip', showlegend=False,
                 ), row=4, col=1)
@@ -2984,12 +2984,12 @@ def render_chart(
                     x=[d_d], y=[y_z],
                     mode='markers+text',
                     marker=dict(
-                        symbol='circle', size=14, color=base_color,
+                        symbol='circle', size=5, color=base_color,
                         opacity=m_opacity,
-                        line=dict(width=1.5, color='#ffffff'),
+                        line=dict(width=1, color='#ffffff'),
                     ),
                     text=[arrow],
-                    textfont=dict(size=9, color='#ffffff'),
+                    textfont=dict(size=6, color='#ffffff'),
                     textposition='middle center',
                     hoverinfo='skip', showlegend=False,
                 ), row=5, col=1)
