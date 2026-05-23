@@ -4578,12 +4578,25 @@ def build_css(selected_option: str, holding_tickers: set) -> str:
     [data-testid="stDecoration"],
     [data-testid="stStatusWidget"],
     [data-testid="stAppDeployButton"],
+    [data-testid="manageAppButton"],
     .stDeployButton,
     .stAppDeployButton,
     [class*="viewerBadge"],
+    [class*="manageApp"],
+    [class*="ManageApp"],
+    [class*="_terminalButton_"],
+    [class*="stStatusWidget"],
     a[href*="streamlit.app"],
     a[href*="streamlit.io"],
-    a[href*="share.streamlit"] {{ display: none !important; }}
+    a[href*="share.streamlit"],
+    button[title*="Manage app"],
+    button[title*="manage app"],
+    button[kind="manageApp"] {{ display: none !important; }}
+    /* Streamlit Cloud floating buttons (fixed position right-bottom + center-bottom) */
+    .stApp > div:last-child:not([data-testid]):not([class*="stMain"]) {{
+        display: none !important;
+    }}
+    body > iframe:not([title="streamlitApp"]) {{ display: none !important; }}
 
     /* ─────────── 공통 카드 클래스 ─────────── */
     .app-card {{
