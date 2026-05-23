@@ -214,6 +214,9 @@ class TickerState(TypedDict):
 # 종목 분석, 그래프, Z+M, MACD/RSI 등 시장 정보는 비로그인도 볼 수 있음.
 
 import hashlib
+import hmac as _hmac
+import base64 as _b64
+import time as _time
 
 # salt + 비밀번호의 sha256 hash (코드/git에 평문 비밀번호 X)
 _AUTH_SALT = "quant_dashboard_2026"
@@ -242,6 +245,105 @@ def verify_password(pw: str) -> bool:
 def is_authenticated() -> bool:
     """현재 세션이 로그인 상태인지."""
     return st.session_state.get('authenticated', False)
+
+
+# ─── 쿠키 자동 로그인 (30일) ───
+_COOKIE_PREFIX = "quant_dash/"
+_COOKIE_TOKEN_KEY = "auth_token"
+_COOKIE_MAX_AGE_SEC = 30 * 24 * 3600
+
+
+def _get_cookie_password() -> str:
+    """쿠키 암호화 키. st.secrets 우선, 없으면 fallback."""
+    try:
+        return st.secrets["auth"]["cookie_password"]
+    except Exception:
+        return _AUTH_SALT + "_cookie_v1"
+
+
+def _make_auth_token() -> str:
+    """HMAC 서명된 만료 토큰 (payload.signature)."""
+    payload = json.dumps(
+        {"exp": int(_time.time()) + _COOKIE_MAX_AGE_SEC, "v": 1},
+        separators=(",", ":"),
+    ).encode()
+    msg = _b64.urlsafe_b64encode(payload).decode()
+    sig = _hmac.new(
+        _get_cookie_password().encode(), msg.encode(), "sha256",
+    ).hexdigest()
+    return f"{msg}.{sig}"
+
+
+def _verify_auth_token(token: str) -> bool:
+    if not token or "." not in token:
+        return False
+    try:
+        msg, sig = token.rsplit(".", 1)
+        exp_sig = _hmac.new(
+            _get_cookie_password().encode(), msg.encode(), "sha256",
+        ).hexdigest()
+        if not _hmac.compare_digest(sig, exp_sig):
+            return False
+        payload = json.loads(_b64.urlsafe_b64decode(msg.encode()).decode())
+        return int(payload.get("exp", 0)) > int(_time.time())
+    except Exception:
+        return False
+
+
+def _get_cookies_manager():
+    """쿠키 매니저 lazy init. 라이브러리 미설치 시 None.
+
+    extra-streamlit-components 사용 — cryptography 의존 없음.
+    토큰은 HMAC 서명으로 위조 방지.
+    """
+    if '_cookies_mgr' in st.session_state:
+        return st.session_state['_cookies_mgr']
+    try:
+        import extra_streamlit_components as stx
+    except Exception:
+        return None
+    mgr = stx.CookieManager(key="auth_cookie_mgr")
+    st.session_state['_cookies_mgr'] = mgr
+    return mgr
+
+
+def try_auto_login_from_cookie() -> None:
+    """앱 시작 시 호출: 쿠키 토큰 검증 → 자동 인증."""
+    if is_authenticated():
+        return
+    mgr = _get_cookies_manager()
+    if mgr is None:
+        return
+    try:
+        token = mgr.get(cookie=_COOKIE_TOKEN_KEY)
+    except Exception:
+        return
+    if token and _verify_auth_token(token):
+        st.session_state['authenticated'] = True
+
+
+def save_auth_cookie() -> None:
+    """로그인 성공 시 호출: 30일 토큰 쿠키 저장."""
+    mgr = _get_cookies_manager()
+    if mgr is None:
+        return
+    exp = (datetime.datetime.now(datetime.timezone.utc)
+           + datetime.timedelta(seconds=_COOKIE_MAX_AGE_SEC))
+    try:
+        mgr.set(_COOKIE_TOKEN_KEY, _make_auth_token(), expires_at=exp)
+    except Exception:
+        pass
+
+
+def clear_auth_cookie() -> None:
+    """로그아웃 시 호출."""
+    mgr = _get_cookies_manager()
+    if mgr is None:
+        return
+    try:
+        mgr.delete(_COOKIE_TOKEN_KEY)
+    except Exception:
+        pass
 
 
 def display_name(ticker: str) -> str:
@@ -1910,6 +2012,7 @@ def render_sidebar(
             with c_b:
                 if st.button("⏏", key="logout_btn", help="로그아웃"):
                     st.session_state.pop('authenticated', None)
+                    clear_auth_cookie()
                     st.rerun()
         else:
             # 비로그인: 로그인 폼 (collapsed expander로 작게)
@@ -1925,10 +2028,11 @@ def render_sidebar(
                              use_container_width=True):
                     if pw_input and verify_password(pw_input):
                         st.session_state['authenticated'] = True
+                        save_auth_cookie()
                         st.rerun()
                     else:
                         st.error("비밀번호 오류")
-                st.caption("개인 정보 (매매/평가) 는 로그인 후 표시")
+                st.caption("로그인 시 30일 자동 유지 · 개인 정보(매매/평가)는 로그인 후 표시")
         st.markdown(
             "<div style='border-bottom:1px solid #e5e7eb;margin:4px 0 8px 0;'></div>",
             unsafe_allow_html=True,
@@ -4638,6 +4742,8 @@ def update_ticker_signals(df_close: pd.DataFrame, all_analyses: dict) -> dict[st
 
 def main() -> None:
     init_session_state()
+    # 쿠키 토큰이 있으면 자동 로그인 (30일 유지)
+    try_auto_login_from_cookie()
 
     # ── 저장된 사용자 종목 리스트로 갱신 (Gist/로컬) ──
     loaded_tickers = load_target_tickers()
