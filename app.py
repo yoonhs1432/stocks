@@ -2091,7 +2091,8 @@ def render_sidebar(
                 'guide_n': guide_n,
                 'candle_type': candle_type,
             }
-        with st.container():
+        # ── 매매 기록 입력 (expander 박스) ──
+        with st.expander("📝 매매 기록 입력", expanded=True):
             ticker_options = (
                 TARGET_TICKERS if selected_ticker in TARGET_TICKERS
                 else [selected_ticker] + TARGET_TICKERS
@@ -2124,7 +2125,8 @@ def render_sidebar(
                 st.success("저장 완료!")
                 st.rerun()
 
-            st.markdown("**🗑️ 기존 기록 삭제 / 메모 편집**")
+        # ── 매매 기록 삭제 / 메모 편집 (expander, 기본 접힘) ──
+        with st.expander("🗑️ 매매 기록 삭제 / 메모 편집", expanded=False):
             history = st.session_state.trade_history
             if selected_ticker in history and history[selected_ticker]:
                 for i, record in enumerate(history[selected_ticker]):
