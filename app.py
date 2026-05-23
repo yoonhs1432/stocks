@@ -4781,11 +4781,14 @@ def build_css(selected_option: str, holding_tickers: set) -> str:
         border-radius: var(--radius-sm);
     }}
 
-    /* ─────────── Phase C: 매매 기록 삭제 버튼 컴팩트화 ─────────── */
-    [class*="st-key-del_"] button {{
-        height: 1.8rem !important;
+    /* ─────────── 매매 기록 삭제 버튼 컴팩트화 ─────────── */
+    [class*="st-key-del_"] button,
+    [class*="st-key-del_"] button p {{
+        height: 1.5rem !important;
         min-height: 0 !important;
-        font-size: var(--text-sm) !important;
+        padding: 0 4px !important;
+        font-size: 0.65rem !important;
+        line-height: 1 !important;
         border-radius: var(--radius-sm) !important;
         color: var(--accent-sell) !important;
         border-color: var(--border) !important;
