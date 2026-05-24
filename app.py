@@ -5368,128 +5368,81 @@ def main() -> None:
     # 탭 2: 한눈에 보기 (풀폭 22개 종목 미니바 리스트)
     # ====================================================
     with tab2:
-        # ── 헤더 ──
-        # [종목 70px] [σ 위치 라벨 flex] [기간 위치 라벨 flex]
-        st.markdown(
-            "<div style='display:flex;align-items:center;gap:6px;"
-            "padding:6px 4px 4px 4px;font-size:0.6rem;color:var(--text-secondary);"
-            "border-bottom:1px solid var(--border);margin-bottom:2px;'>"
-            # 좌측 70px
-            "<div style='width:70px;flex-shrink:0;font-weight:700;color:var(--text-primary);"
-            "font-size:0.7rem;'>종목</div>"
-            # σ 위치 라벨
-            "<div style='flex:1;position:relative;height:14px;min-width:0;'>"
-            "<span style='position:absolute;left:0%;transform:translateX(-50%);'>-3σ</span>"
-            "<span style='position:absolute;left:16.67%;transform:translateX(-50%);'>-2σ</span>"
-            "<span style='position:absolute;left:33.33%;transform:translateX(-50%);'>-1σ</span>"
-            "<span style='position:absolute;left:50%;transform:translateX(-50%);font-weight:700;'>추세</span>"
-            "<span style='position:absolute;left:66.67%;transform:translateX(-50%);'>+1σ</span>"
-            "<span style='position:absolute;left:83.33%;transform:translateX(-50%);'>+2σ</span>"
-            "<span style='position:absolute;left:100%;transform:translateX(-50%);'>+3σ</span>"
-            "</div>"
-            # 기간 위치 라벨
-            "<div style='flex:1;position:relative;height:14px;min-width:0;'>"
-            "<span style='position:absolute;left:0%;transform:translateX(-50%);'>저점</span>"
-            "<span style='position:absolute;left:50%;transform:translateX(-50%);font-weight:700;'>중간</span>"
-            "<span style='position:absolute;left:100%;transform:translateX(-50%);'>고점</span>"
-            "</div>"
-            "</div>",
-            unsafe_allow_html=True,
-        )
+        # ── 표: 종목별 현재가/일/주/Z/M/전고% ──
+        def _pn(v: float) -> str:
+            return '#dc2626' if v > 0 else '#2563eb' if v < 0 else '#a4adb8'
 
-        # ── 종목 행 (탭1과 동일 정렬) ──
+        rows_html = []
         for ticker in sorted_tickers:
             t_result = all_analyses.get(ticker)
             if not t_result or t_result[0] is None:
                 continue
-            t_df, t_beta, t_std = t_result
+            t_df, _, _ = t_result
             if t_df.empty:
                 continue
-
             t_col = f'{ticker}_Close'
             if t_col not in df_close.columns:
                 continue
-            t_cur_price = float(df_close[t_col].iloc[-1])
-
-            t_avg_price = None
-            t_ts = portfolio_state.get(ticker)
-            if (t_ts and t_ts['cycle']['hold_qty'] > 0
-                    and t_ts['cycle']['buy_qty'] > 0):
-                t_avg_price = t_ts['cycle']['buy_cost'] / t_ts['cycle']['buy_qty']
-
-            t_records = st.session_state.trade_history.get(ticker, [])
-
-            mini_bar = build_mini_gradient_bar(
-                t_df, ticker, t_cur_price, t_avg_price, t_beta, t_std,
-                trade_records=t_records, bar_height=22,
-            )
-            if mini_bar is None:
+            closes = df_close[t_col].dropna()
+            if len(closes) < 2:
                 continue
+            cur = float(closes.iloc[-1])
+            prev_d = float(closes.iloc[-2])
+            prev_w = float(closes.iloc[-6]) if len(closes) > 5 else prev_d
+            high_v = float(closes.max())
 
-            # ── 분석기간 최저~최고 대비 현재 위치 바 ──
-            range_bar_html = ""
-            t_close = df_close[t_col].dropna()
-            if len(t_close) > 1:
-                p_min = float(t_close.min())
-                p_max = float(t_close.max())
-                if p_max > p_min:
-                    pos_pct = (t_cur_price - p_min) / (p_max - p_min) * 100
-                    pos_pct = max(0, min(100, pos_pct))
-                else:
-                    pos_pct = 50
+            day_pct = (cur / prev_d - 1) * 100 if prev_d > 0 else 0
+            week_pct = (cur / prev_w - 1) * 100 if prev_w > 0 else 0
+            from_high = (cur / high_v - 1) * 100 if high_v > 0 else 0
 
-                # 그라디언트 바: 빨강(저점) → 회색 → 파랑(고점)
-                # 마커: 현재 위치
-                marker_color = (
-                    '#7f1d1d' if pos_pct < 20 else
-                    '#dc2626' if pos_pct < 35 else
-                    '#6b7280' if pos_pct < 65 else
-                    '#2563eb' if pos_pct < 80 else
-                    '#1e3a8a'
-                )
-                range_bar_html = (
-                    f"<div style='position:relative;height:22px;width:100%;'>"
-                    # 그라디언트 바
-                    f"<div style='position:absolute;top:8px;left:0;right:0;height:6px;"
-                    f"border-radius:3px;"
-                    f"background:linear-gradient(to right,"
-                    f"#7f1d1d 0%,#dc2626 20%,#fca5a5 35%,"
-                    f"#e5e7eb 50%,"
-                    f"#93c5fd 65%,#2563eb 80%,#1e3a8a 100%);'></div>"
-                    # 현재 위치 마커
-                    f"<div style='position:absolute;left:{pos_pct:.1f}%;"
-                    f"top:4px;width:10px;height:14px;background:{marker_color};"
-                    f"border:1.5px solid white;border-radius:2px;"
-                    f"box-shadow:0 0 0 1px {marker_color};"
-                    f"transform:translateX(-50%);z-index:2;'></div>"
-                    f"</div>"
-                )
+            z_raw = float(t_df['Z_Score'].iloc[-1]) if 'Z_Score' in t_df.columns and pd.notna(t_df['Z_Score'].iloc[-1]) else 0
+            z_pct = max(0, min(100, (z_raw + 2.5) / 5.0 * 100))
+
+            macd_pct_v = float(t_df['MACD_Pct'].iloc[-1]) if 'MACD_Pct' in t_df.columns and pd.notna(t_df['MACD_Pct'].iloc[-1]) else 0
+            dmacd_v = float(t_df['dMACD_Pct'].iloc[-1]) if 'dMACD_Pct' in t_df.columns and pd.notna(t_df['dMACD_Pct'].iloc[-1]) else 0
+            rsi_v = float(t_df['RSI'].iloc[-1]) if 'RSI' in t_df.columns and pd.notna(t_df['RSI'].iloc[-1]) else 50
+            m_raw = (
+                0.3 * (macd_pct_v / 2.0)
+                + 0.2 * (dmacd_v / 0.5)
+                + 0.5 * ((rsi_v - 50) / 20.0)
+            )
+            m_pct = max(0, min(100, (m_raw + 2.5) / 5.0 * 100))
+
+            # 색
+            z_c = '#dc2626' if z_pct >= 70 else '#2563eb' if z_pct <= 30 else '#a4adb8'
+            m_c = '#2563eb' if m_pct >= 70 else '#dc2626' if m_pct <= 30 else '#a4adb8'
+            high_c = '#dc2626' if from_high >= -3 else '#a4adb8' if from_high >= -15 else '#2563eb'
 
             is_holding = ticker in holding_tickers
-            row_bg = '#0f2c1a' if is_holding else 'var(--bg-card)'
-            star = "★ " if is_holding else ""
+            star = "★" if is_holding else ""
+            tk_html = f"<span style='color:#3fb950;'>{star}</span>{display_name(ticker)}" if is_holding else display_name(ticker)
 
-            # 행: [티커 70px] [σ 바 flex] [위치 바 flex]
-            st.markdown(
-                f"<div style='display:flex;align-items:center;gap:6px;"
-                f"padding:2px 4px;background:{row_bg};"
-                f"border-bottom:1px solid var(--border);'>"
-                # 좌측 70px - 티커만
-                f"<div style='width:70px;flex-shrink:0;font-size:0.78rem;"
-                f"font-weight:700;color:var(--text-primary);white-space:nowrap;"
-                f"overflow:hidden;text-overflow:ellipsis;'>"
-                f"{star}{display_name(ticker)}</div>"
-                # σ 바
-                f"<div style='flex:1;min-width:0;'>{mini_bar}</div>"
-                # 위치 바
-                f"<div style='flex:1;min-width:0;'>{range_bar_html}</div>"
-                f"</div>",
-                unsafe_allow_html=True,
+            rows_html.append(
+                f"<tr style='border-bottom:1px solid #21262d;'>"
+                f"<td style='padding:5px 4px;font-weight:600;color:#ffffff;'>{tk_html}</td>"
+                f"<td style='padding:5px 4px;text-align:right;color:#ffffff;'>${cur:,.2f}</td>"
+                f"<td style='padding:5px 4px;text-align:right;color:{_pn(day_pct)};font-weight:600;'>{signed_str(day_pct, '{:.1f}')}%</td>"
+                f"<td style='padding:5px 4px;text-align:right;color:{_pn(week_pct)};font-weight:600;'>{signed_str(week_pct, '{:.1f}')}%</td>"
+                f"<td style='padding:5px 4px;text-align:right;color:{z_c};font-weight:600;'>{z_pct:.0f}</td>"
+                f"<td style='padding:5px 4px;text-align:right;color:{m_c};font-weight:600;'>{m_pct:.0f}</td>"
+                f"<td style='padding:5px 4px;text-align:right;color:{high_c};font-weight:600;'>{from_high:.1f}%</td>"
+                f"</tr>"
             )
 
-        st.caption(
-            "■ σ 바: 현재가 추세선 대비 위치 (테두리=모멘텀) · ▪ 평균단가 · ● 매수 ● 매도 · "
-            "■ 기간 바: 분석 기간 최저~최고 대비 현재 위치"
+        st.markdown(
+            f"<table style='width:100%;border-collapse:collapse;font-size:0.7rem;'>"
+            f"<thead><tr style='border-bottom:1px solid #30363d;color:#a4adb8;'>"
+            f"<th style='padding:6px 4px;text-align:left;font-weight:600;'>종목</th>"
+            f"<th style='padding:6px 4px;text-align:right;font-weight:600;'>현재가</th>"
+            f"<th style='padding:6px 4px;text-align:right;font-weight:600;'>일</th>"
+            f"<th style='padding:6px 4px;text-align:right;font-weight:600;'>주</th>"
+            f"<th style='padding:6px 4px;text-align:right;font-weight:600;'>Z</th>"
+            f"<th style='padding:6px 4px;text-align:right;font-weight:600;'>M</th>"
+            f"<th style='padding:6px 4px;text-align:right;font-weight:600;'>전고</th>"
+            f"</tr></thead>"
+            f"<tbody>{''.join(rows_html)}</tbody>"
+            f"</table>",
+            unsafe_allow_html=True,
         )
 
         # ── σ vs β 산점도 ──
