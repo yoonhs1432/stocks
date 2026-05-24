@@ -5705,8 +5705,8 @@ def main() -> None:
 
         if zm_xs:
             fig_zm = go.Figure()
-            # 임계 사분면 분할선 (Z=50, M=50)
-            for v, lc in [(50, '#8b949e'), (30, '#1d4ed8'), (70, '#dc2626')]:
+            # 임계 사분면 분할선 (강매수 10 / 중립 50 / 강매도 90)
+            for v, lc in [(50, '#8b949e'), (10, '#dc2626'), (90, '#1d4ed8')]:
                 w_v = 0.8 if v == 50 else 0.4
                 fig_zm.add_shape(
                     type='line', x0=v, x1=v, y0=0, y1=100,
@@ -5751,7 +5751,7 @@ def main() -> None:
             st.plotly_chart(fig_zm, use_container_width=True,
                             config={'displayModeBar': False, 'staticPlot': True})
             st.caption(
-                "X=Z(가격 위치), Y=M(모멘텀) · Q1↑↑=강세 / Q3↓↓=약세 · 임계선 30/50/70"
+                "X=Z(가격 위치), Y=M(모멘텀) · Q1↑↑=강세 / Q3↓↓=약세 · 임계선 10/50/90"
             )
 
     # ====================================================
