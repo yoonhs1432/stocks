@@ -1967,10 +1967,23 @@ def render_sidebar(
             save_settings(s)
             st.rerun()
         analysis_start = st.session_state.analysis_start
-        view_months = st.number_input(
-            "차트 조회 기간 (최근 N개월)", min_value=1, max_value=240,
-            value=st.session_state.view_months, step=1,
+        # 차트 조회 기간 라디오 (1·2·4·12개월)
+        view_opts = [('1개월', 1), ('2개월', 2), ('4개월', 4), ('1년', 12)]
+        view_labels = [o[0] for o in view_opts]
+        view_values = [o[1] for o in view_opts]
+        cur_v = int(st.session_state.view_months)
+        try:
+            view_idx = view_values.index(cur_v)
+        except ValueError:
+            view_idx = 1  # default 2개월
+        choice_v = st.radio(
+            "차트 조회 기간", view_labels, index=view_idx, horizontal=True,
+            key="view_months_radio",
         )
+        view_months = view_values[view_labels.index(choice_v)]
+        if view_months != cur_v:
+            st.session_state.view_months = view_months
+            st.rerun()
         guide_n = 4
 
         # ── 시드 (달러) 입력 — 로그인 시에만 ──
