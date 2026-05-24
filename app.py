@@ -2173,7 +2173,7 @@ def render_trade_record_section(selected_ticker: str) -> None:
                             f"margin-top:6px;'>{label}</div>",
                             unsafe_allow_html=True)
                 cur_memo = record.get('memo', '')
-                m_col, btn_col = st.columns([4, 1])
+                m_col, btn_col = st.columns([10, 1])
                 with m_col:
                     new_memo = st.text_input(
                         "메모", value=cur_memo,
