@@ -2497,7 +2497,7 @@ def render_chart(
                     hoverinfo='skip', showlegend=False,
                 ), row=row, col=1)
 
-            # ── 면적: Z > 70 (Z+1σ↑) 빨강 / Z < 30 (Z-1σ↓) 파랑 ──
+            # ── 면적: Z > 70 (Z+1σ↑) 빨강만 ──
             fig.add_trace(go.Scatter(
                 x=df_daily.index, y=[70]*len(df_daily),
                 mode='lines', line=dict(color='rgba(0,0,0,0)', width=0),
@@ -2508,18 +2508,6 @@ def render_chart(
                 y=z_series.where(z_series > 70, other=70),
                 mode='lines', line=dict(color='rgba(0,0,0,0)', width=0),
                 fill='tonexty', fillcolor='rgba(248,81,73,0.25)',
-                hoverinfo='skip', showlegend=False,
-            ), row=row, col=1)
-            fig.add_trace(go.Scatter(
-                x=df_daily.index, y=[30]*len(df_daily),
-                mode='lines', line=dict(color='rgba(0,0,0,0)', width=0),
-                hoverinfo='skip', showlegend=False,
-            ), row=row, col=1)
-            fig.add_trace(go.Scatter(
-                x=df_daily.index,
-                y=z_series.where(z_series < 30, other=30),
-                mode='lines', line=dict(color='rgba(0,0,0,0)', width=0),
-                fill='tonexty', fillcolor='rgba(88,166,255,0.25)',
                 hoverinfo='skip', showlegend=False,
             ), row=row, col=1)
 
