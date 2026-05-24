@@ -2173,7 +2173,7 @@ def render_trade_record_section(selected_ticker: str) -> None:
                             f"margin-top:6px;'>{label}</div>",
                             unsafe_allow_html=True)
                 cur_memo = record.get('memo', '')
-                m_col, btn_col = st.columns([5, 1])
+                m_col, btn_col = st.columns([3, 1])
                 with m_col:
                     new_memo = st.text_input(
                         "메모", value=cur_memo,
@@ -4778,13 +4778,19 @@ def build_css(selected_option: str, holding_tickers: set) -> str:
         border-radius: var(--radius-sm);
     }}
 
-    /* ─────────── 매매 기록 삭제 버튼 (너비만 글자에 맞춤) ─────────── */
+    /* ─────────── 매매 기록 삭제 버튼 (글자 한 줄 강제) ─────────── */
     [class*="st-key-del_"] button {{
         width: auto !important;
         min-width: 0 !important;
+        white-space: nowrap !important;
         border-radius: var(--radius-sm) !important;
         color: var(--accent-sell) !important;
         border-color: var(--border) !important;
+    }}
+    [class*="st-key-del_"] button p,
+    [class*="st-key-del_"] button div {{
+        white-space: nowrap !important;
+        word-break: keep-all !important;
     }}
     [class*="st-key-del_"] button:hover {{
         background: var(--bg-subtle) !important;
