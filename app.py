@@ -5368,11 +5368,30 @@ def main() -> None:
     # 탭 2: 한눈에 보기 (풀폭 22개 종목 미니바 리스트)
     # ====================================================
     with tab2:
+        # ── 정렬 컨트롤 ──
+        sort_options = ['종목', '현재가', '일', '주', 'Z', 'M', '전고']
+        sc1, sc2 = st.columns([2, 1])
+        with sc1:
+            sort_col = st.selectbox(
+                "정렬 기준", sort_options,
+                index=sort_options.index(st.session_state.get('tab2_sort_col', 'Z')),
+                key='tab2_sort_col_widget',
+                label_visibility='collapsed',
+            )
+        with sc2:
+            sort_desc = st.checkbox(
+                "내림차순",
+                value=st.session_state.get('tab2_sort_desc', True),
+                key='tab2_sort_desc_widget',
+            )
+        st.session_state['tab2_sort_col'] = sort_col
+        st.session_state['tab2_sort_desc'] = sort_desc
+
         # ── 표: 종목별 현재가/일/주/Z/M/전고% ──
         def _pn(v: float) -> str:
             return '#dc2626' if v > 0 else '#2563eb' if v < 0 else '#a4adb8'
 
-        rows_html = []
+        table_data = []
         for ticker in sorted_tickers:
             t_result = all_analyses.get(ticker)
             if not t_result or t_result[0] is None:
@@ -5408,14 +5427,39 @@ def main() -> None:
             )
             m_pct = max(0, min(100, (m_raw + 2.5) / 5.0 * 100))
 
-            # 색
+            table_data.append({
+                'ticker': ticker, 'cur': cur, 'day': day_pct,
+                'week': week_pct, 'z': z_pct, 'm': m_pct,
+                'high': from_high,
+                'is_holding': ticker in holding_tickers,
+            })
+
+        # 정렬
+        sort_field_map = {
+            '종목': 'ticker', '현재가': 'cur', '일': 'day', '주': 'week',
+            'Z': 'z', 'M': 'm', '전고': 'high',
+        }
+        sf = sort_field_map[sort_col]
+        if sf == 'ticker':
+            table_data.sort(key=lambda r: r[sf], reverse=sort_desc)
+        else:
+            table_data.sort(key=lambda r: r[sf], reverse=sort_desc)
+
+        rows_html = []
+        for r in table_data:
+            ticker = r['ticker']
+            cur = r['cur']; day_pct = r['day']; week_pct = r['week']
+            z_pct = r['z']; m_pct = r['m']; from_high = r['high']
+
             z_c = '#dc2626' if z_pct >= 70 else '#2563eb' if z_pct <= 30 else '#a4adb8'
             m_c = '#2563eb' if m_pct >= 70 else '#dc2626' if m_pct <= 30 else '#a4adb8'
             high_c = '#dc2626' if from_high >= -3 else '#a4adb8' if from_high >= -15 else '#2563eb'
 
-            is_holding = ticker in holding_tickers
-            star = "★" if is_holding else ""
-            tk_html = f"<span style='color:#3fb950;'>{star}</span>{display_name(ticker)}" if is_holding else display_name(ticker)
+            star = "★" if r['is_holding'] else ""
+            tk_html = (
+                f"<span style='color:#3fb950;'>{star}</span>{display_name(ticker)}"
+                if r['is_holding'] else display_name(ticker)
+            )
 
             rows_html.append(
                 f"<tr style='border-bottom:1px solid #21262d;'>"
@@ -5429,16 +5473,22 @@ def main() -> None:
                 f"</tr>"
             )
 
+        # 헤더 표시: 정렬 중인 컬럼에 화살표
+        arrow = ' ▼' if sort_desc else ' ▲'
+        def _th(label, align='right'):
+            mark = arrow if label == sort_col else ''
+            return f"<th style='padding:6px 4px;text-align:{align};font-weight:600;'>{label}{mark}</th>"
+
         st.markdown(
             f"<table style='width:100%;border-collapse:collapse;font-size:0.7rem;'>"
             f"<thead><tr style='border-bottom:1px solid #30363d;color:#a4adb8;'>"
-            f"<th style='padding:6px 4px;text-align:left;font-weight:600;'>종목</th>"
-            f"<th style='padding:6px 4px;text-align:right;font-weight:600;'>현재가</th>"
-            f"<th style='padding:6px 4px;text-align:right;font-weight:600;'>일</th>"
-            f"<th style='padding:6px 4px;text-align:right;font-weight:600;'>주</th>"
-            f"<th style='padding:6px 4px;text-align:right;font-weight:600;'>Z</th>"
-            f"<th style='padding:6px 4px;text-align:right;font-weight:600;'>M</th>"
-            f"<th style='padding:6px 4px;text-align:right;font-weight:600;'>전고</th>"
+            f"{_th('종목', 'left')}"
+            f"{_th('현재가')}"
+            f"{_th('일')}"
+            f"{_th('주')}"
+            f"{_th('Z')}"
+            f"{_th('M')}"
+            f"{_th('전고')}"
             f"</tr></thead>"
             f"<tbody>{''.join(rows_html)}</tbody>"
             f"</table>",
