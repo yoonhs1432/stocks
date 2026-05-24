@@ -5687,6 +5687,73 @@ def main() -> None:
                 "■ 점 색=모멘텀 점수 (탭1 버튼과 동일) · 점선=중앙값"
             )
 
+        # ── Z·M 백분위 산점도 (현재 위치) ──
+        st.markdown(
+            "<div style='margin-top:16px;padding:8px 4px 4px 4px;"
+            "border-top:1px solid var(--border);font-size:0.7rem;font-weight:700;"
+            "color:var(--text-primary);'>🎯 종목별 Z · M 현재 위치</div>",
+            unsafe_allow_html=True,
+        )
+
+        zm_xs, zm_ys, zm_colors, zm_texts = [], [], [], []
+        for r in table_data:
+            zm_xs.append(r['z'])
+            zm_ys.append(r['m'])
+            zm_texts.append(r['ticker'])
+            mom_int = st.session_state.ticker_momentum_scores.get(r['ticker'], 0)
+            zm_colors.append(momentum_to_color(int(round(mom_int))))
+
+        if zm_xs:
+            fig_zm = go.Figure()
+            # 임계 사분면 분할선 (Z=50, M=50)
+            for v, lc in [(50, '#8b949e'), (30, '#1d4ed8'), (70, '#dc2626')]:
+                w_v = 0.8 if v == 50 else 0.4
+                fig_zm.add_shape(
+                    type='line', x0=v, x1=v, y0=0, y1=100,
+                    line=dict(color=lc, width=w_v),
+                )
+                fig_zm.add_shape(
+                    type='line', x0=0, x1=100, y0=v, y1=v,
+                    line=dict(color=lc, width=w_v),
+                )
+            fig_zm.add_trace(go.Scatter(
+                x=zm_xs, y=zm_ys, mode='markers+text',
+                marker=dict(
+                    color=zm_colors, size=14,
+                    line=dict(color='#0d1117', width=1),
+                ),
+                text=zm_texts,
+                textfont=dict(size=9, color='#c9d1d9'),
+                textposition='top center',
+                hovertemplate='%{text}<br>Z: %{x:.0f}<br>M: %{y:.0f}<extra></extra>',
+                showlegend=False,
+            ))
+            fig_zm.update_layout(
+                height=320,
+                margin=dict(l=30, r=10, t=8, b=30),
+                paper_bgcolor='#0d1117', plot_bgcolor='#161b22',
+                font=dict(color='#c9d1d9'),
+                xaxis=dict(
+                    title=dict(text='Z (가격 위치 0~100)',
+                               font=dict(size=10, color='#c9d1d9')),
+                    range=[-5, 105], showgrid=True,
+                    gridcolor='rgba(48,54,61,0.4)',
+                    tickfont=dict(size=9),
+                ),
+                yaxis=dict(
+                    title=dict(text='M (모멘텀 0~100)',
+                               font=dict(size=10, color='#c9d1d9')),
+                    range=[-5, 105], showgrid=True,
+                    gridcolor='rgba(48,54,61,0.4)',
+                    tickfont=dict(size=9),
+                ),
+            )
+            st.plotly_chart(fig_zm, use_container_width=True,
+                            config={'displayModeBar': False, 'staticPlot': True})
+            st.caption(
+                "X=Z(가격 위치), Y=M(모멘텀) · Q1↑↑=강세 / Q3↓↓=약세 · 임계선 30/50/70"
+            )
+
     # ====================================================
     # 탭 3: 전체 통계 (시드/실현/비중/달력/자산추이)
     # ====================================================
