@@ -4734,16 +4734,14 @@ def build_css(selected_option: str, holding_tickers: set) -> str:
         border-radius: var(--radius-sm) !important;
     }}
 
-    /* ─────────── 종목 관리 expander 내부 그리드 안정화 ─────────── */
+    /* ─────────── expander 내부 그리드 — overflow만 보호 ─────────── */
+    /* flex 강제 제거 → st.columns([10, 1]) 같은 비율이 그대로 작동 */
     [data-testid="stExpander"] [data-testid="stHorizontalBlock"] {{
         flex-wrap: nowrap !important;
         gap: 4px !important;
-        overflow: hidden;
     }}
     [data-testid="stExpander"] [data-testid="stHorizontalBlock"] > div[data-testid="stColumn"] {{
-        flex: 1 1 0 !important;
         min-width: 0 !important;
-        max-width: none !important;
         overflow: hidden;
     }}
     [data-testid="stExpander"] [data-testid="stCheckbox"] label p {{
@@ -5037,9 +5035,7 @@ def main() -> None:
         tk for tk, ts in portfolio_state.items() if ts['cycle']['hold_qty'] > 0
     }
     mkt = get_market_status()
-    st.markdown(
-        build_css(selected_option, holding_tickers), unsafe_allow_html=True
-    )
+    # CSS는 데이터 fetch 후에 주입 (종목 모멘텀 점수 채워진 뒤)
     data_lbl = (
         "🟢 장중" if mkt['is_open']
         else f"🔴 장마감&nbsp;·&nbsp;{mkt['last_trading_label']}"
@@ -5144,6 +5140,11 @@ def main() -> None:
 
     # ── 종목별 신호/모멘텀 계산 ──
     pct_changes = update_ticker_signals(df_close, all_analyses)
+
+    # ── CSS 주입 (모멘텀 점수가 채워진 후 → 종목 버튼 색 정상) ──
+    st.markdown(
+        build_css(selected_option, holding_tickers), unsafe_allow_html=True
+    )
 
     df_daily = beta = std_resid = None
     if selected_ticker:
