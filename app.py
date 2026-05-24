@@ -4824,31 +4824,32 @@ def build_css(selected_option: str, holding_tickers: set) -> str:
     .block-container {{
         padding-top:0.8rem!important; padding-bottom:0.5rem!important; max-width:100%!important;
     }}
-    section[data-testid="stMain"] div[data-testid="stHorizontalBlock"] {{
+    /* 종목 버튼이 들어있는 HorizontalBlock에만 적용 (:has 기반) */
+    section[data-testid="stMain"] div[data-testid="stHorizontalBlock"]:has(div[class*="st-key-ticker_btn_"]) {{
         flex-wrap:nowrap!important; gap:5px!important; align-items:flex-start!important;
     }}
-    section[data-testid="stMain"] div[data-testid="stHorizontalBlock"]
+    section[data-testid="stMain"] div[data-testid="stHorizontalBlock"]:has(div[class*="st-key-ticker_btn_"])
         > div[data-testid="stColumn"]:first-child {{
         flex:0 0 92px!important; min-width:92px!important;
         max-width:92px!important; padding:0!important;
     }}
-    section[data-testid="stMain"] div[data-testid="stHorizontalBlock"]
+    section[data-testid="stMain"] div[data-testid="stHorizontalBlock"]:has(div[class*="st-key-ticker_btn_"])
         > div[data-testid="stColumn"]:last-child {{
         flex:1 1 0!important; min-width:0!important; overflow:visible!important;
         padding-left:2px!important; padding-right:2px!important;
     }}
-    section[data-testid="stMain"] div[data-testid="stColumn"]:first-child
+    section[data-testid="stMain"] div[data-testid="stColumn"]:has(> div[data-testid="stVerticalBlock"] > div > div[class*="st-key-ticker_btn_"])
         div[data-testid="stVerticalBlock"] > div {{ margin-bottom:0px!important; padding:0!important; }}
-    section[data-testid="stMain"] div[data-testid="stColumn"]:first-child
+    section[data-testid="stMain"] div[data-testid="stColumn"]:has(> div[data-testid="stVerticalBlock"] > div > div[class*="st-key-ticker_btn_"])
         div[data-testid="stVerticalBlock"] {{ gap:1px!important; }}
-    section[data-testid="stMain"] div[data-testid="stColumn"]:first-child button p {{
+    section[data-testid="stMain"] div[data-testid="stColumn"]:has(> div[data-testid="stVerticalBlock"] > div > div[class*="st-key-ticker_btn_"]) button p {{
         margin:0!important; padding:0!important; font-size:0.73rem!important;
         line-height:1!important; font-weight:500!important; white-space:pre!important;
     }}
-    section[data-testid="stMain"] div[data-testid="stColumn"]:first-child button span,
-    section[data-testid="stMain"] div[data-testid="stColumn"]:first-child button strong
+    section[data-testid="stMain"] div[data-testid="stColumn"]:has(> div[data-testid="stVerticalBlock"] > div > div[class*="st-key-ticker_btn_"]) button span,
+    section[data-testid="stMain"] div[data-testid="stColumn"]:has(> div[data-testid="stVerticalBlock"] > div > div[class*="st-key-ticker_btn_"]) button strong
         {{ color:inherit!important; }}
-    section[data-testid="stMain"] div[data-testid="stColumn"]:first-child button strong
+    section[data-testid="stMain"] div[data-testid="stColumn"]:has(> div[data-testid="stVerticalBlock"] > div > div[class*="st-key-ticker_btn_"]) button strong
         {{ font-weight:700!important; }}
     /* 탭3 달력 네비 — 88px 첫 컬럼 룰 무력화 */
     div.st-key-ov_cal_nav div[data-testid="stHorizontalBlock"] {{
