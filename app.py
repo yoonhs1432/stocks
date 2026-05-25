@@ -18,7 +18,7 @@ import datetime
 import json
 import logging
 import os
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import Optional, TypedDict
 
@@ -5407,26 +5407,44 @@ def _append_ticker_to_close(
 def append_history_and_spy(
     df_close: pd.DataFrame, trade_history: dict, analysis_start: str, candle_type: str,
 ) -> pd.DataFrame:
-    """매매 이력 종목 (TARGET 외) + SPY 추가 fetch (병렬 + 종목별 timeout)."""
+    """매매 이력 종목 (TARGET 외) + SPY 추가 fetch.
+
+    병렬 fetch + 전체 timeout + 실패/응답없는 종목 블랙리스트.
+    응답 없는 종목 때문에 영원히 멈추지 않도록 보장.
+    """
+    blacklist = st.session_state.setdefault('fetch_blacklist', set())
     need = [
         tk for tk in list(trade_history.keys()) + ['SPY']
-        if tk and f'{tk}_Close' not in df_close.columns
+        if tk and f'{tk}_Close' not in df_close.columns and tk not in blacklist
     ]
     if not need:
         return df_close
 
     results: dict[str, pd.DataFrame] = {}
+    done = set()
     with st.spinner(f"추가 종목 {len(need)}개 로드..."):
-        with ThreadPoolExecutor(max_workers=CFG.MAX_PARALLEL_FETCH) as ex:
-            futures = {ex.submit(_fetch_close_one, tk, analysis_start): tk for tk in need}
-            for fut in futures:
+        ex = ThreadPoolExecutor(max_workers=CFG.MAX_PARALLEL_FETCH)
+        futures = {ex.submit(_fetch_close_one, tk, analysis_start): tk for tk in need}
+        try:
+            for fut in as_completed(futures, timeout=12):   # 전체 12초 제한
                 tk = futures[fut]
+                done.add(tk)
                 try:
-                    r = fut.result(timeout=8)   # 종목당 최대 8초 (hang 방지)
+                    r = fut.result()
                     if r is not None and not r.empty:
                         results[tk] = r
+                    else:
+                        blacklist.add(tk)
                 except Exception as e:
-                    log.warning(f"history fetch skip {tk}: {e}")
+                    log.warning(f"history fetch fail {tk}: {e}")
+                    blacklist.add(tk)
+        except Exception:
+            pass  # 전체 timeout — 미완료 종목은 아래에서 블랙리스트
+        # 12초 내 응답 없는 종목은 블랙리스트 (다음부터 skip)
+        for tk in need:
+            if tk not in done:
+                blacklist.add(tk)
+        ex.shutdown(wait=False, cancel_futures=True)
 
     for tk, df_new in results.items():
         if candle_type == '주봉':
