@@ -1386,10 +1386,11 @@ def run_zm_backtest(
     trades = []
     buy_marks = []   # (date, price)
     sell_marks = []
-    # M 임계선 재돌파 매매:
+    # M 임계선 재돌파 매매 (재돌파마다 동일 금액 unit_frac 거래):
     #  매수 = M이 m_buy 아래에 있다가 m_buy를 위로 재돌파 (과매도 탈출)
     #  매도 = M이 m_sell 위에 있다가 m_sell을 아래로 재돌파
     #  use_z면 Z도 추가 필터 (매수 시 Z<z_buy, 매도 시 Z>z_sell)
+    unit_frac = max(0.05, min(1.0, n_split / 100.0))  # n_split = 거래 단위(%)
     prev_m = None
     for i in range(len(close)):
         p = float(close.iloc[i])
@@ -1404,17 +1405,20 @@ def run_zm_backtest(
         prev_m = mi
 
         if buy_sig and cash > 1e-9 and p > 0:
-            shares += cash / p          # 전액 매수
-            buy_cost += cash
-            cash = 0.0
+            amt = min(unit_frac, cash)         # 동일 금액 매수 (현금 한도)
+            shares += amt / p
+            buy_cost += amt
+            cash -= amt
             buy_marks.append((d, p))
         elif sell_sig and shares > 1e-9 and p > 0:
+            sell_val = min(unit_frac, shares * p)  # 동일 금액어치 매도 (보유 한도)
+            sell_sh = sell_val / p
             avg = buy_cost / shares if shares > 0 else p
             trades.append((p / avg - 1) * 100 if avg > 0 else 0)
-            realized += shares * (p - avg)   # 전액 매도 실현손익
-            cash += shares * p
-            buy_cost = 0.0
-            shares = 0.0
+            realized += sell_sh * (p - avg)
+            cash += sell_val
+            buy_cost -= avg * sell_sh
+            shares -= sell_sh
             sell_marks.append((d, p))
         eq.append(cash + shares * p)
         cum_realized.append(realized * 100)
@@ -4347,9 +4351,16 @@ def render_analytics_panel(
             )
             period_days = {'전체': None, '1년': 365, '6개월': 182, '3개월': 91}[bt_period]
 
+            trade_unit = st.slider(
+                "거래 단위 (재돌파마다 초기자본 %)", 5, 100,
+                int(saved.get('trade_unit', 50)), 5,
+                key=f"bt_unit_{selected_ticker}_{ver}",
+            )
+
             new_params = {
                 'z_buy': z_buy, 'm_buy': m_buy, 'z_sell': z_sell, 'm_sell': m_sell,
                 'use_z': use_z, 'use_m': use_m, 'bt_period': bt_period,
+                'trade_unit': trade_unit,
             }
             if new_params != saved:
                 st.session_state.backtest_params[selected_ticker] = new_params
@@ -4364,7 +4375,7 @@ def render_analytics_panel(
 
             bt = run_zm_backtest(
                 df_bt, selected_ticker, z_buy, m_buy, z_sell, m_sell,
-                use_z=use_z, use_m=use_m,
+                use_z=use_z, use_m=use_m, n_split=trade_unit,
             )
             if bt is None:
                 st.caption("데이터 부족 (10일 이상 필요)")
