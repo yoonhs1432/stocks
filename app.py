@@ -1386,48 +1386,45 @@ def run_zm_backtest(
     trades = []
     buy_marks = []   # (date, price)
     sell_marks = []
+    # M 변곡 매매:
+    #  매수 = M이 m_buy 아래로 내려간 적(armed) 있고 직전 대비 반등(turn-up)
+    #  매도 = M이 m_sell 위로 올라간 적(armed) 있고 직전 대비 하락(turn-down)
+    #  use_z면 Z도 추가 필터 (매수 시 Z<z_buy, 매도 시 Z>z_sell)
+    armed_buy = False
+    armed_sell = False
+    prev_m = None
     for i in range(len(close)):
         p = float(close.iloc[i])
         zi = float(z.iloc[i])
         mi = float(m.iloc[i])
         d = idx[i]
-        buy_sig = (not use_z or zi < z_buy) and (not use_m or mi < m_buy)
-        sell_sig = (not use_z or zi > z_sell) and (not use_m or mi > m_sell)
 
-        # 신호 세기 (임계에서 멀수록 1에 가까움)
-        def _buy_strength() -> float:
-            s = []
-            if use_z and z_buy > 0:
-                s.append((z_buy - zi) / z_buy)
-            if use_m and m_buy > 0:
-                s.append((m_buy - mi) / m_buy)
-            return max(0.0, min(1.0, sum(s) / len(s))) if s else 0.0
+        if mi < m_buy:
+            armed_buy = True
+        if mi > m_sell:
+            armed_sell = True
 
-        def _sell_strength() -> float:
-            s = []
-            if use_z and z_sell < 100:
-                s.append((zi - z_sell) / (100 - z_sell))
-            if use_m and m_sell < 100:
-                s.append((mi - m_sell) / (100 - m_sell))
-            return max(0.0, min(1.0, sum(s) / len(s))) if s else 0.0
+        turn_up = prev_m is not None and mi > prev_m
+        turn_down = prev_m is not None and mi < prev_m
+        buy_sig = armed_buy and turn_up and (not use_z or zi < z_buy)
+        sell_sig = armed_sell and turn_down and (not use_z or zi > z_sell)
+        prev_m = mi
 
         if buy_sig and cash > 1e-9 and p > 0:
-            amt = cash * _buy_strength()      # 강도 비례 매수
-            if amt > 1e-9:
-                shares += amt / p
-                buy_cost += amt
-                cash -= amt
-                buy_marks.append((d, p))
+            shares += cash / p          # 전액 매수
+            buy_cost += cash
+            cash = 0.0
+            buy_marks.append((d, p))
+            armed_buy = False
         elif sell_sig and shares > 1e-9 and p > 0:
-            sell_sh = shares * _sell_strength()  # 강도 비례 매도
-            if sell_sh > 1e-9:
-                avg = buy_cost / shares if shares > 0 else p
-                trades.append((p / avg - 1) * 100 if avg > 0 else 0)
-                realized += sell_sh * (p - avg)   # 이번 매도 실현손익
-                cash += sell_sh * p
-                buy_cost -= avg * sell_sh
-                shares -= sell_sh
-                sell_marks.append((d, p))
+            avg = buy_cost / shares if shares > 0 else p
+            trades.append((p / avg - 1) * 100 if avg > 0 else 0)
+            realized += shares * (p - avg)   # 전액 매도 실현손익
+            cash += shares * p
+            buy_cost = 0.0
+            shares = 0.0
+            sell_marks.append((d, p))
+            armed_sell = False
         eq.append(cash + shares * p)
         cum_realized.append(realized * 100)
 
@@ -4319,43 +4316,38 @@ def render_analytics_panel(
 
     # ── 백테스트 (수동 Z·M 임계 + 3단 그래프) ──
     if df_daily is not None and not df_daily.empty:
-        with st.expander("🔬 백테스트 (수동 Z·M)", expanded=False):
-            st.caption("Z·M 임계 수동 조절 · 매수/매도량 = 신호 세기 비례")
+        with st.expander("🔬 백테스트 (M 변곡)", expanded=False):
+            st.caption("매수: M이 매수임계 아래로 갔다 반등할 때 · 매도: M이 매도임계 위로 갔다 하락할 때")
             saved = st.session_state.backtest_params.get(selected_ticker, {})
             ver = st.session_state.get(f'bt_ver_{selected_ticker}', 0)
-            uc1, uc2 = st.columns(2)
-            use_z = uc1.checkbox(
-                "Z 사용", value=saved.get('use_z', True),
+            use_m = True  # M 변곡이 핵심 (항상 사용)
+            use_z = st.checkbox(
+                "Z 추가 필터 (매수 시 Z<매수, 매도 시 Z>매도도 충족해야)",
+                value=saved.get('use_z', False),
                 key=f"bt_usez_{selected_ticker}",
             )
-            use_m = uc2.checkbox(
-                "M 사용", value=saved.get('use_m', True),
-                key=f"bt_usem_{selected_ticker}",
+            mc1, mc2 = st.columns(2)
+            m_buy = mc1.slider(
+                "M 매수 임계 (이 아래로 갔다 반등)", 5, 60, int(saved.get('m_buy', 30)), 5,
+                key=f"bt_mbuy_{selected_ticker}_{ver}",
             )
-            st.markdown("<div style='font-size:0.68rem;color:#a4adb8;"
-                        "margin-bottom:-8px;'>📥 매수 (이하)</div>",
-                        unsafe_allow_html=True)
-            bc1, bc2 = st.columns(2)
-            z_buy = bc1.slider(
-                "Z 매수 <", 5, 60, int(saved.get('z_buy', 30)), 5,
-                key=f"bt_zbuy_{selected_ticker}_{ver}", disabled=not use_z,
+            m_sell = mc2.slider(
+                "M 매도 임계 (이 위로 갔다 하락)", 40, 95, int(saved.get('m_sell', 70)), 5,
+                key=f"bt_msell_{selected_ticker}_{ver}",
             )
-            m_buy = bc2.slider(
-                "M 매수 <", 5, 60, int(saved.get('m_buy', 30)), 5,
-                key=f"bt_mbuy_{selected_ticker}_{ver}", disabled=not use_m,
-            )
-            st.markdown("<div style='font-size:0.68rem;color:#a4adb8;"
-                        "margin-bottom:-8px;'>📤 매도 (이상)</div>",
-                        unsafe_allow_html=True)
-            sc1, sc2 = st.columns(2)
-            z_sell = sc1.slider(
-                "Z 매도 >", 40, 95, int(saved.get('z_sell', 70)), 5,
-                key=f"bt_zsell_{selected_ticker}_{ver}", disabled=not use_z,
-            )
-            m_sell = sc2.slider(
-                "M 매도 >", 40, 95, int(saved.get('m_sell', 70)), 5,
-                key=f"bt_msell_{selected_ticker}_{ver}", disabled=not use_m,
-            )
+            if use_z:
+                zc1, zc2 = st.columns(2)
+                z_buy = zc1.slider(
+                    "Z 매수 <", 5, 60, int(saved.get('z_buy', 30)), 5,
+                    key=f"bt_zbuy_{selected_ticker}_{ver}",
+                )
+                z_sell = zc2.slider(
+                    "Z 매도 >", 40, 95, int(saved.get('z_sell', 70)), 5,
+                    key=f"bt_zsell_{selected_ticker}_{ver}",
+                )
+            else:
+                z_buy = int(saved.get('z_buy', 30))
+                z_sell = int(saved.get('z_sell', 70))
             period_opts = ['전체', '1년', '6개월', '3개월']
             bt_period = st.radio(
                 "백테스트 기간", period_opts,
