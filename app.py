@@ -4162,17 +4162,19 @@ def render_analytics_panel(
                 "M 조건 사용", value=saved.get('use_m', True),
                 key=f"bt_usem_{selected_ticker}",
             )
+            # 슬라이더 버전 (최적 탐색 시 +1 → 슬라이더 강제 재생성)
+            ver = st.session_state.get(f'bt_ver_{selected_ticker}', 0)
             st.markdown("<div style='font-size:0.68rem;color:#a4adb8;"
                         "margin-bottom:-8px;'>📥 매수 (이하)</div>",
                         unsafe_allow_html=True)
             bc1, bc2 = st.columns(2)
             z_buy = bc1.slider(
                 "Z 매수 <", 5, 60, saved.get('z_buy', 30), 5,
-                key=f"bt_zbuy_{selected_ticker}", disabled=not use_z,
+                key=f"bt_zbuy_{selected_ticker}_{ver}", disabled=not use_z,
             )
             m_buy = bc2.slider(
                 "M 매수 <", 5, 60, saved.get('m_buy', 30), 5,
-                key=f"bt_mbuy_{selected_ticker}", disabled=not use_m,
+                key=f"bt_mbuy_{selected_ticker}_{ver}", disabled=not use_m,
             )
             st.markdown("<div style='font-size:0.68rem;color:#a4adb8;"
                         "margin-bottom:-8px;'>📤 매도 (이상)</div>",
@@ -4180,11 +4182,11 @@ def render_analytics_panel(
             sc1, sc2 = st.columns(2)
             z_sell = sc1.slider(
                 "Z 매도 >", 40, 95, saved.get('z_sell', 70), 5,
-                key=f"bt_zsell_{selected_ticker}", disabled=not use_z,
+                key=f"bt_zsell_{selected_ticker}_{ver}", disabled=not use_z,
             )
             m_sell = sc2.slider(
                 "M 매도 >", 40, 95, saved.get('m_sell', 70), 5,
-                key=f"bt_msell_{selected_ticker}", disabled=not use_m,
+                key=f"bt_msell_{selected_ticker}_{ver}", disabled=not use_m,
             )
             # 종목별 조건 저장 (변경 시)
             new_params = {
@@ -4218,9 +4220,8 @@ def render_analytics_panel(
                     s = load_settings()
                     s.setdefault('backtest_params', {})[selected_ticker] = opt_params
                     save_settings(s)
-                    # 슬라이더 key 삭제 → 다음 렌더에 저장값(default) 반영
-                    for k in ('bt_zbuy', 'bt_mbuy', 'bt_zsell', 'bt_msell'):
-                        st.session_state.pop(f"{k}_{selected_ticker}", None)
+                    # 슬라이더 버전 +1 → 새 key로 재생성되어 opt 값 반영
+                    st.session_state[f'bt_ver_{selected_ticker}'] = ver + 1
                     st.success(f"최적 수익률 {best['ret']:.1f}%")
                     st.rerun()
                 else:
