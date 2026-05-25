@@ -4190,11 +4190,20 @@ def render_analytics_panel(
                 "분할 횟수 (N등분 매수/매도)", 1, 10, saved.get('n_split', 1), 1,
                 key=f"bt_nsplit_{selected_ticker}_{ver}",
             )
+            # 백테스트 기간
+            period_opts = ['전체', '1년', '6개월', '3개월']
+            bt_period = st.radio(
+                "백테스트 기간", period_opts,
+                index=period_opts.index(saved.get('bt_period', '전체')),
+                horizontal=True, key=f"bt_period_{selected_ticker}_{ver}",
+            )
+            period_days = {'전체': None, '1년': 365, '6개월': 182, '3개월': 91}[bt_period]
             # 종목별 조건 저장 (변경 시)
             new_params = {
                 'z_buy': z_buy, 'm_buy': m_buy,
                 'z_sell': z_sell, 'm_sell': m_sell,
                 'use_z': use_z, 'use_m': use_m, 'n_split': n_split,
+                'bt_period': bt_period,
             }
             if new_params != saved:
                 st.session_state.backtest_params[selected_ticker] = new_params
@@ -4203,6 +4212,13 @@ def render_analytics_panel(
                 save_settings(s)
                 st.rerun()  # 그래프2 조건선 즉시 반영
 
+            # 백테스트 기간 필터된 df
+            if period_days:
+                bt_cutoff = df_daily.index[-1] - pd.Timedelta(days=period_days)
+                df_bt = df_daily[df_daily.index >= bt_cutoff]
+            else:
+                df_bt = df_daily
+
             # 최적값 자동 탐색
             if st.button("🎯 최적 Z·M 자동 탐색",
                          key=f"bt_opt_{selected_ticker}",
@@ -4210,7 +4226,7 @@ def render_analytics_panel(
                          disabled=not (use_z or use_m)):
                 with st.spinner("그리드 탐색 중..."):
                     best = optimize_zm_backtest(
-                        df_daily, selected_ticker, use_z, use_m, n_split
+                        df_bt, selected_ticker, use_z, use_m, n_split
                     )
                 if best:
                     opt_params = {
@@ -4230,7 +4246,7 @@ def render_analytics_panel(
                     st.warning("유효한 매매 조합을 찾지 못했습니다.")
 
             bt = run_zm_backtest(
-                df_daily, selected_ticker, z_buy, m_buy, z_sell, m_sell,
+                df_bt, selected_ticker, z_buy, m_buy, z_sell, m_sell,
                 use_z=use_z, use_m=use_m, n_split=n_split,
             )
             if bt is None:
