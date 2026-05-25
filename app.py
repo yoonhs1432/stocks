@@ -473,6 +473,7 @@ SETTINGS_FILE = 'settings.json'
 TICKERS_FILE = 'target_tickers.json'
 GIST_FILENAME = 'quant_trade_history.json'
 TICKERS_GIST_FILENAME = 'quant_target_tickers.json'
+SETTINGS_GIST_FILENAME = 'quant_settings.json'
 
 # 기본 종목 (사용자 설정이 없을 때 fallback)
 DEFAULT_TICKERS = [
@@ -583,21 +584,11 @@ def save_target_tickers(tickers: list[str]) -> None:
 
 
 def load_settings() -> dict:
-    if os.path.exists(SETTINGS_FILE):
-        try:
-            with open(SETTINGS_FILE, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except (OSError, json.JSONDecodeError) as e:
-            log.warning(f"Settings load failed: {e}")
-    return {}
+    return _load_json(SETTINGS_FILE, SETTINGS_GIST_FILENAME)
 
 
 def save_settings(s: dict) -> None:
-    try:
-        with open(SETTINGS_FILE, 'w', encoding='utf-8') as f:
-            json.dump(s, f, indent=2, ensure_ascii=False)
-    except OSError as e:
-        log.warning(f"Settings save failed: {e}")
+    _save_json(SETTINGS_FILE, SETTINGS_GIST_FILENAME, s)
 
 
 def init_session_state() -> None:
@@ -1291,8 +1282,8 @@ def optimize_zm_backtest(
     """
     if not use_z and not use_m:
         return None
-    buys = [10, 20, 30, 40, 50]
-    sells = [50, 60, 70, 80, 90]
+    buys = list(range(5, 56, 5))    # 5,10,...,55
+    sells = list(range(45, 96, 5))  # 45,50,...,95
     z_buys = buys if use_z else [30]
     z_sells = sells if use_z else [70]
     m_buys = buys if use_m else [30]
@@ -3104,24 +3095,24 @@ def render_chart(
                 fig.add_shape(
                     type='line', x0=bt_p['z_buy'], x1=bt_p['z_buy'], y0=0, y1=100,
                     line=dict(color='#dc2626', width=1.2),
-                    row=zm_row, col=1, layer='below',
+                    row=zm_row, col=1, layer='above',
                 )
                 fig.add_shape(
                     type='line', x0=bt_p['z_sell'], x1=bt_p['z_sell'], y0=0, y1=100,
                     line=dict(color='#2563eb', width=1.2),
-                    row=zm_row, col=1, layer='below',
+                    row=zm_row, col=1, layer='above',
                 )
             if use_m:
                 # M 매수 가로선 (빨강), M 매도 가로선 (파랑)
                 fig.add_shape(
                     type='line', x0=0, x1=100, y0=bt_p['m_buy'], y1=bt_p['m_buy'],
                     line=dict(color='#dc2626', width=1.2),
-                    row=zm_row, col=1, layer='below',
+                    row=zm_row, col=1, layer='above',
                 )
                 fig.add_shape(
                     type='line', x0=0, x1=100, y0=bt_p['m_sell'], y1=bt_p['m_sell'],
                     line=dict(color='#2563eb', width=1.2),
-                    row=zm_row, col=1, layer='below',
+                    row=zm_row, col=1, layer='above',
                 )
 
         # 산점도 — 시간 색 (viridis)
