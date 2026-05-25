@@ -1200,13 +1200,13 @@ def compute_cycle_stats(records: list) -> Optional[dict]:
 def run_zm_backtest(
     df_t: pd.DataFrame, ticker: str,
     z_buy: float, m_buy: float, z_sell: float, m_sell: float,
-    use_z: bool = True, use_m: bool = True,
+    use_z: bool = True, use_m: bool = True, n_split: int = 1,
 ) -> Optional[dict]:
-    """Z·M 각각 임계로 매수/매도 백테스트 (use_z/use_m으로 조건 on/off).
+    """Z·M 각각 임계로 N분할 매수/매도 백테스트 (use_z/use_m으로 조건 on/off).
 
-    - 포지션: 현금(0) ↔ 전액 보유(1)
-    - 매수: (use_z→Z<z_buy) AND (use_m→M<m_buy)
-    - 매도: (use_z→Z>z_sell) AND (use_m→M>m_sell)
+    - 매수 신호: 초기자본의 1/N 투입 (현금 한도)
+    - 매도 신호: 현재 보유의 1/N 매도
+    - n_split=1이면 전액 매수/매도와 동일
     반환: 누적/B&H 수익률, 매매 횟수, 승률, MDD, 자산 곡선.
     """
     close_col = f'{ticker}_Close'
@@ -1229,9 +1229,11 @@ def run_zm_backtest(
     m_raw = 0.3 * (macd_pct / 2.0) + 0.2 * (dmacd / 0.5) + 0.5 * ((rsi - 50) / 20.0)
     m = ((m_raw + 2.5) / 5.0 * 100).clip(0, 100)
 
-    position = 0
-    entry = 0.0
+    N = max(1, int(n_split))
+    unit = 1.0 / N        # 1회 매수 금액 (초기자본 비율)
     cash = 1.0
+    shares = 0.0          # 보유 (가치 환산 수량)
+    buy_cost = 0.0        # 매수 누적 원가 (평단 계산용)
     eq = []
     trades = []
     buy_marks = []   # (date, price)
@@ -1243,17 +1245,21 @@ def run_zm_backtest(
         d = idx[i]
         buy_sig = (not use_z or zi < z_buy) and (not use_m or mi < m_buy)
         sell_sig = (not use_z or zi > z_sell) and (not use_m or mi > m_sell)
-        if position == 0 and buy_sig:
-            position = 1
-            entry = p
+        if buy_sig and cash > 1e-9 and p > 0:
+            amt = min(unit, cash)
+            shares += amt / p
+            buy_cost += amt
+            cash -= amt
             buy_marks.append((d, p))
-        elif position == 1 and sell_sig:
-            r = p / entry - 1 if entry > 0 else 0
-            cash *= (1 + r)
-            trades.append(r * 100)
+        elif sell_sig and shares > 1e-9 and p > 0:
+            sell_sh = shares / N
+            avg = buy_cost / shares if shares > 0 else p
+            trades.append((p / avg - 1) * 100 if avg > 0 else 0)
+            cash += sell_sh * p
+            buy_cost -= avg * sell_sh
+            shares -= sell_sh
             sell_marks.append((d, p))
-            position = 0
-        eq.append(cash * (p / entry) if position == 1 and entry > 0 else cash)
+        eq.append(cash + shares * p)
 
     final = eq[-1] if eq else 1.0
     total_ret = (final - 1) * 100
@@ -1268,12 +1274,12 @@ def run_zm_backtest(
         'avg_trade': sum(trades) / len(trades) if trades else 0,
         'eq': eq, 'dates': list(idx), 'close': close,
         'buy_marks': buy_marks, 'sell_marks': sell_marks,
-        'holding': position == 1,
+        'holding': shares > 1e-9,
     }
 
 
 def optimize_zm_backtest(
-    df_t: pd.DataFrame, ticker: str, use_z: bool, use_m: bool,
+    df_t: pd.DataFrame, ticker: str, use_z: bool, use_m: bool, n_split: int = 1,
 ) -> Optional[dict]:
     """그리드 탐색으로 수익률 최대 Z·M 임계 조합을 찾는다.
 
@@ -1301,7 +1307,7 @@ def optimize_zm_backtest(
                         continue
                     bt = run_zm_backtest(
                         df_t, ticker, zb, mb, zs, ms,
-                        use_z=use_z, use_m=use_m,
+                        use_z=use_z, use_m=use_m, n_split=n_split,
                     )
                     if bt and bt['n_trades'] > 0 and bt['total_ret'] > best_ret:
                         best_ret = bt['total_ret']
@@ -4179,11 +4185,16 @@ def render_analytics_panel(
                 "M 매도 >", 40, 95, saved.get('m_sell', 70), 5,
                 key=f"bt_msell_{selected_ticker}_{ver}", disabled=not use_m,
             )
+            # 분할 횟수
+            n_split = st.slider(
+                "분할 횟수 (N등분 매수/매도)", 1, 10, saved.get('n_split', 1), 1,
+                key=f"bt_nsplit_{selected_ticker}_{ver}",
+            )
             # 종목별 조건 저장 (변경 시)
             new_params = {
                 'z_buy': z_buy, 'm_buy': m_buy,
                 'z_sell': z_sell, 'm_sell': m_sell,
-                'use_z': use_z, 'use_m': use_m,
+                'use_z': use_z, 'use_m': use_m, 'n_split': n_split,
             }
             if new_params != saved:
                 st.session_state.backtest_params[selected_ticker] = new_params
@@ -4199,13 +4210,13 @@ def render_analytics_panel(
                          disabled=not (use_z or use_m)):
                 with st.spinner("그리드 탐색 중..."):
                     best = optimize_zm_backtest(
-                        df_daily, selected_ticker, use_z, use_m
+                        df_daily, selected_ticker, use_z, use_m, n_split
                     )
                 if best:
                     opt_params = {
                         'z_buy': best['z_buy'], 'm_buy': best['m_buy'],
                         'z_sell': best['z_sell'], 'm_sell': best['m_sell'],
-                        'use_z': use_z, 'use_m': use_m,
+                        'use_z': use_z, 'use_m': use_m, 'n_split': n_split,
                     }
                     st.session_state.backtest_params[selected_ticker] = opt_params
                     s = load_settings()
@@ -4220,7 +4231,7 @@ def render_analytics_panel(
 
             bt = run_zm_backtest(
                 df_daily, selected_ticker, z_buy, m_buy, z_sell, m_sell,
-                use_z=use_z, use_m=use_m,
+                use_z=use_z, use_m=use_m, n_split=n_split,
             )
             if bt is None:
                 st.caption("데이터 부족 (10일 이상 필요)")
