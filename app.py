@@ -5396,18 +5396,33 @@ def _append_ticker_to_close(
 def append_history_and_spy(
     df_close: pd.DataFrame, trade_history: dict, analysis_start: str, candle_type: str,
 ) -> pd.DataFrame:
-    """매매 이력 종목 (TARGET 외) + SPY 추가 fetch."""
-    # 매매 이력 종목
-    extra_tickers = [
-        tk for tk in trade_history.keys()
+    """매매 이력 종목 (TARGET 외) + SPY 추가 fetch (병렬 + 종목별 timeout)."""
+    need = [
+        tk for tk in list(trade_history.keys()) + ['SPY']
         if tk and f'{tk}_Close' not in df_close.columns
     ]
-    if extra_tickers:
-        with st.spinner(f"매매 이력 종목 {len(extra_tickers)}개 추가 로드..."):
-            for tk in extra_tickers:
-                df_close = _append_ticker_to_close(df_close, tk, analysis_start, candle_type)
-    # SPY (β·SPY 계산용)
-    df_close = _append_ticker_to_close(df_close, 'SPY', analysis_start, candle_type)
+    if not need:
+        return df_close
+
+    results: dict[str, pd.DataFrame] = {}
+    with st.spinner(f"추가 종목 {len(need)}개 로드..."):
+        with ThreadPoolExecutor(max_workers=CFG.MAX_PARALLEL_FETCH) as ex:
+            futures = {ex.submit(_fetch_close_one, tk, analysis_start): tk for tk in need}
+            for fut in futures:
+                tk = futures[fut]
+                try:
+                    r = fut.result(timeout=8)   # 종목당 최대 8초 (hang 방지)
+                    if r is not None and not r.empty:
+                        results[tk] = r
+                except Exception as e:
+                    log.warning(f"history fetch skip {tk}: {e}")
+
+    for tk, df_new in results.items():
+        if candle_type == '주봉':
+            df_new = _resample_weekly(df_new)
+        df_close = pd.concat([df_close, df_new], axis=1).ffill()
+    if candle_type == '일봉' and results:
+        df_close = _filter_trading_days(df_close)
     return df_close
 
 
