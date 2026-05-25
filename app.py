@@ -3255,36 +3255,18 @@ def render_chart(
     if n_pts > 0:
         color_indices = list(range(n_pts))
 
-        # ── 백테스트 조건선 (매수=빨강 / 매도=파랑) ──
-        # 종목별 저장된 조건. Z=세로선, M=가로선. use_z/use_m로 표시 여부.
-        bt_p = st.session_state.get('backtest_params', {}).get(selected_ticker, {})
-        if bt_p and 'z_buy' in bt_p:  # 구 임계선 방식만 (목표비중엔 임계선 없음)
-            use_z = bt_p.get('use_z', True)
-            use_m = bt_p.get('use_m', True)
-            if use_z:
-                # Z 매수 세로선 (빨강), Z 매도 세로선 (파랑)
-                fig.add_shape(
-                    type='line', x0=bt_p['z_buy'], x1=bt_p['z_buy'], y0=0, y1=100,
-                    line=dict(color='#dc2626', width=1.2),
-                    row=zm_row, col=1, layer='above',
-                )
-                fig.add_shape(
-                    type='line', x0=bt_p['z_sell'], x1=bt_p['z_sell'], y0=0, y1=100,
-                    line=dict(color='#2563eb', width=1.2),
-                    row=zm_row, col=1, layer='above',
-                )
-            if use_m:
-                # M 매수 가로선 (빨강), M 매도 가로선 (파랑)
-                fig.add_shape(
-                    type='line', x0=0, x1=100, y0=bt_p['m_buy'], y1=bt_p['m_buy'],
-                    line=dict(color='#dc2626', width=1.2),
-                    row=zm_row, col=1, layer='above',
-                )
-                fig.add_shape(
-                    type='line', x0=0, x1=100, y0=bt_p['m_sell'], y1=bt_p['m_sell'],
-                    line=dict(color='#2563eb', width=1.2),
-                    row=zm_row, col=1, layer='above',
-                )
+        # ── 고정 임계선 20(빨강)/80(파랑) — X(Z)·Y(M) 양축 ──
+        for v, lc in [(20, '#dc2626'), (80, '#2563eb')]:
+            fig.add_shape(
+                type='line', x0=v, x1=v, y0=0, y1=100,
+                line=dict(color=lc, width=1.2),
+                row=zm_row, col=1, layer='above',
+            )
+            fig.add_shape(
+                type='line', x0=0, x1=100, y0=v, y1=v,
+                line=dict(color=lc, width=1.2),
+                row=zm_row, col=1, layer='above',
+            )
 
         # 산점도 — 시간 색 (viridis)
         fig.add_trace(go.Scatter(
@@ -4309,194 +4291,6 @@ def render_analytics_panel(
     # ── 매매 기록 입력 / 삭제 (사이클 통계 위) ──
     render_trade_record_section(selected_ticker)
 
-    # ── 백테스트 (수동 Z·M 임계 + 3단 그래프) ──
-    if df_daily is not None and not df_daily.empty:
-        with st.expander("🔬 백테스트 (M 임계 재돌파)", expanded=False):
-            st.caption("매수: M이 매수임계 아래→위 재돌파 · 매도: M이 매도임계 위→아래 재돌파")
-            saved = st.session_state.backtest_params.get(selected_ticker, {})
-            ver = st.session_state.get(f'bt_ver_{selected_ticker}', 0)
-            use_m = True  # M 변곡이 핵심 (항상 사용)
-            use_z = st.checkbox(
-                "Z 추가 필터 (매수 시 Z<매수, 매도 시 Z>매도도 충족해야)",
-                value=saved.get('use_z', False),
-                key=f"bt_usez_{selected_ticker}",
-            )
-            mc1, mc2 = st.columns(2)
-            m_buy = mc1.slider(
-                "M 매수 임계 (이 아래로 갔다 반등)", 5, 60, int(saved.get('m_buy', 30)), 5,
-                key=f"bt_mbuy_{selected_ticker}_{ver}",
-            )
-            m_sell = mc2.slider(
-                "M 매도 임계 (이 위로 갔다 하락)", 40, 95, int(saved.get('m_sell', 70)), 5,
-                key=f"bt_msell_{selected_ticker}_{ver}",
-            )
-            if use_z:
-                zc1, zc2 = st.columns(2)
-                z_buy = zc1.slider(
-                    "Z 매수 <", 5, 60, int(saved.get('z_buy', 30)), 5,
-                    key=f"bt_zbuy_{selected_ticker}_{ver}",
-                )
-                z_sell = zc2.slider(
-                    "Z 매도 >", 40, 95, int(saved.get('z_sell', 70)), 5,
-                    key=f"bt_zsell_{selected_ticker}_{ver}",
-                )
-            else:
-                z_buy = int(saved.get('z_buy', 30))
-                z_sell = int(saved.get('z_sell', 70))
-            period_opts = ['전체', '1년', '6개월', '3개월']
-            bt_period = st.radio(
-                "백테스트 기간", period_opts,
-                index=period_opts.index(saved.get('bt_period', '전체')),
-                horizontal=True, key=f"bt_period_{selected_ticker}_{ver}",
-            )
-            period_days = {'전체': None, '1년': 365, '6개월': 182, '3개월': 91}[bt_period]
-
-            trade_unit = st.slider(
-                "거래 단위 (재돌파마다 초기자본 %)", 5, 100,
-                int(saved.get('trade_unit', 50)), 5,
-                key=f"bt_unit_{selected_ticker}_{ver}",
-            )
-
-            new_params = {
-                'z_buy': z_buy, 'm_buy': m_buy, 'z_sell': z_sell, 'm_sell': m_sell,
-                'use_z': use_z, 'use_m': use_m, 'bt_period': bt_period,
-                'trade_unit': trade_unit,
-            }
-
-            # ── 실행 버튼: 누를 때만 저장 + 계산 ──
-            if st.button("🔄 백테스트 실행", key=f"bt_run_{selected_ticker}",
-                         use_container_width=True, type="primary"):
-                st.session_state.backtest_params[selected_ticker] = new_params
-                save_backtest_params(st.session_state.backtest_params)
-                if period_days:
-                    bt_cutoff = df_daily.index[-1] - pd.Timedelta(days=period_days)
-                    df_bt = df_daily[df_daily.index >= bt_cutoff]
-                else:
-                    df_bt = df_daily
-                st.session_state[f'bt_result_{selected_ticker}'] = run_zm_backtest(
-                    df_bt, selected_ticker, z_buy, m_buy, z_sell, m_sell,
-                    use_z=use_z, use_m=use_m, n_split=trade_unit,
-                )
-                st.rerun()  # 그래프2 조건선 갱신
-
-            bt = st.session_state.get(f'bt_result_{selected_ticker}')
-            if bt is None:
-                st.caption("슬라이더 조절 후 '🔄 백테스트 실행'을 누르세요")
-            else:
-                strat_c = pnl_color(bt['total_ret'])
-                bh_c = pnl_color(bt['bh_ret'])
-                delta = bt['total_ret'] - bt['bh_ret']
-                delta_c = pnl_color(delta)
-                real_c = pnl_color(bt['realized_total'])
-                st.markdown(
-                    f"<div style='display:flex;gap:8px;flex-wrap:wrap;"
-                    f"margin:6px 0 8px 0;'>"
-                    f"<div style='flex:1;min-width:70px;background:#1c2128;"
-                    f"border-radius:8px;padding:8px;'>"
-                    f"<div style='font-size:0.6rem;color:#a4adb8;'>전략(평가)</div>"
-                    f"<div style='font-size:1rem;font-weight:700;color:{strat_c};'>"
-                    f"{signed_str(bt['total_ret'], '{:.1f}')}%</div></div>"
-                    f"<div style='flex:1;min-width:70px;background:#1c2128;"
-                    f"border-radius:8px;padding:8px;'>"
-                    f"<div style='font-size:0.6rem;color:#a4adb8;'>실현손익</div>"
-                    f"<div style='font-size:1rem;font-weight:700;color:{real_c};'>"
-                    f"{signed_str(bt['realized_total'], '{:.1f}')}%</div></div>"
-                    f"<div style='flex:1;min-width:70px;background:#1c2128;"
-                    f"border-radius:8px;padding:8px;'>"
-                    f"<div style='font-size:0.6rem;color:#a4adb8;'>B&H</div>"
-                    f"<div style='font-size:1rem;font-weight:700;color:{bh_c};'>"
-                    f"{signed_str(bt['bh_ret'], '{:.1f}')}%</div></div>"
-                    f"</div>"
-                    f"<div style='display:flex;gap:14px;font-size:0.68rem;"
-                    f"color:#c9d1d9;margin-bottom:6px;'>"
-                    f"<span>α <b style='color:{delta_c};'>{signed_str(delta, '{:.1f}')}%p</b></span>"
-                    f"<span>매도 <b>{bt['n_trades']}</b>회</span>"
-                    f"<span>승률 <b>{bt['win_rate']:.0f}%</b></span>"
-                    f"<span>MDD <b style='color:#f85149;'>{bt['mdd']:.1f}%</b></span>"
-                    f"</div>",
-                    unsafe_allow_html=True,
-                )
-
-                # ── 3단 그래프 (자산 / Z·M+임계선 / 누적 실현손익) ──
-                dts = bt['dates']
-                figb = make_subplots(
-                    rows=3, cols=1, shared_xaxes=True,
-                    row_heights=[0.4, 0.32, 0.28], vertical_spacing=0.05,
-                )
-                # [1] 전략 vs B&H
-                bh_curve = (bt['close'] / float(bt['close'].iloc[0])).tolist()
-                figb.add_trace(go.Scatter(
-                    x=dts, y=bh_curve, mode='lines',
-                    line=dict(color='#768390', width=1, dash='dot'),
-                    name='B&H', hoverinfo='skip',
-                ), row=1, col=1)
-                figb.add_trace(go.Scatter(
-                    x=dts, y=bt['eq'], mode='lines',
-                    line=dict(color='#f85149', width=2),
-                    name='전략', hoverinfo='skip',
-                ), row=1, col=1)
-                date_to_eq = dict(zip(dts, bt['eq']))
-                bx = [d for d, _ in bt['buy_marks']]
-                sx = [d for d, _ in bt['sell_marks']]
-                if bx:
-                    figb.add_trace(go.Scatter(
-                        x=bx, y=[date_to_eq.get(d) for d in bx], mode='markers',
-                        marker=dict(symbol='triangle-up', size=8, color='#dc2626',
-                                    line=dict(color='#fff', width=1)),
-                        hoverinfo='skip', showlegend=False,
-                    ), row=1, col=1)
-                if sx:
-                    figb.add_trace(go.Scatter(
-                        x=sx, y=[date_to_eq.get(d) for d in sx], mode='markers',
-                        marker=dict(symbol='triangle-down', size=8, color='#2563eb',
-                                    line=dict(color='#fff', width=1)),
-                        hoverinfo='skip', showlegend=False,
-                    ), row=1, col=1)
-                # [2] Z·M 시계열 + 임계선
-                figb.add_trace(go.Scatter(
-                    x=dts, y=bt['z'], mode='lines',
-                    line=dict(color='#e6edf3', width=1.5),
-                    name='Z', hoverinfo='skip',
-                ), row=2, col=1)
-                figb.add_trace(go.Scatter(
-                    x=dts, y=bt['m'], mode='lines',
-                    line=dict(color='#f97316', width=1.5),
-                    name='M', hoverinfo='skip',
-                ), row=2, col=1)
-                if use_z:
-                    figb.add_hline(y=z_buy, line=dict(color='#dc2626', width=0.8, dash='dot'), row=2, col=1)
-                    figb.add_hline(y=z_sell, line=dict(color='#2563eb', width=0.8, dash='dot'), row=2, col=1)
-                if use_m:
-                    figb.add_hline(y=m_buy, line=dict(color='#dc2626', width=0.8, dash='dash'), row=2, col=1)
-                    figb.add_hline(y=m_sell, line=dict(color='#2563eb', width=0.8, dash='dash'), row=2, col=1)
-                # [3] 누적 실현손익
-                figb.add_trace(go.Scatter(
-                    x=dts, y=bt['cum_realized'], mode='lines',
-                    line=dict(color='#3fb950', width=2, shape='hv'),
-                    fill='tozeroy', fillcolor='rgba(63,185,80,0.15)',
-                    name='누적실현', hoverinfo='skip',
-                ), row=3, col=1)
-                figb.update_layout(
-                    height=420, margin=dict(l=4, r=4, t=4, b=4),
-                    paper_bgcolor='#0d1117', plot_bgcolor='#161b22',
-                    font=dict(color='#c9d1d9'), showlegend=True,
-                    legend=dict(orientation='h', yanchor='bottom', y=1.0,
-                                x=0, font=dict(size=9), bgcolor='rgba(0,0,0,0)'),
-                )
-                figb.update_xaxes(showgrid=False, tickfont=dict(size=8))
-                figb.update_yaxes(showgrid=True, gridcolor='rgba(48,54,61,0.4)',
-                                  tickfont=dict(size=8))
-                figb.update_yaxes(range=[0, 100], row=2, col=1)
-                figb.add_annotation(x=0, y=1, xref='x2 domain', yref='y2 domain',
-                                    text='Z·M + 임계선', showarrow=False,
-                                    font=dict(size=9, color='#a4adb8'),
-                                    xanchor='left', yanchor='top')
-                figb.add_annotation(x=0, y=1, xref='x3 domain', yref='y3 domain',
-                                    text='누적 실현손익(%)', showarrow=False,
-                                    font=dict(size=9, color='#a4adb8'),
-                                    xanchor='left', yanchor='top')
-                st.plotly_chart(figb, use_container_width=True,
-                                config={'displayModeBar': False, 'staticPlot': True})
 
     # ── #1 사이클 통계 + #5 진행 게이지 ──
     with st.expander("📈 사이클 통계", expanded=False):
