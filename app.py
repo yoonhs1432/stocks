@@ -619,6 +619,7 @@ def init_session_state() -> None:
         'candle_type':         lambda: '일봉',
         'individual_tickers':  lambda: load_settings().get('individual_tickers', []),
         'ticker_type_filter':  lambda: 'ETF',
+        'backtest_params':     lambda: load_settings().get('backtest_params', {}),
     }
     for key, factory in defaults.items():
         if key not in st.session_state:
@@ -1208,16 +1209,19 @@ def compute_cycle_stats(records: list) -> Optional[dict]:
 def run_zm_backtest(
     df_t: pd.DataFrame, ticker: str,
     z_buy: float, m_buy: float, z_sell: float, m_sell: float,
+    use_z: bool = True, use_m: bool = True,
 ) -> Optional[dict]:
-    """Z·M 각각 임계로 매수/매도 백테스트.
+    """Z·M 각각 임계로 매수/매도 백테스트 (use_z/use_m으로 조건 on/off).
 
     - 포지션: 현금(0) ↔ 전액 보유(1)
-    - 매수: Z백분위 < z_buy AND M백분위 < m_buy (현금 상태일 때)
-    - 매도: Z백분위 > z_sell AND M백분위 > m_sell (보유 상태일 때)
+    - 매수: (use_z→Z<z_buy) AND (use_m→M<m_buy)
+    - 매도: (use_z→Z>z_sell) AND (use_m→M>m_sell)
     반환: 누적/B&H 수익률, 매매 횟수, 승률, MDD, 자산 곡선.
     """
     close_col = f'{ticker}_Close'
     if close_col not in df_t.columns or 'Z_Score' not in df_t.columns:
+        return None
+    if not use_z and not use_m:
         return None
     close = df_t[close_col].dropna()
     if len(close) < 10:
@@ -1246,11 +1250,13 @@ def run_zm_backtest(
         zi = float(z.iloc[i])
         mi = float(m.iloc[i])
         d = idx[i]
-        if position == 0 and zi < z_buy and mi < m_buy:
+        buy_sig = (not use_z or zi < z_buy) and (not use_m or mi < m_buy)
+        sell_sig = (not use_z or zi > z_sell) and (not use_m or mi > m_sell)
+        if position == 0 and buy_sig:
             position = 1
             entry = p
             buy_marks.append((d, p))
-        elif position == 1 and zi > z_sell and mi > m_sell:
+        elif position == 1 and sell_sig:
             r = p / entry - 1 if entry > 0 else 0
             cash *= (1 + r)
             trades.append(r * 100)
@@ -3047,27 +3053,36 @@ def render_chart(
     if n_pts > 0:
         color_indices = list(range(n_pts))
 
-        # 사분면 분할선 + 그래프 3과 동일한 Z/M 임계선
-        # X축 (Z) 임계선
-        # Z-M 산점도 임계선 — 실선만 복구 (점선은 제거)
-        threshold_lines_solid = [
-            (10, '#dc2626', 0.7),   # 강 매수 임계 (한국식 빨강)
-            (50, '#8b949e', 0.5),   # 중립
-            (90, '#2563eb', 0.7),   # 강 매도 임계 (한국식 파랑)
-        ]
-        for val, lc, lw in threshold_lines_solid:
-            # X축 임계선 (세로)
-            fig.add_shape(
-                type='line', x0=val, x1=val, y0=0, y1=100,
-                line=dict(color=lc, width=lw),
-                row=zm_row, col=1, layer='below',
-            )
-            # Y축 임계선 (가로)
-            fig.add_shape(
-                type='line', x0=0, x1=100, y0=val, y1=val,
-                line=dict(color=lc, width=lw),
-                row=zm_row, col=1, layer='below',
-            )
+        # ── 백테스트 조건선 (매수=빨강 / 매도=파랑) ──
+        # 종목별 저장된 조건. Z=세로선, M=가로선. use_z/use_m로 표시 여부.
+        bt_p = st.session_state.get('backtest_params', {}).get(selected_ticker, {})
+        if bt_p:
+            use_z = bt_p.get('use_z', True)
+            use_m = bt_p.get('use_m', True)
+            if use_z:
+                # Z 매수 세로선 (빨강), Z 매도 세로선 (파랑)
+                fig.add_shape(
+                    type='line', x0=bt_p['z_buy'], x1=bt_p['z_buy'], y0=0, y1=100,
+                    line=dict(color='#dc2626', width=1.2),
+                    row=zm_row, col=1, layer='below',
+                )
+                fig.add_shape(
+                    type='line', x0=bt_p['z_sell'], x1=bt_p['z_sell'], y0=0, y1=100,
+                    line=dict(color='#2563eb', width=1.2),
+                    row=zm_row, col=1, layer='below',
+                )
+            if use_m:
+                # M 매수 가로선 (빨강), M 매도 가로선 (파랑)
+                fig.add_shape(
+                    type='line', x0=0, x1=100, y0=bt_p['m_buy'], y1=bt_p['m_buy'],
+                    line=dict(color='#dc2626', width=1.2),
+                    row=zm_row, col=1, layer='below',
+                )
+                fig.add_shape(
+                    type='line', x0=0, x1=100, y0=bt_p['m_sell'], y1=bt_p['m_sell'],
+                    line=dict(color='#2563eb', width=1.2),
+                    row=zm_row, col=1, layer='below',
+                )
 
         # 산점도 — 시간 색 (viridis)
         fig.add_trace(go.Scatter(
@@ -4095,33 +4110,57 @@ def render_analytics_panel(
     # ── 백테스트 (Z·M 신호) ──
     if df_daily is not None and not df_daily.empty:
         with st.expander("🔬 백테스트 (Z·M 신호)", expanded=False):
-            st.caption("Z·M 각각 임계 이하면 매수 · 각각 임계 이상이면 매도")
+            st.caption("선택한 조건 이하면 매수 · 이상이면 매도 (종목별 저장)")
+            saved = st.session_state.backtest_params.get(selected_ticker, {})
+            # 조건 사용 토글
+            uc1, uc2 = st.columns(2)
+            use_z = uc1.checkbox(
+                "Z 조건 사용", value=saved.get('use_z', True),
+                key=f"bt_usez_{selected_ticker}",
+            )
+            use_m = uc2.checkbox(
+                "M 조건 사용", value=saved.get('use_m', True),
+                key=f"bt_usem_{selected_ticker}",
+            )
             st.markdown("<div style='font-size:0.68rem;color:#a4adb8;"
                         "margin-bottom:-8px;'>📥 매수 (이하)</div>",
                         unsafe_allow_html=True)
             bc1, bc2 = st.columns(2)
             z_buy = bc1.slider(
-                "Z 매수 <", 5, 60, 30, 5,
-                key=f"bt_zbuy_{selected_ticker}",
+                "Z 매수 <", 5, 60, saved.get('z_buy', 30), 5,
+                key=f"bt_zbuy_{selected_ticker}", disabled=not use_z,
             )
             m_buy = bc2.slider(
-                "M 매수 <", 5, 60, 30, 5,
-                key=f"bt_mbuy_{selected_ticker}",
+                "M 매수 <", 5, 60, saved.get('m_buy', 30), 5,
+                key=f"bt_mbuy_{selected_ticker}", disabled=not use_m,
             )
             st.markdown("<div style='font-size:0.68rem;color:#a4adb8;"
                         "margin-bottom:-8px;'>📤 매도 (이상)</div>",
                         unsafe_allow_html=True)
             sc1, sc2 = st.columns(2)
             z_sell = sc1.slider(
-                "Z 매도 >", 40, 95, 70, 5,
-                key=f"bt_zsell_{selected_ticker}",
+                "Z 매도 >", 40, 95, saved.get('z_sell', 70), 5,
+                key=f"bt_zsell_{selected_ticker}", disabled=not use_z,
             )
             m_sell = sc2.slider(
-                "M 매도 >", 40, 95, 70, 5,
-                key=f"bt_msell_{selected_ticker}",
+                "M 매도 >", 40, 95, saved.get('m_sell', 70), 5,
+                key=f"bt_msell_{selected_ticker}", disabled=not use_m,
             )
+            # 종목별 조건 저장 (변경 시)
+            new_params = {
+                'z_buy': z_buy, 'm_buy': m_buy,
+                'z_sell': z_sell, 'm_sell': m_sell,
+                'use_z': use_z, 'use_m': use_m,
+            }
+            if new_params != saved:
+                st.session_state.backtest_params[selected_ticker] = new_params
+                s = load_settings()
+                s.setdefault('backtest_params', {})[selected_ticker] = new_params
+                save_settings(s)
+
             bt = run_zm_backtest(
-                df_daily, selected_ticker, z_buy, m_buy, z_sell, m_sell
+                df_daily, selected_ticker, z_buy, m_buy, z_sell, m_sell,
+                use_z=use_z, use_m=use_m,
             )
             if bt is None:
                 st.caption("데이터 부족 (10일 이상 필요)")
