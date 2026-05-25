@@ -4362,23 +4362,26 @@ def render_analytics_panel(
                 'use_z': use_z, 'use_m': use_m, 'bt_period': bt_period,
                 'trade_unit': trade_unit,
             }
-            if new_params != saved:
+
+            # ── 실행 버튼: 누를 때만 저장 + 계산 ──
+            if st.button("🔄 백테스트 실행", key=f"bt_run_{selected_ticker}",
+                         use_container_width=True, type="primary"):
                 st.session_state.backtest_params[selected_ticker] = new_params
                 save_backtest_params(st.session_state.backtest_params)
-                st.rerun()
+                if period_days:
+                    bt_cutoff = df_daily.index[-1] - pd.Timedelta(days=period_days)
+                    df_bt = df_daily[df_daily.index >= bt_cutoff]
+                else:
+                    df_bt = df_daily
+                st.session_state[f'bt_result_{selected_ticker}'] = run_zm_backtest(
+                    df_bt, selected_ticker, z_buy, m_buy, z_sell, m_sell,
+                    use_z=use_z, use_m=use_m, n_split=trade_unit,
+                )
+                st.rerun()  # 그래프2 조건선 갱신
 
-            if period_days:
-                bt_cutoff = df_daily.index[-1] - pd.Timedelta(days=period_days)
-                df_bt = df_daily[df_daily.index >= bt_cutoff]
-            else:
-                df_bt = df_daily
-
-            bt = run_zm_backtest(
-                df_bt, selected_ticker, z_buy, m_buy, z_sell, m_sell,
-                use_z=use_z, use_m=use_m, n_split=trade_unit,
-            )
+            bt = st.session_state.get(f'bt_result_{selected_ticker}')
             if bt is None:
-                st.caption("데이터 부족 (10일 이상 필요)")
+                st.caption("슬라이더 조절 후 '🔄 백테스트 실행'을 누르세요")
             else:
                 strat_c = pnl_color(bt['total_ret'])
                 bh_c = pnl_color(bt['bh_ret'])
