@@ -1205,6 +1205,75 @@ def compute_cycle_stats(records: list) -> Optional[dict]:
     }
 
 
+def run_zm_backtest(
+    df_t: pd.DataFrame, ticker: str, buy_th: float, sell_th: float,
+) -> Optional[dict]:
+    """Z·M 둘 다 낮으면 매수 / 둘 다 높으면 매도 백테스트.
+
+    - 포지션: 현금(0) ↔ 전액 보유(1)
+    - 매수: Z백분위 < buy_th AND M백분위 < buy_th (현금 상태일 때)
+    - 매도: Z백분위 > sell_th AND M백분위 > sell_th (보유 상태일 때)
+    반환: 누적/B&H 수익률, 매매 횟수, 승률, MDD, 자산 곡선.
+    """
+    close_col = f'{ticker}_Close'
+    if close_col not in df_t.columns or 'Z_Score' not in df_t.columns:
+        return None
+    close = df_t[close_col].dropna()
+    if len(close) < 10:
+        return None
+    idx = close.index
+
+    z = ((df_t['Z_Score'].reindex(idx).fillna(0) + 2.5) / 5.0 * 100).clip(0, 100)
+    macd_pct = (df_t['MACD_Pct'].reindex(idx).fillna(0)
+                if 'MACD_Pct' in df_t.columns else pd.Series(0.0, index=idx))
+    dmacd = (df_t['dMACD_Pct'].reindex(idx).fillna(0)
+             if 'dMACD_Pct' in df_t.columns else pd.Series(0.0, index=idx))
+    rsi = (df_t['RSI'].reindex(idx).fillna(50)
+           if 'RSI' in df_t.columns else pd.Series(50.0, index=idx))
+    m_raw = 0.3 * (macd_pct / 2.0) + 0.2 * (dmacd / 0.5) + 0.5 * ((rsi - 50) / 20.0)
+    m = ((m_raw + 2.5) / 5.0 * 100).clip(0, 100)
+
+    position = 0
+    entry = 0.0
+    cash = 1.0
+    eq = []
+    trades = []
+    buy_marks = []   # (date, price)
+    sell_marks = []
+    for i in range(len(close)):
+        p = float(close.iloc[i])
+        zi = float(z.iloc[i])
+        mi = float(m.iloc[i])
+        d = idx[i]
+        if position == 0 and zi < buy_th and mi < buy_th:
+            position = 1
+            entry = p
+            buy_marks.append((d, p))
+        elif position == 1 and zi > sell_th and mi > sell_th:
+            r = p / entry - 1 if entry > 0 else 0
+            cash *= (1 + r)
+            trades.append(r * 100)
+            sell_marks.append((d, p))
+            position = 0
+        eq.append(cash * (p / entry) if position == 1 and entry > 0 else cash)
+
+    final = eq[-1] if eq else 1.0
+    total_ret = (final - 1) * 100
+    bh = (float(close.iloc[-1]) / float(close.iloc[0]) - 1) * 100 if close.iloc[0] > 0 else 0
+    wins = [t for t in trades if t > 0]
+    win_rate = len(wins) / len(trades) * 100 if trades else 0
+    eqs = pd.Series(eq)
+    mdd = float(((eqs / eqs.cummax() - 1) * 100).min()) if len(eqs) else 0.0
+    return {
+        'total_ret': total_ret, 'bh_ret': bh, 'n_trades': len(trades),
+        'win_rate': win_rate, 'mdd': mdd,
+        'avg_trade': sum(trades) / len(trades) if trades else 0,
+        'eq': eq, 'dates': list(idx), 'close': close,
+        'buy_marks': buy_marks, 'sell_marks': sell_marks,
+        'holding': position == 1,
+    }
+
+
 def compute_cycle_avg_prices(
     records: list,
     df_daily: Optional[pd.DataFrame] = None,
@@ -4021,6 +4090,82 @@ def render_analytics_panel(
 
     # ── 매매 기록 입력 / 삭제 (사이클 통계 위) ──
     render_trade_record_section(selected_ticker)
+
+    # ── 백테스트 (Z·M 신호) ──
+    if df_daily is not None and not df_daily.empty:
+        with st.expander("🔬 백테스트 (Z·M 신호)", expanded=False):
+            st.caption("Z·M 둘 다 낮으면 매수 · 둘 다 높으면 매도")
+            bc1, bc2 = st.columns(2)
+            buy_th = bc1.slider(
+                "매수 임계 (Z·M 둘다 <)", 5, 50, 30, 5,
+                key=f"bt_buy_{selected_ticker}",
+            )
+            sell_th = bc2.slider(
+                "매도 임계 (Z·M 둘다 >)", 50, 95, 70, 5,
+                key=f"bt_sell_{selected_ticker}",
+            )
+            bt = run_zm_backtest(df_daily, selected_ticker, buy_th, sell_th)
+            if bt is None:
+                st.caption("데이터 부족 (10일 이상 필요)")
+            else:
+                strat_c = pnl_color(bt['total_ret'])
+                bh_c = pnl_color(bt['bh_ret'])
+                delta = bt['total_ret'] - bt['bh_ret']
+                delta_c = pnl_color(delta)
+                st.markdown(
+                    f"<div style='display:flex;gap:8px;flex-wrap:wrap;"
+                    f"margin:6px 0 10px 0;'>"
+                    f"<div style='flex:1;min-width:80px;background:#1c2128;"
+                    f"border-radius:8px;padding:8px;'>"
+                    f"<div style='font-size:0.6rem;color:#a4adb8;'>전략 수익률</div>"
+                    f"<div style='font-size:1rem;font-weight:700;color:{strat_c};'>"
+                    f"{signed_str(bt['total_ret'], '{:.1f}')}%</div></div>"
+                    f"<div style='flex:1;min-width:80px;background:#1c2128;"
+                    f"border-radius:8px;padding:8px;'>"
+                    f"<div style='font-size:0.6rem;color:#a4adb8;'>Buy&Hold</div>"
+                    f"<div style='font-size:1rem;font-weight:700;color:{bh_c};'>"
+                    f"{signed_str(bt['bh_ret'], '{:.1f}')}%</div></div>"
+                    f"<div style='flex:1;min-width:80px;background:#1c2128;"
+                    f"border-radius:8px;padding:8px;'>"
+                    f"<div style='font-size:0.6rem;color:#a4adb8;'>초과 (α)</div>"
+                    f"<div style='font-size:1rem;font-weight:700;color:{delta_c};'>"
+                    f"{signed_str(delta, '{:.1f}')}%p</div></div>"
+                    f"</div>"
+                    f"<div style='display:flex;gap:14px;font-size:0.68rem;"
+                    f"color:#c9d1d9;margin-bottom:8px;'>"
+                    f"<span>매매 <b>{bt['n_trades']}</b>회</span>"
+                    f"<span>승률 <b>{bt['win_rate']:.0f}%</b></span>"
+                    f"<span>평균 <b>{signed_str(bt['avg_trade'], '{:.1f}')}%</b></span>"
+                    f"<span>MDD <b style='color:#f85149;'>{bt['mdd']:.1f}%</b></span>"
+                    f"{'<span>(보유중)</span>' if bt['holding'] else ''}"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+                # 자산 곡선 (전략 vs B&H)
+                fig_bt = go.Figure()
+                bh_curve = (bt['close'] / float(bt['close'].iloc[0])).tolist()
+                fig_bt.add_trace(go.Scatter(
+                    x=bt['dates'], y=bh_curve, mode='lines',
+                    line=dict(color='#768390', width=1, dash='dot'),
+                    name='Buy&Hold', hoverinfo='skip',
+                ))
+                fig_bt.add_trace(go.Scatter(
+                    x=bt['dates'], y=bt['eq'], mode='lines',
+                    line=dict(color='#f85149', width=2),
+                    name='전략', hoverinfo='skip',
+                ))
+                fig_bt.update_layout(
+                    height=180, margin=dict(l=4, r=4, t=4, b=4),
+                    paper_bgcolor='#0d1117', plot_bgcolor='#161b22',
+                    font=dict(color='#c9d1d9'), showlegend=True,
+                    legend=dict(orientation='h', yanchor='bottom', y=1.0,
+                                x=0, font=dict(size=9), bgcolor='rgba(0,0,0,0)'),
+                    xaxis=dict(showgrid=False, tickfont=dict(size=8)),
+                    yaxis=dict(showgrid=True, gridcolor='rgba(48,54,61,0.4)',
+                               tickfont=dict(size=8)),
+                )
+                st.plotly_chart(fig_bt, use_container_width=True,
+                                config={'displayModeBar': False, 'staticPlot': True})
 
     # ── #1 사이클 통계 + #5 진행 게이지 ──
     with st.expander("📈 사이클 통계", expanded=False):
