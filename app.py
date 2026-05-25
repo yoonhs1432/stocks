@@ -561,8 +561,9 @@ def load_trade_history() -> dict: return _load_json(TRADE_FILE, GIST_FILENAME)
 def save_trade_history(h: dict) -> None: _save_json(TRADE_FILE, GIST_FILENAME, h)
 
 
+@st.cache_data(ttl=300, show_spinner=False)
 def load_target_tickers() -> list[str]:
-    """저장된 종목 리스트. 없으면 DEFAULT_TICKERS."""
+    """저장된 종목 리스트. 없으면 DEFAULT_TICKERS. (Gist read 캐시)"""
     data = _load_json(TICKERS_FILE, TICKERS_GIST_FILENAME)
     tickers = data.get('tickers') if isinstance(data, dict) else None
     if isinstance(tickers, list) and len(tickers) >= MIN_TICKERS:
@@ -581,14 +582,17 @@ def load_target_tickers() -> list[str]:
 
 def save_target_tickers(tickers: list[str]) -> None:
     _save_json(TICKERS_FILE, TICKERS_GIST_FILENAME, {'tickers': tickers})
+    load_target_tickers.clear()
 
 
+@st.cache_data(ttl=300, show_spinner=False)
 def load_settings() -> dict:
     return _load_json(SETTINGS_FILE, SETTINGS_GIST_FILENAME)
 
 
 def save_settings(s: dict) -> None:
     _save_json(SETTINGS_FILE, SETTINGS_GIST_FILENAME, s)
+    load_settings.clear()
 
 
 def init_session_state() -> None:
