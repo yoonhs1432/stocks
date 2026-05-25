@@ -1291,8 +1291,8 @@ def optimize_zm_backtest(
     """
     if not use_z and not use_m:
         return None
-    buys = list(range(5, 56, 5))    # 5,10,...,55
-    sells = list(range(45, 96, 5))  # 45,50,...,95
+    buys = [10, 20, 30, 40, 50]
+    sells = [50, 60, 70, 80, 90]
     z_buys = buys if use_z else [30]
     z_sells = sells if use_z else [70]
     m_buys = buys if use_m else [30]
@@ -4278,6 +4278,28 @@ def render_analytics_panel(
                     line=dict(color='#f85149', width=2),
                     name='전략', hoverinfo='skip',
                 ))
+                # 매수/매도 시점 화살표 (자산곡선 위)
+                date_to_eq = dict(zip(bt['dates'], bt['eq']))
+                buy_x = [d for d, _ in bt['buy_marks']]
+                buy_y = [date_to_eq.get(d) for d in buy_x]
+                sell_x = [d for d, _ in bt['sell_marks']]
+                sell_y = [date_to_eq.get(d) for d in sell_x]
+                if buy_x:
+                    fig_bt.add_trace(go.Scatter(
+                        x=buy_x, y=buy_y, mode='markers',
+                        marker=dict(symbol='triangle-up', size=10,
+                                    color='#dc2626',
+                                    line=dict(color='#ffffff', width=1)),
+                        name='매수', hoverinfo='skip',
+                    ))
+                if sell_x:
+                    fig_bt.add_trace(go.Scatter(
+                        x=sell_x, y=sell_y, mode='markers',
+                        marker=dict(symbol='triangle-down', size=10,
+                                    color='#2563eb',
+                                    line=dict(color='#ffffff', width=1)),
+                        name='매도', hoverinfo='skip',
+                    ))
                 fig_bt.update_layout(
                     height=180, margin=dict(l=4, r=4, t=4, b=4),
                     paper_bgcolor='#0d1117', plot_bgcolor='#161b22',
