@@ -1291,8 +1291,8 @@ def optimize_zm_backtest(
     """
     if not use_z and not use_m:
         return None
-    buys = [10, 20, 30, 40, 50]
-    sells = [50, 60, 70, 80, 90]
+    buys = list(range(5, 56, 5))    # 5,10,...,55
+    sells = list(range(45, 96, 5))  # 45,50,...,95
     z_buys = buys if use_z else [30]
     z_sells = sells if use_z else [70]
     m_buys = buys if use_m else [30]
