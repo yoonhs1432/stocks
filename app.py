@@ -1386,12 +1386,10 @@ def run_zm_backtest(
     trades = []
     buy_marks = []   # (date, price)
     sell_marks = []
-    # M 변곡 매매:
-    #  매수 = M이 m_buy 아래로 내려간 적(armed) 있고 직전 대비 반등(turn-up)
-    #  매도 = M이 m_sell 위로 올라간 적(armed) 있고 직전 대비 하락(turn-down)
+    # M 임계선 재돌파 매매:
+    #  매수 = M이 m_buy 아래에 있다가 m_buy를 위로 재돌파 (과매도 탈출)
+    #  매도 = M이 m_sell 위에 있다가 m_sell을 아래로 재돌파
     #  use_z면 Z도 추가 필터 (매수 시 Z<z_buy, 매도 시 Z>z_sell)
-    armed_buy = False
-    armed_sell = False
     prev_m = None
     for i in range(len(close)):
         p = float(close.iloc[i])
@@ -1399,15 +1397,10 @@ def run_zm_backtest(
         mi = float(m.iloc[i])
         d = idx[i]
 
-        if mi < m_buy:
-            armed_buy = True
-        if mi > m_sell:
-            armed_sell = True
-
-        turn_up = prev_m is not None and mi > prev_m
-        turn_down = prev_m is not None and mi < prev_m
-        buy_sig = armed_buy and turn_up and (not use_z or zi < z_buy)
-        sell_sig = armed_sell and turn_down and (not use_z or zi > z_sell)
+        cross_up = prev_m is not None and prev_m < m_buy and mi >= m_buy
+        cross_down = prev_m is not None and prev_m > m_sell and mi <= m_sell
+        buy_sig = cross_up and (not use_z or zi < z_buy)
+        sell_sig = cross_down and (not use_z or zi > z_sell)
         prev_m = mi
 
         if buy_sig and cash > 1e-9 and p > 0:
@@ -1415,7 +1408,6 @@ def run_zm_backtest(
             buy_cost += cash
             cash = 0.0
             buy_marks.append((d, p))
-            armed_buy = False
         elif sell_sig and shares > 1e-9 and p > 0:
             avg = buy_cost / shares if shares > 0 else p
             trades.append((p / avg - 1) * 100 if avg > 0 else 0)
@@ -1424,7 +1416,6 @@ def run_zm_backtest(
             buy_cost = 0.0
             shares = 0.0
             sell_marks.append((d, p))
-            armed_sell = False
         eq.append(cash + shares * p)
         cum_realized.append(realized * 100)
 
@@ -4316,8 +4307,8 @@ def render_analytics_panel(
 
     # ── 백테스트 (수동 Z·M 임계 + 3단 그래프) ──
     if df_daily is not None and not df_daily.empty:
-        with st.expander("🔬 백테스트 (M 변곡)", expanded=False):
-            st.caption("매수: M이 매수임계 아래로 갔다 반등할 때 · 매도: M이 매도임계 위로 갔다 하락할 때")
+        with st.expander("🔬 백테스트 (M 임계 재돌파)", expanded=False):
+            st.caption("매수: M이 매수임계 아래→위 재돌파 · 매도: M이 매도임계 위→아래 재돌파")
             saved = st.session_state.backtest_params.get(selected_ticker, {})
             ver = st.session_state.get(f'bt_ver_{selected_ticker}', 0)
             use_m = True  # M 변곡이 핵심 (항상 사용)
