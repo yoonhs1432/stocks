@@ -1197,6 +1197,144 @@ def compute_cycle_stats(records: list) -> Optional[dict]:
     }
 
 
+def _zm_percentiles(df_t: pd.DataFrame):
+    """df_t에서 Z·M 백분위(0~100) 시리즈를 계산."""
+    idx = df_t.index
+    z = ((df_t['Z_Score'].reindex(idx).fillna(0) + 2.5) / 5.0 * 100).clip(0, 100)
+    macd_pct = (df_t['MACD_Pct'].reindex(idx).fillna(0)
+                if 'MACD_Pct' in df_t.columns else pd.Series(0.0, index=idx))
+    dmacd = (df_t['dMACD_Pct'].reindex(idx).fillna(0)
+             if 'dMACD_Pct' in df_t.columns else pd.Series(0.0, index=idx))
+    rsi = (df_t['RSI'].reindex(idx).fillna(50)
+           if 'RSI' in df_t.columns else pd.Series(50.0, index=idx))
+    m_raw = 0.3 * (macd_pct / 2.0) + 0.2 * (dmacd / 0.5) + 0.5 * ((rsi - 50) / 20.0)
+    m = ((m_raw + 2.5) / 5.0 * 100).clip(0, 100)
+    return z, m
+
+
+def run_target_weight_backtest(
+    df_t: pd.DataFrame, ticker: str,
+    w_z: float = 0.5, use_z: bool = True, use_m: bool = True,
+    deadband: float = 10.0,
+) -> Optional[dict]:
+    """목표 비중 리밸런싱 백테스트.
+
+    - 매일 Z·M으로 목표 보유 비중 계산 (저평가/저모멘텀일수록 높음)
+      target = w_z·(100−Z) + (1−w_z)·(100−M), 0~1
+    - 현재 비중과 차이가 deadband(%) 초과 시에만 목표로 리밸런싱
+    - 임계선 없이 연속적 비중 조절 → whipsaw 완화
+    """
+    close_col = f'{ticker}_Close'
+    if close_col not in df_t.columns or 'Z_Score' not in df_t.columns:
+        return None
+    if not use_z and not use_m:
+        return None
+    close = df_t[close_col].dropna()
+    if len(close) < 10:
+        return None
+    idx = close.index
+    z, m = _zm_percentiles(df_t)
+    z = z.reindex(idx).fillna(50)
+    m = m.reindex(idx).fillna(50)
+
+    db = deadband / 100.0
+    cash = 1.0
+    shares = 0.0
+    buy_cost = 0.0
+    eq = []
+    trades = []
+    buy_marks = []
+    sell_marks = []
+    target_series = []
+    for i in range(len(close)):
+        p = float(close.iloc[i])
+        zi = float(z.iloc[i])
+        mi = float(m.iloc[i])
+        d = idx[i]
+        if use_z and use_m:
+            target = (w_z * (100 - zi) + (1 - w_z) * (100 - mi)) / 100
+        elif use_z:
+            target = (100 - zi) / 100
+        else:
+            target = (100 - mi) / 100
+        target = max(0.0, min(1.0, target))
+        target_series.append(target * 100)
+
+        port = cash + shares * p
+        cur_w = (shares * p) / port if port > 0 else 0.0
+        if p > 0 and abs(target - cur_w) > db:
+            diff_val = port * target - shares * p  # +매수 / -매도
+            if diff_val > 0:
+                amt = min(diff_val, cash)
+                if amt > 1e-9:
+                    shares += amt / p
+                    buy_cost += amt
+                    cash -= amt
+                    buy_marks.append((d, p))
+            else:
+                sell_sh = min(-diff_val / p, shares)
+                if sell_sh > 1e-9:
+                    avg = buy_cost / shares if shares > 0 else p
+                    trades.append((p / avg - 1) * 100 if avg > 0 else 0)
+                    cash += sell_sh * p
+                    buy_cost -= avg * sell_sh
+                    shares -= sell_sh
+                    sell_marks.append((d, p))
+        eq.append(cash + shares * p)
+
+    final = eq[-1] if eq else 1.0
+    total_ret = (final - 1) * 100
+    bh = (float(close.iloc[-1]) / float(close.iloc[0]) - 1) * 100 if close.iloc[0] > 0 else 0
+    wins = [t for t in trades if t > 0]
+    win_rate = len(wins) / len(trades) * 100 if trades else 0
+    eqs = pd.Series(eq)
+    mdd = float(((eqs / eqs.cummax() - 1) * 100).min()) if len(eqs) else 0.0
+    return {
+        'total_ret': total_ret, 'bh_ret': bh, 'n_trades': len(trades),
+        'win_rate': win_rate, 'mdd': mdd,
+        'avg_trade': sum(trades) / len(trades) if trades else 0,
+        'eq': eq, 'dates': list(idx), 'close': close,
+        'buy_marks': buy_marks, 'sell_marks': sell_marks,
+        'holding': shares > 1e-9,
+        'final_target': target_series[-1] if target_series else 0,
+    }
+
+
+def walkforward_target_weight(
+    df_t: pd.DataFrame, ticker: str, use_z: bool, use_m: bool,
+) -> Optional[dict]:
+    """워크포워드: 앞 70%(IS)로 최적 (w_z, deadband) 찾고 뒤 30%(OOS)로 검증."""
+    close = df_t[f'{ticker}_Close'].dropna() if f'{ticker}_Close' in df_t.columns else None
+    if close is None or len(close) < 30:
+        return None
+    n = len(close)
+    split_date = close.index[int(n * 0.7)]
+    df_is = df_t[df_t.index < split_date]
+    df_oos = df_t[df_t.index >= split_date]
+
+    w_range = [0.0, 0.25, 0.5, 0.75, 1.0] if (use_z and use_m) else [0.5]
+    db_range = [5, 10, 15, 20, 30]
+    best = None
+    best_ret = -1e9
+    for w in w_range:
+        for db in db_range:
+            bt = run_target_weight_backtest(df_is, ticker, w, use_z, use_m, db)
+            if bt and bt['total_ret'] > best_ret:
+                best_ret = bt['total_ret']
+                best = {'w_z': w, 'deadband': db}
+    if not best:
+        return None
+    is_bt = run_target_weight_backtest(df_is, ticker, best['w_z'], use_z, use_m, best['deadband'])
+    oos_bt = run_target_weight_backtest(df_oos, ticker, best['w_z'], use_z, use_m, best['deadband'])
+    return {
+        'w_z': best['w_z'], 'deadband': best['deadband'],
+        'is_ret': is_bt['total_ret'] if is_bt else 0,
+        'oos_ret': oos_bt['total_ret'] if oos_bt else 0,
+        'oos_bh': oos_bt['bh_ret'] if oos_bt else 0,
+        'split_date': split_date,
+    }
+
+
 def run_zm_backtest(
     df_t: pd.DataFrame, ticker: str,
     z_buy: float, m_buy: float, z_sell: float, m_sell: float,
@@ -3111,7 +3249,7 @@ def render_chart(
         # ── 백테스트 조건선 (매수=빨강 / 매도=파랑) ──
         # 종목별 저장된 조건. Z=세로선, M=가로선. use_z/use_m로 표시 여부.
         bt_p = st.session_state.get('backtest_params', {}).get(selected_ticker, {})
-        if bt_p:
+        if bt_p and 'z_buy' in bt_p:  # 구 임계선 방식만 (목표비중엔 임계선 없음)
             use_z = bt_p.get('use_z', True)
             use_m = bt_p.get('use_m', True)
             if use_z:
@@ -4162,50 +4300,34 @@ def render_analytics_panel(
     # ── 매매 기록 입력 / 삭제 (사이클 통계 위) ──
     render_trade_record_section(selected_ticker)
 
-    # ── 백테스트 (Z·M 신호) ──
+    # ── 백테스트 (목표 비중 리밸런싱 + 워크포워드) ──
     if df_daily is not None and not df_daily.empty:
-        with st.expander("🔬 백테스트 (Z·M 신호)", expanded=False):
-            st.caption("선택한 조건 이하면 매수 · 이상이면 매도 (종목별 저장)")
+        with st.expander("🔬 백테스트 (목표 비중)", expanded=False):
+            st.caption("Z·M으로 목표 보유 비중을 정해 리밸런싱 (임계선 없음)")
             saved = st.session_state.backtest_params.get(selected_ticker, {})
-            # 조건 사용 토글
+            ver = st.session_state.get(f'bt_ver_{selected_ticker}', 0)
             uc1, uc2 = st.columns(2)
             use_z = uc1.checkbox(
-                "Z 조건 사용", value=saved.get('use_z', True),
+                "Z 사용", value=saved.get('use_z', True),
                 key=f"bt_usez_{selected_ticker}",
             )
             use_m = uc2.checkbox(
-                "M 조건 사용", value=saved.get('use_m', True),
+                "M 사용", value=saved.get('use_m', True),
                 key=f"bt_usem_{selected_ticker}",
             )
-            # 슬라이더 버전 (최적 탐색 시 +1 → 슬라이더 강제 재생성)
-            ver = st.session_state.get(f'bt_ver_{selected_ticker}', 0)
-            st.markdown("<div style='font-size:0.68rem;color:#a4adb8;"
-                        "margin-bottom:-8px;'>📥 매수 (이하)</div>",
-                        unsafe_allow_html=True)
-            bc1, bc2 = st.columns(2)
-            z_buy = bc1.slider(
-                "Z 매수 <", 5, 60, saved.get('z_buy', 30), 5,
-                key=f"bt_zbuy_{selected_ticker}_{ver}", disabled=not use_z,
+            if use_z and use_m:
+                w_z = st.slider(
+                    "Z 가중치 (%) — 나머지는 M", 0, 100,
+                    int(saved.get('w_z', 0.5) * 100), 10,
+                    key=f"bt_wz_{selected_ticker}_{ver}",
+                ) / 100.0
+            else:
+                w_z = 0.5
+            deadband = st.slider(
+                "리밸런싱 최소 편차 (%)", 0, 40,
+                int(saved.get('deadband', 10)), 5,
+                key=f"bt_db_{selected_ticker}_{ver}",
             )
-            m_buy = bc2.slider(
-                "M 매수 <", 5, 60, saved.get('m_buy', 30), 5,
-                key=f"bt_mbuy_{selected_ticker}_{ver}", disabled=not use_m,
-            )
-            st.markdown("<div style='font-size:0.68rem;color:#a4adb8;"
-                        "margin-bottom:-8px;'>📤 매도 (이상)</div>",
-                        unsafe_allow_html=True)
-            sc1, sc2 = st.columns(2)
-            z_sell = sc1.slider(
-                "Z 매도 >", 40, 95, saved.get('z_sell', 70), 5,
-                key=f"bt_zsell_{selected_ticker}_{ver}", disabled=not use_z,
-            )
-            m_sell = sc2.slider(
-                "M 매도 >", 40, 95, saved.get('m_sell', 70), 5,
-                key=f"bt_msell_{selected_ticker}_{ver}", disabled=not use_m,
-            )
-            n_split = 1  # 신호 세기 가중 방식 (분할 횟수 미사용)
-            st.caption("매수/매도량 = 신호 세기 비례 (임계에서 멀수록 더 많이)")
-            # 백테스트 기간
             period_opts = ['전체', '1년', '6개월', '3개월']
             bt_period = st.radio(
                 "백테스트 기간", period_opts,
@@ -4213,56 +4335,67 @@ def render_analytics_panel(
                 horizontal=True, key=f"bt_period_{selected_ticker}_{ver}",
             )
             period_days = {'전체': None, '1년': 365, '6개월': 182, '3개월': 91}[bt_period]
-            # 종목별 조건 저장 (변경 시)
+
             new_params = {
-                'z_buy': z_buy, 'm_buy': m_buy,
-                'z_sell': z_sell, 'm_sell': m_sell,
-                'use_z': use_z, 'use_m': use_m, 'n_split': n_split,
-                'bt_period': bt_period,
+                'w_z': w_z, 'use_z': use_z, 'use_m': use_m,
+                'deadband': deadband, 'bt_period': bt_period,
             }
             if new_params != saved:
                 st.session_state.backtest_params[selected_ticker] = new_params
                 s = load_settings()
                 s.setdefault('backtest_params', {})[selected_ticker] = new_params
                 save_settings(s)
-                st.rerun()  # 그래프2 조건선 즉시 반영
+                st.rerun()
 
-            # 백테스트 기간 필터된 df
             if period_days:
                 bt_cutoff = df_daily.index[-1] - pd.Timedelta(days=period_days)
                 df_bt = df_daily[df_daily.index >= bt_cutoff]
             else:
                 df_bt = df_daily
 
-            # 최적값 자동 탐색
-            if st.button("🎯 최적 Z·M 자동 탐색",
-                         key=f"bt_opt_{selected_ticker}",
+            # 워크포워드 검증 (IS 최적 → OOS 성과)
+            if st.button("🎯 워크포워드 검증 (앞70% 최적 → 뒤30% 검증)",
+                         key=f"bt_wf_{selected_ticker}",
                          use_container_width=True,
                          disabled=not (use_z or use_m)):
-                with st.spinner("그리드 탐색 중..."):
-                    best = optimize_zm_backtest(
-                        df_bt, selected_ticker, use_z, use_m, n_split
+                with st.spinner("탐색 중..."):
+                    wf = walkforward_target_weight(
+                        df_bt, selected_ticker, use_z, use_m
                     )
-                if best:
+                if wf:
                     opt_params = {
-                        'z_buy': best['z_buy'], 'm_buy': best['m_buy'],
-                        'z_sell': best['z_sell'], 'm_sell': best['m_sell'],
-                        'use_z': use_z, 'use_m': use_m, 'n_split': n_split,
+                        'w_z': wf['w_z'], 'use_z': use_z, 'use_m': use_m,
+                        'deadband': wf['deadband'], 'bt_period': bt_period,
                     }
                     st.session_state.backtest_params[selected_ticker] = opt_params
                     s = load_settings()
                     s.setdefault('backtest_params', {})[selected_ticker] = opt_params
                     save_settings(s)
-                    # 슬라이더 버전 +1 → 새 key로 재생성되어 opt 값 반영
+                    st.session_state[f'wf_{selected_ticker}'] = wf
                     st.session_state[f'bt_ver_{selected_ticker}'] = ver + 1
-                    st.success(f"최적 수익률 {best['ret']:.1f}%")
                     st.rerun()
                 else:
-                    st.warning("유효한 매매 조합을 찾지 못했습니다.")
+                    st.warning("데이터 부족 (30일 이상 필요)")
 
-            bt = run_zm_backtest(
-                df_bt, selected_ticker, z_buy, m_buy, z_sell, m_sell,
-                use_z=use_z, use_m=use_m, n_split=n_split,
+            # 워크포워드 결과 표시
+            wf_res = st.session_state.get(f'wf_{selected_ticker}')
+            if wf_res:
+                oos_c = pnl_color(wf_res['oos_ret'])
+                oos_bh_c = pnl_color(wf_res['oos_bh'])
+                robust = "✅ 견고" if wf_res['oos_ret'] > wf_res['oos_bh'] else "⚠️ OOS 부진"
+                st.markdown(
+                    f"<div style='background:#1c2128;border-radius:8px;padding:8px;"
+                    f"margin:4px 0;font-size:0.7rem;color:#c9d1d9;'>"
+                    f"<b>워크포워드</b> (w={wf_res['w_z']:.2f}, 편차={wf_res['deadband']}%) {robust}<br>"
+                    f"IS(앞70%) {signed_str(wf_res['is_ret'], '{:.1f}')}% · "
+                    f"OOS(뒤30%) <b style='color:{oos_c};'>{signed_str(wf_res['oos_ret'], '{:.1f}')}%</b> "
+                    f"vs B&H <span style='color:{oos_bh_c};'>{signed_str(wf_res['oos_bh'], '{:.1f}')}%</span>"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+
+            bt = run_target_weight_backtest(
+                df_bt, selected_ticker, w_z, use_z, use_m, deadband
             )
             if bt is None:
                 st.caption("데이터 부족 (10일 이상 필요)")
@@ -4292,11 +4425,10 @@ def render_analytics_panel(
                     f"</div>"
                     f"<div style='display:flex;gap:14px;font-size:0.68rem;"
                     f"color:#c9d1d9;margin-bottom:8px;'>"
-                    f"<span>매매 <b>{bt['n_trades']}</b>회</span>"
+                    f"<span>리밸런싱 <b>{bt['n_trades']}</b>회</span>"
                     f"<span>승률 <b>{bt['win_rate']:.0f}%</b></span>"
-                    f"<span>평균 <b>{signed_str(bt['avg_trade'], '{:.1f}')}%</b></span>"
                     f"<span>MDD <b style='color:#f85149;'>{bt['mdd']:.1f}%</b></span>"
-                    f"{'<span>(보유중)</span>' if bt['holding'] else ''}"
+                    f"<span>현재목표 <b>{bt['final_target']:.0f}%</b></span>"
                     f"</div>",
                     unsafe_allow_html=True,
                 )
@@ -4313,7 +4445,6 @@ def render_analytics_panel(
                     line=dict(color='#f85149', width=2),
                     name='전략', hoverinfo='skip',
                 ))
-                # 매수/매도 시점 화살표 (자산곡선 위)
                 date_to_eq = dict(zip(bt['dates'], bt['eq']))
                 buy_x = [d for d, _ in bt['buy_marks']]
                 buy_y = [date_to_eq.get(d) for d in buy_x]
@@ -4322,7 +4453,7 @@ def render_analytics_panel(
                 if buy_x:
                     fig_bt.add_trace(go.Scatter(
                         x=buy_x, y=buy_y, mode='markers',
-                        marker=dict(symbol='triangle-up', size=10,
+                        marker=dict(symbol='triangle-up', size=8,
                                     color='#dc2626',
                                     line=dict(color='#ffffff', width=1)),
                         name='매수', hoverinfo='skip',
@@ -4330,7 +4461,7 @@ def render_analytics_panel(
                 if sell_x:
                     fig_bt.add_trace(go.Scatter(
                         x=sell_x, y=sell_y, mode='markers',
-                        marker=dict(symbol='triangle-down', size=10,
+                        marker=dict(symbol='triangle-down', size=8,
                                     color='#2563eb',
                                     line=dict(color='#ffffff', width=1)),
                         name='매도', hoverinfo='skip',
