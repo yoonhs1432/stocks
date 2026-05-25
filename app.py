@@ -1202,11 +1202,11 @@ def run_zm_backtest(
     z_buy: float, m_buy: float, z_sell: float, m_sell: float,
     use_z: bool = True, use_m: bool = True, n_split: int = 1,
 ) -> Optional[dict]:
-    """Z·M 각각 임계로 N분할 매수/매도 백테스트 (use_z/use_m으로 조건 on/off).
+    """Z·M 신호 세기 가중 매수/매도 백테스트 (use_z/use_m으로 조건 on/off).
 
-    - 매수 신호: 초기자본의 1/N 투입 (현금 한도)
-    - 매도 신호: 현재 보유의 1/N 매도
-    - n_split=1이면 전액 매수/매도와 동일
+    - 매수 신호: 현금 × 매수강도 투입 (임계에서 멀수록 강도 ↑, 0~1)
+    - 매도 신호: 보유 × 매도강도 매도
+    - n_split 인자는 호환용 (현재 미사용)
     반환: 누적/B&H 수익률, 매매 횟수, 승률, MDD, 자산 곡선.
     """
     close_col = f'{ticker}_Close'
@@ -1229,8 +1229,6 @@ def run_zm_backtest(
     m_raw = 0.3 * (macd_pct / 2.0) + 0.2 * (dmacd / 0.5) + 0.5 * ((rsi - 50) / 20.0)
     m = ((m_raw + 2.5) / 5.0 * 100).clip(0, 100)
 
-    N = max(1, int(n_split))
-    unit = 1.0 / N        # 1회 매수 금액 (초기자본 비율)
     cash = 1.0
     shares = 0.0          # 보유 (가치 환산 수량)
     buy_cost = 0.0        # 매수 누적 원가 (평단 계산용)
@@ -1245,20 +1243,40 @@ def run_zm_backtest(
         d = idx[i]
         buy_sig = (not use_z or zi < z_buy) and (not use_m or mi < m_buy)
         sell_sig = (not use_z or zi > z_sell) and (not use_m or mi > m_sell)
+
+        # 신호 세기 (임계에서 멀수록 1에 가까움)
+        def _buy_strength() -> float:
+            s = []
+            if use_z and z_buy > 0:
+                s.append((z_buy - zi) / z_buy)
+            if use_m and m_buy > 0:
+                s.append((m_buy - mi) / m_buy)
+            return max(0.0, min(1.0, sum(s) / len(s))) if s else 0.0
+
+        def _sell_strength() -> float:
+            s = []
+            if use_z and z_sell < 100:
+                s.append((zi - z_sell) / (100 - z_sell))
+            if use_m and m_sell < 100:
+                s.append((mi - m_sell) / (100 - m_sell))
+            return max(0.0, min(1.0, sum(s) / len(s))) if s else 0.0
+
         if buy_sig and cash > 1e-9 and p > 0:
-            amt = min(unit, cash)
-            shares += amt / p
-            buy_cost += amt
-            cash -= amt
-            buy_marks.append((d, p))
+            amt = cash * _buy_strength()      # 강도 비례 매수
+            if amt > 1e-9:
+                shares += amt / p
+                buy_cost += amt
+                cash -= amt
+                buy_marks.append((d, p))
         elif sell_sig and shares > 1e-9 and p > 0:
-            sell_sh = shares / N
-            avg = buy_cost / shares if shares > 0 else p
-            trades.append((p / avg - 1) * 100 if avg > 0 else 0)
-            cash += sell_sh * p
-            buy_cost -= avg * sell_sh
-            shares -= sell_sh
-            sell_marks.append((d, p))
+            sell_sh = shares * _sell_strength()  # 강도 비례 매도
+            if sell_sh > 1e-9:
+                avg = buy_cost / shares if shares > 0 else p
+                trades.append((p / avg - 1) * 100 if avg > 0 else 0)
+                cash += sell_sh * p
+                buy_cost -= avg * sell_sh
+                shares -= sell_sh
+                sell_marks.append((d, p))
         eq.append(cash + shares * p)
 
     final = eq[-1] if eq else 1.0
@@ -4185,11 +4203,8 @@ def render_analytics_panel(
                 "M 매도 >", 40, 95, saved.get('m_sell', 70), 5,
                 key=f"bt_msell_{selected_ticker}_{ver}", disabled=not use_m,
             )
-            # 분할 횟수
-            n_split = st.slider(
-                "분할 횟수 (N등분 매수/매도)", 1, 10, saved.get('n_split', 1), 1,
-                key=f"bt_nsplit_{selected_ticker}_{ver}",
-            )
+            n_split = 1  # 신호 세기 가중 방식 (분할 횟수 미사용)
+            st.caption("매수/매도량 = 신호 세기 비례 (임계에서 멀수록 더 많이)")
             # 백테스트 기간
             period_opts = ['전체', '1년', '6개월', '3개월']
             bt_period = st.radio(
