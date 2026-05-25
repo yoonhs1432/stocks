@@ -4919,48 +4919,57 @@ def append_history_and_spy(
 ) -> pd.DataFrame:
     """매매 이력 종목 (TARGET 외) + SPY 추가 fetch.
 
-    병렬 fetch + 전체 timeout + 실패/응답없는 종목 블랙리스트.
-    응답 없는 종목 때문에 영원히 멈추지 않도록 보장.
+    - session_state 캐시로 매 rerun 재다운로드 방지 (속도)
+    - 병렬 fetch + 전체 12초 timeout + 실패/응답없는 종목 블랙리스트 (hang 방지)
+    - analysis_start/candle_type 바뀌면 캐시 무효화
     """
+    cache_key = (analysis_start, candle_type)
+    if st.session_state.get('_extra_cache_key') != cache_key:
+        st.session_state['extra_close_cache'] = {}
+        st.session_state['_extra_cache_key'] = cache_key
+    cache: dict = st.session_state['extra_close_cache']
     blacklist = st.session_state.setdefault('fetch_blacklist', set())
+
+    # 아직 캐시·블랙리스트에 없는 종목만 새로 fetch
     need = [
         tk for tk in list(trade_history.keys()) + ['SPY']
-        if tk and f'{tk}_Close' not in df_close.columns and tk not in blacklist
+        if tk and f'{tk}_Close' not in df_close.columns
+        and tk not in cache and tk not in blacklist
     ]
-    if not need:
-        return df_close
-
-    results: dict[str, pd.DataFrame] = {}
-    done = set()
-    with st.spinner(f"추가 종목 {len(need)}개 로드..."):
-        ex = ThreadPoolExecutor(max_workers=CFG.MAX_PARALLEL_FETCH)
-        futures = {ex.submit(_fetch_close_one, tk, analysis_start): tk for tk in need}
-        try:
-            for fut in as_completed(futures, timeout=12):   # 전체 12초 제한
-                tk = futures[fut]
-                done.add(tk)
-                try:
-                    r = fut.result()
-                    if r is not None and not r.empty:
-                        results[tk] = r
-                    else:
+    if need:
+        done = set()
+        with st.spinner(f"추가 종목 {len(need)}개 로드..."):
+            ex = ThreadPoolExecutor(max_workers=CFG.MAX_PARALLEL_FETCH)
+            futures = {ex.submit(_fetch_close_one, tk, analysis_start): tk for tk in need}
+            try:
+                for fut in as_completed(futures, timeout=12):
+                    tk = futures[fut]
+                    done.add(tk)
+                    try:
+                        r = fut.result()
+                        if r is not None and not r.empty:
+                            cache[tk] = r          # 캐시에 저장 (재사용)
+                        else:
+                            blacklist.add(tk)
+                    except Exception as e:
+                        log.warning(f"history fetch fail {tk}: {e}")
                         blacklist.add(tk)
-                except Exception as e:
-                    log.warning(f"history fetch fail {tk}: {e}")
-                    blacklist.add(tk)
-        except Exception:
-            pass  # 전체 timeout — 미완료 종목은 아래에서 블랙리스트
-        # 12초 내 응답 없는 종목은 블랙리스트 (다음부터 skip)
-        for tk in need:
-            if tk not in done:
-                blacklist.add(tk)
-        ex.shutdown(wait=False, cancel_futures=True)
+            except Exception:
+                pass  # 전체 timeout
+            for tk in need:
+                if tk not in done:
+                    blacklist.add(tk)   # 응답 없는 종목 skip
+            ex.shutdown(wait=False, cancel_futures=True)
 
-    for tk, df_new in results.items():
-        if candle_type == '주봉':
-            df_new = _resample_weekly(df_new)
-        df_close = pd.concat([df_close, df_new], axis=1).ffill()
-    if candle_type == '일봉' and results:
+    # 캐시된 추가 종목 병합 (재fetch 없음)
+    merged_any = False
+    for tk, df_new in cache.items():
+        if f'{tk}_Close' in df_close.columns:
+            continue
+        d = _resample_weekly(df_new) if candle_type == '주봉' else df_new
+        df_close = pd.concat([df_close, d], axis=1).ffill()
+        merged_any = True
+    if candle_type == '일봉' and merged_any:
         df_close = _filter_trading_days(df_close)
     return df_close
 
