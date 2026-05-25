@@ -1281,6 +1281,46 @@ def run_zm_backtest(
     }
 
 
+def optimize_zm_backtest(
+    df_t: pd.DataFrame, ticker: str, use_z: bool, use_m: bool,
+) -> Optional[dict]:
+    """그리드 탐색으로 수익률 최대 Z·M 임계 조합을 찾는다.
+
+    use_z/use_m이 켜진 축만 탐색 (꺼진 축은 기본값 고정).
+    반환: {'z_buy', 'm_buy', 'z_sell', 'm_sell', 'ret'} 또는 None.
+    """
+    if not use_z and not use_m:
+        return None
+    buys = [10, 20, 30, 40, 50]
+    sells = [50, 60, 70, 80, 90]
+    z_buys = buys if use_z else [30]
+    z_sells = sells if use_z else [70]
+    m_buys = buys if use_m else [30]
+    m_sells = sells if use_m else [70]
+
+    best_ret = -1e9
+    best = None
+    for zb in z_buys:
+        for zs in z_sells:
+            if use_z and zb >= zs:
+                continue
+            for mb in m_buys:
+                for ms in m_sells:
+                    if use_m and mb >= ms:
+                        continue
+                    bt = run_zm_backtest(
+                        df_t, ticker, zb, mb, zs, ms,
+                        use_z=use_z, use_m=use_m,
+                    )
+                    if bt and bt['n_trades'] > 0 and bt['total_ret'] > best_ret:
+                        best_ret = bt['total_ret']
+                        best = {
+                            'z_buy': zb, 'm_buy': mb,
+                            'z_sell': zs, 'm_sell': ms, 'ret': bt['total_ret'],
+                        }
+    return best
+
+
 def compute_cycle_avg_prices(
     records: list,
     df_daily: Optional[pd.DataFrame] = None,
@@ -4157,6 +4197,33 @@ def render_analytics_panel(
                 s = load_settings()
                 s.setdefault('backtest_params', {})[selected_ticker] = new_params
                 save_settings(s)
+
+            # 최적값 자동 탐색
+            if st.button("🎯 최적 Z·M 자동 탐색",
+                         key=f"bt_opt_{selected_ticker}",
+                         use_container_width=True,
+                         disabled=not (use_z or use_m)):
+                with st.spinner("그리드 탐색 중..."):
+                    best = optimize_zm_backtest(
+                        df_daily, selected_ticker, use_z, use_m
+                    )
+                if best:
+                    opt_params = {
+                        'z_buy': best['z_buy'], 'm_buy': best['m_buy'],
+                        'z_sell': best['z_sell'], 'm_sell': best['m_sell'],
+                        'use_z': use_z, 'use_m': use_m,
+                    }
+                    st.session_state.backtest_params[selected_ticker] = opt_params
+                    s = load_settings()
+                    s.setdefault('backtest_params', {})[selected_ticker] = opt_params
+                    save_settings(s)
+                    # 슬라이더 key 삭제 → 다음 렌더에 저장값(default) 반영
+                    for k in ('bt_zbuy', 'bt_mbuy', 'bt_zsell', 'bt_msell'):
+                        st.session_state.pop(f"{k}_{selected_ticker}", None)
+                    st.success(f"최적 수익률 {best['ret']:.1f}%")
+                    st.rerun()
+                else:
+                    st.warning("유효한 매매 조합을 찾지 못했습니다.")
 
             bt = run_zm_backtest(
                 df_daily, selected_ticker, z_buy, m_buy, z_sell, m_sell,
