@@ -1206,13 +1206,14 @@ def compute_cycle_stats(records: list) -> Optional[dict]:
 
 
 def run_zm_backtest(
-    df_t: pd.DataFrame, ticker: str, buy_th: float, sell_th: float,
+    df_t: pd.DataFrame, ticker: str,
+    z_buy: float, m_buy: float, z_sell: float, m_sell: float,
 ) -> Optional[dict]:
-    """Z·M 둘 다 낮으면 매수 / 둘 다 높으면 매도 백테스트.
+    """Z·M 각각 임계로 매수/매도 백테스트.
 
     - 포지션: 현금(0) ↔ 전액 보유(1)
-    - 매수: Z백분위 < buy_th AND M백분위 < buy_th (현금 상태일 때)
-    - 매도: Z백분위 > sell_th AND M백분위 > sell_th (보유 상태일 때)
+    - 매수: Z백분위 < z_buy AND M백분위 < m_buy (현금 상태일 때)
+    - 매도: Z백분위 > z_sell AND M백분위 > m_sell (보유 상태일 때)
     반환: 누적/B&H 수익률, 매매 횟수, 승률, MDD, 자산 곡선.
     """
     close_col = f'{ticker}_Close'
@@ -1245,11 +1246,11 @@ def run_zm_backtest(
         zi = float(z.iloc[i])
         mi = float(m.iloc[i])
         d = idx[i]
-        if position == 0 and zi < buy_th and mi < buy_th:
+        if position == 0 and zi < z_buy and mi < m_buy:
             position = 1
             entry = p
             buy_marks.append((d, p))
-        elif position == 1 and zi > sell_th and mi > sell_th:
+        elif position == 1 and zi > z_sell and mi > m_sell:
             r = p / entry - 1 if entry > 0 else 0
             cash *= (1 + r)
             trades.append(r * 100)
@@ -4094,17 +4095,34 @@ def render_analytics_panel(
     # ── 백테스트 (Z·M 신호) ──
     if df_daily is not None and not df_daily.empty:
         with st.expander("🔬 백테스트 (Z·M 신호)", expanded=False):
-            st.caption("Z·M 둘 다 낮으면 매수 · 둘 다 높으면 매도")
+            st.caption("Z·M 각각 임계 이하면 매수 · 각각 임계 이상이면 매도")
+            st.markdown("<div style='font-size:0.68rem;color:#a4adb8;"
+                        "margin-bottom:-8px;'>📥 매수 (이하)</div>",
+                        unsafe_allow_html=True)
             bc1, bc2 = st.columns(2)
-            buy_th = bc1.slider(
-                "매수 임계 (Z·M 둘다 <)", 5, 50, 30, 5,
-                key=f"bt_buy_{selected_ticker}",
+            z_buy = bc1.slider(
+                "Z 매수 <", 5, 60, 30, 5,
+                key=f"bt_zbuy_{selected_ticker}",
             )
-            sell_th = bc2.slider(
-                "매도 임계 (Z·M 둘다 >)", 50, 95, 70, 5,
-                key=f"bt_sell_{selected_ticker}",
+            m_buy = bc2.slider(
+                "M 매수 <", 5, 60, 30, 5,
+                key=f"bt_mbuy_{selected_ticker}",
             )
-            bt = run_zm_backtest(df_daily, selected_ticker, buy_th, sell_th)
+            st.markdown("<div style='font-size:0.68rem;color:#a4adb8;"
+                        "margin-bottom:-8px;'>📤 매도 (이상)</div>",
+                        unsafe_allow_html=True)
+            sc1, sc2 = st.columns(2)
+            z_sell = sc1.slider(
+                "Z 매도 >", 40, 95, 70, 5,
+                key=f"bt_zsell_{selected_ticker}",
+            )
+            m_sell = sc2.slider(
+                "M 매도 >", 40, 95, 70, 5,
+                key=f"bt_msell_{selected_ticker}",
+            )
+            bt = run_zm_backtest(
+                df_daily, selected_ticker, z_buy, m_buy, z_sell, m_sell
+            )
             if bt is None:
                 st.caption("데이터 부족 (10일 이상 필요)")
             else:
