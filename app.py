@@ -474,6 +474,8 @@ TICKERS_FILE = 'target_tickers.json'
 GIST_FILENAME = 'quant_trade_history.json'
 TICKERS_GIST_FILENAME = 'quant_target_tickers.json'
 SETTINGS_GIST_FILENAME = 'quant_settings.json'
+BACKTEST_FILE = 'backtest_params.json'
+BACKTEST_GIST_FILENAME = 'quant_backtest.json'
 
 # 기본 종목 (사용자 설정이 없을 때 fallback)
 DEFAULT_TICKERS = [
@@ -591,6 +593,14 @@ def save_settings(s: dict) -> None:
     _save_json(SETTINGS_FILE, SETTINGS_GIST_FILENAME, s)
 
 
+def load_backtest_params() -> dict:
+    return _load_json(BACKTEST_FILE, BACKTEST_GIST_FILENAME)
+
+
+def save_backtest_params(p: dict) -> None:
+    _save_json(BACKTEST_FILE, BACKTEST_GIST_FILENAME, p)
+
+
 def init_session_state() -> None:
     defaults = {
         'trade_history':       load_trade_history,
@@ -610,7 +620,7 @@ def init_session_state() -> None:
         'candle_type':         lambda: '일봉',
         'individual_tickers':  lambda: load_settings().get('individual_tickers', []),
         'ticker_type_filter':  lambda: 'ETF',
-        'backtest_params':     lambda: load_settings().get('backtest_params', {}),
+        'backtest_params':     load_backtest_params,
     }
     for key, factory in defaults.items():
         if key not in st.session_state:
@@ -4360,9 +4370,7 @@ def render_analytics_panel(
             }
             if new_params != saved:
                 st.session_state.backtest_params[selected_ticker] = new_params
-                s = load_settings()
-                s.setdefault('backtest_params', {})[selected_ticker] = new_params
-                save_settings(s)
+                save_backtest_params(st.session_state.backtest_params)
                 st.rerun()
 
             if period_days:
