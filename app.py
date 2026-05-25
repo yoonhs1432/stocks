@@ -4197,6 +4197,7 @@ def render_analytics_panel(
                 s = load_settings()
                 s.setdefault('backtest_params', {})[selected_ticker] = new_params
                 save_settings(s)
+                st.rerun()  # 그래프2 조건선 즉시 반영
 
             # 최적값 자동 탐색
             if st.button("🎯 최적 Z·M 자동 탐색",
