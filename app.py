@@ -2285,7 +2285,7 @@ def render_chart(
         x=[sc_df[f'{X_ASSET_FIXED}_Norm'].iloc[-1]],
         y=[sc_df[f'{selected_ticker}_Norm'].iloc[-1]],
         mode='markers',
-        marker=dict(symbol='star', color='#f97316', size=12,
+        marker=dict(symbol='star', color='#ffffff', size=12,
                     line=dict(color='#000000', width=1.5)),
         name='Current',
     ), row=row, col=1)
@@ -2928,7 +2928,7 @@ def render_chart(
         y=[sc_df[f'{selected_ticker}_Norm'].iloc[-1]],
         mode='markers',
         marker=dict(
-            symbol='star', color='#f97316', size=12,
+            symbol='star', color='#ffffff', size=12,
             line=dict(color='#000000', width=1.5),
         ),
         name='Current_Top', hoverinfo='skip', showlegend=False,
@@ -3059,7 +3059,7 @@ def render_chart(
             x=[zm_x[-1]], y=[zm_y[-1]],
             mode='markers',
             marker=dict(
-                symbol='star', color='#f97316', size=12,
+                symbol='star', color='#ffffff', size=12,
                 line=dict(color='#000000', width=1.5),
             ),
             hovertemplate=(
