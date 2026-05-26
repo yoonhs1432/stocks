@@ -2278,7 +2278,7 @@ def render_chart(
     fig.add_trace(go.Scatter(
         x=sc_df[f'{X_ASSET_FIXED}_Norm'], y=sc_df[f'{selected_ticker}_Norm'],
         mode='markers',
-        marker=dict(color=np.linspace(0, 1, len(sc_df)), colorscale='Viridis', size=5, opacity=1.0),
+        marker=dict(color=np.linspace(0, 1, len(sc_df)), colorscale='Turbo', size=5, opacity=1.0),
         name='Daily Data',
     ), row=row, col=1)
     fig.add_trace(go.Scatter(
@@ -2991,7 +2991,7 @@ def render_chart(
             marker=dict(
                 size=5,
                 color=color_indices,
-                colorscale='Viridis',
+                colorscale='Turbo',
                 showscale=False,
                 line=dict(width=0),
             ),
