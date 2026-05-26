@@ -5247,6 +5247,20 @@ def main() -> None:
         return (mom_int, mom_smooth, TARGET_TICKERS.index(tk))
     sorted_tickers = sorted(TARGET_TICKERS, key=_ticker_sort_key)
 
+    # 첫 로딩 시: 화면 맨 위 버튼(모멘텀 정렬 + 현재 필터 기준) 종목 자동 선택
+    if not st.session_state.get('_initial_select_done'):
+        st.session_state['_initial_select_done'] = True
+        t_filter = st.session_state.get('ticker_type_filter', 'ETF')
+        individual_set = set(st.session_state.get('individual_tickers', []))
+        if t_filter == '개별':
+            cand = [tk for tk in sorted_tickers if tk in individual_set]
+        else:
+            cand = [tk for tk in sorted_tickers if tk not in individual_set]
+        first_btn = cand[0] if cand else (sorted_tickers[0] if sorted_tickers else None)
+        if first_btn and st.session_state.selected_option != first_btn:
+            st.session_state.selected_option = first_btn
+            st.rerun()
+
     # 매매 이력 있는 종목 (보유 여부 무관 — trade_history에 기록 있음)
     history_tickers = {
         tk for tk, recs in st.session_state.trade_history.items() if recs
