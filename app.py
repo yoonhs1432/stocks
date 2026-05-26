@@ -5417,14 +5417,14 @@ def main() -> None:
         with sc1:
             sort_col = st.selectbox(
                 "정렬 기준", sort_options,
-                index=sort_options.index(st.session_state.get('tab2_sort_col', 'Z')),
+                index=sort_options.index(st.session_state.get('tab2_sort_col', 'M')),
                 key='tab2_sort_col_widget',
                 label_visibility='collapsed',
             )
         with sc2:
             sort_desc = st.checkbox(
                 "내림차순",
-                value=st.session_state.get('tab2_sort_desc', True),
+                value=st.session_state.get('tab2_sort_desc', False),
                 key='tab2_sort_desc_widget',
             )
         st.session_state['tab2_sort_col'] = sort_col
