@@ -4699,7 +4699,10 @@ def build_css(selected_option: str, holding_tickers: set) -> str:
     section[data-testid="stMain"] div[data-testid="stColumn"]:has([class*="st-key-ticker_btn_"])
         div[data-testid="stVerticalBlock"] > div {{ margin-bottom:0px!important; padding:0!important; }}
     section[data-testid="stMain"] div[data-testid="stColumn"]:has([class*="st-key-ticker_btn_"])
-        div[data-testid="stVerticalBlock"] {{ gap:1px!important; }}
+        div[data-testid="stVerticalBlock"] {{ gap:5px!important; overflow:visible!important; }}
+    /* 선택 강조(box-shadow)가 옆 버튼에 안 잘리도록 */
+    section[data-testid="stMain"] div[data-testid="stColumn"]:has([class*="st-key-ticker_btn_"])
+        div[data-testid="stVerticalBlock"] > div {{ overflow:visible!important; }}
     section[data-testid="stMain"] div[data-testid="stColumn"]:has([class*="st-key-ticker_btn_"]) button p {{
         margin:0!important; padding:0!important; font-size:0.73rem!important;
         line-height:1!important; font-weight:500!important; white-space:pre!important;
