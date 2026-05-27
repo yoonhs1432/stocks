@@ -819,6 +819,27 @@ def momentum_to_color(score: int) -> str:
     return Colors.MOM_HOLD
 
 
+def momentum_pct_to_color(m_pct: float) -> str:
+    """모멘텀 백분위 M (0~100) → 색 (7단계).
+
+    임계선 10/20/40/60/80/90 기준. 낮을수록 매수(빨강), 높을수록 매도(파랑).
+    - <10   : 극단 매수
+    - 10~20 : 강 매수
+    - 20~40 : 약 매수
+    - 40~60 : 중립
+    - 60~80 : 약 매도
+    - 80~90 : 강 매도
+    - ≥90   : 극단 매도
+    """
+    if m_pct < 10:  return Colors.MOM_BUY_STRONG
+    if m_pct < 20:  return Colors.MOM_BUY
+    if m_pct < 40:  return Colors.MOM_BUY_WEAK
+    if m_pct < 60:  return Colors.MOM_HOLD
+    if m_pct < 80:  return Colors.MOM_SELL_WEAK
+    if m_pct < 90:  return Colors.MOM_SELL
+    return Colors.MOM_SELL_STRONG
+
+
 def get_time_grid_dtick_ms(start: pd.Timestamp, end: pd.Timestamp, target_grids: int = 8) -> int:
     span_days = max((end - start).days, 1)
     target_days = span_days / max(target_grids, 1)
@@ -4387,9 +4408,10 @@ def render_overview_panel(
 def build_css(selected_option: str, holding_tickers: set) -> str:
     btn_parts = []
     for ticker in TARGET_TICKERS:
-        # 모멘텀 점수 → 마커 안 색 (탭2 마커와 동일)
-        mom_score = st.session_state.ticker_momentum_scores.get(ticker, 0)
-        bg = momentum_to_color(mom_score)
+        # 모멘텀 M(백분위 0~100) → 색 (임계선 10/20/40/60/80/90, 7단계)
+        mom_smooth = st.session_state.ticker_momentum_smooth.get(ticker, 0.0)
+        m_pct = z_to_pct(mom_smooth)
+        bg = momentum_pct_to_color(m_pct)
         # 짙은 색이면 흰 글씨, 연한 색이면 진한 글씨
         # 짙은: 7f1d1d, dc2626, 2563eb, 1e3a8a → 흰글씨
         # 연한: fca5a5, 93c5fd, 9ca3af → 검은글씨
