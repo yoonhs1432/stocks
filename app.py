@@ -4199,21 +4199,23 @@ def render_overview_panel(
             f"💰 손익 종합 ({bar_unit_label})</span>"
             f"<span style='font-size:0.72rem;color:#a4adb8;'>{today_str}</span>"
             f"</div>"
-            # 평가자산 한 줄
+            # 평가자산 + 누적실현 한 줄 (좌우 분할)
             f"<div style='display:flex;justify-content:space-between;"
-            f"align-items:baseline;margin-bottom:6px;'>"
-            f"<span style='font-size:0.78rem;color:#a4adb8;'>평가자산</span>"
-            f"<span><span style='font-size:1.2rem;color:#ffffff;font-weight:700;'>"
+            f"align-items:flex-end;gap:10px;flex-wrap:wrap;'>"
+            # 좌: 평가자산
+            f"<div>"
+            f"<div style='font-size:0.66rem;color:#a4adb8;'>평가자산</div>"
+            f"<div><span style='font-size:1.1rem;color:#ffffff;font-weight:700;'>"
             f"{int(round(cur_value_krw)):,}원</span>"
-            f"&nbsp;<span style='font-size:0.82rem;color:{ret_color};font-weight:600;'>"
-            f"({signed_str(ret_pct, '{:.2f}')}%)</span></span>"
+            f"&nbsp;<span style='font-size:0.76rem;color:{ret_color};font-weight:600;'>"
+            f"({signed_str(ret_pct, '{:.2f}')}%)</span></div>"
             f"</div>"
-            # 누적실현 한 줄
-            f"<div style='display:flex;justify-content:space-between;"
-            f"align-items:baseline;border-top:1px solid #30363d;padding-top:6px;'>"
-            f"<span style='font-size:0.78rem;color:#a4adb8;'>누적실현</span>"
-            f"<span style='font-size:0.95rem;color:{real_c};font-weight:700;'>"
-            f"{signed_str(int(round(net_real_krw)), '{:,}')}원</span>"
+            # 우: 누적실현
+            f"<div style='text-align:right;'>"
+            f"<div style='font-size:0.66rem;color:#a4adb8;'>누적실현</div>"
+            f"<div style='font-size:0.95rem;color:{real_c};font-weight:700;'>"
+            f"{signed_str(int(round(net_real_krw)), '{:,}')}원</div>"
+            f"</div>"
             f"</div>"
             + (
                 f"<div style='border-top:1px solid #30363d;margin-top:8px;"
