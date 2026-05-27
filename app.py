@@ -1873,10 +1873,12 @@ def _build_alloc_html(
         f"{signed_str(int(round(pnl_krw)), '{:,}')}원 "
         f"({signed_str(total_ret, '{:.2f}')}%)</span>"
         f"</div>"
-        f"</div>"
+        # 구분선 (카드는 종목 행까지 감쌈 — 닫지 않음)
+        f"<div style='border-top:1px solid #30363d;margin-top:10px;"
+        f"margin-bottom:2px;'></div>"
     )
 
-    # ── 종목별 행 (한 줄, 간격 축소) ──
+    # ── 종목별 행 (한 줄, 간격 축소) — 평가금액 카드 안 ──
     for r in rows:
         eval_krw_v = r['eval'] * usd_krw
         pnl_krw_v = r['pnl'] * usd_krw
@@ -1903,6 +1905,7 @@ def _build_alloc_html(
             f"</div>"
             f"</div>"
         )
+    html += "</div>"   # 평가금액 카드 닫기 (종목 행 포함)
     return html
 
 
@@ -4279,33 +4282,7 @@ def render_overview_panel(
             ))
             fig_eq.add_hline(y=0, line_color='#8b949e', line_width=0.8)
 
-            # MDD 마커 (시점이 표시 범위 안일 때만)
-            if dd_info and dd_info.get('mdd', 0) < 0:
-                mdd_date = dd_info.get('mdd_date')
-                if mdd_date is not None:
-                    try:
-                        mdd_ts = pd.Timestamp(mdd_date)
-                        # 가장 가까운 표시 인덱스
-                        if len(equity_resampled) > 0:
-                            nearest = equity_resampled.index.get_indexer(
-                                [mdd_ts], method='nearest'
-                            )[0]
-                            if 0 <= nearest < len(equity_resampled):
-                                mdd_x = x_labels_eq[nearest]
-                                mdd_y = float(equity_man.iloc[nearest])
-                                fig_eq.add_annotation(
-                                    x=mdd_x, y=mdd_y,
-                                    text=f"MDD {dd_info['mdd']:.1f}%",
-                                    showarrow=True, arrowhead=2, arrowsize=0.8,
-                                    arrowwidth=1, arrowcolor='#f85149',
-                                    ax=0, ay=20,
-                                    font=dict(size=9, color='#f85149'),
-                                    bgcolor='rgba(22,27,34,0.9)',
-                                    bordercolor='#f85149', borderwidth=0.8,
-                                    borderpad=2,
-                                )
-                    except Exception:
-                        pass
+            # (MDD 라벨 제거 — 사용자 요청)
 
             # ── 매매 시점 마커 (그룹화 — 같은 날 여러 매매는 1개로) ──
             def _normalize_to_bar(d: datetime.date) -> Optional[str]:
