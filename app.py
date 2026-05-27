@@ -4177,6 +4177,8 @@ def render_overview_panel(
         )
     net_real_krw = net_real_usd * usd_krw
     real_c = pnl_color(net_real_usd)
+    # 종목별 실현손익 행 (카드 안에 통합)
+    real_rows_inline = _build_realized_html(portfolio_state, usd_krw, show_header=False)
 
     bar_unit = st.session_state.get('overview_bar_unit', '일')
     bar_unit_label = {'일': '일별', '주': '주별', '월': '월별'}[bar_unit]
@@ -4213,7 +4215,13 @@ def render_overview_panel(
             f"<span style='font-size:0.95rem;color:{real_c};font-weight:700;'>"
             f"{signed_str(int(round(net_real_krw)), '{:,}')}원</span>"
             f"</div>"
-            f"</div>",
+            + (
+                f"<div style='border-top:1px solid #30363d;margin-top:8px;"
+                f"padding-top:4px;font-size:0.6rem;color:#768390;"
+                f"margin-bottom:2px;'>종목별 실현손익</div>{real_rows_inline}"
+                if real_rows_inline else ""
+            )
+            + f"</div>",
             unsafe_allow_html=True,
         )
     else:
@@ -4388,11 +4396,7 @@ def render_overview_panel(
             st.plotly_chart(fig_eq, use_container_width=True,
                             config={'displayModeBar': False, 'staticPlot': True})
 
-    # 종목별 실현손익 (expander)
-    real_rows_html = _build_realized_html(portfolio_state, usd_krw, show_header=False)
-    if real_rows_html:
-        with st.expander("💵 종목별 실현손익", expanded=False):
-            st.markdown(real_rows_html, unsafe_allow_html=True)
+    # 종목별 실현손익은 손익 종합 카드 안에 통합됨
 
     # ── 4. 매매 일지 + 신호 분석 (expander) ──
     if all_analyses is not None:
