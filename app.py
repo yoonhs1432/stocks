@@ -4130,35 +4130,6 @@ def render_overview_panel(
     df_close_last = st.session_state.get('df_close_last', {})
     dd_info = st.session_state.get('dd_info_cache')
 
-    # ── 0. 새로고침 버튼 + 마지막 갱신 시간 ──
-    with st.container(key="ov_refresh_row"):
-        rc1, rc2 = st.columns([1, 3])
-        if rc1.button("🔄 새로고침", key="ov_refresh_btn",
-                      use_container_width=True):
-            with st.spinner("데이터 갱신 중..."):
-                st.cache_data.clear()
-                # 통계 관련 캐시 무효화
-                for k in [
-                    'portfolio_pnl_cache', 'equity_series_cache',
-                    'dd_info_cache', 'df_close_last',
-                ]:
-                    if k in st.session_state:
-                        del st.session_state[k]
-                st.session_state['overview_last_refresh'] = (
-                    datetime.datetime.now(
-                        datetime.timezone(datetime.timedelta(hours=9))
-                    ).strftime('%H:%M:%S')
-                )
-            st.rerun()
-
-        ov_last = st.session_state.get('overview_last_refresh')
-        if ov_last:
-            rc2.markdown(
-                f"<div style='font-size:0.7rem;color:var(--text-muted);"
-                f"padding-top:8px;'>마지막 갱신 {ov_last}</div>",
-                unsafe_allow_html=True,
-            )
-
     # ── 1. 보유 종목 평가 ──
     alloc_html = _build_alloc_html(portfolio_state, df_close_last, usd_krw)
     st.markdown(alloc_html, unsafe_allow_html=True)
@@ -4208,9 +4179,6 @@ def render_overview_panel(
             f"<span style='font-size:0.85rem;color:{ret_color};font-weight:600;'>"
             f"{signed_str(int(round(pnl_krw)), '{:,}')}원 "
             f"({signed_str(ret_pct, '{:.2f}')}%)</span>"
-            f"<span style='margin-left:auto;font-size:0.7rem;color:#a4adb8;'>누적실현</span>"
-            f"<span style='font-size:0.85rem;color:{real_c};font-weight:600;'>"
-            f"{signed_str(int(round(net_real_krw)), '{:,}')}원</span>"
             f"</div>"
             + (
                 f"<div style='border-top:1px solid #30363d;margin-top:8px;"
