@@ -4394,8 +4394,7 @@ def build_css(selected_option: str, holding_tickers: set) -> str:
             min-height:0!important; border-radius:3px!important;
             width:100%!important; text-align:left!important; {sel_extra}
         }}
-        div.st-key-{k} button p, div.st-key-{k} button strong,
-        div.st-key-{k} button span {{ color:{fg}!important; }}
+        div.st-key-{k} button p, div.st-key-{k} button strong {{ color:{fg}!important; }}
         div.st-key-{k} button strong {{ font-weight:700!important; }}
         div.st-key-{k} button:hover {{ opacity:0.82!important; }}""")
 
@@ -4710,14 +4709,15 @@ def build_css(selected_option: str, holding_tickers: set) -> str:
     section[data-testid="stMain"] div[data-testid="stColumn"]:has([class*="st-key-ticker_btn_"])
         div[data-testid="stVerticalBlock"] > div {{ overflow:visible!important; }}
     section[data-testid="stMain"] div[data-testid="stColumn"]:has([class*="st-key-ticker_btn_"]) button p {{
-        margin:0!important; padding:0!important; font-size:0.73rem!important;
-        line-height:1!important; font-weight:500!important; white-space:pre!important;
+        margin:0!important; padding:0!important; font-size:0.6rem!important;
+        line-height:1.05!important; font-weight:500!important; white-space:pre!important;
     }}
-    section[data-testid="stMain"] div[data-testid="stColumn"]:has([class*="st-key-ticker_btn_"]) button span,
+    /* 티커(strong) 크게, 증감률(p 일반)은 작게 */
     section[data-testid="stMain"] div[data-testid="stColumn"]:has([class*="st-key-ticker_btn_"]) button strong
+        {{ color:inherit!important; font-weight:700!important; font-size:0.82rem!important; }}
+    /* 마크다운 색(:red/:blue) span은 색 유지, 그 외 span만 inherit */
+    section[data-testid="stMain"] div[data-testid="stColumn"]:has([class*="st-key-ticker_btn_"]) button span:not([style*="color"])
         {{ color:inherit!important; }}
-    section[data-testid="stMain"] div[data-testid="stColumn"]:has([class*="st-key-ticker_btn_"]) button strong
-        {{ font-weight:700!important; }}
     /* 탭3 달력 네비 — 88px 첫 컬럼 룰 무력화 */
     div.st-key-ov_cal_nav div[data-testid="stHorizontalBlock"] {{
         gap:2px!important; flex-wrap:nowrap!important;
@@ -5174,8 +5174,9 @@ def main() -> None:
                     star = "☆ "
                 else:
                     star = ""
+                pct_md = 'red' if pct >= 0 else 'blue'
                 if st.button(
-                    f"{star}**{display_name(ticker)}**   {pct:+.1f}%",
+                    f"{star}**{display_name(ticker)}**  :{pct_md}[{pct:+.1f}%]",
                     key=f"ticker_btn_{safe_key(ticker)}", use_container_width=True,
                 ):
                     st.session_state.selected_option = ticker
