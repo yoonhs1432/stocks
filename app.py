@@ -4257,9 +4257,9 @@ def render_overview_panel(
             fig_eq.add_hline(y=0, line_color='#8b949e', line_width=0.8,
                              line_dash='dot')
 
-            # y축 범위: 데이터에 맞추되 0 포함 (0 점선 보이도록)
-            y_lo = min(0.0, float(equity_man.min()))
-            y_hi = max(0.0, float(equity_man.max()))
+            # y축 범위: 실제 데이터 기준 (0은 범위 안에 있을 때만 점선 표시)
+            y_lo = float(equity_man.min())
+            y_hi = float(equity_man.max())
             y_pad = (y_hi - y_lo) * 0.06 or 1.0
 
             # X축 tick: 5~6개만
