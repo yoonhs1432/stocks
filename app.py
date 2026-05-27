@@ -3008,22 +3008,16 @@ def render_chart(
     if n_pts > 0:
         color_indices = list(range(n_pts))
 
-        # ── 임계선 — 그래프 4(Z+M)와 동일 (10/30/50/70/90, 색·dash 일치) ──
-        for v, lc, ld, lw in [
-            (90, '#dc2626', 'solid', 0.7),
-            (70, '#fca5a5', 'dot',   0.6),
-            (50, '#8b949e', 'solid', 0.5),
-            (30, '#93c5fd', 'dot',   0.6),
-            (10, '#2563eb', 'solid', 0.7),
-        ]:
+        # ── 임계선 — 종목 버튼 M 7단계(10/20/40/60/80/90), 흰색 점선 ──
+        for v in (10, 20, 40, 60, 80, 90):
             fig.add_shape(
                 type='line', x0=v, x1=v, y0=0, y1=100,
-                line=dict(color=lc, width=lw, dash=ld),
+                line=dict(color='#ffffff', width=0.6, dash='dot'),
                 row=zm_row, col=1, layer='above',
             )
             fig.add_shape(
                 type='line', x0=0, x1=100, y0=v, y1=v,
-                line=dict(color=lc, width=lw, dash=ld),
+                line=dict(color='#ffffff', width=0.6, dash='dot'),
                 row=zm_row, col=1, layer='above',
             )
 
