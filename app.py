@@ -1962,6 +1962,21 @@ def render_sidebar(
             save_settings(s)
             st.rerun()
         analysis_start = st.session_state.analysis_start
+        # ── 기준일 시뮬레이션 (As-of) ──
+        use_asof = st.checkbox(
+            "📅 기준일 시뮬레이션 (과거 시점 재현)",
+            value=st.session_state.get('use_asof', False),
+            key='use_asof_chk',
+        )
+        if use_asof:
+            asof_val = st.date_input(
+                "기준일", value=st.session_state.get('as_of_date') or today,
+                max_value=today, key='asof_input',
+            )
+            st.session_state['as_of_date'] = asof_val
+        else:
+            st.session_state['as_of_date'] = None
+        st.session_state['use_asof'] = use_asof
         # 차트 조회 기간 라디오 (1·2·4·12개월)
         view_opts = [('1개월', 1), ('2개월', 2), ('4개월', 4), ('1년', 12)]
         view_labels = [o[0] for o in view_opts]
@@ -4950,11 +4965,20 @@ def main() -> None:
         "🟢 장중" if mkt['is_open']
         else f"🔴 장마감&nbsp;·&nbsp;{mkt['last_trading_label']}"
     )
+    # 기준일 시뮬레이션 배지 (위젯 상태에서 직접 읽어 1-rerun 지연 없이 표시)
+    _asof_badge = ""
+    if st.session_state.get('use_asof_chk') and st.session_state.get('asof_input'):
+        _asof_badge = (
+            f"<span style='font-size:10px;color:#0d1117;background:#fbbf24;"
+            f"padding:1px 7px;border-radius:8px;white-space:nowrap;font-weight:700;'>"
+            f"📅 기준일 {st.session_state['asof_input']}</span>"
+        )
     st.markdown(
         f"<div style='display:flex;align-items:center;gap:10px;flex-wrap:nowrap;"
         f"margin-bottom:6px;padding-bottom:1px;'>"
         f"<b style='font-size:1.15rem;white-space:nowrap;color:#f0f6fc;'>📊 퀀트 대시보드</b>"
-        f"<span style='font-size:10px;color:#adbac7;white-space:nowrap;'>{data_lbl}</span></div>",
+        f"<span style='font-size:10px;color:#adbac7;white-space:nowrap;'>{data_lbl}</span>"
+        f"{_asof_badge}</div>",
         unsafe_allow_html=True,
     )
 
@@ -4991,6 +5015,24 @@ def main() -> None:
             log.warning(f"Invalid analysis_start format: {raw_start}, using fallback")
             analysis_start = '2025-01-01'
 
+    # ── 기준일(As-of) 시뮬레이션 ──
+    # 설정에서 기준일을 켜면 (analysis_start ~ 오늘) 기간 길이는 유지한 채
+    # 종료일을 기준일로 당겨 과거 시점을 재현한다.
+    # 데이터는 df_close 슬라이싱으로 처리하므로 별도 재fetch가 필요 없다.
+    _today_dt = pd.Timestamp(mkt['last_trading_date']).normalize()
+    asof_end_date = _today_dt
+    _as_of = st.session_state.get('as_of_date')
+    if _as_of:
+        try:
+            asof_end_date = pd.Timestamp(_as_of).normalize()
+            _period_days = max((_today_dt - pd.Timestamp(analysis_start)).days, 1)
+            analysis_start = (
+                asof_end_date - pd.Timedelta(days=_period_days)
+            ).strftime('%Y-%m-%d')
+        except Exception:
+            log.warning(f"Invalid as_of_date: {_as_of}")
+            asof_end_date = _today_dt
+
     # ── Warmup 기간: EMA/expanding 안정화를 위해 fetch는 60일 일찍 시작 ──
     # 사용자 설정 시작일(analysis_start) 이전 60일 데이터를 추가로 fetch.
     # 그래프 표시할 때는 analysis_start 이후만 사용 (warmup 데이터는 계산용).
@@ -5025,13 +5067,16 @@ def main() -> None:
         df_close, st.session_state.trade_history, analysis_start, candle_type,
     )
 
-    # mkt는 페이지 헤더에서 이미 호출됨
-    last_trading_date = pd.Timestamp(mkt['last_trading_date'])
+    # mkt는 페이지 헤더에서 이미 호출됨 (기준일 시뮬레이션 시 종료일은 asof_end_date)
+    last_trading_date = asof_end_date
+    if not df_close.empty:
+        # 종료일 이후 데이터 컷 (일봉이거나 기준일 시뮬레이션 시)
+        # → 슬라이싱 후 df_close_last를 잡아야 현재가/평가금액이 기준일 시점으로 반영됨
+        if candle_type == '일봉' or _as_of:
+            df_close = df_close[df_close.index <= last_trading_date]
     if not df_close.empty:
         st.session_state.last_data_date = df_close.index[-1].strftime('%Y-%m-%d')
         st.session_state['df_close_last'] = df_close.iloc[-1].to_dict()
-        if candle_type == '일봉':
-            df_close = df_close[df_close.index <= last_trading_date]
 
     with st.spinner("전체 종목 분석 중..."):
         # 매매 기록 종목도 분석에 포함 (현재 리스트에 없는 종목도)
@@ -5242,7 +5287,10 @@ def main() -> None:
                     else:
                         df_daily_raw_display = None
                     if df_ohlc is not None and not df_ohlc.empty:
-                        df_ohlc_display = df_ohlc[df_ohlc.index >= _ds].copy()
+                        df_ohlc_display = df_ohlc[
+                            (df_ohlc.index >= _ds)
+                            & (df_ohlc.index <= last_trading_date)
+                        ].copy()
                     else:
                         df_ohlc_display = df_ohlc
                 except Exception:
