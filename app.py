@@ -4189,6 +4189,7 @@ def render_overview_panel(
         ret_pct = portfolio_pnl / seed_usd * 100
         ret_color = pnl_color(ret_pct)
         cur_value_krw = cur_value_usd * usd_krw
+        pnl_krw = portfolio_pnl * usd_krw
 
         st.markdown(
             f"<div style='background:#1c2128;border-radius:12px;"
@@ -4199,12 +4200,13 @@ def render_overview_panel(
             f"💰 손익 종합 ({bar_unit_label})</span>"
             f"<span style='font-size:0.72rem;color:#a4adb8;'>{today_str}</span>"
             f"</div>"
-            # 평가자산 큰 금액 + (%) + 누적실현 (평가금액 카드와 동일한 한 줄 스타일)
+            # 평가자산: 금액 + 수익금 + 수익률 (평가금액 카드와 동일), 누적실현 우측
             f"<div style='display:flex;align-items:baseline;flex-wrap:wrap;gap:8px;"
             f"line-height:1.1;'>"
             f"<span style='font-size:1.5rem;color:#ffffff;font-weight:700;"
             f"letter-spacing:-0.02em;'>{int(round(cur_value_krw)):,}원</span>"
             f"<span style='font-size:0.85rem;color:{ret_color};font-weight:600;'>"
+            f"{signed_str(int(round(pnl_krw)), '{:,}')}원 "
             f"({signed_str(ret_pct, '{:.2f}')}%)</span>"
             f"<span style='margin-left:auto;font-size:0.7rem;color:#a4adb8;'>누적실현</span>"
             f"<span style='font-size:0.85rem;color:{real_c};font-weight:600;'>"
