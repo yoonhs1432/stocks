@@ -4253,88 +4253,14 @@ def render_overview_panel(
                 hovertemplate='%{x}<br>%{y:,.0f}만원<extra></extra>',
                 showlegend=False,
             ))
-            fig_eq.add_hline(y=0, line_color='#8b949e', line_width=0.8)
+            # 0선 점선
+            fig_eq.add_hline(y=0, line_color='#8b949e', line_width=0.8,
+                             line_dash='dot')
 
-            # (MDD 라벨 제거 — 사용자 요청)
-
-            # ── 매매 시점 마커 (그룹화 — 같은 날 여러 매매는 1개로) ──
-            def _normalize_to_bar(d: datetime.date) -> Optional[str]:
-                ts = pd.Timestamp(d)
-                if bar_unit == '일':
-                    if ts in equity_resampled.index:
-                        return ts.strftime('%m/%d')
-                    return None
-                elif bar_unit == '주':
-                    monday = ts - pd.Timedelta(days=ts.weekday())
-                    if monday in equity_resampled.index:
-                        return monday.strftime('%m/%d')
-                    return None
-                else:
-                    month_start = ts.replace(day=1)
-                    if pd.Timestamp(month_start) in equity_resampled.index:
-                        return pd.Timestamp(month_start).strftime('%y.%m')
-                    return None
-
-            # x_label -> list of hover lines (type별 분리)
-            buy_group: dict[str, list[str]] = {}
-            sell_group: dict[str, list[str]] = {}
-            for tk, recs in st.session_state.trade_history.items():
-                for r in recs:
-                    qty = r.get('qty', 0)
-                    price = r.get('price', 0)
-                    if qty <= 0 or price <= 0:
-                        continue
-                    try:
-                        rd = datetime.date.fromisoformat(r['date'])
-                    except Exception:
-                        continue
-                    x_label = _normalize_to_bar(rd)
-                    if x_label is None:
-                        continue
-                    hover = f"{tk} {qty}@${price:.2f} ({r['date']})"
-                    if r['type'] == 'buy':
-                        buy_group.setdefault(x_label, []).append(hover)
-                    elif r['type'] == 'sell':
-                        sell_group.setdefault(x_label, []).append(hover)
-
-            # y 위치: 0 기준 위/아래 살짝 띄움 (axis range의 ~5%)
-            y_range = float(equity_man.abs().max() or 1.0)
-            y_offset = y_range * 0.06
-
-            if buy_group:
-                fig_eq.add_trace(go.Scatter(
-                    x=list(buy_group.keys()),
-                    y=[y_offset] * len(buy_group),
-                    mode='markers',
-                    marker=dict(
-                        symbol='triangle-up', size=10,
-                        color='#dc2626', opacity=0.9,
-                        line=dict(color='#0d1117', width=1),
-                    ),
-                    text=[
-                        '<br>'.join(v) + (f'<br>({len(v)}건)' if len(v) > 1 else '')
-                        for v in buy_group.values()
-                    ],
-                    hovertemplate='%{text}<extra></extra>',
-                    showlegend=False,
-                ))
-            if sell_group:
-                fig_eq.add_trace(go.Scatter(
-                    x=list(sell_group.keys()),
-                    y=[-y_offset] * len(sell_group),
-                    mode='markers',
-                    marker=dict(
-                        symbol='triangle-down', size=10,
-                        color='#2563eb', opacity=0.9,
-                        line=dict(color='#0d1117', width=1),
-                    ),
-                    text=[
-                        '<br>'.join(v) + (f'<br>({len(v)}건)' if len(v) > 1 else '')
-                        for v in sell_group.values()
-                    ],
-                    hovertemplate='%{text}<extra></extra>',
-                    showlegend=False,
-                ))
+            # y축 범위: 데이터에 맞추되 0 포함 (0 점선 보이도록)
+            y_lo = min(0.0, float(equity_man.min()))
+            y_hi = max(0.0, float(equity_man.max()))
+            y_pad = (y_hi - y_lo) * 0.06 or 1.0
 
             # X축 tick: 5~6개만
             max_ticks_eq = 6
@@ -4353,8 +4279,8 @@ def render_overview_panel(
                 yaxis=dict(showgrid=True, gridcolor='rgba(48,54,61,0.4)',
                            tickfont=dict(size=9),
                            ticksuffix='만원',
-                           zeroline=True, zerolinecolor='#8b949e',
-                           zerolinewidth=0.8),
+                           range=[y_lo - y_pad, y_hi + y_pad],
+                           zeroline=False),
                 paper_bgcolor='#0d1117', plot_bgcolor='#161b22',
                 font=dict(color='#c9d1d9'),
             )
