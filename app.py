@@ -684,6 +684,56 @@ def get_market_status() -> dict:
     }
 
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_market_regime(end_date_str: Optional[str] = None) -> dict:
+    """SPY 기준 시장 체제(regime) 판정.
+
+    판정 기준:
+    - 🟢 강세: 종가 > SMA200 AND 6M 수익률 > +5%
+    - 🔴 약세: 종가 < SMA200 AND 6M 수익률 < -10%
+    - 🟠 조정: 종가 < SMA200 AND -10% ≤ 6M 수익률 ≤ 0%
+    - ⚪ 중립: 위 조건 외 (혼조)
+
+    Args:
+        end_date_str: None이면 오늘, 아니면 'YYYY-MM-DD' 기준일 (기준일 시뮬레이션 지원).
+    """
+    end = pd.Timestamp(end_date_str) if end_date_str else pd.Timestamp.today()
+    # 200일 SMA + 6M 수익률 둘 다 커버하기 위해 500일 캘린더 fetch
+    start = end - pd.Timedelta(days=500)
+    try:
+        spy = fdr.DataReader(
+            'SPY', start.strftime('%Y-%m-%d'), end.strftime('%Y-%m-%d')
+        )
+    except Exception as e:
+        log.warning(f"get_market_regime fetch fail: {e}")
+        return {'regime': 'unknown', 'spy_ret_6m': None}
+    if spy.empty or len(spy) < 200:
+        return {'regime': 'unknown', 'spy_ret_6m': None}
+    close = float(spy['Close'].iloc[-1])
+    sma200 = float(spy['Close'].rolling(200).mean().iloc[-1])
+    ret_6m = (
+        close / float(spy['Close'].iloc[-126]) - 1
+        if len(spy) >= 126 else None
+    )
+    above_sma = close > sma200
+    if ret_6m is None:
+        regime = 'neutral'
+    elif above_sma and ret_6m > 0.05:
+        regime = 'bull'
+    elif (not above_sma) and ret_6m < -0.10:
+        regime = 'bear'
+    elif (not above_sma) and ret_6m <= 0.0:
+        regime = 'correction'
+    else:
+        regime = 'neutral'
+    return {
+        'regime':     regime,
+        'spy_ret_6m': ret_6m,
+        'spy_close':  close,
+        'spy_sma200': sma200,
+    }
+
+
 # ====================================================
 # 7. 신호 계산 (벡터화)
 # ====================================================
@@ -4983,17 +5033,38 @@ def main() -> None:
     )
     # 기준일 시뮬레이션 배지 (위젯 상태에서 직접 읽어 1-rerun 지연 없이 표시)
     _asof_badge = ""
+    _asof_str = None
     if st.session_state.get('use_asof_chk') and st.session_state.get('asof_input'):
+        _asof_str = str(st.session_state['asof_input'])
         _asof_badge = (
             f"<span style='font-size:10px;color:#0d1117;background:#fbbf24;"
             f"padding:1px 7px;border-radius:8px;white-space:nowrap;font-weight:700;'>"
             f"📅 기준일 {st.session_state['asof_input']}</span>"
         )
+    # ── 시장 체제(regime) 배지 — SPY SMA200 + 6M 수익률 기준 ──
+    _reg = get_market_regime(_asof_str)
+    _reg_meta = {
+        'bull':       ('🟢', '강세',   '#16a34a'),
+        'bear':       ('🔴', '약세',   '#dc2626'),
+        'correction': ('🟠', '조정',   '#fb923c'),
+        'neutral':    ('⚪', '중립',   '#6b7280'),
+        'unknown':    ('⚫', '체제미상', '#4b5563'),
+    }
+    _emoji, _label, _bg = _reg_meta.get(_reg['regime'], _reg_meta['unknown'])
+    _ret = _reg.get('spy_ret_6m')
+    _ret_txt = f"&nbsp;·&nbsp;{_ret*100:+.1f}%" if _ret is not None else ""
+    _regime_badge = (
+        f"<span title='SPY 6개월 수익률 + SMA200 비교' "
+        f"style='font-size:10px;color:#fff;background:{_bg};"
+        f"padding:1px 7px;border-radius:8px;white-space:nowrap;font-weight:700;'>"
+        f"{_emoji} {_label}{_ret_txt}</span>"
+    )
     st.markdown(
-        f"<div style='display:flex;align-items:center;gap:10px;flex-wrap:nowrap;"
+        f"<div style='display:flex;align-items:center;gap:8px;flex-wrap:wrap;"
         f"margin-bottom:6px;padding-bottom:1px;'>"
         f"<b style='font-size:1.15rem;white-space:nowrap;color:#f0f6fc;'>📊 퀀트 대시보드</b>"
         f"<span style='font-size:10px;color:#adbac7;white-space:nowrap;'>{data_lbl}</span>"
+        f"{_regime_badge}"
         f"{_asof_badge}</div>",
         unsafe_allow_html=True,
     )
