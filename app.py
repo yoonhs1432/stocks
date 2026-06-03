@@ -734,6 +734,37 @@ def get_market_regime(end_date_str: Optional[str] = None) -> dict:
     }
 
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_macro_indicators(end_date_str: Optional[str] = None) -> dict:
+    """헤더용 거시 지표 fetch (VIX·US 10Y·USD/KRW).
+
+    기준일이 있으면 그 시점 종가, 없으면 최신 종가.
+    각 지표는 독립 try/except → 일부 실패해도 나머지는 표시.
+    fdr 티커 형식 fallback: 환경별로 심볼 차이가 있어 복수 시도.
+    """
+    end = pd.Timestamp(end_date_str) if end_date_str else pd.Timestamp.today()
+    start = (end - pd.Timedelta(days=14)).strftime('%Y-%m-%d')
+    end_s = end.strftime('%Y-%m-%d')
+
+    def _last_close(symbols: list[str]) -> Optional[float]:
+        for sym in symbols:
+            try:
+                d = fdr.DataReader(sym, start, end_s)
+                if d is not None and not d.empty and 'Close' in d.columns:
+                    val = float(d['Close'].iloc[-1])
+                    if pd.notna(val):
+                        return val
+            except Exception:
+                continue
+        return None
+
+    return {
+        'vix':    _last_close(['VIX', '^VIX']),
+        'us10y':  _last_close(['US10YT=X', 'US10Y']),
+        'usdkrw': _last_close(['USD/KRW']),
+    }
+
+
 # ====================================================
 # 7. 신호 계산 (벡터화)
 # ====================================================
@@ -5059,12 +5090,61 @@ def main() -> None:
         f"padding:1px 7px;border-radius:8px;white-space:nowrap;font-weight:700;'>"
         f"{_emoji} {_label}{_ret_txt}</span>"
     )
+
+    # ── 거시 지표 배지 (VIX · US 10Y · USD/KRW) ──
+    _macro = get_macro_indicators(_asof_str)
+
+    def _badge(text: str, bg: str, tooltip: str) -> str:
+        return (
+            f"<span title='{tooltip}' style='font-size:10px;color:#fff;"
+            f"background:{bg};padding:1px 7px;border-radius:8px;"
+            f"white-space:nowrap;font-weight:700;'>{text}</span>"
+        )
+
+    # VIX 색 임계: <15 차분(녹) / 15-20 정상(회) / 20-30 불안(주) / ≥30 공포(빨)
+    _vix = _macro.get('vix')
+    if _vix is None:
+        _vix_badge = _badge("📉 VIX —", '#4b5563', 'VIX (fetch 실패)')
+    else:
+        if _vix < 15:   _vc = '#16a34a'
+        elif _vix < 20: _vc = '#6b7280'
+        elif _vix < 30: _vc = '#fb923c'
+        else:           _vc = '#dc2626'
+        _vix_badge = _badge(
+            f"📉 VIX {_vix:.1f}", _vc,
+            '변동성 지수 · <15 차분 / 15-20 정상 / 20-30 불안 / ≥30 공포',
+        )
+
+    # US 10Y 색 임계: <3 완화(녹) / 3-4 정상(회) / 4-5 긴축(주) / ≥5 위기(빨)
+    _y10 = _macro.get('us10y')
+    if _y10 is None:
+        _y10_badge = _badge("💵 10Y —", '#4b5563', 'US 10Y (fetch 실패)')
+    else:
+        if _y10 < 3.0:   _yc = '#16a34a'
+        elif _y10 < 4.0: _yc = '#6b7280'
+        elif _y10 < 5.0: _yc = '#fb923c'
+        else:            _yc = '#dc2626'
+        _y10_badge = _badge(
+            f"💵 10Y {_y10:.2f}%", _yc,
+            'US 10년 국채금리 · <3 완화 / 3-4 정상 / 4-5 긴축 / ≥5 위기',
+        )
+
+    # USD/KRW (방향성 색 없이 중립 회색)
+    _krw = _macro.get('usdkrw')
+    if _krw is None:
+        _krw_badge = _badge("₩ —", '#4b5563', 'USD/KRW (fetch 실패)')
+    else:
+        _krw_badge = _badge(f"₩ {_krw:,.0f}", '#374151', 'USD/KRW 환율')
+
     st.markdown(
         f"<div style='display:flex;align-items:center;gap:8px;flex-wrap:wrap;"
         f"margin-bottom:6px;padding-bottom:1px;'>"
         f"<b style='font-size:1.15rem;white-space:nowrap;color:#f0f6fc;'>📊 퀀트 대시보드</b>"
         f"<span style='font-size:10px;color:#adbac7;white-space:nowrap;'>{data_lbl}</span>"
         f"{_regime_badge}"
+        f"{_vix_badge}"
+        f"{_y10_badge}"
+        f"{_krw_badge}"
         f"{_asof_badge}</div>",
         unsafe_allow_html=True,
     )
