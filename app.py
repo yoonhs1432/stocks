@@ -606,7 +606,7 @@ def init_session_state() -> None:
         'last_data_date':      str,
         'view_months':         lambda: load_settings().get('view_months', 2),
         'overview_view_months': lambda: 3,
-        'overview_bar_unit':    lambda: '일',
+        'overview_bar_unit':    lambda: '주',
         'analysis_start':      lambda: load_settings().get(
             'analysis_start',
             (datetime.date.today() - datetime.timedelta(days=365)).strftime('%y-%m')
@@ -2122,9 +2122,9 @@ def render_sidebar(
         # ── 통계 막대 단위 (탭3 일별손익 + 자산추이 공통) ──
         st.caption("자산 추이 단위")
         bar_units = ['일', '주', '월']
-        ov_unit = st.session_state.get('overview_bar_unit', '일')
+        ov_unit = st.session_state.get('overview_bar_unit', '주')
         if ov_unit not in bar_units:
-            ov_unit = '일'
+            ov_unit = '주'
         ov_unit_choice = st.radio(
             "통계 단위",
             bar_units,
@@ -4274,7 +4274,7 @@ def render_overview_panel(
     # 종목별 실현손익 행 (카드 안에 통합)
     real_rows_inline = _build_realized_html(portfolio_state, usd_krw, show_header=False)
 
-    bar_unit = st.session_state.get('overview_bar_unit', '일')
+    bar_unit = st.session_state.get('overview_bar_unit', '주')
     bar_unit_label = {'일': '일별', '주': '주별', '월': '월별'}[bar_unit]
     today_str = datetime.date.today().strftime('%y.%m.%d')
 
