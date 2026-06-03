@@ -758,9 +758,15 @@ def get_macro_indicators(end_date_str: Optional[str] = None) -> dict:
                 continue
         return None
 
+    vix = _last_close(['VIX', '^VIX'])
+    # US 10Y: 심볼/소스에 따라 단위가 다름 (% 또는 basis points×10)
+    # 값이 50 초과면 비정상 → /10 정규화
+    us10y = _last_close(['^TNX', 'US10YT=X', 'US10Y', 'TNX'])
+    if us10y is not None and us10y > 50:
+        us10y = us10y / 10.0
     return {
-        'vix':    _last_close(['VIX', '^VIX']),
-        'us10y':  _last_close(['US10YT=X', 'US10Y']),
+        'vix':    vix,
+        'us10y':  us10y,
         'usdkrw': _last_close(['USD/KRW']),
     }
 
@@ -5083,9 +5089,9 @@ def main() -> None:
     }
     _emoji, _label, _bg = _reg_meta.get(_reg['regime'], _reg_meta['unknown'])
     _ret = _reg.get('spy_ret_6m')
-    _ret_txt = f"&nbsp;·&nbsp;{_ret*100:+.1f}%" if _ret is not None else ""
+    _ret_txt = f"&nbsp;·&nbsp;SPY {_ret*100:+.1f}% (6M)" if _ret is not None else ""
     _regime_badge = (
-        f"<span title='SPY 6개월 수익률 + SMA200 비교' "
+        f"<span title='SPY 최근 6개월 수익률 + 200일 이평선 비교로 판정' "
         f"style='font-size:10px;color:#fff;background:{_bg};"
         f"padding:1px 7px;border-radius:8px;white-space:nowrap;font-weight:700;'>"
         f"{_emoji} {_label}{_ret_txt}</span>"
