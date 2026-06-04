@@ -5588,7 +5588,7 @@ def main() -> None:
             cur = r['cur']; day_pct = r['day']; week_pct = r['week']
             z_pct = r['z']; m_pct = r['m']; from_high = r['high']
 
-            z_c = '#dc2626' if z_pct >= 70 else '#2563eb' if z_pct <= 30 else '#a4adb8'
+            z_c = '#2563eb' if z_pct >= 70 else '#dc2626' if z_pct <= 30 else '#a4adb8'
             m_c = '#2563eb' if m_pct >= 70 else '#dc2626' if m_pct <= 30 else '#a4adb8'
             high_c = '#dc2626' if from_high >= -3 else '#a4adb8' if from_high >= -15 else '#2563eb'
 
