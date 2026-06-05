@@ -609,7 +609,7 @@ def init_session_state() -> None:
         'overview_bar_unit':    lambda: '주',
         'analysis_start':      lambda: load_settings().get(
             'analysis_start',
-            (datetime.date.today() - datetime.timedelta(days=365)).strftime('%y-%m')
+            (datetime.date.today() - datetime.timedelta(days=730)).strftime('%y-%m')
         ),
         'candle_type':         lambda: '일봉',
         'individual_tickers':  lambda: load_settings().get('individual_tickers', []),
@@ -2057,7 +2057,7 @@ def render_sidebar(
         try:
             cur_idx = preset_dates.index(st.session_state.analysis_start)
         except ValueError:
-            cur_idx = 1
+            cur_idx = 3  # 2년 default
         choice_lbl = st.radio(
             "분석 시작일", preset_labels, index=cur_idx, horizontal=True,
             key="analysis_start_radio",
