@@ -4919,9 +4919,15 @@ def append_history_and_spy(
     - analysis_start/candle_type 바뀌면 캐시 무효화
     """
     cache_key = (analysis_start, candle_type)
-    if st.session_state.get('_extra_cache_key') != cache_key:
+    now = _time.time()
+    last_ts = st.session_state.get('_extra_cache_ts', 0.0)
+    # 캐시 키 변경 OR TTL 경과 → 캐시·블랙리스트 클리어 (정규장 중 가격 고정 방지)
+    if (st.session_state.get('_extra_cache_key') != cache_key
+            or now - last_ts > CFG.DATA_TTL_SEC):
         st.session_state['extra_close_cache'] = {}
+        st.session_state['fetch_blacklist'] = set()
         st.session_state['_extra_cache_key'] = cache_key
+        st.session_state['_extra_cache_ts'] = now
     cache: dict = st.session_state['extra_close_cache']
     blacklist = st.session_state.setdefault('fetch_blacklist', set())
 
@@ -5414,6 +5420,11 @@ def main() -> None:
             if st.button("🔄 refresh", key="full_refresh_btn", use_container_width=True):
                 with st.spinner("데이터 갱신 중..."):
                     st.cache_data.clear()
+                    # 세션 캐시(SPY/매매이력 종목)도 클리어 → 정규장 중 가격 고정 방지
+                    for _k in ('extra_close_cache', '_extra_cache_key',
+                               '_extra_cache_ts', 'fetch_blacklist',
+                               'df_close_last'):
+                        st.session_state.pop(_k, None)
                     st.session_state['last_refresh'] = datetime.datetime.now(
                         datetime.timezone(datetime.timedelta(hours=9))
                     ).strftime('%H:%M:%S')
