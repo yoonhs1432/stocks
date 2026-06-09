@@ -350,8 +350,48 @@ def clear_auth_cookie() -> None:
         pass
 
 
+@st.cache_data(ttl=86400, show_spinner=False)
+def _korean_stock_names() -> dict[str, str]:
+    """KRX 전 종목 코드→종목명 매핑 (1일 캐시).
+
+    fdr.StockListing('KRX') 의 컬럼명이 버전별로 다름 (Code/Symbol/...).
+    실패 시 빈 dict 반환 → display_name이 티커 그대로 출력.
+    """
+    try:
+        df = fdr.StockListing('KRX')
+        if df is None or df.empty:
+            return {}
+        code_col = next(
+            (c for c in ('Code', 'Symbol', 'code', 'symbol') if c in df.columns),
+            None,
+        )
+        name_col = next(
+            (c for c in ('Name', 'name', '종목명') if c in df.columns),
+            None,
+        )
+        if not code_col or not name_col:
+            log.warning(f"KRX listing columns missing: {list(df.columns)[:10]}")
+            return {}
+        return {
+            str(c).zfill(6): str(n)
+            for c, n in zip(df[code_col], df[name_col])
+            if pd.notna(c) and pd.notna(n)
+        }
+    except Exception as e:
+        log.warning(f"Korean stock names fetch failed: {e}")
+        return {}
+
+
 def display_name(ticker: str) -> str:
-    return TICKER_DISPLAY_NAMES.get(ticker, ticker)
+    # 하드코딩 override 우선 (사용자 지정 짧은 별명 보존)
+    if ticker in TICKER_DISPLAY_NAMES:
+        return TICKER_DISPLAY_NAMES[ticker]
+    # 한국 종목 (6자리 숫자) → KRX 종목명 자동 조회
+    if ticker.isdigit() and len(ticker) == 6:
+        name = _korean_stock_names().get(ticker)
+        if name:
+            return name
+    return ticker
 
 
 def safe_key(ticker: str) -> str:
@@ -2206,7 +2246,7 @@ def render_sidebar(
             new_ticker = add_col1.text_input(
                 "ticker",
                 key="add_ticker_input",
-                placeholder="예: NVDA, AAPL, 000660",
+                placeholder="예: NVDA, 011070 (한국=6자리 코드)",
                 label_visibility="collapsed",
             )
             if add_col2.button("추가", key="add_ticker_btn",
