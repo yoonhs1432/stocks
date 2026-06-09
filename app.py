@@ -383,10 +383,16 @@ def _korean_stock_names() -> dict[str, str]:
 
 
 def display_name(ticker: str) -> str:
-    # 하드코딩 override 우선 (사용자 지정 짧은 별명 보존)
+    """우선순위: 사용자 override → 하드코딩 → KRX 자동조회 → 티커 원본."""
+    user_overrides = {}
+    try:
+        user_overrides = st.session_state.get('display_name_overrides', {}) or {}
+    except Exception:
+        pass  # session_state 없는 컨텍스트
+    if ticker in user_overrides and user_overrides[ticker]:
+        return user_overrides[ticker]
     if ticker in TICKER_DISPLAY_NAMES:
         return TICKER_DISPLAY_NAMES[ticker]
-    # 한국 종목 (6자리 숫자) → KRX 종목명 자동 조회
     if ticker.isdigit() and len(ticker) == 6:
         name = _korean_stock_names().get(ticker)
         if name:
@@ -657,6 +663,7 @@ def init_session_state() -> None:
         ),
         'candle_type':         lambda: '일봉',
         'individual_tickers':  lambda: load_settings().get('individual_tickers', []),
+        'display_name_overrides': lambda: load_settings().get('display_name_overrides', {}),
         'ticker_type_filter':  lambda: 'ETF',
     }
     for key, factory in defaults.items():
@@ -2267,13 +2274,18 @@ def render_sidebar(
 
             st.caption("⚠️ 잘못된 티커 추가 시 데이터 로드 실패 (yfinance 의존)")
 
-            # 종목별 1행: [삭제 체크 + 종목명] [개별 토글]
-            st.caption(f"🗑️ 삭제 / 🏷️ 개별 토글 (현재 {len(TARGET_TICKERS)}개, 최소 {MIN_TICKERS}개 유지)")
+            # 종목별 1행: [삭제 체크 + 종목명] [이름 변경] [개별 토글]
+            st.caption(
+                f"🗑️ 삭제 / ✏️ 이름 변경 (빈칸=기본) / 🏷️ 개별 토글 "
+                f"(현재 {len(TARGET_TICKERS)}개, 최소 {MIN_TICKERS}개 유지)"
+            )
             to_delete = []
             cur_indiv = list(st.session_state.get('individual_tickers', []))
             new_indiv = set(cur_indiv)
+            overrides = dict(st.session_state.get('display_name_overrides', {}))
+            prev_overrides = dict(overrides)
             for tk in TARGET_TICKERS:
-                c1, c2 = st.columns([3, 2])
+                c1, c2, c3 = st.columns([2, 2.2, 1])
                 with c1:
                     if st.checkbox(
                         display_name(tk),
@@ -2282,6 +2294,18 @@ def render_sidebar(
                     ):
                         to_delete.append(tk)
                 with c2:
+                    new_v = st.text_input(
+                        f"이름 변경 {tk}",
+                        value=overrides.get(tk, ''),
+                        key=f"name_input_{tk}",
+                        placeholder=display_name(tk),
+                        label_visibility="collapsed",
+                    ).strip()
+                    if new_v:
+                        overrides[tk] = new_v
+                    else:
+                        overrides.pop(tk, None)
+                with c3:
                     is_individual = st.checkbox(
                         "개별",
                         key=f"indiv_chk_{tk}",
@@ -2297,6 +2321,14 @@ def render_sidebar(
                 st.session_state['individual_tickers'] = list(new_indiv)
                 s = load_settings()
                 s['individual_tickers'] = list(new_indiv)
+                save_settings(s)
+                st.rerun()
+
+            # 종목명 override 변경 감지 → 저장
+            if overrides != prev_overrides:
+                st.session_state['display_name_overrides'] = overrides
+                s = load_settings()
+                s['display_name_overrides'] = overrides
                 save_settings(s)
                 st.rerun()
 
