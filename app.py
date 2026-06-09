@@ -73,6 +73,8 @@ class Config:
     M_W_INFLECT: float = 0.15   # dMACD 변곡
     M_W_RSI: float = 0.55       # RSI
     M_VOL_WINDOW: int = 120     # 변동성 적응 정규화 rolling 윈도우 (영업일)
+    M_SIGMA_SCALE: float = 1.5  # 높이/변곡: ±1.5σ에서 ±1 도달 (낮을수록 민감)
+    M_RSI_SCALE: float = 30.0   # RSI: 50±30 (즉 80/20)에서 ±1 도달
 
     # 시스템
     DATA_TTL_SEC: int = 300
@@ -868,16 +870,16 @@ def compute_momentum_score_smooth(
     - 각 성분은 ±1 클리핑 → 단일 항 폭주 방지, RSI 가중치 보존
     """
     if macd_std is not None and macd_std > 0:
-        h = macd_pct / (2.0 * macd_std)
+        h = macd_pct / (CFG.M_SIGMA_SCALE * macd_std)
     else:
         h = macd_pct / 2.0
     if dmacd_std is not None and dmacd_std > 0:
-        d = dmacd_pct / (2.0 * dmacd_std)
+        d = dmacd_pct / (CFG.M_SIGMA_SCALE * dmacd_std)
     else:
         d = dmacd_pct / 0.5
     h = max(-1.0, min(1.0, h))
     d = max(-1.0, min(1.0, d))
-    r = max(-1.0, min(1.0, (rsi - 50) / 50.0))
+    r = max(-1.0, min(1.0, (rsi - 50) / CFG.M_RSI_SCALE))
     return 2.5 * (CFG.M_W_HEIGHT * h + CFG.M_W_INFLECT * d + CFG.M_W_RSI * r)
 
 
@@ -891,16 +893,16 @@ def compute_momentum_series(df: pd.DataFrame) -> pd.Series:
     dmacd_pct = df['dMACD_Pct'].fillna(0)
     rsi = df['RSI'].fillna(50)
     if 'MACD_Pct_Std' in df.columns:
-        h = (macd_pct / (2.0 * df['MACD_Pct_Std'].replace(0, np.nan))).fillna(macd_pct / 2.0)
+        h = (macd_pct / (CFG.M_SIGMA_SCALE * df['MACD_Pct_Std'].replace(0, np.nan))).fillna(macd_pct / 2.0)
     else:
         h = macd_pct / 2.0
     if 'dMACD_Pct_Std' in df.columns:
-        d = (dmacd_pct / (2.0 * df['dMACD_Pct_Std'].replace(0, np.nan))).fillna(dmacd_pct / 0.5)
+        d = (dmacd_pct / (CFG.M_SIGMA_SCALE * df['dMACD_Pct_Std'].replace(0, np.nan))).fillna(dmacd_pct / 0.5)
     else:
         d = dmacd_pct / 0.5
     h = h.clip(-1.0, 1.0)
     d = d.clip(-1.0, 1.0)
-    r = ((rsi - 50) / 50.0).clip(-1.0, 1.0)
+    r = ((rsi - 50) / CFG.M_RSI_SCALE).clip(-1.0, 1.0)
     return 2.5 * (CFG.M_W_HEIGHT * h + CFG.M_W_INFLECT * d + CFG.M_W_RSI * r)
 
 
