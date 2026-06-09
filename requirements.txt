@@ -4,4 +4,4 @@ pandas
 numpy
 scikit-learn
 finance-datareader
-plotly
+plotly>=5.21

@@ -2490,11 +2490,13 @@ def render_chart(
         base_vn = df_daily.loc[df_daily.index >= view_start, f'{selected_ticker}_Norm'].iloc[0]
         scale = base_n / base_vn / base_close if base_close != 0 else 1.0
         ohlc_norm = df_ohlc * scale
-        # 흰색 종가 라인을 캔들보다 먼저 추가 → 가장 뒤 레이어로 표시
+        # 흰색 종가 라인 — zorder=-1로 캔들(boxlayer)보다 뒤에 렌더
+        # (Plotly는 trace 순서와 무관하게 scatterlayer가 boxlayer 위에 그려지므로
+        #  순서 변경만으로는 뒤로 보낼 수 없음)
         fig.add_trace(go.Scatter(
             x=df_daily.index, y=df_daily['Plot_Norm_Ticker'],
-            mode='lines', line=dict(color='#e6edf3', width=1.2),
-            hoverinfo='skip', showlegend=False,
+            mode='lines', line=dict(color='#e6edf3', width=0.8),
+            hoverinfo='skip', showlegend=False, zorder=-1,
         ), row=row, col=1)
         fig.add_trace(go.Candlestick(
             x=ohlc_norm.index,
