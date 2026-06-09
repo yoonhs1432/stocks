@@ -68,9 +68,11 @@ class Config:
     MOMENTUM_THRESHOLD_STRONG: float = 4.0
     SCORE_MAX: int = 4                  # 모멘텀 점수 ±4
 
-    # 가중치 (compute_momentum_score_smooth)
-    MACD_WEIGHT: float = 1.2
-    RSI_WEIGHT: float = 0.8
+    # 모멘텀 M 가중치/정규화 (compute_momentum_score_smooth)
+    M_W_HEIGHT: float = 0.30    # MACD_Pct 높이
+    M_W_INFLECT: float = 0.15   # dMACD 변곡
+    M_W_RSI: float = 0.55       # RSI
+    M_VOL_WINDOW: int = 120     # 변동성 적응 정규화 rolling 윈도우 (영업일)
 
     # 시스템
     DATA_TTL_SEC: int = 300
@@ -847,37 +849,77 @@ def pct_to_label(pct: float) -> str:
 
 def compute_momentum_score_smooth(
     macd_pct: float, dmacd_pct: float, rsi: float,
+    macd_std: Optional[float] = None, dmacd_std: Optional[float] = None,
 ) -> float:
     """모멘텀 점수 (연속, ±2.5 범위, Z와 동일 척도).
 
     세 정보 통합 (평균회귀 매매자 관점):
-    - MACD_Pct (30%): 추세 절대 높이 (MACD/EMA26 %)
+    - MACD_Pct 높이 (30%): 추세 절대 높이 (MACD/EMA26 %)
                       낮으면 매수 영역(-), 높으면 매도 영역(+)
-    - dMACD_Pct (20%): MACD 변곡 (1차 미분, smoothed, 부호 반전)
+    - dMACD_Pct 변곡 (15%): MACD 변곡 (1차 미분, smoothed, 부호 반전)
                       MACD 하락→상승 변곡 → 음수 → 매수 시그널
                       MACD 상승→하락 변곡 → 양수 → 매도 시그널
-    - RSI (50%): 과매수/과매도 — 매매 진입 핵심 지표
+    - RSI (55%): 과매수/과매도 — 매매 진입 핵심 지표
 
-    임계:
-    - MACD_Pct ±2% = ±0.3 기여
-    - dMACD_Pct ±0.5%/일 = ±0.2 기여
-    - RSI ±20 = ±0.5 기여
-
-    평균회귀 진입 (강 신호):
-    - 낮음(-) + 변곡 후 상승(dmacd_pct<0) → 둘 다 (-) → 강 매수
-    - 높음(+) + 변곡 후 하락(dmacd_pct>0) → 둘 다 (+) → 강 매도
+    변동성 적응 정규화:
+    - macd_std/dmacd_std (자기 역사 rolling std) 제공 시 ±2σ → ±1 로 z화
+      → 레버리지/고변동 종목에서 높이 항이 M을 지배하는 문제 해소
+    - 미제공(또는 0) 시 구 고정 임계 (±2%, ±0.5%/일) fallback
+    - 각 성분은 ±1 클리핑 → 단일 항 폭주 방지, RSI 가중치 보존
     """
-    h = macd_pct / 2.0     # ±2% 도달 시 ±1
-    d = dmacd_pct / 0.5    # ±0.5%/일 도달 시 ±1
-    r = (rsi - 50) / 20.0  # ±2.5
-    return 0.3 * h + 0.2 * d + 0.5 * r
+    if macd_std is not None and macd_std > 0:
+        h = macd_pct / (2.0 * macd_std)
+    else:
+        h = macd_pct / 2.0
+    if dmacd_std is not None and dmacd_std > 0:
+        d = dmacd_pct / (2.0 * dmacd_std)
+    else:
+        d = dmacd_pct / 0.5
+    h = max(-1.0, min(1.0, h))
+    d = max(-1.0, min(1.0, d))
+    r = max(-1.0, min(1.0, (rsi - 50) / 50.0))
+    return 2.5 * (CFG.M_W_HEIGHT * h + CFG.M_W_INFLECT * d + CFG.M_W_RSI * r)
+
+
+def compute_momentum_series(df: pd.DataFrame) -> pd.Series:
+    """M_smooth 시계열 (벡터화) — compute_momentum_score_smooth와 동일 공식.
+
+    df에 MACD_Pct_Std/dMACD_Pct_Std 컬럼이 있으면 변동성 적응 정규화,
+    없거나 NaN인 구간은 고정 임계 fallback.
+    """
+    macd_pct = df['MACD_Pct'].fillna(0)
+    dmacd_pct = df['dMACD_Pct'].fillna(0)
+    rsi = df['RSI'].fillna(50)
+    if 'MACD_Pct_Std' in df.columns:
+        h = (macd_pct / (2.0 * df['MACD_Pct_Std'].replace(0, np.nan))).fillna(macd_pct / 2.0)
+    else:
+        h = macd_pct / 2.0
+    if 'dMACD_Pct_Std' in df.columns:
+        d = (dmacd_pct / (2.0 * df['dMACD_Pct_Std'].replace(0, np.nan))).fillna(dmacd_pct / 0.5)
+    else:
+        d = dmacd_pct / 0.5
+    h = h.clip(-1.0, 1.0)
+    d = d.clip(-1.0, 1.0)
+    r = ((rsi - 50) / 50.0).clip(-1.0, 1.0)
+    return 2.5 * (CFG.M_W_HEIGHT * h + CFG.M_W_INFLECT * d + CFG.M_W_RSI * r)
+
+
+def _last_m_stds(df: pd.DataFrame) -> tuple[Optional[float], Optional[float]]:
+    """마지막 행의 MACD_Pct_Std/dMACD_Pct_Std 추출 (없거나 NaN이면 None)."""
+    ms = ds = None
+    if 'MACD_Pct_Std' in df.columns and pd.notna(df['MACD_Pct_Std'].iloc[-1]):
+        ms = float(df['MACD_Pct_Std'].iloc[-1])
+    if 'dMACD_Pct_Std' in df.columns and pd.notna(df['dMACD_Pct_Std'].iloc[-1]):
+        ds = float(df['dMACD_Pct_Std'].iloc[-1])
+    return ms, ds
 
 
 def compute_momentum_score(
     macd_pct: float, dmacd_pct: float, rsi: float,
+    macd_std: Optional[float] = None, dmacd_std: Optional[float] = None,
 ) -> int:
     """모멘텀 정수 점수 (-4 ~ +4)."""
-    smooth = compute_momentum_score_smooth(macd_pct, dmacd_pct, rsi)
+    smooth = compute_momentum_score_smooth(macd_pct, dmacd_pct, rsi, macd_std, dmacd_std)
     return max(-CFG.SCORE_MAX, min(CFG.SCORE_MAX, int(round(smooth))))
 
 
@@ -1110,6 +1152,12 @@ def process_asset_data(
     #   MACD 상승 중 (dMACD > 0) → dMACD_Pct 음수 → 매수 방향 신호
     #   MACD 하락 중 (dMACD < 0) → dMACD_Pct 양수 → 매도 방향 신호
     df['dMACD_Pct'] = -df['dMACD_Raw_Pct']
+
+    # ── M 변동성 적응 정규화용 rolling std (레버리지/고변동 종목 척도 통일) ──
+    df['MACD_Pct_Std'] = df['MACD_Pct'].rolling(
+        CFG.M_VOL_WINDOW, min_periods=CFG.EXPANDING_MIN_PERIODS).std()
+    df['dMACD_Pct_Std'] = df['dMACD_Pct'].rolling(
+        CFG.M_VOL_WINDOW, min_periods=CFG.EXPANDING_MIN_PERIODS).std()
 
     log_resid = np.log(df[f'{y_name}_Norm']) - np.log(df['Predicted'])
     std_resid = log_resid.std()
@@ -1698,8 +1746,12 @@ def build_trade_journal(
                     if pd.notna(z_v):
                         entry['z'] = float(z_v)
                     if pd.notna(macd_pct) and pd.notna(dmacd_pct) and pd.notna(rsi):
+                        _ms = row.get('MACD_Pct_Std')
+                        _ds = row.get('dMACD_Pct_Std')
                         entry['m'] = compute_momentum_score_smooth(
                             float(macd_pct), float(dmacd_pct), float(rsi),
+                            float(_ms) if pd.notna(_ms) else None,
+                            float(_ds) if pd.notna(_ds) else None,
                         )
 
             # 수익률 (매도 시점만)
@@ -2597,15 +2649,8 @@ def render_chart(
             # 임계: 10 (강매수) / 30 (약매수) / 50 (중립) / 70 (약매도) / 90 (강매도)
             z_raw = df_daily[col_name].fillna(0)
 
-            # 모멘텀 점수 시계열 (raw Z 척도)
-            # 통합 공식: MACD_Pct (높이, 30%) + dMACD_Pct (변곡, 20%) + RSI (50%)
-            macd_pct_v = df_daily['MACD_Pct'].fillna(0).values
-            dmacd_pct_v = df_daily['dMACD_Pct'].fillna(0).values
-            rsi_v = df_daily['RSI'].fillna(50).values
-            h_norm = macd_pct_v / 2.0
-            d_norm = dmacd_pct_v / 0.5
-            r_norm = (rsi_v - 50) / 20.0
-            momentum_raw = 0.3 * h_norm + 0.2 * d_norm + 0.5 * r_norm
+            # 모멘텀 점수 시계열 (raw Z 척도) — 공통 공식 사용
+            momentum_raw = compute_momentum_series(df_daily).values
 
             # 백분위 변환 (0~100)
             z_series = ((z_raw + 2.5) / 5.0 * 100).clip(0, 100)
@@ -3023,10 +3068,12 @@ def render_chart(
             macd_pct_v = df_daily.loc[d_d, 'MACD_Pct'] if pd.notna(df_daily.loc[d_d, 'MACD_Pct']) else 0
             dmacd_pct_v = df_daily.loc[d_d, 'dMACD_Pct'] if 'dMACD_Pct' in df_daily.columns and pd.notna(df_daily.loc[d_d, 'dMACD_Pct']) else 0
             rsi_v = df_daily.loc[d_d, 'RSI'] if pd.notna(df_daily.loc[d_d, 'RSI']) else 50
-            m_raw = (
-                0.3 * (macd_pct_v / 2.0)
-                + 0.2 * (dmacd_pct_v / 0.5)
-                + 0.5 * ((rsi_v - 50) / 20.0)
+            _ms_d = df_daily.loc[d_d, 'MACD_Pct_Std'] if 'MACD_Pct_Std' in df_daily.columns else None
+            _ds_d = df_daily.loc[d_d, 'dMACD_Pct_Std'] if 'dMACD_Pct_Std' in df_daily.columns else None
+            m_raw = compute_momentum_score_smooth(
+                float(macd_pct_v), float(dmacd_pct_v), float(rsi_v),
+                float(_ms_d) if pd.notna(_ms_d) else None,
+                float(_ds_d) if pd.notna(_ds_d) else None,
             )
             y_m = max(0, min(100, (m_raw + 2.5) / 5.0 * 100))
             fig.add_trace(go.Scatter(
@@ -3070,16 +3117,9 @@ def render_chart(
     #   Q4 (X<50, Y>50): 싼데 반등 시작 → 매수 진입
     zm_row = 2  # zm_scatter는 회귀(1) 바로 아래 (row=2)
 
-    # Z와 M 백분위 계산
+    # Z와 M 백분위 계산 — 공통 공식 사용
     z_raw = df_daily['Z_Score'].fillna(0)
-    macd_pct_v_2 = df_daily['MACD_Pct'].fillna(0).values
-    dmacd_pct_v_2 = df_daily['dMACD_Pct'].fillna(0).values
-    rsi_v_2 = df_daily['RSI'].fillna(50).values
-    momentum_raw_full = (
-        0.3 * (macd_pct_v_2 / 2.0)
-        + 0.2 * (dmacd_pct_v_2 / 0.5)
-        + 0.5 * ((rsi_v_2 - 50) / 20.0)
-    )
+    momentum_raw_full = compute_momentum_series(df_daily).values
 
     z_pct_series = ((z_raw + 2.5) / 5.0 * 100).clip(0, 100)
     m_pct_series = pd.Series(
@@ -3659,7 +3699,9 @@ def build_action_card_html(
         macd_pct_v = float(last_macd_pct) if pd.notna(last_macd_pct) else 0.0
         dmacd_pct_v = float(last_dmacd_pct) if pd.notna(last_dmacd_pct) else 0.0
         rsi_v = float(last_rsi) if pd.notna(last_rsi) else 50.0
-        cur_momentum_score = compute_momentum_score(macd_pct_v, dmacd_pct_v, rsi_v)
+        _mstd, _dstd = _last_m_stds(df_daily)
+        cur_momentum_score = compute_momentum_score(
+            macd_pct_v, dmacd_pct_v, rsi_v, _mstd, _dstd)
         cur_signal = momentum_score_to_signal(cur_momentum_score)
     marker_color = momentum_to_color(cur_momentum_score)
 
@@ -4001,7 +4043,9 @@ def build_mini_gradient_bar(
         macd_pct_v = float(last_macd_pct) if pd.notna(last_macd_pct) else 0.0
         dmacd_pct_v = float(last_dmacd_pct) if pd.notna(last_dmacd_pct) else 0.0
         rsi_v = float(last_rsi) if pd.notna(last_rsi) else 50.0
-        cur_momentum_score = compute_momentum_score(macd_pct_v, dmacd_pct_v, rsi_v)
+        _mstd, _dstd = _last_m_stds(df_daily)
+        cur_momentum_score = compute_momentum_score(
+            macd_pct_v, dmacd_pct_v, rsi_v, _mstd, _dstd)
         cur_signal = momentum_score_to_signal(cur_momentum_score)
     marker_color = momentum_to_color(cur_momentum_score)
 
@@ -5033,9 +5077,10 @@ def update_ticker_signals(df_close: pd.DataFrame, all_analyses: dict) -> dict[st
             macd_pct = float(df_t['MACD_Pct'].iloc[-1]) if pd.notna(df_t['MACD_Pct'].iloc[-1]) else 0.0
             dmacd_pct = float(df_t['dMACD_Pct'].iloc[-1]) if pd.notna(df_t['dMACD_Pct'].iloc[-1]) else 0.0
             rsi = float(df_t['RSI'].iloc[-1]) if pd.notna(df_t['RSI'].iloc[-1]) else 50.0
+            _mstd, _dstd = _last_m_stds(df_t)
             st.session_state.ticker_signals[ticker] = get_signal_combined(cz, mhz, rsi)
-            st.session_state.ticker_momentum_scores[ticker] = compute_momentum_score(macd_pct, dmacd_pct, rsi)
-            st.session_state.ticker_momentum_smooth[ticker] = compute_momentum_score_smooth(macd_pct, dmacd_pct, rsi)
+            st.session_state.ticker_momentum_scores[ticker] = compute_momentum_score(macd_pct, dmacd_pct, rsi, _mstd, _dstd)
+            st.session_state.ticker_momentum_smooth[ticker] = compute_momentum_score_smooth(macd_pct, dmacd_pct, rsi, _mstd, _dstd)
         else:
             st.session_state.ticker_signals.setdefault(ticker, 'H')
             st.session_state.ticker_momentum_scores.setdefault(ticker, 0)
@@ -5263,7 +5308,7 @@ def main() -> None:
         # 매매 기록 종목도 분석에 포함 (현재 리스트에 없는 종목도)
         history_tickers = tuple(sorted(st.session_state.trade_history.keys()))
         all_analyses = compute_all_analyses(
-            df_close, _version=8, candle_type=candle_type,
+            df_close, _version=9, candle_type=candle_type,
             extra_tickers=history_tickers,
         )
 
@@ -5303,9 +5348,10 @@ def main() -> None:
             macd_pct = float(df_daily['MACD_Pct'].iloc[-1]) if pd.notna(df_daily['MACD_Pct'].iloc[-1]) else 0.0
             dmacd_pct = float(df_daily['dMACD_Pct'].iloc[-1]) if pd.notna(df_daily['dMACD_Pct'].iloc[-1]) else 0.0
             rsi = float(df_daily['RSI'].iloc[-1]) if pd.notna(df_daily['RSI'].iloc[-1]) else 50.0
+            _mstd, _dstd = _last_m_stds(df_daily)
             st.session_state.ticker_signals[selected_ticker] = get_signal_combined(cz, mhz, rsi)
-            st.session_state.ticker_momentum_scores[selected_ticker] = compute_momentum_score(macd_pct, dmacd_pct, rsi)
-            st.session_state.ticker_momentum_smooth[selected_ticker] = compute_momentum_score_smooth(macd_pct, dmacd_pct, rsi)
+            st.session_state.ticker_momentum_scores[selected_ticker] = compute_momentum_score(macd_pct, dmacd_pct, rsi, _mstd, _dstd)
+            st.session_state.ticker_momentum_smooth[selected_ticker] = compute_momentum_score_smooth(macd_pct, dmacd_pct, rsi, _mstd, _dstd)
 
     # holding_tickers는 페이지 헤더에서 이미 계산됨
 
@@ -5570,11 +5616,9 @@ def main() -> None:
             macd_pct_v = float(t_df['MACD_Pct'].iloc[-1]) if 'MACD_Pct' in t_df.columns and pd.notna(t_df['MACD_Pct'].iloc[-1]) else 0
             dmacd_v = float(t_df['dMACD_Pct'].iloc[-1]) if 'dMACD_Pct' in t_df.columns and pd.notna(t_df['dMACD_Pct'].iloc[-1]) else 0
             rsi_v = float(t_df['RSI'].iloc[-1]) if 'RSI' in t_df.columns and pd.notna(t_df['RSI'].iloc[-1]) else 50
-            m_raw = (
-                0.3 * (macd_pct_v / 2.0)
-                + 0.2 * (dmacd_v / 0.5)
-                + 0.5 * ((rsi_v - 50) / 20.0)
-            )
+            _mstd2, _dstd2 = _last_m_stds(t_df)
+            m_raw = compute_momentum_score_smooth(
+                macd_pct_v, dmacd_v, rsi_v, _mstd2, _dstd2)
             m_pct = max(0, min(100, (m_raw + 2.5) / 5.0 * 100))
 
             table_data.append({
