@@ -2490,6 +2490,12 @@ def render_chart(
         base_vn = df_daily.loc[df_daily.index >= view_start, f'{selected_ticker}_Norm'].iloc[0]
         scale = base_n / base_vn / base_close if base_close != 0 else 1.0
         ohlc_norm = df_ohlc * scale
+        # 흰색 종가 라인을 캔들보다 먼저 추가 → 가장 뒤 레이어로 표시
+        fig.add_trace(go.Scatter(
+            x=df_daily.index, y=df_daily['Plot_Norm_Ticker'],
+            mode='lines', line=dict(color='#e6edf3', width=1.2),
+            hoverinfo='skip', showlegend=False,
+        ), row=row, col=1)
         fig.add_trace(go.Candlestick(
             x=ohlc_norm.index,
             open=ohlc_norm['Open'], high=ohlc_norm['High'],
@@ -2497,12 +2503,6 @@ def render_chart(
             increasing=dict(line=dict(color='#f85149', width=1), fillcolor='#f85149'),
             decreasing=dict(line=dict(color='#58a6ff', width=1), fillcolor='#58a6ff'),
             showlegend=False, hoverinfo='skip',
-        ), row=row, col=1)
-        # 캔들 위 종가 라인 오버레이 (흰색 얇은 라인)
-        fig.add_trace(go.Scatter(
-            x=df_daily.index, y=df_daily['Plot_Norm_Ticker'],
-            mode='lines', line=dict(color='#e6edf3', width=1.2),
-            hoverinfo='skip', showlegend=False,
         ), row=row, col=1)
         # 캔들 rangeslider 끄기 - price row의 xaxis 동적 매칭
         fig.update_layout(**{f'xaxis{row}_rangeslider_visible': False})
