@@ -998,24 +998,20 @@ def momentum_to_color(score: int) -> str:
 
 
 def momentum_pct_to_color(m_pct: float) -> str:
-    """모멘텀 백분위 M (0~100) → 색 (7단계).
+    """모멘텀 백분위 M (0~100) → 색 (5단계).
 
-    임계선 10/20/40/60/80/90 기준. 낮을수록 매수(빨강), 높을수록 매도(파랑).
-    - <10   : 극단 매수
-    - 10~20 : 강 매수
+    임계선 20/40/60/80 기준. 낮을수록 매수(빨강), 높을수록 매도(파랑).
+    - <20   : 강 매수
     - 20~40 : 약 매수
     - 40~60 : 중립
     - 60~80 : 약 매도
-    - 80~90 : 강 매도
-    - ≥90   : 극단 매도
+    - ≥80   : 강 매도
     """
-    if m_pct < 10:  return Colors.MOM_BUY_STRONG
     if m_pct < 20:  return Colors.MOM_BUY
     if m_pct < 40:  return Colors.MOM_BUY_WEAK
     if m_pct < 60:  return Colors.MOM_HOLD
     if m_pct < 80:  return Colors.MOM_SELL_WEAK
-    if m_pct < 90:  return Colors.MOM_SELL
-    return Colors.MOM_SELL_STRONG
+    return Colors.MOM_SELL
 
 
 def get_time_grid_dtick_ms(start: pd.Timestamp, end: pd.Timestamp, target_grids: int = 8) -> int:
@@ -3211,8 +3207,8 @@ def render_chart(
     if n_pts > 0:
         color_indices = list(range(n_pts))
 
-        # ── 임계선 — 종목 버튼 M 7단계(10/20/40/60/80/90), 흰색 점선 ──
-        for v in (10, 20, 40, 60, 80, 90):
+        # ── 임계선 — 종목 버튼 M 5단계(20/40/60/80), 흰색 점선 ──
+        for v in (20, 40, 60, 80):
             fig.add_shape(
                 type='line', x0=v, x1=v, y0=0, y1=100,
                 line=dict(color='#ffffff', width=0.6, dash='dot'),
@@ -4609,7 +4605,7 @@ def render_overview_panel(
 def build_css(selected_option: str, holding_tickers: set) -> str:
     btn_parts = []
     for ticker in TARGET_TICKERS:
-        # 모멘텀 M(백분위 0~100) → 색 (임계선 10/20/40/60/80/90, 7단계)
+        # 모멘텀 M(백분위 0~100) → 색 (임계선 20/40/60/80, 5단계)
         mom_smooth = st.session_state.ticker_momentum_smooth.get(ticker, 0.0)
         m_pct = z_to_pct(mom_smooth)
         bg = momentum_pct_to_color(m_pct)
