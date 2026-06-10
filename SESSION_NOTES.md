@@ -14,12 +14,12 @@
 - `pnl_color(0)` → 중립 회색
 - 차트 매직 row 번호(`row=4`, `row=5`) → `ROW = {name: idx}` 매핑 (패널 순서 변경에 안전)
 
-### 액션 카드 복원 (핵심)
-- `build_action_card_html`이 만들어 놓고 `return bar_html`만 하던 버그 → 위치바+현재위치+액션카드+서브액션 전부 반환
-- 탭1 차트 위에 호출 연결 (다음 매수/익절 트리거 가격 + 몇 % 남았는지)
-- 카드 내부 셀 배경 `var(--bg-subtle)`(다크) → `#ffffff` (다크 텍스트 가독성)
+### ⛔ 위치 바(±3σ 스테이터스 바) + 액션 카드(매수 의견)는 사용자가 의도적으로 제거한 기능
+- 리뷰 중 "만들고 버려지는 코드"로 보여 복원했다가 사용자 지시로 **재삭제** (함수 자체 삭제)
+- 삭제된 것: `build_action_card_html`, `compute_cycle_avg_prices`, `momentum_score_to_signal`
+- **다시 복원하지 말 것** — 탭1은 헤더(σ·β·Z·M) + 정보 카드 + 차트만 유지
 
-### 죽은 코드 제거 (~700줄)
+### 죽은 코드 제거 (~1,000줄, 6,040 → 5,013줄)
 - 인증 일체 (쿠키 HMAC/비밀번호 해시/`verify_password`) — `is_authenticated()`(항상 True)만 유지. `extra-streamlit-components`·`scikit-learn` requirements에서 제거
 - `build_mini_gradient_bar`, `compute_halflife`/`halflife_color`, `pct_to_label`, `html_progress_bar`, `SIGNAL_STYLE`/`BUTTON_TEXT_STYLE`/`SIG_MARKER`/`SIGNAL_PRIORITY`, `_hline_g1` 블록, position tracker의 미사용 trend/pnl/cumulative/period HTML, 달력 CSS(`ov_cal_nav`), `_macd_marker_extra` session_state 임시변수(→로컬), flake8 F841 잔재 일괄
 - `DEFAULT_TICKERS` 중복 정의 통합 (섹션 1에서만 정의)
