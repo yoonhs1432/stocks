@@ -1,7 +1,5 @@
-streamlit
-extra-streamlit-components
+streamlit>=1.39
 pandas
 numpy
-scikit-learn
 finance-datareader
 plotly>=5.21

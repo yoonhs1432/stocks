@@ -95,14 +95,14 @@ class Colors:
     LOSS_STRONG     = '#1d4ed8'     # 진한 파랑
     NEUTRAL         = '#9ca3af'     # 회색 (중립)
 
-    # ── 모멘텀 7단계 ──
-    MOM_BUY_STRONG  = '#7f1d1d'     # 강 매수 (-4)
-    MOM_BUY         = '#dc2626'     # 매수 (-2, -3)
-    MOM_BUY_WEAK    = '#fca5a5'     # 약 매수 (-1)
-    MOM_HOLD        = '#9ca3af'     # 중립 (0)
-    MOM_SELL_WEAK   = '#93c5fd'     # 약 매도 (+1)
-    MOM_SELL        = '#2563eb'     # 매도 (+2, +3)
-    MOM_SELL_STRONG = '#1e3a8a'     # 강 매도 (+4)
+    # ── 모멘텀 5단계 (20/40/60/80 백분위 기준) ──
+    MOM_BUY_STRONG  = '#7f1d1d'     # (예비) 극단 매수
+    MOM_BUY         = '#dc2626'     # 강 매수 (<20)
+    MOM_BUY_WEAK    = '#fca5a5'     # 약 매수 (20~40)
+    MOM_HOLD        = '#6b7280'     # 중립 (40~60) — 약매수 연빨강과 구분되게 어두운 회색
+    MOM_SELL_WEAK   = '#93c5fd'     # 약 매도 (60~80)
+    MOM_SELL        = '#2563eb'     # 강 매도 (≥80)
+    MOM_SELL_STRONG = '#1e3a8a'     # (예비) 극단 매도
 
     # ── UI 기본 (다크 모드) ──
     TEXT            = '#c9d1d9'     # 본문
@@ -138,12 +138,14 @@ COLOR_BORDER = Colors.BORDER
 
 
 X_ASSET_FIXED = 'SPY'
-# 종목 리스트 — 초기값은 DEFAULT_TICKERS, main()에서 load_target_tickers()로 갱신
-TARGET_TICKERS: list[str] = [
+# 기본 종목 (사용자 설정이 없을 때 fallback)
+DEFAULT_TICKERS = [
     'FNGU', 'TQQQ', 'SOXL', 'HIBL', 'QPUX', 'LABU', 'DFEN', 'DPST',
     'GDXU', 'KORU', '005930', 'AVXX', 'SPYU', 'TARK', 'URTY', 'TNA',
     'BNKU', 'BTC-USD', 'ETH-USD', 'GLD',
 ]
+# 종목 리스트 — 초기값은 DEFAULT_TICKERS, main()에서 load_target_tickers()로 갱신
+TARGET_TICKERS: list[str] = list(DEFAULT_TICKERS)
 TICKER_DISPLAY_NAMES = {'BTC-USD': 'BTC', 'ETH-USD': 'ETH', '005930': '삼전', '000660': '하닉'}
 
 # 종목별 색상 (산업군)
@@ -172,25 +174,6 @@ TICKER_COLOR = {
     '005930': _C['other'],
 }
 
-SIGNAL_STYLE = {
-    'FB2': (Colors.MOM_BUY_STRONG,  '#ffffff'),
-    'FB':  (Colors.MOM_BUY,         '#ffffff'),
-    'B':   (Colors.MOM_BUY_WEAK,    '#1a1a1a'),
-    'H':   (Colors.MOM_HOLD,        '#ffffff'),
-    'S':   (Colors.MOM_SELL_WEAK,   '#1a1a1a'),
-    'FS':  (Colors.MOM_SELL,        '#ffffff'),
-    'FS2': (Colors.MOM_SELL_STRONG, '#ffffff'),
-}
-BUTTON_TEXT_STYLE = {
-    'FB2': '#f8fafc', 'FB': '#f8fafc', 'B': '#111827',
-    'H': '#111827', 'S': '#111827', 'FS': '#f8fafc', 'FS2': '#f8fafc',
-}
-SIG_MARKER = {
-    'FB2': ('triangle-up',   Colors.MOM_BUY_STRONG,  10),
-    'FB':  ('triangle-up',   Colors.MOM_BUY,          8),
-    'FS':  ('triangle-down', Colors.MOM_SELL,         8),
-    'FS2': ('triangle-down', Colors.MOM_SELL_STRONG, 10),
-}
 
 
 # ====================================================
@@ -213,141 +196,16 @@ class TickerState(TypedDict):
 # ====================================================
 # 3. 유틸리티
 # ====================================================
-# ─────────────────────── 인증 (간단 비밀번호 보호) ───────────────────────
-# 개인 정보 (매매 기록, 평가, 자산 추이) 는 로그인 후에만 표시.
-# 종목 분석, 그래프, Z+M, MACD/RSI 등 시장 정보는 비로그인도 볼 수 있음.
-
-import hashlib
-import hmac as _hmac
-import base64 as _b64
 import time as _time
-
-# salt + 비밀번호의 sha256 hash (코드/git에 평문 비밀번호 X)
-_AUTH_SALT = "quant_dashboard_2026"
-_AUTH_HASH_FALLBACK = (
-    "d23564ed156d528873bcb00378b20e2610000502010879ec7edfa661ef4016b8"
-)
-
-
-def _get_auth_hash() -> str:
-    """비밀번호 hash 반환. st.secrets 우선, 없으면 코드 fallback."""
-    try:
-        return st.secrets["auth"]["password_hash"]
-    except Exception:
-        return _AUTH_HASH_FALLBACK
-
-
-def _hash_password(pw: str) -> str:
-    return hashlib.sha256((_AUTH_SALT + pw).encode()).hexdigest()
-
-
-def verify_password(pw: str) -> bool:
-    """입력 비밀번호 검증."""
-    return _hash_password(pw) == _get_auth_hash()
 
 
 def is_authenticated() -> bool:
-    """로그인 기능 비활성화 — 항상 True (개인 데이터 자유롭게 표시)."""
-    return True
+    """로그인 기능 비활성화 — 항상 True (개인 데이터 자유롭게 표시).
 
-
-# ─── 쿠키 자동 로그인 (30일) ───
-_COOKIE_PREFIX = "quant_dash/"
-_COOKIE_TOKEN_KEY = "auth_token"
-_COOKIE_MAX_AGE_SEC = 30 * 24 * 3600
-
-
-def _get_cookie_password() -> str:
-    """쿠키 암호화 키. st.secrets 우선, 없으면 fallback."""
-    try:
-        return st.secrets["auth"]["cookie_password"]
-    except Exception:
-        return _AUTH_SALT + "_cookie_v1"
-
-
-def _make_auth_token() -> str:
-    """HMAC 서명된 만료 토큰 (payload.signature)."""
-    payload = json.dumps(
-        {"exp": int(_time.time()) + _COOKIE_MAX_AGE_SEC, "v": 1},
-        separators=(",", ":"),
-    ).encode()
-    msg = _b64.urlsafe_b64encode(payload).decode()
-    sig = _hmac.new(
-        _get_cookie_password().encode(), msg.encode(), "sha256",
-    ).hexdigest()
-    return f"{msg}.{sig}"
-
-
-def _verify_auth_token(token: str) -> bool:
-    if not token or "." not in token:
-        return False
-    try:
-        msg, sig = token.rsplit(".", 1)
-        exp_sig = _hmac.new(
-            _get_cookie_password().encode(), msg.encode(), "sha256",
-        ).hexdigest()
-        if not _hmac.compare_digest(sig, exp_sig):
-            return False
-        payload = json.loads(_b64.urlsafe_b64decode(msg.encode()).decode())
-        return int(payload.get("exp", 0)) > int(_time.time())
-    except Exception:
-        return False
-
-
-def _get_cookies_manager():
-    """쿠키 매니저 lazy init. 라이브러리 미설치 시 None.
-
-    extra-streamlit-components 사용 — cryptography 의존 없음.
-    토큰은 HMAC 서명으로 위조 방지.
+    주의: 배포 URL에서 매매 기록·평가금액이 누구에게나 보임.
+    로그인을 되살릴 경우 비밀번호 해시는 반드시 st.secrets로만 관리할 것.
     """
-    if '_cookies_mgr' in st.session_state:
-        return st.session_state['_cookies_mgr']
-    try:
-        import extra_streamlit_components as stx
-    except Exception:
-        return None
-    mgr = stx.CookieManager(key="auth_cookie_mgr")
-    st.session_state['_cookies_mgr'] = mgr
-    return mgr
-
-
-def try_auto_login_from_cookie() -> None:
-    """앱 시작 시 호출: 쿠키 토큰 검증 → 자동 인증."""
-    if is_authenticated():
-        return
-    mgr = _get_cookies_manager()
-    if mgr is None:
-        return
-    try:
-        token = mgr.get(cookie=_COOKIE_TOKEN_KEY)
-    except Exception:
-        return
-    if token and _verify_auth_token(token):
-        st.session_state['authenticated'] = True
-
-
-def save_auth_cookie() -> None:
-    """로그인 성공 시 호출: 30일 토큰 쿠키 저장."""
-    mgr = _get_cookies_manager()
-    if mgr is None:
-        return
-    exp = (datetime.datetime.now(datetime.timezone.utc)
-           + datetime.timedelta(seconds=_COOKIE_MAX_AGE_SEC))
-    try:
-        mgr.set(_COOKIE_TOKEN_KEY, _make_auth_token(), expires_at=exp)
-    except Exception:
-        pass
-
-
-def clear_auth_cookie() -> None:
-    """로그아웃 시 호출."""
-    mgr = _get_cookies_manager()
-    if mgr is None:
-        return
-    try:
-        mgr.delete(_COOKIE_TOKEN_KEY)
-    except Exception:
-        pass
+    return True
 
 
 @st.cache_data(ttl=86400, show_spinner=False)
@@ -405,7 +263,12 @@ def safe_key(ticker: str) -> str:
 
 
 def pnl_color(val: float) -> str:
-    return COLOR_GAIN if val >= 0 else COLOR_LOSS
+    """손익 색: 수익=빨강, 손실=파랑, 0=중립 회색."""
+    if val > 0:
+        return COLOR_GAIN
+    if val < 0:
+        return COLOR_LOSS
+    return COLOR_NEUTRAL
 
 
 def dd_color(dd_pct: float) -> str:
@@ -426,58 +289,6 @@ def signed_str(val: float, fmt: str = "{:,.0f}") -> str:
     """+/- 부호가 붙은 포맷 문자열."""
     sign = '+' if val >= 0 else ''
     return f"{sign}{fmt.format(val)}"
-
-
-def compute_halflife(residual: pd.Series) -> Optional[float]:
-    """잔차의 평균회귀 반감기 (영업일 단위).
-
-    AR(1) 회귀: residual[t] = α + φ × residual[t-1] + ε
-    half_life = -log(2) / log(φ)
-
-    φ < 1 이고 φ > 0 이면 평균회귀. 짧을수록 빠르게 회귀.
-    """
-    s = residual.dropna()
-    if len(s) < 30:
-        return None
-    s_lag = s.shift(1).dropna()
-    s_now = s.loc[s_lag.index]
-    if len(s_now) < 30:
-        return None
-    try:
-        # OLS 슬로프 = AR(1) 계수 φ
-        x = s_lag.values
-        y = s_now.values
-        x_mean = x.mean()
-        y_mean = y.mean()
-        num = ((x - x_mean) * (y - y_mean)).sum()
-        denom = ((x - x_mean) ** 2).sum()
-        if denom <= 0:
-            return None
-        phi = num / denom
-        # 평균회귀 조건: 0 < φ < 1
-        if phi <= 0 or phi >= 1 or not np.isfinite(phi):
-            return None
-        hl = -np.log(2) / np.log(phi)
-        if not np.isfinite(hl) or hl <= 0:
-            return None
-        return float(hl)
-    except Exception:
-        return None
-
-
-def halflife_color(hl: Optional[float]) -> str:
-    """half-life 색 — 짧을수록 평균회귀 좋음 (초록), 길수록 추세 추종 (회색)."""
-    if hl is None: return Colors.NEUTRAL
-    if hl <= 10:   return '#16a34a'   # 초록 (평균회귀 강)
-    if hl <= 20:   return '#65a30d'
-    if hl <= 30:   return Colors.LABEL_DARK
-    return Colors.NEUTRAL
-
-
-# ── #1 신호 정렬 우선순위 ──
-SIGNAL_PRIORITY = {
-    'FB2': 0, 'FB': 1, 'B': 2, 'H': 3, 'S': 4, 'FS': 5, 'FS2': 6,
-}
 
 
 # ====================================================
@@ -506,15 +317,6 @@ def html_dash_cell(label: str) -> str:
     )
 
 
-def html_progress_bar(width_pct: float, color: str, height: int = 7) -> str:
-    """단일 색상 진행바."""
-    return (
-        f"<div style='flex:1;background:#30363d;border-radius:3px;height:{height}px;'>"
-        f"<div style='width:{max(width_pct, 0):.1f}%;background:{color};"
-        f"border-radius:3px;height:{height}px;'></div></div>"
-    )
-
-
 # ====================================================
 # 5. 영속화 (로컬 + Gist)
 # ====================================================
@@ -525,12 +327,7 @@ GIST_FILENAME = 'quant_trade_history.json'
 TICKERS_GIST_FILENAME = 'quant_target_tickers.json'
 SETTINGS_GIST_FILENAME = 'quant_settings.json'
 
-# 기본 종목 (사용자 설정이 없을 때 fallback)
-DEFAULT_TICKERS = [
-    'FNGU', 'TQQQ', 'SOXL', 'HIBL', 'QPUX', 'LABU', 'DFEN', 'DPST',
-    'GDXU', 'KORU', '005930', 'AVXX', 'SPYU', 'TARK', 'URTY', 'TNA',
-    'BNKU', 'BTC-USD', 'ETH-USD', 'GLD',
-]
+# DEFAULT_TICKERS는 섹션 1(전역 설정)에서 정의됨
 MIN_TICKERS = 3   # 최소 보유 종목 수
 
 
@@ -674,9 +471,30 @@ def init_session_state() -> None:
 # ====================================================
 # 6. 시장 상태 (NYSE)
 # ====================================================
+def _easter_date(year: int) -> datetime.date:
+    """부활절 날짜 (Anonymous Gregorian algorithm) — Good Friday 계산용."""
+    a = year % 19
+    b, c = divmod(year, 100)
+    d, e = divmod(b, 4)
+    g = (8 * b + 13) // 25
+    h = (19 * a + b - d - g + 15) % 30
+    i, k = divmod(c, 4)
+    l = (32 + 2 * e + 2 * i - h - k) % 7
+    m = (a + 11 * h + 19 * l) // 433
+    month = (h + l - 7 * m + 90) // 25
+    day = (h + l - 7 * m + 33 * month + 19) % 32
+    return datetime.date(year, month, day)
+
+
 def _us_holidays(year: int) -> set:
-    """주요 NYSE 휴장일 (정확하지 않을 수 있음, 라이브러리 도입 권장)."""
-    from datetime import date
+    """NYSE 휴장일 (고정일 + 이동일 + 대체휴일).
+
+    포함: 신정, MLK, Presidents' Day, Good Friday, Memorial Day,
+    Juneteenth(2022~), 독립기념일, Labor Day, Thanksgiving, 크리스마스.
+    고정일이 토요일이면 전날(금), 일요일이면 다음날(월) 휴장
+    (단, 1/1이 토요일이면 전년도라 대체휴일 없음 — NYSE 규정).
+    """
+    from datetime import date, timedelta
 
     def nth_weekday(y: int, m: int, wd: int, n: int) -> Optional[datetime.date]:
         count = 0
@@ -691,7 +509,23 @@ def _us_holidays(year: int) -> set:
                     return d
         return None
 
-    holidays = {date(year, 1, 1), date(year, 7, 4), date(year, 12, 25)}
+    def observed(d: datetime.date, sat_to_fri: bool = True) -> Optional[datetime.date]:
+        """주말에 걸린 고정 휴일의 실제 휴장일."""
+        if d.weekday() == 5:    # 토 → 금 (전년도로 넘어가면 None)
+            return d - timedelta(days=1) if sat_to_fri else None
+        if d.weekday() == 6:    # 일 → 월
+            return d + timedelta(days=1)
+        return d
+
+    holidays = set()
+    # 고정일 + 대체휴일 (1/1이 토요일이면 NYSE는 휴장하지 않음)
+    for md, sat_ok in ((date(year, 1, 1), False), (date(year, 6, 19), True),
+                       (date(year, 7, 4), True), (date(year, 12, 25), True)):
+        if md.month == 6 and year < 2022:
+            continue   # Juneteenth는 2022년부터 NYSE 휴장
+        obs = observed(md, sat_to_fri=sat_ok)
+        if obs:
+            holidays.add(obs)
     for h in (
         nth_weekday(year, 1, 0, 3),   # MLK Day
         nth_weekday(year, 2, 0, 3),   # Presidents' Day
@@ -700,6 +534,8 @@ def _us_holidays(year: int) -> set:
     ):
         if h:
             holidays.add(h)
+    # Good Friday: 부활절 -2일
+    holidays.add(_easter_date(year) - timedelta(days=2))
     # Memorial Day: 5월 마지막 월요일
     for day in range(31, 24, -1):
         try:
@@ -713,7 +549,9 @@ def _us_holidays(year: int) -> set:
 
 
 def get_market_status() -> dict:
-    ET = datetime.timezone(datetime.timedelta(hours=-4))
+    # 서머타임 자동 반영 (UTC-4 고정 시 겨울철 1시간 오차)
+    from zoneinfo import ZoneInfo
+    ET = ZoneInfo("America/New_York")
     now_et = datetime.datetime.now(ET)
     today = now_et.date()
     is_weekend = today.weekday() >= 5
@@ -875,27 +713,6 @@ def z_to_pct(z: float) -> float:
     return max(0.0, min(100.0, pct))
 
 
-def pct_to_label(pct: float) -> str:
-    """백분위 → 카테고리 라벨.
-
-    임계:
-    - 0~10  : 극단 매수 (Z ≤ -2)
-    - 10~30 : 강 매수 (-2 < Z ≤ -1)
-    - 30~45 : 약 매수 (-1 < Z ≤ -0.25)
-    - 45~55 : 중립
-    - 55~70 : 약 매도 (+0.25 ≤ Z < +1)
-    - 70~90 : 강 매도 (+1 ≤ Z < +2)
-    - 90~100: 극단 매도 (Z ≥ +2)
-    """
-    if pct < 10:   return "극단 매수"
-    if pct < 30:   return "강 매수"
-    if pct < 45:   return "약 매수"
-    if pct < 55:   return "중립"
-    if pct < 70:   return "약 매도"
-    if pct < 90:   return "강 매도"
-    return "극단 매도"
-
-
 def compute_momentum_score_smooth(
     macd_pct: float, dmacd_pct: float, rsi: float,
     macd_std: Optional[float] = None, dmacd_std: Optional[float] = None,
@@ -981,20 +798,6 @@ def momentum_score_to_signal(score: int) -> str:
     if score >= 2:  return 'FS'
     if score >= 1:  return 'S'
     return 'H'
-
-
-def momentum_to_color(score: int) -> str:
-    """모멘텀 점수 (-4 ~ +4) → 색.
-
-    음수 = 매수 (빨강 계열), 양수 = 매도 (파랑 계열), 0 = 중립
-    """
-    if score <= -4: return Colors.MOM_BUY_STRONG
-    if score <= -2: return Colors.MOM_BUY
-    if score <= -1: return Colors.MOM_BUY_WEAK
-    if score >= 4:  return Colors.MOM_SELL_STRONG
-    if score >= 2:  return Colors.MOM_SELL
-    if score >= 1:  return Colors.MOM_SELL_WEAK
-    return Colors.MOM_HOLD
 
 
 def momentum_pct_to_color(m_pct: float) -> str:
@@ -1607,7 +1410,7 @@ def compute_drawdown(equity: pd.Series) -> dict:
 
 
 # ====================================================
-# 9-D. 상관관계 매트릭스 (#5)
+# 10. 포트폴리오 상태 (사이클 해석)
 # ====================================================
 def _resolve_all_cycles(valid: list) -> tuple[CycleInfo, float]:
     """매매 기록 → 현재 사이클 + 누적 실현손익.
@@ -1722,11 +1525,6 @@ def calc_portfolio_total_pnl(
 
 
 # ====================================================
-# 11. 차트 헬퍼
-# ====================================================
-
-
-# ====================================================
 # 12. 사이드바 - 포트폴리오 카드 빌더 (분리)
 # ====================================================
 def build_trade_journal(
@@ -1820,7 +1618,6 @@ def build_trade_journal(
 
 def _build_journal_html(
     journal: list[dict],
-    stats: dict,
     show_ticker: bool = True,
     filter_ticker: Optional[str] = None,
     title: str = "📓 매매 일지",
@@ -1831,7 +1628,6 @@ def _build_journal_html(
 
     Args:
         journal: 전체 매매 일지
-        stats: (현재 미사용)
         show_ticker: 티커 컬럼 표시 여부
         filter_ticker: 특정 종목만 필터링 (None이면 전체)
         title: 카드 제목
@@ -1852,7 +1648,7 @@ def _build_journal_html(
         f"{html_section_divider()}"
         f"<div style='font-size:0.62rem;font-weight:700;color:{COLOR_LABEL};"
         f"margin-bottom:6px;'>{title}</div>"
-        f"<div style='font-size:0.55rem;color:{COLOR_LABEL};margin-bottom:4px;'>"
+        f"<div style='font-size:0.62rem;color:{COLOR_LABEL};margin-bottom:4px;'>"
         f"전체 {len(recent)}건</div>"
     )
 
@@ -1864,9 +1660,8 @@ def _build_journal_html(
         # 모멘텀 (M) — 백분위로 표시 (0~100, RSI 동일 척도)
         m_html = ""
         if e['m'] is not None:
-            m_int = max(-4, min(4, int(round(e['m']))))
-            m_col = momentum_to_color(m_int)
             m_pct = z_to_pct(e['m'])
+            m_col = momentum_pct_to_color(m_pct)
             m_html = f"<span style='color:{m_col};'>M{int(round(m_pct))}</span>"
 
         # 수익률 + 손익금 (매도만)
@@ -1895,7 +1690,7 @@ def _build_journal_html(
         # 매매 수량 (×N) — 화살표 옆 작게
         qty = e.get('qty', 0)
         qty_html = (
-            f"<span style='color:var(--text-muted);font-size:0.55rem;'>×{qty}</span>"
+            f"<span style='color:var(--text-muted);font-size:0.62rem;'>×{qty}</span>"
             if qty else ""
         )
 
@@ -2121,11 +1916,8 @@ def render_sidebar(
     # 사이드바 → 탭4(설정)로 이전. 들여쓰기 유지를 위해 container 컨텍스트 사용.
     with st.container():
         # 로그인 기능 비활성화 (사용자 요청) — 항상 인증 상태로 동작
-
-        portfolio_pnl = st.session_state.get('portfolio_pnl_cache')
         usd_krw = st.session_state.get('usd_krw_cache', CFG.USD_KRW_FALLBACK)
         usd_krw_fallback = st.session_state.get('usd_krw_fallback', False)
-        df_close_last = st.session_state.get('df_close_last', {})
 
         # 환율 fallback 경고만 (시장 상황 카드 제거됨)
         if usd_krw_fallback:
@@ -2401,17 +2193,20 @@ def render_trade_record_section(selected_ticker: str) -> None:
         if st.button("💾 기록 저장",
                      key=f"trade_save_btn_{selected_ticker}",
                      type="primary", use_container_width=True):
-            record = {'date': t_date.strftime("%Y-%m-%d"), 'type': t_type}
-            if t_qty > 0:
-                record['qty'] = int(t_qty)
-            if t_price > 0:
-                record['price'] = t_price
-            if t_memo.strip():
-                record['memo'] = t_memo.strip()
-            st.session_state.trade_history.setdefault(t_ticker, []).append(record)
-            save_trade_history(st.session_state.trade_history)
-            st.success("저장 완료!")
-            st.rerun()
+            # 수량·단가 필수 — 0이면 모든 통계·차트에서 제외되므로 저장 자체를 막음
+            if t_qty <= 0 or t_price <= 0:
+                st.error("수량과 단가를 모두 입력해야 저장됩니다.")
+            else:
+                record = {
+                    'date': t_date.strftime("%Y-%m-%d"), 'type': t_type,
+                    'qty': int(t_qty), 'price': t_price,
+                }
+                if t_memo.strip():
+                    record['memo'] = t_memo.strip()
+                st.session_state.trade_history.setdefault(t_ticker, []).append(record)
+                save_trade_history(st.session_state.trade_history)
+                st.success("저장 완료!")
+                st.rerun()
 
     # ── 매매 기록 삭제 / 메모 편집 ──
     with st.expander("🗑️ 매매 기록 삭제 / 메모 편집", expanded=False):
@@ -2479,6 +2274,8 @@ def render_chart(
         'price', 'zscore', 'macd', 'rsi',
     ]
     total_rows = len(plot_order)
+    # 패널 이름 → subplot row 번호 (순서 변경 시에도 마커가 어긋나지 않도록)
+    ROW = {name: i + 1 for i, name in enumerate(plot_order)}
     total_h = sum(PX[p] for p in plot_order)
     # 모든 패널 단일 Y축 (Z + M 같은 척도)
     fig = make_subplots(
@@ -2519,12 +2316,13 @@ def render_chart(
     fig.add_trace(go.Scatter(
         x=sdf[f'{X_ASSET_FIXED}_Norm'], y=sdf['Predicted'],
         mode='lines', line=dict(color='#adbac7', width=2), name='Predicted Trend',
+        hoverinfo='skip',
     ), row=row, col=1)
     fig.add_trace(go.Scatter(
         x=sc_df[f'{X_ASSET_FIXED}_Norm'], y=sc_df[f'{selected_ticker}_Norm'],
         mode='markers',
         marker=dict(color=np.linspace(0, 1, len(sc_df)), colorscale='Turbo', size=5, opacity=1.0),
-        name='Daily Data',
+        name='Daily Data', hoverinfo='skip',
     ), row=row, col=1)
     fig.add_trace(go.Scatter(
         x=[sc_df[f'{X_ASSET_FIXED}_Norm'].iloc[-1]],
@@ -2532,27 +2330,8 @@ def render_chart(
         mode='markers',
         marker=dict(symbol='star', color='#ffffff', size=12,
                     line=dict(color='#000000', width=1.5)),
-        name='Current',
+        name='Current', hoverinfo='skip',
     ), row=row, col=1)
-
-    # ── 사이클별 평균 매수/매도가 수평선 ──
-    # 그래프 1 (회귀): Y축은 _Norm = Close / first_close
-    # 진행 중 사이클만 표시 (이전 사이클은 표시 안 함)
-    cycles = extract_cycles_avgs(trade_records or [])
-    base_y_ticker = sc_df[f'{selected_ticker}_Close'].iloc[0]
-    if cycles and base_y_ticker > 0:
-        active = next((c for c in cycles if c['is_active']), None)
-
-        def _hline_g1(y_norm: float, color: str, width: float = 1.2):
-            fig.add_trace(go.Scatter(
-                x=[min_x * 0.98, max_x * 1.02],
-                y=[y_norm, y_norm],
-                mode='lines',
-                line=dict(color=color, width=width, dash='dot'),
-                hoverinfo='skip', showlegend=False,
-            ), row=row, col=1)
-
-        # 평단가 가로 점선 제거 (사용자 요청)
 
     band_upper = np.exp(np.log(sdf['Predicted'].values) + 1.5 * std_resid)
     band_lower = np.exp(np.log(sdf['Predicted'].values) - 1.5 * std_resid)
@@ -2578,9 +2357,7 @@ def render_chart(
     )
     # 회귀 산점도 X축 라벨 숨김
     fig.update_xaxes(showticklabels=False, row=row, col=1)
-    # row=1 (main) 완료
-    # row=2는 zm_scatter (별도 코드에서 zm_row=2로 그림)
-    # row=3 = spacer로 점프
+    # main 완료 — zm_scatter는 아래 별도 코드에서 zm_row로 그림, spacer로 점프
     row += 2
 
     # [3] Spacer
@@ -2602,8 +2379,6 @@ def render_chart(
     df_daily['Plot_Norm_Ticker'] = df_daily[f'{selected_ticker}_Norm'] / base_tkr
 
     # [3] Price
-    price_row = row
-
     # 캔들스틱 먼저 (배경) — SPY 라인이 위로 가도록
     ohlc_norm = pd.DataFrame()
     if df_ohlc is not None and not df_ohlc.empty:
@@ -2634,6 +2409,7 @@ def render_chart(
         fig.add_trace(go.Scatter(
             x=df_daily.index, y=df_daily['Plot_Norm_Ticker'],
             mode='lines', line=dict(color='#e6edf3', width=1.5), name=selected_ticker,
+            hoverinfo='skip',
         ), row=row, col=1)
 
     # SPY 라인 제거됨 (사용자 요청)
@@ -2647,22 +2423,15 @@ def render_chart(
         base_n_p = df_daily[f'{selected_ticker}_Norm'].iloc[0]
         base_vn_p = df_daily.loc[df_daily.index >= view_start, f'{selected_ticker}_Norm'].iloc[0]
         scale_p = base_n_p / base_vn_p / base_close_p if base_close_p != 0 else 1.0
-        last_date_in_data = df_daily.index[-1]
 
         for c in cycles_g2:
             start_ts = pd.Timestamp(c['start'])
-            is_active = c['is_active']
 
             avg_buy_norm = c['avg_buy'] * scale_p
 
-            # 진행 중 사이클: 매수가 점선 제거 (사용자 요청)
-            if is_active:
-                end_ts = last_date_in_data
-                # 매도가 점선 제거 (사용자 요청)
-
+            # 진행 중 사이클은 표시 없음 (매수/매도가 점선 제거 — 사용자 요청)
             # 완료된 사이클: 평균 매수 → 평균 매도 화살표
-            elif c.get('avg_sell'):
-                end_ts = pd.Timestamp(c['end'])
+            if (not c['is_active']) and c.get('avg_sell'):
                 first_sell_ts = pd.Timestamp(c.get('first_sell_date') or c['end'])
                 avg_sell_norm = c['avg_sell'] * scale_p
                 # 화살표: 매수 위치 → 매도 위치
@@ -2706,6 +2475,7 @@ def render_chart(
     row += 1
 
     # [4~5] Z+M / MACD (라인) — 두 패널 모두 라인 그래프
+    macd_marker_extra = 0.0  # MACD 교차 마커 포함 Y축 범위 (같은 iteration에서 설정→사용)
     for col_name, hi, lo, label, color_fn in [
         ('Z_Score',     CFG.Z_HIGH,    -CFG.Z_HIGH,    'Z',
          lambda v: 'black'),
@@ -2874,9 +2644,6 @@ def render_chart(
             # ▲ 매수: 크로스 바로 아래 (-offset)
             # ▼ 매도: 크로스 바로 위  (+offset)
             # → 마커 포함하도록 Y축 범위 계산 (이후 update_yaxes에 반영)
-            bull_y = (macd_raw[bullish_mask].values - y_offset) if bullish_mask.any() else np.array([])
-            bear_y = (macd_raw[bearish_mask].values + y_offset) if bearish_mask.any() else np.array([])
-
             # 마커 포함 Y축 max (view 범위 내만)
             view_mask_idx = df_daily.index >= view_start
             bull_in_view = bullish_mask & view_mask_idx
@@ -2892,8 +2659,8 @@ def render_chart(
                     extra_max_y,
                     float(abs((macd_raw[bear_in_view] + y_offset)).max())
                 )
-            # 추후 macd_axis_max 계산 시 사용
-            st.session_state['_macd_marker_extra'] = extra_max_y
+            # 추후 macd_axis_max 계산 시 사용 (아래 axis 블록, 같은 iteration)
+            macd_marker_extra = extra_max_y
 
             if bullish_mask.any():
                 bull_x = df_daily.index[bullish_mask]
@@ -2922,16 +2689,6 @@ def render_chart(
                         row=row, col=1,
                     )
 
-            last_v = macd_series.iloc[-1]
-            val = float(last_v) if pd.notna(last_v) else 0.0
-            last_sig = signal_series.iloc[-1]
-            sig_v = float(last_sig) if pd.notna(last_sig) else 0.0
-
-            # 범례 제거 — 좌측 상단 'MACD 값' 라벨이 이미 표시됨
-
-        view_abs = abs(df_daily.loc[df_daily.index >= view_start, col_name].dropna())
-        z_data_max = float(view_abs.max()) if not view_abs.empty else 0.0
-
         if col_name == 'Z_Score':
             # ── Z + M 단일 Y축: 백분위 0~100 고정 ──
             fig.update_yaxes(
@@ -2945,10 +2702,9 @@ def render_chart(
             sig_view = df_daily.loc[df_daily.index >= view_start, 'MACD_Signal'].dropna()
             macd_data_max = float(abs(macd_view).max()) if not macd_view.empty else 0.0
             sig_data_max = float(abs(sig_view).max()) if not sig_view.empty else 0.0
-            # 교차 마커 위치도 포함 (st.session_state에 저장된 값)
-            marker_extra = st.session_state.get('_macd_marker_extra', 0.0)
+            # 교차 마커 위치도 포함
             macd_axis_max = max(
-                macd_data_max, sig_data_max, marker_extra
+                macd_data_max, sig_data_max, macd_marker_extra
             ) * 1.10  # 10% 여유
             if macd_axis_max <= 0:
                 macd_axis_max = 1.0
@@ -3060,7 +2816,6 @@ def render_chart(
         # 색 — 모두 진하게
         base_color = '#dc2626' if is_buy else '#1d4ed8'
         m_opacity = 1.0 if is_active_cycle else 0.6  # 완료 사이클도 진하게 (0.3 → 0.6)
-        vline_opacity = 0.8 if is_active_cycle else 0.4
         idx_sc = sc_df.index.get_indexer([t_date], method='nearest')[0]
         d_sc = sc_df.index[idx_sc]
         # ── 매매 가격 → 정규화 y값 변환 (실제 매매가 위치) ──
@@ -3107,7 +2862,7 @@ def render_chart(
             textposition='middle center',
             name=f"{trade['type'].upper()} ({t_date.date()})", hoverinfo='skip',
             showlegend=False,
-        ), row=1, col=1)
+        ), row=ROW['main'], col=1)
 
         arrow = '↑' if is_buy else '↓'
 
@@ -3125,7 +2880,7 @@ def render_chart(
                 textfont=dict(size=9, color='#ffffff'),
                 textposition='middle center',
                 hoverinfo='skip', showlegend=False,
-            ), row=4, col=1)
+            ), row=ROW['price'], col=1)
 
         # Z+M 패널 풍선 마커 — M (모멘텀) 위치 사용
         if 'MACD_Pct' in df_daily.columns and 'RSI' in df_daily.columns:
@@ -3152,7 +2907,7 @@ def render_chart(
                 textfont=dict(size=9, color='#ffffff'),
                 textposition='middle center',
                 hoverinfo='skip', showlegend=False,
-            ), row=5, col=1)
+            ), row=ROW['zscore'], col=1)
 
         # vline 완전 제거 (사용자 요청)
 
@@ -3168,7 +2923,7 @@ def render_chart(
             line=dict(color='#000000', width=1.5),
         ),
         name='Current_Top', hoverinfo='skip', showlegend=False,
-    ), row=1, col=1)
+    ), row=ROW['main'], col=1)
 
     # ── Z-M 산점도 패널 (마지막) ──
     # X = Z 백분위 (위치, 0~100)
@@ -3179,7 +2934,7 @@ def render_chart(
     #   Q2 (X>50, Y<50): 비싼데 꺾임 → 매도 신호
     #   Q3 (X<50, Y<50): 싸고 더 떨어짐 → 매수 대기
     #   Q4 (X<50, Y>50): 싼데 반등 시작 → 매수 진입
-    zm_row = 2  # zm_scatter는 회귀(1) 바로 아래 (row=2)
+    zm_row = ROW['zm_scatter']  # 회귀(main) 바로 아래
 
     # Z와 M 백분위 계산 — 공통 공식 사용
     z_raw = df_daily['Z_Score'].fillna(0)
@@ -3311,28 +3066,27 @@ def render_chart(
     # 축 공통 스타일
     fig.update_xaxes(showline=True, linewidth=1, linecolor='#adbac7', mirror=True)
     fig.update_yaxes(showline=True, linewidth=1, linecolor='#adbac7', mirror=True)
-    # spacer (row 3, 회귀/zm 산점도와 시간축 사이) 숨김
-    fig.update_xaxes(visible=False, row=3, col=1)
-    fig.update_yaxes(visible=False, row=3, col=1)
-    # 시간축 그리드 — price ~ rsi (row 4 ~ total_rows = 7)
+    # spacer (회귀/zm 산점도와 시간축 사이) 숨김
+    fig.update_xaxes(visible=False, row=ROW['spacer'], col=1)
+    fig.update_yaxes(visible=False, row=ROW['spacer'], col=1)
+    # 시간축 그리드 — price ~ rsi
     # RSI X 라벨은 마지막 row(total_rows) 에서 표시
-    # price row(4)는 time_x_axis = 'x4' 자체이므로 matches 미적용 (자기참조 회피)
+    # price row는 time_x_axis 자체이므로 matches 미적용 (자기참조 회피)
     x_max_with_margin = last_date + pd.Timedelta(days=3)
-    # price row (4) 별도 처리 - 자기 자신을 matches하면 안 됨
     fig.update_xaxes(
         showgrid=True, gridcolor='rgba(156,163,175,0.28)',
         gridwidth=0.6, griddash='dot', dtick=grid_dtick_ms,
         rangebreaks=[dict(bounds=['sat', 'mon'])],
         showticklabels=False, tickformat="%m/%d",
-        range=[view_start, x_max_with_margin], row=4, col=1,
+        range=[view_start, x_max_with_margin], row=ROW['price'], col=1,
         layer='below traces',
     )
     fig.update_yaxes(
-        showgrid=False, autorange=False, fixedrange=True, row=4, col=1,
+        showgrid=False, autorange=False, fixedrange=True, row=ROW['price'], col=1,
         layer='below traces',
     )
-    # zscore, macd, rsi (row 5~7) - price와 matches
-    for r in range(5, total_rows + 1):
+    # zscore, macd, rsi - price와 matches
+    for r in range(ROW['zscore'], total_rows + 1):
         fig.update_xaxes(
             showgrid=True, gridcolor='rgba(156,163,175,0.28)',
             gridwidth=0.6, griddash='dot', dtick=grid_dtick_ms,
@@ -3346,9 +3100,9 @@ def render_chart(
             layer='below traces',
         )
 
-    fig.update_traces(hoverinfo='skip')
+    # hoverinfo='skip'은 trace별 지정 — Z·M 산점도/현재 위치의 hovertemplate은 살림
     fig.update_layout(
-        height=total_h, showlegend=False, hovermode=False,
+        height=total_h, showlegend=False, hovermode='closest',
         dragmode='pan', margin=dict(l=2, r=2, t=10, b=20),
         paper_bgcolor='#0d1117', plot_bgcolor='#161b22', uirevision='constant',
         font=dict(color='#e6edf3', size=10),
@@ -3392,17 +3146,11 @@ def render_position_tracker(
     col_close = f'{selected_ticker}_Close'
     current_price = float(df_daily[col_close].iloc[-1]) if col_close in df_daily.columns else None
 
-    # 회귀선 가격 + 현재 시점 expanding std (그래프2 Z-score와 일치)
-    trend_price = None
+    # 현재 시점 expanding std (그래프2 Z-score와 일치) — 헤더 σ% 표시용
     sigma_unit = std_resid  # fallback
     if (df_daily is not None and 'Predicted' in df_daily.columns
             and f'{selected_ticker}_Norm' in df_daily.columns):
         try:
-            cur_predicted = float(df_daily['Predicted'].iloc[-1])
-            cur_norm_y = float(df_daily[f'{selected_ticker}_Norm'].iloc[-1])
-            if cur_norm_y > 0 and current_price is not None:
-                trend_price = current_price * (cur_predicted / cur_norm_y)
-            # expanding std (표시용)
             log_resid = (
                 np.log(df_daily[f'{selected_ticker}_Norm'])
                 - np.log(df_daily['Predicted'])
@@ -3415,17 +3163,13 @@ def render_position_tracker(
                 if last_std > 0 and np.isfinite(last_std) and std_resid is not None:
                     sigma_unit = last_std
         except Exception:
-            trend_price = None
-
-    def _fmt_pnl(val: float) -> str:
-        sign = '+' if val >= 0 else ''
-        color = pnl_color(val)
-        return f"<span style='font-weight:700;color:{color};'>{sign}${int(round(val)):,}</span>"
+            pass
 
     # ── 종목명 헤더 — 한눈에 보기와 동일 정보 ──
     # σ% (변동성), β·SPY (SPY +10% 시 변화율), DD (역대 고점 대비)
     sigma_pct_int = None
-    if df_daily is not None and sigma_unit > 0 and np.isfinite(sigma_unit):
+    if (df_daily is not None and sigma_unit is not None
+            and sigma_unit > 0 and np.isfinite(sigma_unit)):
         sigma_pct_int = int(round((np.exp(sigma_unit) - 1) * 100))
 
     # β·SPY (SPY 대비 로그 회귀 슬로프, 배수)
@@ -3436,17 +3180,9 @@ def render_position_tracker(
         sign = '+' if beta_spy_hdr >= 0 else ''
         beta_str_hdr = f"{sign}{beta_spy_hdr:.1f}×"
 
-    # half-life (잔차 평균회귀 반감기) — 분석 기간 전체 잔차 시계열로 계산
-    half_life = None
-    if df_daily is not None:
-        norm_col = f'{selected_ticker}_Norm'
-        if 'Predicted' in df_daily.columns and norm_col in df_daily.columns:
-            log_resid = (np.log(df_daily[norm_col]) - np.log(df_daily['Predicted'])).dropna()
-            half_life = compute_halflife(log_resid)
-
     sigma_str_hdr = f"±{sigma_pct_int}%" if sigma_pct_int is not None else "—"
 
-    # Z 백분위 (숫자만) - 색은 종목 버튼과 동일 (momentum_to_color)
+    # Z 백분위 (숫자만) - 색은 종목 버튼과 동일 (5단계, 20/40/60/80)
     z_pct_str = "—"
     z_pct_color = Colors.MOM_HOLD
     if df_daily is not None and 'Z_Score' in df_daily.columns:
@@ -3454,9 +3190,7 @@ def render_position_tracker(
         if pd.notna(last_z):
             z_pct_val = z_to_pct(float(last_z))
             z_pct_str = f"{int(round(z_pct_val))}"
-            # 백분위 → 정수 점수 (-4~+4): (pct - 50) / 20 ≈ Z, round
-            z_score_int = max(-4, min(4, int(round((z_pct_val - 50) / 20))))
-            z_pct_color = momentum_to_color(z_score_int)
+            z_pct_color = momentum_pct_to_color(z_pct_val)
 
     # M 백분위 (숫자만) - 색은 종목 버튼과 동일
     m_pct_str = "—"
@@ -3464,14 +3198,10 @@ def render_position_tracker(
     cur_m_smooth = st.session_state.get(
         'ticker_momentum_smooth', {}
     ).get(selected_ticker)
-    cur_m_score_int = st.session_state.get(
-        'ticker_momentum_scores', {}
-    ).get(selected_ticker, 0)
     if cur_m_smooth is not None:
         m_pct_val = z_to_pct(float(cur_m_smooth))
         m_pct_str = f"{int(round(m_pct_val))}"
-        # M은 이미 정수 점수가 ticker_momentum_scores 에 있음
-        m_pct_color = momentum_to_color(cur_m_score_int)
+        m_pct_color = momentum_pct_to_color(m_pct_val)
 
     header_right = (
         f"<span style='font-size:0.7rem;color:#c9d1d9;'>"
@@ -3486,11 +3216,8 @@ def render_position_tracker(
         f"M {m_pct_str}</span>"
         f"</span>"
     )
-    # 종목명 색깔: 현재 모멘텀 점수 기반
-    cur_mom_score = st.session_state.get(
-        'ticker_momentum_scores', {}
-    ).get(selected_ticker, 0)
-    ticker_color = momentum_to_color(cur_mom_score)
+    # 종목명 색 = M 색 (종목 버튼과 동일 5단계)
+    ticker_color = m_pct_color
 
     header_html = (
         f"<div style='display:flex;justify-content:space-between;align-items:baseline;"
@@ -3500,19 +3227,6 @@ def render_position_tracker(
         f"{header_right}"
         f"</div>"
     )
-
-    # 회귀선 메트릭 HTML (있을 때만)
-    if trend_price and current_price:
-        trend_diff_pct = (trend_price / current_price - 1) * 100
-        trend_color = pnl_color(-trend_diff_pct)
-        trend_html = (
-            f"<div><div style='color:#c9d1d9;font-size:0.68rem;'>회귀선</div>"
-            f"<div style='font-weight:700;color:#ffffff;'>${trend_price:,.2f}"
-            f" <span style='font-size:0.7rem;color:{trend_color};'>"
-            f"{signed_str(trend_diff_pct, '{:.1f}')}%</span></div></div>"
-        )
-    else:
-        trend_html = ""
 
     ts = portfolio_state.get(selected_ticker)
 
@@ -3538,7 +3252,6 @@ def render_position_tracker(
         return
 
     cyc = ts['cycle']
-    cumulative_pnl = ts['cumulative_pnl']
     hold_qty = cyc['hold_qty']
     avg_price = cyc['buy_cost'] / cyc['buy_qty']
     is_closed = cyc['cycle_end'] is not None
@@ -3567,34 +3280,6 @@ def render_position_tracker(
     qty_html = (
         html_metric("보유수량", f"{hold_qty:,}주", color='#ffffff')
         if not is_closed else html_dash_cell("보유수량")
-    )
-    if not is_closed:
-        hold_days = (datetime.date.today() - cyc['cycle_start']).days
-        period_html = html_metric("보유기간", f"{hold_days}일", color='#ffffff')
-    else:
-        period_html = html_dash_cell("보유기간")
-
-    if is_closed:
-        pnl_dollar = cyc['current_pnl']
-        pnl_label = "실현손익"
-    else:
-        pnl_dollar = (current_price - avg_price) * hold_qty if current_price is not None else 0.0
-        pnl_label = "평가손익"
-    pnl_html = (
-        f"<div><div style='color:#c9d1d9;font-size:0.68rem;'>{pnl_label}</div>"
-        f"<div>{_fmt_pnl(pnl_dollar)}</div></div>"
-    )
-
-    # current_pnl이 None이 아니면(매도 한 번 이상 발생) 누적에 포함
-    has_realized_in_cycle = cyc['current_pnl'] is not None
-    total_realized = cumulative_pnl + (
-        cyc['current_pnl'] if has_realized_in_cycle else 0.0
-    )
-    has_cumulative = (cumulative_pnl != 0.0) or has_realized_in_cycle
-    cumulative_html = (
-        f"<div><div style='color:#c9d1d9;font-size:0.68rem;'>누적실현손익</div>"
-        f"<div>{_fmt_pnl(total_realized)}</div></div>"
-        if has_cumulative else html_dash_cell("누적실현손익")
     )
 
     # 카드: 검정 배경 (보유 유무 무관) + 보유 시 녹색 border로만 구분
@@ -3688,10 +3373,7 @@ def build_action_card_html(
     cur_sigma = _price_to_sigma(cur_price)
     cur_pct_bar, cur_outside = _sigma_to_pct(cur_sigma)
     avg_sigma = _price_to_sigma(avg_price) if avg_price else None
-    if avg_sigma is not None:
-        avg_pct_bar, avg_outside = _sigma_to_pct(avg_sigma)
-    else:
-        avg_pct_bar, avg_outside = None, False
+    avg_pct_bar = _sigma_to_pct(avg_sigma)[0] if avg_sigma is not None else None
 
     def _label_align(pct: float) -> tuple[str, str]:
         if pct < 20:
@@ -3721,7 +3403,7 @@ def build_action_card_html(
     for pos, lbl in sigma_marks:
         bar_html += (
             f"<div style='position:absolute;left:{pos}%;top:28px;"
-            f"transform:translateX(-50%);font-size:0.55rem;"
+            f"transform:translateX(-50%);font-size:0.62rem;"
             f"color:var(--text-muted);'>{lbl}</div>"
         )
     if avg_pct_bar is not None:
@@ -3752,9 +3434,9 @@ def build_action_card_html(
         else ""
     )
 
-    # ── 현재가 마커 색상 = 모멘텀 점수 (MACD-Z + RSI 만, Z 제외) ──
-    # 위치(σ)와 독립된 모멘텀 정보를 색으로 표시
-    cur_momentum_score = 0
+    # ── 현재가 마커 색상 = 모멘텀 (MACD + RSI, Z 제외) ──
+    # 위치(σ)와 독립된 모멘텀 정보를 색으로 표시 (종목 버튼과 동일 5단계)
+    cur_m_smooth = 0.0
     cur_signal = 'H'
     if ('MACD_Pct' in df_daily.columns and 'RSI' in df_daily.columns):
         last_macd_pct = df_daily['MACD_Pct'].iloc[-1]
@@ -3764,10 +3446,11 @@ def build_action_card_html(
         dmacd_pct_v = float(last_dmacd_pct) if pd.notna(last_dmacd_pct) else 0.0
         rsi_v = float(last_rsi) if pd.notna(last_rsi) else 50.0
         _mstd, _dstd = _last_m_stds(df_daily)
-        cur_momentum_score = compute_momentum_score(
+        cur_m_smooth = compute_momentum_score_smooth(
             macd_pct_v, dmacd_pct_v, rsi_v, _mstd, _dstd)
-        cur_signal = momentum_score_to_signal(cur_momentum_score)
-    marker_color = momentum_to_color(cur_momentum_score)
+        cur_signal = momentum_score_to_signal(
+            max(-CFG.SCORE_MAX, min(CFG.SCORE_MAX, int(round(cur_m_smooth)))))
+    marker_color = momentum_pct_to_color(z_to_pct(cur_m_smooth))
 
     # 현재가 ■ 사각형 마커 — 투명 + 신호색 굵은 테두리 + 검정 외곽선
     bar_html += (
@@ -3823,7 +3506,7 @@ def build_action_card_html(
                 f"title='{tooltip}'></div>"
                 # σ 라벨 (가장자리 — 눈금 라벨 아래)
                 f"<div style='position:absolute;left:{edge_pct:.1f}%;top:38px;"
-                f"transform:{tf};text-align:{lbl_align};font-size:0.55rem;"
+                f"transform:{tf};text-align:{lbl_align};font-size:0.62rem;"
                 f"color:{dark_color};font-weight:700;white-space:nowrap;"
                 f"opacity:{opacity:.2f};'>"
                 f"{arrow}{sigma_val:+.1f}σ</div>"
@@ -3964,48 +3647,48 @@ def build_action_card_html(
         lbl, p, sk, c = next_buy
         drop_pct = (p / cur_price - 1) * 100
         action_html += (
-            f"<div style='flex:1;background:var(--bg-subtle);padding:5px 7px;"
+            f"<div style='flex:1;background:#ffffff;padding:5px 7px;"
             f"border-radius:5px;border:1px solid #fecaca;'>"
-            f"<div style='color:var(--text-muted);font-size:0.58rem;'>다음 매수</div>"
+            f"<div style='color:#6b7280;font-size:0.62rem;'>다음 매수</div>"
             f"<div style='display:flex;align-items:baseline;gap:4px;'>"
             f"<span style='background:{c};color:#fff;padding:1px 4px;"
-            f"border-radius:3px;font-size:0.55rem;font-weight:700;'>{lbl}</span>"
+            f"border-radius:3px;font-size:0.62rem;font-weight:700;'>{lbl}</span>"
             f"<span style='font-weight:700;color:#111827;'>${p:,.2f}</span>"
             f"</div>"
-            f"<div style='color:#b91c1c;font-size:0.58rem;'>"
+            f"<div style='color:#b91c1c;font-size:0.62rem;'>"
             f"<b>{drop_pct:.1f}%</b> 더 하락 시</div>"
             f"</div>"
         )
     else:
         action_html += (
-            f"<div style='flex:1;background:var(--bg-subtle);padding:5px 7px;"
-            f"border-radius:5px;border:1px solid var(--border);'>"
-            f"<div style='color:var(--text-muted);font-size:0.58rem;'>다음 매수</div>"
-            f"<div style='color:var(--text-muted);font-size:0.65rem;'>-2σ보다 낮음</div>"
+            f"<div style='flex:1;background:#ffffff;padding:5px 7px;"
+            f"border-radius:5px;border:1px solid #d1d5db;'>"
+            f"<div style='color:#6b7280;font-size:0.62rem;'>다음 매수</div>"
+            f"<div style='color:#6b7280;font-size:0.65rem;'>-2σ보다 낮음</div>"
             f"</div>"
         )
     if next_sell:
         lbl, p, sk, c = next_sell
         rise_pct = (p / cur_price - 1) * 100
         action_html += (
-            f"<div style='flex:1;background:var(--bg-subtle);padding:5px 7px;"
+            f"<div style='flex:1;background:#ffffff;padding:5px 7px;"
             f"border-radius:5px;border:1px solid #bfdbfe;'>"
-            f"<div style='color:var(--text-muted);font-size:0.58rem;'>다음 익절</div>"
+            f"<div style='color:#6b7280;font-size:0.62rem;'>다음 익절</div>"
             f"<div style='display:flex;align-items:baseline;gap:4px;'>"
             f"<span style='background:{c};color:#fff;padding:1px 4px;"
-            f"border-radius:3px;font-size:0.55rem;font-weight:700;'>{lbl}</span>"
+            f"border-radius:3px;font-size:0.62rem;font-weight:700;'>{lbl}</span>"
             f"<span style='font-weight:700;color:#111827;'>${p:,.2f}</span>"
             f"</div>"
-            f"<div style='color:#1d4ed8;font-size:0.58rem;'>"
+            f"<div style='color:#1d4ed8;font-size:0.62rem;'>"
             f"<b>+{rise_pct:.1f}%</b> 상승 시</div>"
             f"</div>"
         )
     else:
         action_html += (
-            f"<div style='flex:1;background:var(--bg-subtle);padding:5px 7px;"
-            f"border-radius:5px;border:1px solid var(--border);'>"
-            f"<div style='color:var(--text-muted);font-size:0.58rem;'>다음 익절</div>"
-            f"<div style='color:var(--text-muted);font-size:0.65rem;'>+2σ보다 높음</div>"
+            f"<div style='flex:1;background:#ffffff;padding:5px 7px;"
+            f"border-radius:5px;border:1px solid #d1d5db;'>"
+            f"<div style='color:#6b7280;font-size:0.62rem;'>다음 익절</div>"
+            f"<div style='color:#6b7280;font-size:0.65rem;'>+2σ보다 높음</div>"
             f"</div>"
         )
     action_html += "</div></div>"
@@ -4038,191 +3721,11 @@ def build_action_card_html(
                 f"font-weight:600;'>{sub_action}</div>"
             )
 
-    return bar_html
+    return bar_html + interp_html + action_html + sub_html
 
 
 # ====================================================
-# 15-C. 탭2용 미니 그라디언트 바 빌더 (종목별 한눈에 보기)
-# ====================================================
-def build_mini_gradient_bar(
-    df_daily: pd.DataFrame,
-    selected_ticker: str,
-    cur_price: float,
-    avg_price: Optional[float],
-    beta: float,
-    std_resid: float,
-    trade_records: Optional[list] = None,
-    bar_height: int = 32,
-) -> Optional[str]:
-    """탭2용 컴팩트 그라디언트 바.
-    - σ 눈금 라벨 없음 (헤더에서 한번만 표시)
-    - 현재가 ■ 사각형 마커 (투명 + 신호색 테두리)
-    - 평균단가 ▪ 작은 사각형 마커 (빨강 채움, 보유 시)
-    - 사이클 매수/매도 마커 (작은 채움 점)
-    """
-    if 'Predicted' not in df_daily.columns:
-        return None
-    norm_col = f'{selected_ticker}_Norm'
-    if norm_col not in df_daily.columns:
-        return None
-    cur_predicted = float(df_daily['Predicted'].iloc[-1])
-    cur_norm_y = float(df_daily[norm_col].iloc[-1])
-    if cur_norm_y <= 0:
-        return None
-    trend_price = cur_price * (cur_predicted / cur_norm_y)
-
-    log_resid_series = (
-        np.log(df_daily[norm_col]) - np.log(df_daily['Predicted'])
-    ).dropna()
-    expanding_std = log_resid_series.expanding(
-        min_periods=CFG.EXPANDING_MIN_PERIODS
-    ).std().dropna()
-    if len(expanding_std) > 0:
-        sigma_unit = float(expanding_std.iloc[-1])
-        if sigma_unit <= 0 or not np.isfinite(sigma_unit):
-            sigma_unit = std_resid
-    else:
-        sigma_unit = std_resid
-
-    def _price_to_sigma(p: float) -> float:
-        if p <= 0 or trend_price <= 0:
-            return 0.0
-        return float(np.log(p / trend_price) / sigma_unit)
-
-    def _sigma_to_pct(sigma: float) -> tuple[float, bool]:
-        pct = (sigma + 3) / 6 * 100
-        is_outside = pct < 0 or pct > 100
-        return float(max(0, min(100, pct))), is_outside
-
-    cur_sigma = _price_to_sigma(cur_price)
-    cur_pct_bar, cur_outside = _sigma_to_pct(cur_sigma)
-
-    # ── 현재 모멘텀 점수 (MACD + RSI만, Z 제외) ──
-    cur_momentum_score = 0
-    cur_signal = 'H'
-    if ('MACD_Pct' in df_daily.columns and 'RSI' in df_daily.columns):
-        last_macd_pct = df_daily['MACD_Pct'].iloc[-1]
-        last_dmacd_pct = df_daily['dMACD_Pct'].iloc[-1]
-        last_rsi = df_daily['RSI'].iloc[-1]
-        macd_pct_v = float(last_macd_pct) if pd.notna(last_macd_pct) else 0.0
-        dmacd_pct_v = float(last_dmacd_pct) if pd.notna(last_dmacd_pct) else 0.0
-        rsi_v = float(last_rsi) if pd.notna(last_rsi) else 50.0
-        _mstd, _dstd = _last_m_stds(df_daily)
-        cur_momentum_score = compute_momentum_score(
-            macd_pct_v, dmacd_pct_v, rsi_v, _mstd, _dstd)
-        cur_signal = momentum_score_to_signal(cur_momentum_score)
-    marker_color = momentum_to_color(cur_momentum_score)
-
-    # ── bar HTML ──
-    # 컨테이너 높이 = bar_height; 그라디언트 두께 6px; 마커 14px
-    grad_top = (bar_height - 6) // 2  # 그라디언트 vertical center
-    marker_top = (bar_height - 14) // 2  # 마커 vertical center
-    # σ 세로선용: 그라디언트보다 약간 길게 (위아래 2px씩 더)
-    line_top = grad_top - 2
-    line_height = 6 + 4
-    bar_html = (
-        f"<div style='position:relative;height:{bar_height}px;"
-        f"width:100%;'>"
-        # 그라디언트
-        f"<div style='position:absolute;top:{grad_top}px;left:0;right:0;height:6px;"
-        f"border-radius:3px;"
-        f"background:linear-gradient(to right,"
-        f"#450a0a 0%,#7f1d1d 16.67%,#dc2626 25%,#fca5a5 33.33%,"
-        f"#e5e7eb 50%,"
-        f"#93c5fd 66.67%,#2563eb 75%,#1e3a8a 83.33%,#172554 100%);'></div>"
-    )
-    # σ 위치 세로선 (-3, -2, -1, 0(강조), +1, +2, +3)
-    sigma_marks = [
-        (0.00,    'rgba(255,255,255,0.5)', 1),   # -3σ
-        (16.67,   'rgba(255,255,255,0.5)', 1),   # -2σ
-        (33.33,   'rgba(255,255,255,0.5)', 1),   # -1σ
-        (50.00,   'rgba(255,255,255,0.9)', 2),   # 0σ (강조)
-        (66.67,   'rgba(255,255,255,0.5)', 1),   # +1σ
-        (83.33,   'rgba(255,255,255,0.5)', 1),   # +2σ
-        (100.00,  'rgba(255,255,255,0.5)', 1),   # +3σ
-    ]
-    for pos_pct, line_color, line_w in sigma_marks:
-        bar_html += (
-            f"<div style='position:absolute;left:{pos_pct:.2f}%;"
-            f"top:{line_top}px;width:{line_w}px;height:{line_height}px;"
-            f"background:{line_color};transform:translateX(-50%);"
-            f"z-index:1;'></div>"
-        )
-
-    # ── 사이클별 마커 (작게) ──
-    if trade_records:
-        cycle_list = compute_cycle_avg_prices(trade_records, df_daily=df_daily)
-        cycle_list = cycle_list[-5:]
-        n_cycles = len(cycle_list)
-        cyc_marker_top = (bar_height - 8) // 2
-
-        for i, cyc in enumerate(cycle_list):
-            opacity = 0.5 + 0.5 * ((i + 1) / max(n_cycles, 1))
-
-            if cyc.get('avg_buy_sigma') is not None:
-                sigma_val = float(cyc['avg_buy_sigma'])
-                pct, outside = _sigma_to_pct(sigma_val)
-                edge_pct = pct if not outside else (0 if sigma_val < -3 else 100)
-                bar_html += (
-                    f"<div style='position:absolute;left:{edge_pct:.1f}%;"
-                    f"top:{cyc_marker_top}px;"
-                    f"transform:translateX(-50%);width:8px;height:8px;"
-                    f"border-radius:50%;background:#dc2626;border:1.5px solid #fff;"
-                    f"box-shadow:0 0 0 1px #7f1d1d;"
-                    f"opacity:{opacity:.2f};z-index:2;cursor:help;' "
-                    f"title='사이클 {cyc['idx']} 매수 ${cyc['avg_buy']:.2f} "
-                    f"(당시 σ {sigma_val:+.2f})'></div>"
-                )
-
-            if (cyc.get('avg_sell_sigma') is not None
-                    and cyc['avg_sell'] is not None):
-                sigma_val = float(cyc['avg_sell_sigma'])
-                pct, outside = _sigma_to_pct(sigma_val)
-                edge_pct = pct if not outside else (0 if sigma_val < -3 else 100)
-                bar_html += (
-                    f"<div style='position:absolute;left:{edge_pct:.1f}%;"
-                    f"top:{cyc_marker_top}px;"
-                    f"transform:translateX(-50%);width:8px;height:8px;"
-                    f"border-radius:50%;background:#1d4ed8;border:1.5px solid #fff;"
-                    f"box-shadow:0 0 0 1px #1e3a8a;"
-                    f"opacity:{opacity:.2f};z-index:2;cursor:help;' "
-                    f"title='사이클 {cyc['idx']} 매도 ${cyc['avg_sell']:.2f} "
-                    f"(당시 σ {sigma_val:+.2f})'></div>"
-                )
-
-    # ── 평균단가 ● 마커 (보유 시) — 투명 + 굵은 회색 테두리 ──
-    if avg_price is not None and avg_price > 0:
-        avg_sigma_v = _price_to_sigma(avg_price)
-        avg_pct_v, avg_outside_v = _sigma_to_pct(avg_sigma_v)
-        avg_marker_top = (bar_height - 12) // 2
-        bar_html += (
-            f"<div style='position:absolute;left:{avg_pct_v:.1f}%;"
-            f"top:{avg_marker_top}px;"
-            f"transform:translateX(-50%);width:12px;height:12px;"
-            f"background:#dc2626;border:2px solid #fff;"
-            f"box-shadow:0 0 0 1px #7f1d1d,0 1px 2px rgba(0,0,0,0.3);"
-            f"z-index:2;cursor:help;' "
-            f"title='평균단가 ${avg_price:.2f} · {avg_sigma_v:+.2f}σ'></div>"
-        )
-
-    # ── 현재가 ■ 사각형 마커 — 투명 + 신호색 굵은 테두리 + 검정 외곽선 ──
-    cur_marker_top = (bar_height - 16) // 2
-    bar_html += (
-        f"<div style='position:absolute;left:{cur_pct_bar:.1f}%;top:{cur_marker_top}px;"
-        f"transform:translateX(-50%);width:16px;height:16px;"
-        f"background:transparent;border:2.5px solid {marker_color};"
-        f"outline:1px solid #000;"
-        f"box-shadow:inset 0 0 0 1px #000,0 1px 2px rgba(0,0,0,0.3);"
-        f"z-index:3;cursor:help;' "
-        f"title='현재가 ${cur_price:.2f} · 신호 {cur_signal} · {cur_sigma:+.2f}σ'></div>"
-    )
-
-    bar_html += "</div>"
-    return bar_html
-
-
-# ====================================================
-# 16. 분석 패널 (#1 사이클 통계 + #2 신호 백테스트 + #5 상관관계)
+# 16. 분석 패널 (지표 설명 + 매매 기록 입력 + 사이클 통계)
 # ====================================================
 def render_analytics_panel(
     selected_ticker: str,
@@ -4233,6 +3736,17 @@ def render_analytics_panel(
     std_resid: Optional[float] = None,
 ) -> None:
     """차트 아래 expander (세로 stack, 모바일 친화)."""
+
+    # ── 지표 설명 (모바일은 hover 툴팁이 없으므로 expander로 제공) ──
+    with st.expander("ℹ️ 지표 설명 (σ · β·SPY · Z · M)", expanded=False):
+        st.markdown(
+            "- **σ** : 회귀 잔차 1σ 변동성 (±%). 클수록 고변동 종목\n"
+            "- **β·SPY** : SPY 대비 로그회귀 슬로프. 장기 가격 관계의 민감도 (배수)\n"
+            "- **Z** : 추세선 대비 가격 위치 백분위 (0=극단 저평가 ~ 100=극단 고평가)\n"
+            "- **M** : 모멘텀 백분위 (MACD 높이 30% + 변곡 15% + RSI 55% 통합)\n"
+            "- 색 기준 (Z·M 공통): <20 강매수 🔴 / 20~40 약매수 / 40~60 중립 / "
+            "60~80 약매도 / ≥80 강매도 🔵"
+        )
 
     # 인증 가드: 비로그인 시 개인 정보 표시 안 함
     if not is_authenticated():
@@ -4372,15 +3886,6 @@ def render_overview_panel(
     seed_usd = get_seed_usd()
     seed_krw_man_approx = seed_usd * usd_krw / 10000
 
-    # 누적 실현손익 (USD)
-    net_real_usd = 0.0
-    for _tk, _ts in portfolio_state.items():
-        _cyc = _ts['cycle']
-        net_real_usd += _ts['cumulative_pnl'] + (
-            _cyc['current_pnl'] if _cyc['current_pnl'] is not None else 0.0
-        )
-    net_real_krw = net_real_usd * usd_krw
-    real_c = pnl_color(net_real_usd)
     # 종목별 실현손익 행 (카드 안에 통합)
     real_rows_inline = _build_realized_html(portfolio_state, usd_krw, show_header=False)
 
@@ -4394,6 +3899,21 @@ def render_overview_panel(
         ret_color = pnl_color(ret_pct)
         cur_value_krw = cur_value_usd * usd_krw
         pnl_krw = portfolio_pnl * usd_krw
+
+        # 드로다운 한 줄 (고점 대비 현재 / MDD)
+        dd_line_html = ""
+        if dd_info:
+            cur_dd = dd_info.get('current_dd', 0.0)
+            mdd = dd_info.get('mdd', 0.0)
+            mdd_date = dd_info.get('mdd_date')
+            mdd_date_str = f" ({mdd_date.strftime('%y.%m.%d')})" if mdd_date else ""
+            dd_line_html = (
+                f"<div style='margin-top:6px;font-size:0.72rem;color:#a4adb8;'>"
+                f"고점 대비 <span style='color:{dd_color(cur_dd)};font-weight:700;'>"
+                f"{cur_dd:.1f}%</span>"
+                f" · MDD <span style='color:{dd_color(mdd)};font-weight:700;'>"
+                f"{mdd:.1f}%</span>{mdd_date_str}</div>"
+            )
 
         st.markdown(
             f"<div style='background:#1c2128;border-radius:12px;"
@@ -4413,6 +3933,7 @@ def render_overview_panel(
             f"{signed_str(int(round(pnl_krw)), '{:,}')}원 "
             f"({signed_str(ret_pct, '{:.2f}')}%)</span>"
             f"</div>"
+            + dd_line_html
             + (
                 f"<div style='border-top:1px solid #30363d;margin-top:8px;"
                 f"padding-top:4px;font-size:0.6rem;color:#768390;"
@@ -4508,17 +4029,20 @@ def render_overview_panel(
                 height=200,
                 margin=dict(l=4, r=8, t=4, b=4),
                 xaxis=dict(showgrid=False, tickfont=dict(size=9),
-                           tickmode='array', tickvals=tick_vals_eq),
+                           tickmode='array', tickvals=tick_vals_eq,
+                           fixedrange=True),
                 yaxis=dict(showgrid=True, gridcolor='rgba(48,54,61,0.4)',
                            tickfont=dict(size=9),
                            ticksuffix='만원',
                            range=[y_lo - y_pad, y_hi + y_pad],
-                           zeroline=False),
+                           zeroline=False, fixedrange=True),
                 paper_bgcolor='#0d1117', plot_bgcolor='#161b22',
                 font=dict(color='#c9d1d9'),
+                dragmode=False,
             )
+            # staticPlot 해제 → hover로 날짜·금액 확인 가능 (축은 고정)
             st.plotly_chart(fig_eq, use_container_width=True,
-                            config={'displayModeBar': False, 'staticPlot': True})
+                            config={'displayModeBar': False})
 
     # 종목별 실현손익은 손익 종합 카드 안에 통합됨
 
@@ -4547,7 +4071,7 @@ def render_overview_panel(
                 )
 
                 jhtml = _build_journal_html(
-                    journal, {},
+                    journal,
                     show_ticker=(filter_ticker is None),
                     filter_ticker=filter_ticker,
                     title="📓 매매 일지" + (
@@ -4604,9 +4128,9 @@ def build_css(selected_option: str, holding_tickers: set) -> str:
         m_pct = z_to_pct(mom_smooth)
         bg = momentum_pct_to_color(m_pct)
         # 짙은 색이면 흰 글씨, 연한 색이면 진한 글씨
-        # 짙은: 7f1d1d, dc2626, 2563eb, 1e3a8a → 흰글씨
-        # 연한: fca5a5, 93c5fd, 9ca3af → 검은글씨
-        dark_bg = bg in ('#7f1d1d', '#dc2626', '#2563eb', '#1e3a8a')
+        # 짙은: 7f1d1d, dc2626, 2563eb, 1e3a8a, 6b7280(중립) → 흰글씨
+        # 연한: fca5a5, 93c5fd → 검은글씨
+        dark_bg = bg in ('#7f1d1d', '#dc2626', '#2563eb', '#1e3a8a', '#6b7280')
         fg = '#ffffff' if dark_bg else '#1a1a1a'
         k = f"ticker_btn_{safe_key(ticker)}"
         sel_extra = (
@@ -4851,7 +4375,7 @@ def build_css(selected_option: str, holding_tickers: set) -> str:
         margin: 0 !important;
     }}
     div.st-key-ticker_type_radio label p {{
-        font-size: 0.58rem !important;
+        font-size: 0.62rem !important;
     }}
     div.st-key-ticker_type_radio label > div:first-child {{
         transform: scale(0.7);
@@ -4946,46 +4470,24 @@ def build_css(selected_option: str, holding_tickers: set) -> str:
         {{ color:inherit!important; }}
     section[data-testid="stMain"] div[data-testid="stColumn"]:has([class*="st-key-ticker_btn_"]) button strong
         {{ font-weight:700!important; }}
-    /* 탭3 달력 네비 — 88px 첫 컬럼 룰 무력화 */
-    div.st-key-ov_cal_nav div[data-testid="stHorizontalBlock"] {{
-        gap:2px!important; flex-wrap:nowrap!important;
-    }}
-    div.st-key-ov_cal_nav div[data-testid="stHorizontalBlock"]
-        > div[data-testid="stColumn"] {{
-        flex:initial!important; min-width:0!important;
-        max-width:none!important; padding:0!important;
-    }}
-    div.st-key-ov_cal_nav div[data-testid="stHorizontalBlock"]
-        > div[data-testid="stColumn"]:first-child,
-    div.st-key-ov_cal_nav div[data-testid="stHorizontalBlock"]
-        > div[data-testid="stColumn"]:last-child {{
-        flex:0 0 60px!important; min-width:60px!important; max-width:60px!important;
-    }}
-    div.st-key-ov_cal_nav div[data-testid="stHorizontalBlock"]
-        > div[data-testid="stColumn"]:nth-child(2) {{
-        flex:1 1 auto!important;
-    }}
-    div.st-key-ov_cal_nav button {{
-        min-height:32px!important; padding:4px!important; font-size:0.85rem!important;
-    }}
-    /* 탭3 새로고침 행 — 88px 첫 컬럼 룰 무력화 */
-    div.st-key-ov_refresh_row div[data-testid="stHorizontalBlock"] {{
+    /* 탭2/탭3 새로고침 행 — 88px 첫 컬럼 룰 무력화 */
+    div[class*="st-key-refresh_row_"] div[data-testid="stHorizontalBlock"] {{
         gap:8px!important; flex-wrap:nowrap!important; margin-bottom:8px!important;
     }}
-    div.st-key-ov_refresh_row div[data-testid="stHorizontalBlock"]
+    div[class*="st-key-refresh_row_"] div[data-testid="stHorizontalBlock"]
         > div[data-testid="stColumn"] {{
         flex:initial!important; min-width:0!important;
         max-width:none!important; padding:0!important;
     }}
-    div.st-key-ov_refresh_row div[data-testid="stHorizontalBlock"]
+    div[class*="st-key-refresh_row_"] div[data-testid="stHorizontalBlock"]
         > div[data-testid="stColumn"]:first-child {{
         flex:0 0 120px!important; min-width:120px!important; max-width:120px!important;
     }}
-    div.st-key-ov_refresh_row div[data-testid="stHorizontalBlock"]
+    div[class*="st-key-refresh_row_"] div[data-testid="stHorizontalBlock"]
         > div[data-testid="stColumn"]:nth-child(2) {{
         flex:1 1 auto!important;
     }}
-    div.st-key-ov_refresh_row button {{
+    div[class*="st-key-refresh_row_"] button {{
         min-height:32px!important; padding:4px 8px!important;
         font-size:0.8rem!important;
     }}
@@ -5152,10 +4654,36 @@ def update_ticker_signals(df_close: pd.DataFrame, all_analyses: dict) -> dict[st
     return pct_changes
 
 
+def full_data_refresh() -> None:
+    """전체 데이터 강제 갱신 — st.cache_data + 세션 캐시 클리어 후 rerun."""
+    with st.spinner("데이터 갱신 중..."):
+        st.cache_data.clear()
+        # 세션 캐시(SPY/매매이력 종목)도 클리어 → 정규장 중 가격 고정 방지
+        for _k in ('extra_close_cache', '_extra_cache_key',
+                   '_extra_cache_ts', 'fetch_blacklist', 'df_close_last'):
+            st.session_state.pop(_k, None)
+        st.session_state['last_refresh'] = datetime.datetime.now(
+            datetime.timezone(datetime.timedelta(hours=9))   # KST (DST 없음)
+        ).strftime('%H:%M:%S')
+    st.rerun()
+
+
+def render_refresh_row(key_suffix: str) -> None:
+    """탭2/탭3 상단의 컴팩트 새로고침 행 (탭 이동 없이 갱신)."""
+    with st.container(key=f"refresh_row_{key_suffix}"):
+        c1, c2 = st.columns([1, 3])
+        with c1:
+            if st.button("🔄 새로고침", key=f"refresh_btn_{key_suffix}",
+                         use_container_width=True):
+                full_data_refresh()
+        with c2:
+            last_refresh = st.session_state.get('last_refresh')
+            if last_refresh:
+                st.caption(f"updated {last_refresh}")
+
+
 def main() -> None:
     init_session_state()
-    # 쿠키 토큰이 있으면 자동 로그인 (30일 유지)
-    try_auto_login_from_cookie()
 
     # ── 저장된 사용자 종목 리스트로 갱신 (Gist/로컬) ──
     loaded_tickers = load_target_tickers()
@@ -5272,6 +4800,14 @@ def main() -> None:
         unsafe_allow_html=True,
     )
 
+    # 기준일 시뮬레이션 활성 시 — 설정 탭까지 가지 않고 바로 해제
+    if _asof_str:
+        if st.button("📅 기준일 해제 (현재 시점으로)", key="asof_clear_btn"):
+            st.session_state.pop('use_asof_chk', None)
+            st.session_state['use_asof'] = False
+            st.session_state['as_of_date'] = None
+            st.rerun()
+
     # ── 탭 컨테이너 생성 (탭4 = 설정, 사이드바 대체) ──
     tab1, tab2, tab3, tab4 = st.tabs([
         "📊 종목 분석", "🗺️ 종목 비교", "💼 포트폴리오", "⚙️ 설정"
@@ -5335,40 +4871,39 @@ def main() -> None:
     # 사용자 분석 시작일 (표시 마스킹용)
     st.session_state['_display_analysis_start'] = analysis_start
 
-    with st.spinner("데이터 로드 중..."):
+    # ── 데이터 로드 + 분석 (스피너 하나로 통합 — 연쇄 spinner 깜빡임 방지) ──
+    with st.spinner("데이터 로드 및 분석 중..."):
         df_close = fetch_all_data(TARGET_TICKERS, fetch_start, candle_type)
 
-    if selected_ticker and f'{selected_ticker}_Close' not in df_close.columns:
-        with st.spinner(f"{selected_ticker} 데이터를 불러오는 중..."):
+        if selected_ticker and f'{selected_ticker}_Close' not in df_close.columns:
             df_custom = fetch_single_ticker(selected_ticker, fetch_start)
-        if not df_custom.empty:
-            if candle_type == '주봉':
-                df_custom = _resample_weekly(df_custom)
-            df_close = pd.concat([df_close, df_custom], axis=1).ffill()
-            # 주말/비거래일 필터 (fetch_all_data와 동일)
-            if candle_type == '일봉':
-                df_close = _filter_trading_days(df_close)
-        else:
-            log.warning(f"Custom ticker fetch empty: {selected_ticker}")
-            selected_ticker = None
+            if not df_custom.empty:
+                if candle_type == '주봉':
+                    df_custom = _resample_weekly(df_custom)
+                df_close = pd.concat([df_close, df_custom], axis=1).ffill()
+                # 주말/비거래일 필터 (fetch_all_data와 동일)
+                if candle_type == '일봉':
+                    df_close = _filter_trading_days(df_close)
+            else:
+                log.warning(f"Custom ticker fetch empty: {selected_ticker}")
+                selected_ticker = None
 
-    # 매매 이력 종목 + SPY 추가 fetch
-    df_close = append_history_and_spy(
-        df_close, st.session_state.trade_history, analysis_start, candle_type,
-    )
+        # 매매 이력 종목 + SPY 추가 fetch
+        df_close = append_history_and_spy(
+            df_close, st.session_state.trade_history, analysis_start, candle_type,
+        )
 
-    # mkt는 페이지 헤더에서 이미 호출됨 (기준일 시뮬레이션 시 종료일은 asof_end_date)
-    last_trading_date = asof_end_date
-    if not df_close.empty:
-        # 종료일 이후 데이터 컷 (일봉이거나 기준일 시뮬레이션 시)
-        # → 슬라이싱 후 df_close_last를 잡아야 현재가/평가금액이 기준일 시점으로 반영됨
-        if candle_type == '일봉' or _as_of:
-            df_close = df_close[df_close.index <= last_trading_date]
-    if not df_close.empty:
-        st.session_state.last_data_date = df_close.index[-1].strftime('%Y-%m-%d')
-        st.session_state['df_close_last'] = df_close.iloc[-1].to_dict()
+        # mkt는 페이지 헤더에서 이미 호출됨 (기준일 시뮬레이션 시 종료일은 asof_end_date)
+        last_trading_date = asof_end_date
+        if not df_close.empty:
+            # 종료일 이후 데이터 컷 (일봉이거나 기준일 시뮬레이션 시)
+            # → 슬라이싱 후 df_close_last를 잡아야 현재가/평가금액이 기준일 시점으로 반영됨
+            if candle_type == '일봉' or _as_of:
+                df_close = df_close[df_close.index <= last_trading_date]
+        if not df_close.empty:
+            st.session_state.last_data_date = df_close.index[-1].strftime('%Y-%m-%d')
+            st.session_state['df_close_last'] = df_close.iloc[-1].to_dict()
 
-    with st.spinner("전체 종목 분석 중..."):
         # 매매 기록 종목도 분석에 포함 (현재 리스트에 없는 종목도)
         history_tickers = tuple(sorted(st.session_state.trade_history.keys()))
         all_analyses = compute_all_analyses(
@@ -5530,17 +5065,7 @@ def main() -> None:
                     st.session_state.custom_ticker_input = new_val
                     st.rerun()
             if st.button("🔄 refresh", key="full_refresh_btn", use_container_width=True):
-                with st.spinner("데이터 갱신 중..."):
-                    st.cache_data.clear()
-                    # 세션 캐시(SPY/매매이력 종목)도 클리어 → 정규장 중 가격 고정 방지
-                    for _k in ('extra_close_cache', '_extra_cache_key',
-                               '_extra_cache_ts', 'fetch_blacklist',
-                               'df_close_last'):
-                        st.session_state.pop(_k, None)
-                    st.session_state['last_refresh'] = datetime.datetime.now(
-                        datetime.timezone(datetime.timedelta(hours=9))
-                    ).strftime('%H:%M:%S')
-                st.rerun()
+                full_data_refresh()
             last_refresh = st.session_state.get('last_refresh')
             if last_refresh:
                 st.markdown(
@@ -5556,6 +5081,24 @@ def main() -> None:
                     selected_ticker, df_daily, df_close, portfolio_state, beta, std_resid,
                     phase='top',
                 )
+                # ── ±3σ 위치 바 + 액션 카드 (다음 매수/익절 트리거) ──
+                # 매매 기록 전체 전달 (사이클별 평균 매수/매도가 표시용)
+                trade_records = st.session_state.trade_history.get(selected_ticker, [])
+                ts_sel = portfolio_state.get(selected_ticker)
+                avg_price_sel = None
+                if (ts_sel and ts_sel['cycle']['hold_qty'] > 0
+                        and ts_sel['cycle']['buy_qty'] > 0):
+                    avg_price_sel = (
+                        ts_sel['cycle']['buy_cost'] / ts_sel['cycle']['buy_qty']
+                    )
+                _cur_close = df_daily[f'{selected_ticker}_Close'].iloc[-1]
+                if pd.notna(_cur_close) and float(_cur_close) > 0:
+                    card_html = build_action_card_html(
+                        df_daily, selected_ticker, float(_cur_close),
+                        avg_price_sel, beta, std_resid, trade_records,
+                    )
+                    if card_html:
+                        st.markdown(card_html, unsafe_allow_html=True)
                 with st.spinner("캔들 데이터 로드 중..."):
                     df_ohlc = fetch_ohlc(selected_ticker, fetch_start, candle_type)
                 df_daily_raw = None
@@ -5571,8 +5114,6 @@ def main() -> None:
                             )
                             if result_raw[0] is not None:
                                 df_daily_raw = result_raw[0]
-                # 매매 기록 전체 전달 (사이클별 평균 매수/매도가 표시용)
-                trade_records = st.session_state.trade_history.get(selected_ticker, [])
                 # 표시용 마스킹: 사용자 분석 시작일 이전 (warmup) 데이터 제외
                 display_start = st.session_state.get('_display_analysis_start', analysis_start)
                 try:
@@ -5628,6 +5169,7 @@ def main() -> None:
     # 탭 2: 한눈에 보기 (풀폭 22개 종목 미니바 리스트)
     # ====================================================
     with tab2:
+        render_refresh_row('tab2')
         # ── 정렬 컨트롤 ──
         sort_options = ['종목', '현재가', '일', '주', 'Z', 'M', '전고']
         sc1, sc2 = st.columns([2, 1])
@@ -5698,10 +5240,7 @@ def main() -> None:
             'Z': 'z', 'M': 'm', '전고': 'high',
         }
         sf = sort_field_map[sort_col]
-        if sf == 'ticker':
-            table_data.sort(key=lambda r: r[sf], reverse=sort_desc)
-        else:
-            table_data.sort(key=lambda r: r[sf], reverse=sort_desc)
+        table_data.sort(key=lambda r: r[sf], reverse=sort_desc)
 
         rows_html = []
         for r in table_data:
@@ -5753,6 +5292,7 @@ def main() -> None:
             f"</table>",
             unsafe_allow_html=True,
         )
+        st.caption("정렬은 상단 선택상자 기준 · ▲▼ = 현재 정렬 컬럼 (헤더 클릭 아님)")
 
         # ── Z·M 백분위 산점도 (현재 위치) ──
         st.markdown(
@@ -5767,8 +5307,8 @@ def main() -> None:
             zm_xs.append(r['z'])
             zm_ys.append(r['m'])
             zm_texts.append(r['ticker'])
-            mom_int = st.session_state.ticker_momentum_scores.get(r['ticker'], 0)
-            zm_colors.append(momentum_to_color(int(round(mom_int))))
+            # 점 색 = M 백분위 5단계 (종목 버튼과 동일)
+            zm_colors.append(momentum_pct_to_color(r['m']))
 
         if zm_xs:
             fig_zm = go.Figure()
@@ -5807,18 +5347,20 @@ def main() -> None:
                                font=dict(size=10, color='#c9d1d9')),
                     range=[-5, 105], showgrid=True,
                     gridcolor='rgba(48,54,61,0.4)',
-                    tickfont=dict(size=9),
+                    tickfont=dict(size=9), fixedrange=True,
                 ),
                 yaxis=dict(
                     title=dict(text='M (모멘텀 0~100)',
                                font=dict(size=10, color='#c9d1d9')),
                     range=[-5, 105], showgrid=True,
                     gridcolor='rgba(48,54,61,0.4)',
-                    tickfont=dict(size=9),
+                    tickfont=dict(size=9), fixedrange=True,
                 ),
+                dragmode=False,
             )
+            # staticPlot 해제 → 점 hover로 종목·Z·M 확인 가능
             st.plotly_chart(fig_zm, use_container_width=True,
-                            config={'displayModeBar': False, 'staticPlot': True})
+                            config={'displayModeBar': False})
             st.caption(
                 "X=Z(가격 위치), Y=M(모멘텀) · Q1↑↑=강세 / Q3↓↓=약세 · 임계선 10/50/90"
             )
@@ -5893,10 +5435,10 @@ def main() -> None:
             sigma_med = float(np.median(sigma_vals))
             beta_med = float(np.median(beta_vals))
 
-            # 색: 탭1 버튼과 동일 — 모멘텀 점수 기반 (구분의 유일한 차원)
-            mom_scores_map = st.session_state.get('ticker_momentum_scores', {})
+            # 색: 탭1 버튼과 동일 — M 백분위 5단계 (구분의 유일한 차원)
+            mom_smooth_map = st.session_state.get('ticker_momentum_smooth', {})
             colors = [
-                momentum_to_color(mom_scores_map.get(d['ticker'], 0))
+                momentum_pct_to_color(z_to_pct(mom_smooth_map.get(d['ticker'], 0.0)))
                 for d in scatter_data
             ]
 
@@ -5995,6 +5537,7 @@ def main() -> None:
                     range=[beta_min, beta_max],
                     ticksuffix='×',
                     zeroline=True, zerolinecolor='#8b949e', zerolinewidth=1.2,
+                    fixedrange=True,
                 ),
                 yaxis=dict(
                     title=dict(text='σ% (변동성)',
@@ -6004,12 +5547,14 @@ def main() -> None:
                     tickfont=dict(size=9, color='#c9d1d9'),
                     range=[np.log10(sigma_log_min), np.log10(sigma_log_max)],
                     ticksuffix='%',
+                    fixedrange=True,
                 ),
                 paper_bgcolor='#0d1117', plot_bgcolor='#161b22',
                 font=dict(color='#c9d1d9'),
+                dragmode=False,
             )
             st.plotly_chart(fig_sc, use_container_width=True,
-                            config={'displayModeBar': False, 'staticPlot': True})
+                            config={'displayModeBar': False})
 
             st.caption(
                 "■ 점 색=모멘텀 점수 (탭1 버튼과 동일) · 점선=중앙값"
@@ -6019,18 +5564,8 @@ def main() -> None:
     # 탭 3: 전체 통계 (시드/실현/비중/달력/자산추이)
     # ====================================================
     with tab3:
-        if not is_authenticated():
-            st.markdown(
-                "<div style='padding:32px 16px;text-align:center;color:var(--text-secondary);'>"
-                "<div style='font-size:2rem;margin-bottom:8px;'>🔒</div>"
-                "<div style='font-weight:600;color:var(--text-primary);margin-bottom:4px;'>"
-                "포트폴리오 정보는 로그인 후 표시됩니다</div>"
-                "<div style='font-size:0.8rem;'>"
-                "⚙️ 설정 탭에서 로그인하세요</div>"
-                "</div>",
-                unsafe_allow_html=True,
-            )
-        else:
+        if is_authenticated():
+            render_refresh_row('tab3')
             render_overview_panel(portfolio_state, df_close, all_analyses)
 
     st.markdown("<div style='height:80px;'></div>", unsafe_allow_html=True)
