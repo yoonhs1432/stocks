@@ -4236,7 +4236,7 @@ def main() -> None:
             f"white-space:nowrap;font-weight:700;'>{text}</span>"
         )
 
-    # ── SPY 배지 — 일간 등락률 (색/이모지 = 시장 체제, 상세는 툴팁) ──
+    # ── SPY 배지 — 6개월 등락률 (색/이모지 = 시장 체제, 상세는 툴팁) ──
     _reg = get_market_regime(_asof_str)
     _reg_meta = {
         'bull':       ('🟢', '강세',   '#16a34a'),
@@ -4248,10 +4248,10 @@ def main() -> None:
     _emoji, _label, _bg = _reg_meta.get(_reg['regime'], _reg_meta['unknown'])
     _ret_1d = _reg.get('spy_ret_1d')
     _ret_6m = _reg.get('spy_ret_6m')
-    _spy_txt = f"SPY {_ret_1d*100:+.1f}%" if _ret_1d is not None else "SPY —"
+    _spy_txt = f"SPY(6M) {_ret_6m*100:+.1f}%" if _ret_6m is not None else "SPY(6M) —"
     _reg_tip = f"시장 체제: {_label}"
-    if _ret_6m is not None:
-        _reg_tip += f" · 6M {_ret_6m*100:+.1f}%"
+    if _ret_1d is not None:
+        _reg_tip += f" · 일간 {_ret_1d*100:+.1f}%"
     if _reg.get('spy_above_sma200') is not None:
         _reg_tip += f" · SMA200 {'위' if _reg['spy_above_sma200'] else '아래'}"
     _regime_badge = _badge(f"{_emoji} {_spy_txt}", _bg, _reg_tip)
