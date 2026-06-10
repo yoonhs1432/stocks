@@ -34,6 +34,13 @@
 - 중립색 `MOM_HOLD` #9ca3af → #6b7280 (약매수 연빨강과 구분, 버튼 흰 글씨)
 - 탭2 표 캡션: 정렬은 selectbox 기준임을 명시
 
+### 헤더 배지 (2차 수정)
+- fdr 실패 시 **Yahoo chart API 직접 fallback** (`_yahoo_closes`, query1/query2) — requirements 변경으로
+  환경 재빌드되며 fdr 최신 버전의 VIX/^TNX/SPY fetch가 깨져 숫자가 사라졌던 문제 대응
+- 배지는 **항상 제목 아래 별도 행** (1행 제목+장상태 / 2행 배지)
+- SPY 배지: `🟢 SPY +1.2%` (일간 등락률) — 체제 라벨·6M 수익률·SMA200 위치는 툴팁으로 이동
+- `get_market_regime` 반환에 `spy_ret_1d`, `spy_above_sma200` 추가
+
 ### 주의
 - `momentum_to_color`는 삭제됨 — M 색은 반드시 `momentum_pct_to_color(z_to_pct(smooth))` 경유
 - `ticker_momentum_scores`(정수)는 **정렬용으로만** 사용 (색 아님)

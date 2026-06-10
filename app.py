@@ -573,9 +573,40 @@ def get_market_status() -> dict:
     }
 
 
+def _yahoo_closes(symbol: str, range_: str = '1y') -> Optional[pd.Series]:
+    """Yahoo chart API 직접 호출 (키 불필요) — fdr 실패 시 fallback.
+
+    fdr(finance-datareader)은 야후 스크래핑 기반이라 버전/시기에 따라
+    특정 심볼(^VIX, ^TNX 등)이 깨질 수 있음. 이 함수가 안전망.
+    """
+    for host in ('query1.finance.yahoo.com', 'query2.finance.yahoo.com'):
+        try:
+            resp = requests.get(
+                f"https://{host}/v8/finance/chart/{symbol}",
+                params={'range': range_, 'interval': '1d'},
+                headers={'User-Agent': 'Mozilla/5.0'},
+                timeout=CFG.HTTP_TIMEOUT_SEC,
+            )
+            if not resp.ok:
+                log.warning(f"yahoo fallback HTTP {resp.status_code}: {symbol} ({host})")
+                continue
+            result = resp.json()['chart']['result'][0]
+            ts = result.get('timestamp') or []
+            closes = result['indicators']['quote'][0].get('close') or []
+            if not ts or not closes:
+                continue
+            s = pd.Series(closes, index=pd.to_datetime(ts, unit='s')).dropna()
+            if not s.empty:
+                return s
+        except Exception as e:
+            log.warning(f"yahoo fallback failed {symbol} ({host}): {e}")
+            continue
+    return None
+
+
 @st.cache_data(ttl=3600, show_spinner=False)
 def get_market_regime(end_date_str: Optional[str] = None) -> dict:
-    """SPY 기준 시장 체제(regime) 판정.
+    """SPY 기준 시장 체제(regime) 판정 + 일간 등락률.
 
     판정 기준:
     - 🟢 강세: 종가 > SMA200 AND 6M 수익률 > +5%
@@ -589,20 +620,31 @@ def get_market_regime(end_date_str: Optional[str] = None) -> dict:
     end = pd.Timestamp(end_date_str) if end_date_str else pd.Timestamp.today()
     # 200일 SMA + 6M 수익률 둘 다 커버하기 위해 500일 캘린더 fetch
     start = end - pd.Timedelta(days=500)
+    spy_close: Optional[pd.Series] = None
     try:
         spy = fdr.DataReader(
             'SPY', start.strftime('%Y-%m-%d'), end.strftime('%Y-%m-%d')
         )
+        if spy is not None and not spy.empty and 'Close' in spy.columns:
+            spy_close = spy['Close'].dropna()
     except Exception as e:
-        log.warning(f"get_market_regime fetch fail: {e}")
-        return {'regime': 'unknown', 'spy_ret_6m': None}
-    if spy.empty or len(spy) < 200:
-        return {'regime': 'unknown', 'spy_ret_6m': None}
-    close = float(spy['Close'].iloc[-1])
-    sma200 = float(spy['Close'].rolling(200).mean().iloc[-1])
+        log.warning(f"get_market_regime fdr fail: {e}")
+    if spy_close is None or len(spy_close) < 200:
+        # fdr 실패/데이터 부족 → Yahoo 직접 fallback
+        s = _yahoo_closes('SPY', range_='2y')
+        if s is not None:
+            spy_close = s[s.index <= end]
+    if spy_close is None or len(spy_close) < 200:
+        return {'regime': 'unknown', 'spy_ret_6m': None, 'spy_ret_1d': None}
+    close = float(spy_close.iloc[-1])
+    sma200 = float(spy_close.rolling(200).mean().iloc[-1])
     ret_6m = (
-        close / float(spy['Close'].iloc[-126]) - 1
-        if len(spy) >= 126 else None
+        close / float(spy_close.iloc[-126]) - 1
+        if len(spy_close) >= 126 else None
+    )
+    ret_1d = (
+        close / float(spy_close.iloc[-2]) - 1
+        if len(spy_close) >= 2 and float(spy_close.iloc[-2]) > 0 else None
     )
     above_sma = close > sma200
     if ret_6m is None:
@@ -618,8 +660,10 @@ def get_market_regime(end_date_str: Optional[str] = None) -> dict:
     return {
         'regime':     regime,
         'spy_ret_6m': ret_6m,
+        'spy_ret_1d': ret_1d,
         'spy_close':  close,
         'spy_sma200': sma200,
+        'spy_above_sma200': above_sma,
     }
 
 
@@ -635,8 +679,9 @@ def get_macro_indicators(end_date_str: Optional[str] = None) -> dict:
     start = (end - pd.Timedelta(days=14)).strftime('%Y-%m-%d')
     end_s = end.strftime('%Y-%m-%d')
 
-    def _last_close(symbols: list[str]) -> Optional[float]:
-        for sym in symbols:
+    def _last_close(fdr_symbols: list[str], yahoo_symbols: list[str]) -> Optional[float]:
+        # 1차: fdr (복수 심볼 시도)
+        for sym in fdr_symbols:
             try:
                 d = fdr.DataReader(sym, start, end_s)
                 if d is not None and not d.empty and 'Close' in d.columns:
@@ -645,18 +690,25 @@ def get_macro_indicators(end_date_str: Optional[str] = None) -> dict:
                         return val
             except Exception:
                 continue
+        # 2차: Yahoo chart API 직접 (fdr 버전 이슈 안전망)
+        for sym in yahoo_symbols:
+            s = _yahoo_closes(sym, range_='1y')
+            if s is not None:
+                s = s[s.index <= end]   # 기준일 시뮬레이션 지원
+                if not s.empty:
+                    return float(s.iloc[-1])
         return None
 
-    vix = _last_close(['VIX', '^VIX'])
+    vix = _last_close(['VIX', '^VIX'], ['^VIX'])
     # US 10Y: 심볼/소스에 따라 단위가 다름 (% 또는 basis points×10)
     # 값이 50 초과면 비정상 → /10 정규화
-    us10y = _last_close(['^TNX', 'US10YT=X', 'US10Y', 'TNX'])
+    us10y = _last_close(['^TNX', 'US10YT=X', 'US10Y', 'TNX'], ['^TNX'])
     if us10y is not None and us10y > 50:
         us10y = us10y / 10.0
     return {
         'vix':    vix,
         'us10y':  us10y,
-        'usdkrw': _last_close(['USD/KRW']),
+        'usdkrw': _last_close(['USD/KRW'], ['KRW=X']),
     }
 
 
@@ -4177,7 +4229,14 @@ def main() -> None:
             f"padding:1px 7px;border-radius:8px;white-space:nowrap;font-weight:700;'>"
             f"📅 기준일 {st.session_state['asof_input']}</span>"
         )
-    # ── 시장 체제(regime) 배지 — SPY SMA200 + 6M 수익률 기준 ──
+    def _badge(text: str, bg: str, tooltip: str) -> str:
+        return (
+            f"<span title='{tooltip}' style='font-size:10px;color:#fff;"
+            f"background:{bg};padding:1px 7px;border-radius:8px;"
+            f"white-space:nowrap;font-weight:700;'>{text}</span>"
+        )
+
+    # ── SPY 배지 — 일간 등락률 (색/이모지 = 시장 체제, 상세는 툴팁) ──
     _reg = get_market_regime(_asof_str)
     _reg_meta = {
         'bull':       ('🟢', '강세',   '#16a34a'),
@@ -4187,24 +4246,18 @@ def main() -> None:
         'unknown':    ('⚫', '체제미상', '#4b5563'),
     }
     _emoji, _label, _bg = _reg_meta.get(_reg['regime'], _reg_meta['unknown'])
-    _ret = _reg.get('spy_ret_6m')
-    _ret_txt = f"&nbsp;·&nbsp;SPY {_ret*100:+.1f}% (6M)" if _ret is not None else ""
-    _regime_badge = (
-        f"<span title='SPY 최근 6개월 수익률 + 200일 이평선 비교로 판정' "
-        f"style='font-size:10px;color:#fff;background:{_bg};"
-        f"padding:1px 7px;border-radius:8px;white-space:nowrap;font-weight:700;'>"
-        f"{_emoji} {_label}{_ret_txt}</span>"
-    )
+    _ret_1d = _reg.get('spy_ret_1d')
+    _ret_6m = _reg.get('spy_ret_6m')
+    _spy_txt = f"SPY {_ret_1d*100:+.1f}%" if _ret_1d is not None else "SPY —"
+    _reg_tip = f"시장 체제: {_label}"
+    if _ret_6m is not None:
+        _reg_tip += f" · 6M {_ret_6m*100:+.1f}%"
+    if _reg.get('spy_above_sma200') is not None:
+        _reg_tip += f" · SMA200 {'위' if _reg['spy_above_sma200'] else '아래'}"
+    _regime_badge = _badge(f"{_emoji} {_spy_txt}", _bg, _reg_tip)
 
     # ── 거시 지표 배지 (VIX · US 10Y · USD/KRW) ──
     _macro = get_macro_indicators(_asof_str)
-
-    def _badge(text: str, bg: str, tooltip: str) -> str:
-        return (
-            f"<span title='{tooltip}' style='font-size:10px;color:#fff;"
-            f"background:{bg};padding:1px 7px;border-radius:8px;"
-            f"white-space:nowrap;font-weight:700;'>{text}</span>"
-        )
 
     # VIX 색 임계: <15 차분(녹) / 15-20 정상(회) / 20-30 불안(주) / ≥30 공포(빨)
     _vix = _macro.get('vix')
@@ -4241,16 +4294,21 @@ def main() -> None:
     else:
         _krw_badge = _badge(f"₩ {_krw:,.0f}", '#374151', 'USD/KRW 환율')
 
+    # 1행: 제목 + 장 상태 / 2행: 배지 (항상 제목 아래 고정)
     st.markdown(
-        f"<div style='display:flex;align-items:center;gap:8px;flex-wrap:wrap;"
-        f"margin-bottom:6px;padding-bottom:1px;'>"
+        f"<div style='margin-bottom:6px;'>"
+        f"<div style='display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;'>"
         f"<b style='font-size:1.15rem;white-space:nowrap;color:#f0f6fc;'>📊 퀀트 대시보드</b>"
         f"<span style='font-size:10px;color:#adbac7;white-space:nowrap;'>{data_lbl}</span>"
+        f"</div>"
+        f"<div style='display:flex;align-items:center;gap:6px;flex-wrap:wrap;"
+        f"margin-top:4px;'>"
         f"{_regime_badge}"
         f"{_vix_badge}"
         f"{_y10_badge}"
         f"{_krw_badge}"
-        f"{_asof_badge}</div>",
+        f"{_asof_badge}"
+        f"</div></div>",
         unsafe_allow_html=True,
     )
 
