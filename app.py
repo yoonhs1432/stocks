@@ -2716,7 +2716,7 @@ def render_chart(
             # ── Z + 모멘텀 패널 (백분위 0~100 척도) ──
             # Z 라인 (검정), 모멘텀 라인 (주황) — 동일 Y축
             # 변환: z_to_pct(z) = (z + 2.5) / 5 * 100, clip 0~100
-            # 임계: 10 (강매수) / 30 (약매수) / 50 (중립) / 70 (약매도) / 90 (강매도)
+            # 임계: 20/40/60/80 (M 색 구간과 통일)
             z_raw = df_daily[col_name].fillna(0)
 
             # 모멘텀 점수 시계열 (raw Z 척도) — 공통 공식 사용
@@ -2729,31 +2729,25 @@ def render_chart(
                 index=df_daily.index,
             )
 
-            # ── 임계 수평선 (0~100 척도) ──
-            for y_val, lc, ld, lw in [
-                (90,   '#dc2626', 'solid', 0.7),   # 강 매도 (Z+2)
-                (70,   '#fca5a5', 'dot',   0.6),   # 약 매도 (Z+1)
-                (50,   '#8b949e', 'solid', 0.5),   # 중립 (Z=0)
-                (30,   '#93c5fd', 'dot',   0.6),   # 약 매수 (Z-1)
-                (10,   '#2563eb', 'solid', 0.7),   # 강 매수 (Z-2)
-            ]:
+            # ── 임계 수평선 — M 5단계(20/40/60/80) 흰색 점선, 그래프2와 동일 ──
+            for y_val in (20, 40, 60, 80):
                 fig.add_trace(go.Scatter(
                     x=[df_daily.index[0], df_daily.index[-1]],
                     y=[y_val, y_val],
                     mode='lines',
-                    line=dict(color=lc, width=lw, dash=ld),
+                    line=dict(color='#ffffff', width=0.6, dash='dot'),
                     hoverinfo='skip', showlegend=False,
                 ), row=row, col=1)
 
-            # ── 면적: Z > 70 (Z+1σ↑) 빨강만 ──
+            # ── 면적: Z > 80 (강매도권) 빨강만 ──
             fig.add_trace(go.Scatter(
-                x=df_daily.index, y=[70]*len(df_daily),
+                x=df_daily.index, y=[80]*len(df_daily),
                 mode='lines', line=dict(color='rgba(0,0,0,0)', width=0),
                 hoverinfo='skip', showlegend=False,
             ), row=row, col=1)
             fig.add_trace(go.Scatter(
                 x=df_daily.index,
-                y=z_series.where(z_series > 70, other=70),
+                y=z_series.where(z_series > 80, other=80),
                 mode='lines', line=dict(color='rgba(0,0,0,0)', width=0),
                 fill='tonexty', fillcolor='rgba(248,81,73,0.25)',
                 hoverinfo='skip', showlegend=False,
@@ -5715,8 +5709,9 @@ def main() -> None:
             cur = r['cur']; day_pct = r['day']; week_pct = r['week']
             z_pct = r['z']; m_pct = r['m']; from_high = r['high']
 
-            z_c = '#2563eb' if z_pct >= 70 else '#dc2626' if z_pct <= 30 else '#a4adb8'
-            m_c = '#2563eb' if m_pct >= 70 else '#dc2626' if m_pct <= 30 else '#a4adb8'
+            # 임계: M 버튼 색과 동일한 20/80 기준
+            z_c = '#2563eb' if z_pct >= 80 else '#dc2626' if z_pct <= 20 else '#a4adb8'
+            m_c = '#2563eb' if m_pct >= 80 else '#dc2626' if m_pct <= 20 else '#a4adb8'
             high_c = '#dc2626' if from_high >= -3 else '#a4adb8' if from_high >= -15 else '#2563eb'
 
             star = "★" if r['is_holding'] else ""
