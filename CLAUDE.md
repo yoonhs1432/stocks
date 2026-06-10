@@ -1,9 +1,12 @@
 # Quant Trading Dashboard (stocks)
 
+> **새 세션 시작 시 `SESSION_NOTES.md`를 먼저 읽을 것** — 직전 세션의 구현 내역·주의사항·미적용 아이디어 핸드오프 문서.
+
 ## Project structure
 - `app.py`: Streamlit 메인 앱 (단일 파일 유지)
 - `requirements.txt`: Python 의존성
 - `trade_history.json`: 거래 기록
+- `SESSION_NOTES.md`: 세션 간 작업 핸드오프 (큰 작업 후 갱신)
 - `.devcontainer/`: Streamlit Cloud 배포 설정
 
 ## Coding conventions
