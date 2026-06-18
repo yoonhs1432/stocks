@@ -1,5 +1,6 @@
 package com.quant.dashboard.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -12,14 +13,17 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -31,93 +35,94 @@ import com.quant.dashboard.ui.theme.TextPrimary
 import com.quant.dashboard.ui.theme.TextSecondary
 import com.quant.dashboard.ui.theme.pctColor
 import com.quant.dashboard.ui.theme.signalColor
-import androidx.compose.foundation.background
 
-private val SIGNAL_LABEL = mapOf(
+val SIGNAL_LABEL = mapOf(
     "strong_buy" to "강한 매수", "buy" to "매수", "hold" to "중립",
     "sell" to "매도", "strong_sell" to "강한 매도",
 )
+
+private val PERIODS = listOf("1개월" to 1, "2개월" to 2, "4개월" to 4, "1년" to 12)
 
 @Composable
 fun AnalysisScreen(vm: AnalysisViewModel = viewModel()) {
     val s = vm.state
     var menuOpen by remember { mutableStateOf(false) }
+    var periodMonths by remember { mutableStateOf(2) }
 
-    // 최초 1회 로드
-    androidx.compose.runtime.LaunchedEffect(Unit) {
-        if (s.result == null && !s.loading) vm.load()
-    }
+    LaunchedEffect(Unit) { if (s.result == null && !s.loading) vm.load() }
 
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(BgApp)
-            .verticalScroll(rememberScrollState())
-            .padding(12.dp),
+        modifier = Modifier.fillMaxSize().background(BgApp)
+            .verticalScroll(rememberScrollState()).padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Text("📊 퀀트 대시보드", color = TextPrimary, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-
-        // 종목 선택 + 새로고침
         Row(verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = { menuOpen = true }) {
-                Text("${Tickers.displayName(s.ticker)} ▾")
-            }
+            Button(onClick = { menuOpen = true }) { Text("${Tickers.displayName(s.ticker)} ▾") }
             DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                 Tickers.DEFAULT.forEach { tk ->
-                    DropdownMenuItem(
-                        text = { Text(Tickers.displayName(tk)) },
-                        onClick = { menuOpen = false; vm.select(tk) },
-                    )
+                    DropdownMenuItem(text = { Text(Tickers.displayName(tk)) },
+                        onClick = { menuOpen = false; vm.select(tk) })
                 }
             }
             Button(onClick = { vm.refresh() }) { Text("🔄") }
         }
 
+        // 조회 기간 선택
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            PERIODS.forEach { (label, m) ->
+                FilterChip(selected = periodMonths == m, onClick = { periodMonths = m },
+                    label = { Text(label, fontSize = 12.sp) })
+            }
+        }
+
         when {
-            s.loading -> Row(
-                modifier = Modifier.fillMaxWidth().padding(24.dp),
-                horizontalArrangement = Arrangement.Center,
-            ) { CircularProgressIndicator() }
-
+            s.loading -> Row(Modifier.fillMaxWidth().padding(24.dp), Arrangement.Center) {
+                CircularProgressIndicator()
+            }
             s.error != null -> Text("⚠️ ${s.error}", color = signalColor("strong_sell"))
-
-            s.result != null -> ResultView(s.result)
+            s.result != null -> ResultView(s.result, periodMonths)
         }
     }
 }
 
 @Composable
-private fun ResultView(r: Quant.Result) {
-    // 요약 행
-    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        Text("$${"%,.2f".format(r.lastPrice)}", color = TextPrimary,
-            fontSize = 22.sp, fontWeight = FontWeight.Bold)
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Metric("β·SPY", "%.2f×".format(r.beta))
-            Metric("σ", "±%.0f%%".format(r.sigmaPct))
-            Metric("Z", "%.0f".format(r.lastZpct), pctColor(r.lastZpct))
-            Metric("M", "%.0f".format(r.lastMpct), pctColor(r.lastMpct))
-        }
-        Text(
-            "신호: ${SIGNAL_LABEL[r.signal] ?: r.signal}",
-            color = signalColor(r.signal), fontWeight = FontWeight.Bold, fontSize = 15.sp,
-        )
+private fun ResultView(r: Quant.Result, periodMonths: Int) {
+    // 요약
+    Text("$${"%,.2f".format(r.lastPrice)}", color = TextPrimary, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+    Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+        Metric("β·SPY", "%.2f×".format(r.beta))
+        Metric("σ", "±%.0f%%".format(r.sigmaPct))
+        Metric("Z", "%.0f".format(r.lastZpct), pctColor(r.lastZpct))
+        Metric("M", "%.0f".format(r.lastMpct), pctColor(r.lastMpct))
     }
+    Text("신호: ${SIGNAL_LABEL[r.signal] ?: r.signal}",
+        color = signalColor(r.signal), fontWeight = FontWeight.Bold, fontSize = 15.sp)
+
+    // 기간 윈도우 슬라이싱
+    val n = r.dates.size
+    val cutoff = r.dates[n - 1] - periodMonths.toLong() * 30 * 86400
+    var start = 0
+    while (start < n - 2 && r.dates[start] < cutoff) start++
+    val base = r.price[0]   // norm → $ 환산 기준 (전체 시작가)
+    fun seg(a: DoubleArray) = a.copyOfRange(start, n)
+    fun segDollar(a: DoubleArray) = DoubleArray(n - start) { a[start + it] * base }
+    val dates = r.dates.copyOfRange(start, n)
 
     Text("가격 · 회귀선 · ±1.5σ", color = TextSecondary, fontSize = 12.sp)
-    PriceChart(r.price, r.predicted, r.bandUpper, r.bandLower, r.tickerNorm)
+    PriceChart(segDollar(r.tickerNorm), segDollar(r.predicted), segDollar(r.bandUpper), segDollar(r.bandLower))
 
-    Text("Z(흰) · M(주황)  — 20/40/60/80", color = TextSecondary, fontSize = 12.sp)
-    ZmChart(r.zPct, r.mPct)
+    Text("Z(흰) · M(주황) — 20/40/60/80", color = TextSecondary, fontSize = 12.sp)
+    ZmChart(seg(r.zPct), seg(r.mPct))
 
     Text("RSI — 30/70", color = TextSecondary, fontSize = 12.sp)
-    RsiChart(r.rsi)
+    RsiChart(seg(r.rsi))
+
+    DateAxis(dates)
 }
 
 @Composable
-private fun Metric(label: String, value: String, valueColor: androidx.compose.ui.graphics.Color = TextPrimary) {
+fun Metric(label: String, value: String, valueColor: Color = TextPrimary) {
     Column {
         Text(label, color = TextSecondary, fontSize = 11.sp)
         Text(value, color = valueColor, fontWeight = FontWeight.Bold, fontSize = 15.sp)
