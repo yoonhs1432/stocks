@@ -1,0 +1,57 @@
+name: Android Build
+
+# push마다 클라우드에서 디버그 APK 빌드 → artifact + 'android-latest' 릴리스에 첨부.
+# 폰 브라우저로 릴리스 페이지에서 APK 내려받아 설치 (PC 불필요).
+
+on:
+  push:
+    branches: [ claude/android-native ]
+    paths:
+      - 'android/**'
+      - '.github/workflows/android.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Build debug APK
+        working-directory: android
+        run: gradle assembleDebug --no-daemon --stacktrace
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: quant-dashboard-debug
+          path: android/app/build/outputs/apk/debug/*.apk
+
+      - name: Publish to rolling release
+        if: github.ref == 'refs/heads/claude/android-native'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: android-latest
+          name: "Android 최신 빌드 (debug)"
+          prerelease: true
+          files: android/app/build/outputs/apk/debug/*.apk
+          body: |
+            갤럭시에서 이 APK를 받아 설치하세요 (출처 불명 앱 설치 허용 필요).
+            매 push 마다 자동 갱신되는 디버그 빌드입니다.
