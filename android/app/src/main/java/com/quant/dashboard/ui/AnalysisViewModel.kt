@@ -2,6 +2,7 @@ package com.quant.dashboard.ui
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.quant.dashboard.data.Store
 import com.quant.dashboard.data.Tickers
 import com.quant.dashboard.data.Yahoo
 import com.quant.dashboard.quant.Quant
@@ -20,7 +21,9 @@ data class UiState(
 )
 
 class AnalysisViewModel : ViewModel() {
-    var state by mutableStateOf(UiState())
+    var state by mutableStateOf(
+        UiState(ticker = Store.loadTickers().firstOrNull() ?: Tickers.DEFAULT.first())
+    )
         private set
 
     // SPY 시세는 종목 간 재사용 (캐시)

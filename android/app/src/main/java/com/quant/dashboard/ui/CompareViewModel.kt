@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.quant.dashboard.data.Store
 import com.quant.dashboard.data.Tickers
 import com.quant.dashboard.data.Yahoo
 import com.quant.dashboard.quant.Quant
@@ -50,7 +51,7 @@ class CompareViewModel : ViewModel() {
             val rows = withContext(Dispatchers.IO) {
                 val spy = Yahoo.closes(Tickers.BASE)
                 if (spy.isEmpty()) return@withContext null
-                Tickers.DEFAULT.map { tk ->
+                Store.loadTickers().map { tk ->
                     async {
                         val r = Quant.analyze(spy, Yahoo.closes(tk)) ?: return@async null
                         val p = r.price; val m = p.size

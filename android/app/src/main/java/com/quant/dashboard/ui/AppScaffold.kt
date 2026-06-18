@@ -46,16 +46,9 @@ fun AppScaffold() {
             when (tab) {
                 0 -> AnalysisScreen()
                 1 -> CompareScreen()
-                2 -> Stub("💼 포트폴리오", "매매 기록·보유·자산추이 — 다음 업데이트")
-                else -> Stub("⚙️ 설정", "종목 추가/삭제·매매기록 입력 — 다음 업데이트")
+                2 -> PortfolioScreen()
+                else -> SettingsScreen()
             }
         }
-    }
-}
-
-@Composable
-private fun Stub(title: String, sub: String) {
-    Box(Modifier.fillMaxSize().background(BgApp), contentAlignment = Alignment.Center) {
-        Text("$title\n\n$sub", color = TextSecondary, fontSize = 14.sp)
     }
 }

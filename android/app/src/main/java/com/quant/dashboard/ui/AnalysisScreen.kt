@@ -14,7 +14,9 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -28,13 +30,17 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.quant.dashboard.data.Store
 import com.quant.dashboard.data.Tickers
+import com.quant.dashboard.data.Trade
 import com.quant.dashboard.quant.Quant
 import com.quant.dashboard.ui.theme.BgApp
+import com.quant.dashboard.ui.theme.Loss
 import com.quant.dashboard.ui.theme.TextPrimary
 import com.quant.dashboard.ui.theme.TextSecondary
 import com.quant.dashboard.ui.theme.pctColor
 import com.quant.dashboard.ui.theme.signalColor
+import java.time.LocalDate
 
 val SIGNAL_LABEL = mapOf(
     "strong_buy" to "강한 매수", "buy" to "매수", "hold" to "중립",
@@ -60,7 +66,7 @@ fun AnalysisScreen(vm: AnalysisViewModel = viewModel()) {
             horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = { menuOpen = true }) { Text("${Tickers.displayName(s.ticker)} ▾") }
             DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                Tickers.DEFAULT.forEach { tk ->
+                Store.loadTickers().forEach { tk ->
                     DropdownMenuItem(text = { Text(Tickers.displayName(tk)) },
                         onClick = { menuOpen = false; vm.select(tk) })
                 }
@@ -68,7 +74,6 @@ fun AnalysisScreen(vm: AnalysisViewModel = viewModel()) {
             Button(onClick = { vm.refresh() }) { Text("🔄") }
         }
 
-        // 조회 기간 선택
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             PERIODS.forEach { (label, m) ->
                 FilterChip(selected = periodMonths == m, onClick = { periodMonths = m },
@@ -83,12 +88,13 @@ fun AnalysisScreen(vm: AnalysisViewModel = viewModel()) {
             s.error != null -> Text("⚠️ ${s.error}", color = signalColor("strong_sell"))
             s.result != null -> ResultView(s.result, periodMonths)
         }
+
+        TradeSection(s.ticker)
     }
 }
 
 @Composable
 private fun ResultView(r: Quant.Result, periodMonths: Int) {
-    // 요약
     Text("$${"%,.2f".format(r.lastPrice)}", color = TextPrimary, fontSize = 22.sp, fontWeight = FontWeight.Bold)
     Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
         Metric("β·SPY", "%.2f×".format(r.beta))
@@ -99,12 +105,11 @@ private fun ResultView(r: Quant.Result, periodMonths: Int) {
     Text("신호: ${SIGNAL_LABEL[r.signal] ?: r.signal}",
         color = signalColor(r.signal), fontWeight = FontWeight.Bold, fontSize = 15.sp)
 
-    // 기간 윈도우 슬라이싱
     val n = r.dates.size
     val cutoff = r.dates[n - 1] - periodMonths.toLong() * 30 * 86400
     var start = 0
     while (start < n - 2 && r.dates[start] < cutoff) start++
-    val base = r.price[0]   // norm → $ 환산 기준 (전체 시작가)
+    val base = r.price[0]
     fun seg(a: DoubleArray) = a.copyOfRange(start, n)
     fun segDollar(a: DoubleArray) = DoubleArray(n - start) { a[start + it] * base }
     val dates = r.dates.copyOfRange(start, n)
@@ -126,5 +131,60 @@ fun Metric(label: String, value: String, valueColor: Color = TextPrimary) {
     Column {
         Text(label, color = TextSecondary, fontSize = 11.sp)
         Text(value, color = valueColor, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+    }
+}
+
+@Composable
+private fun TradeSection(ticker: String) {
+    var refresh by remember { mutableStateOf(0) }
+    val trades = remember(ticker, refresh) { Store.loadTrades()[ticker].orEmpty() }
+    var type by remember { mutableStateOf("buy") }
+    var qty by remember { mutableStateOf("") }
+    var price by remember { mutableStateOf("") }
+    var date by remember { mutableStateOf(LocalDate.now().toString()) }
+    var memo by remember { mutableStateOf("") }
+    var err by remember { mutableStateOf<String?>(null) }
+
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text("📝 매매 기록 — ${Tickers.displayName(ticker)}",
+            color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            FilterChip(selected = type == "buy", onClick = { type = "buy" },
+                label = { Text("매수") })
+            FilterChip(selected = type == "sell", onClick = { type = "sell" },
+                label = { Text("매도") })
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            OutlinedTextField(date, { date = it }, label = { Text("날짜") },
+                singleLine = true, modifier = Modifier.weight(1.4f))
+            OutlinedTextField(qty, { qty = it }, label = { Text("수량") },
+                singleLine = true, modifier = Modifier.weight(1f))
+            OutlinedTextField(price, { price = it }, label = { Text("단가$") },
+                singleLine = true, modifier = Modifier.weight(1f))
+        }
+        OutlinedTextField(memo, { memo = it }, label = { Text("메모 (선택)") },
+            singleLine = true, modifier = Modifier.fillMaxWidth())
+        Button(onClick = {
+            val q = qty.toIntOrNull()
+            val p = price.toDoubleOrNull()
+            if (q == null || q <= 0 || p == null || p <= 0) {
+                err = "수량·단가를 올바르게 입력하세요"
+            } else {
+                Store.addTrade(ticker, Trade(date.trim(), type, q, p, memo.ifBlank { null }))
+                qty = ""; price = ""; memo = ""; err = null; refresh++
+            }
+        }) { Text("저장") }
+        err?.let { Text(it, color = Loss, fontSize = 12.sp) }
+
+        trades.forEachIndexed { i, t ->
+            Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
+                Text("${t.date}  ${if (t.type == "buy") "▲" else "▼"} ${t.qty}주 @$${"%.2f".format(t.price)}",
+                    color = TextSecondary, fontSize = 12.sp)
+                TextButton(onClick = { Store.deleteTrade(ticker, i); refresh++ }) {
+                    Text("삭제", color = Loss, fontSize = 12.sp)
+                }
+            }
+        }
     }
 }

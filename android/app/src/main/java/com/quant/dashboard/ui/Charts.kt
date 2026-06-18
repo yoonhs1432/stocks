@@ -124,6 +124,28 @@ fun RsiChart(rsi: DoubleArray, modifier: Modifier = Modifier) {
     }
 }
 
+/** 자산추이(누적손익 $) 라인 + 0 기준선. */
+@Composable
+fun EquityChart(values: DoubleArray, modifier: Modifier = Modifier) {
+    val n = values.size
+    if (n < 2) return
+    var lo = values.minNaN(); var hi = values.maxNaN()
+    if (lo > 0) lo = 0.0
+    if (hi < 0) hi = 0.0
+    if (hi <= lo) hi = lo + 1.0
+    val pad = (hi - lo) * 0.08
+    lo -= pad; hi += pad
+    Canvas(modifier = modifier.fillMaxWidth().height(140.dp)) {
+        fun xAt(i: Int) = size.width * i / (n - 1)
+        fun yAt(v: Double) = (size.height * (1 - (v - lo) / (hi - lo))).toFloat()
+        val y0 = yAt(0.0)
+        drawLine(Color(0x55FFFFFF), Offset(0f, y0), Offset(size.width, y0), 1f)
+        poly(values, ::xAt, ::yAt, Color(0xFFF85149), 2f)
+        label("$%,.0f".format(hi), 6f, 24f, 0xFFADBAC7.toInt(), 22f)
+        label("$%,.0f".format(lo), 6f, size.height - 8f, 0xFFADBAC7.toInt(), 22f)
+    }
+}
+
 /** 차트 하단 공통 X축 날짜 라벨 (start · mid · end). */
 @Composable
 fun DateAxis(datesEpochSec: LongArray, modifier: Modifier = Modifier) {
