@@ -24,15 +24,19 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.quant.dashboard.ui.theme.BgApp
 import com.quant.dashboard.ui.theme.Loss
-import com.quant.dashboard.ui.theme.Neutral
 import com.quant.dashboard.data.Tickers
-import com.quant.dashboard.ui.theme.Profit
 import com.quant.dashboard.ui.theme.TextPrimary
 import com.quant.dashboard.ui.theme.TextSecondary
 import com.quant.dashboard.ui.theme.pctColor
 
+// app.py _pn: 상승=빨강 / 하락=파랑 / 0=회색(#a4adb8)
+private val TableGray = Color(0xFFA4ADB8)
 private fun pnColor(v: Double) = when {
-    v > 0 -> Profit; v < 0 -> Loss; else -> Neutral
+    v > 0 -> Color(0xFFDC2626); v < 0 -> Color(0xFF2563EB); else -> TableGray
+}
+// app.py 비교표 Z/M 색: ≥80 파랑(매도) / ≤20 빨강(매수) / 그 외 회색
+private fun zmCellColor(pct: Double) = when {
+    pct >= 80 -> Color(0xFF2563EB); pct <= 20 -> Color(0xFFDC2626); else -> TableGray
 }
 
 @Composable
@@ -69,10 +73,10 @@ fun CompareScreen(vm: CompareViewModel = viewModel()) {
                         Cell(Tickers.priceLabel(r.ticker, r.price), 2f, TextPrimary)
                         Cell(signed(r.day), 1.4f, pnColor(r.day))
                         Cell(signed(r.week), 1.4f, pnColor(r.week))
-                        Cell("%.0f".format(r.zPct), 1f, pctColor(r.zPct))
-                        Cell("%.0f".format(r.mPct), 1f, pctColor(r.mPct))
+                        Cell("%.0f".format(r.zPct), 1f, zmCellColor(r.zPct))
+                        Cell("%.0f".format(r.mPct), 1f, zmCellColor(r.mPct))
                         Cell("%.1f%%".format(r.fromHigh), 1.6f,
-                            if (r.fromHigh >= -3) Profit else if (r.fromHigh >= -15) Neutral else Loss)
+                            if (r.fromHigh >= -3) Color(0xFFDC2626) else if (r.fromHigh >= -15) TableGray else Color(0xFF2563EB))
                     }
                 }
                 Text("헤더를 눌러 정렬 · 색: 매수=빨강 / 매도=파랑",
@@ -88,7 +92,7 @@ fun CompareScreen(vm: CompareViewModel = viewModel()) {
                     points = s.rows.map { ScatterPt(it.zPct, it.mPct, it.name, pctColor(it.mPct)) },
                     xMin = -5.0, xMax = 105.0, yMin = -5.0, yMax = 105.0,
                     vLines = zmLines, hLines = zmLines,
-                    xAxisLabel = "Z->", yAxisLabel = "M^", labelTopCenter = true, height = 360.dp,
+                    xAxisLabel = "Z (가격 위치 0~100)", yAxisLabel = "M (모멘텀 0~100)", labelTopCenter = true, height = 360.dp,
                 )
                 Text("X=Z(가격 위치), Y=M(모멘텀) · Q1↑↑=강세 / Q3↓↓=약세 · 임계선 10/50/90",
                     color = TextSecondary, fontSize = 11.sp)
@@ -110,7 +114,7 @@ fun CompareScreen(vm: CompareViewModel = viewModel()) {
                     yLog = true,
                     vLines = listOf(GridLine(medB, Color(0x88E5E7EB), 1.2f), GridLine(0.0, Color(0x99768390), 1.2f)),
                     hLines = listOf(GridLine(medS, Color(0x88E5E7EB), 1.2f)),
-                    xAxisLabel = "β x", yAxisLabel = "σ% (log)", height = 360.dp,
+                    xAxisLabel = "β", yAxisLabel = "σ% (변동성)", height = 360.dp,
                 )
                 Text("X=β·SPY · Y=σ%(로그) · 색=모멘텀 · 점선=중앙값",
                     color = TextSecondary, fontSize = 11.sp)
