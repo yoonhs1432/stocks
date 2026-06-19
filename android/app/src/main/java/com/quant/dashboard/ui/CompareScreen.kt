@@ -64,7 +64,8 @@ fun CompareScreen(vm: CompareViewModel = viewModel()) {
                 }
                 vm.sorted().forEach { r ->
                     Row(Modifier.fillMaxWidth()) {
-                        Cell(r.name, 2.2f, TextPrimary, TextAlign.Start, FontWeight.SemiBold)
+                        Cell((if (r.holding) "★" else if (r.hasHistory) "☆" else "") + r.name,
+                            2.2f, TextPrimary, TextAlign.Start, FontWeight.SemiBold)
                         Cell(Tickers.priceLabel(r.ticker, r.price), 2f, TextPrimary)
                         Cell(signed(r.day), 1.4f, pnColor(r.day))
                         Cell(signed(r.week), 1.4f, pnColor(r.week))

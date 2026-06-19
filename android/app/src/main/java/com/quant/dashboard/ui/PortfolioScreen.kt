@@ -1,6 +1,7 @@
 package com.quant.dashboard.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -15,6 +16,10 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -34,6 +39,21 @@ import com.quant.dashboard.ui.theme.TextPrimary
 import com.quant.dashboard.ui.theme.TextSecondary
 
 private fun pc(v: Double) = if (v > 0) Profit else if (v < 0) Loss else Neutral
+
+/** 자산추이 누적손익을 일/주/월 단위로 리샘플 (각 버킷의 마지막 값). equity는 시간 오름차순. */
+private fun resampleEquity(equity: List<Pair<Long, Double>>, unit: String): List<Double> {
+    if (unit == "일") return equity.map { it.second }
+    val buckets = LinkedHashMap<Long, Double>()
+    for ((sec, v) in equity) {
+        val day = sec / 86400L
+        val key = if (unit == "주") day / 7 else {
+            val d = java.time.Instant.ofEpochSecond(sec).atZone(java.time.ZoneOffset.UTC).toLocalDate()
+            d.year * 12L + d.monthValue
+        }
+        buckets[key] = v
+    }
+    return buckets.values.toList()
+}
 private fun won(usd: Double, rate: Double) =
     (if (usd >= 0) "+" else "-") + "%,.0f원".format(kotlin.math.abs(usd * rate))
 private fun wonAbs(usd: Double, rate: Double) = "%,.0f원".format(usd * rate)
@@ -97,7 +117,11 @@ private fun ResultBody(r: Portfolio.Result, rate: Double) {
         Text(wonAbs(total, rate), color = TextPrimary, fontSize = 20.sp, fontWeight = FontWeight.Bold)
         Text("${won(r.totalPnl, rate)} (${if (retPct >= 0) "+" else ""}${"%.2f".format(retPct)}%)",
             color = pc(r.totalPnl), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-        Text("고점대비 ${"%.1f".format(r.currentDd)}% · MDD ${"%.1f".format(r.mdd)}%",
+        val mddDateStr = r.mddDate?.let {
+            java.time.Instant.ofEpochSecond(it).atZone(java.time.ZoneOffset.UTC).toLocalDate().toString()
+        }
+        Text("고점대비 ${"%.1f".format(r.currentDd)}% · MDD ${"%.1f".format(r.mdd)}%" +
+            (mddDateStr?.let { " ($it)" } ?: ""),
             color = TextSecondary, fontSize = 12.sp)
         if (r.realized.isNotEmpty()) {
             Text("종목별 실현손익", color = TextSecondary, fontSize = 11.sp, modifier = Modifier.padding(top = 4.dp))
@@ -110,10 +134,20 @@ private fun ResultBody(r: Portfolio.Result, rate: Double) {
         }
     }
 
-    // ── 자산 추이 (만원) ──
+    // ── 자산 추이 (만원, 일/주/월 단위) ──
     if (r.equity.size >= 2) {
-        Text("자산 추이 (누적손익, 만원)", color = TextSecondary, fontSize = 12.sp)
-        EquityChart(r.equity.map { it.second * rate / 10000.0 }.toDoubleArray(), unit = "만원")
+        var unit by remember { mutableStateOf("일") }
+        Row(verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("자산 추이 (누적손익, 만원)", color = TextSecondary, fontSize = 12.sp)
+            listOf("일", "주", "월").forEach { u ->
+                Text(u, color = if (unit == u) TextPrimary else TextSecondary,
+                    fontSize = 12.sp, fontWeight = if (unit == u) FontWeight.Bold else FontWeight.Normal,
+                    modifier = Modifier.clickable { unit = u })
+            }
+        }
+        val series = resampleEquity(r.equity, unit).map { it * rate / 10000.0 }.toDoubleArray()
+        EquityChart(series, unit = "만원")
     }
 
     // ── 사이클 통계 ──
@@ -130,6 +164,34 @@ private fun ResultBody(r: Portfolio.Result, rate: Double) {
                     "${st.count}회 · 승률 ${st.winRate.toInt()}% · PF $pf · 평균 ${if (st.avgRet >= 0) "+" else ""}${"%.1f".format(st.avgRet)}% · ${st.avgHoldDays.toInt()}일",
                     color = TextSecondary, fontSize = 12.sp,
                 )
+            }
+        }
+    }
+
+    TradeJournal()
+}
+
+/** 📒 매매 일지 — 전 종목 매매 기록을 시간순(최신)으로 나열. */
+@Composable
+private fun TradeJournal() {
+    data class Entry(val date: String, val name: String, val type: String, val qty: Int, val price: Double, val memo: String?)
+    val entries = remember {
+        Store.loadTrades().flatMap { (tk, list) ->
+            list.map { Entry(it.date, Tickers.displayName(tk), it.type, it.qty, it.price, it.memo) }
+        }.sortedByDescending { it.date }
+    }
+    if (entries.isEmpty()) return
+    var open by remember { mutableStateOf(false) }
+    Text("📒 매매 일지 (${entries.size}건) ${if (open) "▲" else "▼"}",
+        color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold,
+        modifier = Modifier.fillMaxWidth().clickable { open = !open })
+    if (open) {
+        entries.forEach { e ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("${e.date}  ${e.name}", color = TextSecondary, fontSize = 12.sp, modifier = Modifier.weight(1f))
+                Text("${if (e.type == "buy") "▲매수" else "▼매도"} ${e.qty}@$${"%.2f".format(e.price)}" +
+                    (e.memo?.let { "  · $it" } ?: ""),
+                    color = if (e.type == "buy") Profit else Loss, fontSize = 12.sp)
             }
         }
     }

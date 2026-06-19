@@ -87,6 +87,31 @@ object Portfolio {
         )
     }
 
+    data class CycleProgress(val heldDays: Long, val curRetPct: Double, val avgCost: Double)
+
+    /** 현재 진행 중 사이클(보유 중)의 보유일수·평가수익률. 미보유면 null. */
+    fun currentCycleProgress(
+        trades: List<Trade>, lastPrice: Double,
+        asOfDay: Long = LocalDate.now().toEpochDay(),
+    ): CycleProgress? {
+        val sorted = trades.filter { it.qty > 0 && it.price > 0 }.sortedBy { it.date }
+        var holdQty = 0; var startDay: Long? = null
+        for (r in sorted) {
+            val day = parseDay(r.date) ?: continue
+            if (r.type == "buy") {
+                if (holdQty == 0) startDay = day
+                holdQty += r.qty
+            } else if (r.type == "sell" && holdQty > 0) {
+                holdQty = maxOf(holdQty - r.qty, 0)
+                if (holdQty == 0) startDay = null
+            }
+        }
+        val pos = position(trades) ?: return null
+        val sd = startDay ?: return null
+        val ret = if (pos.avg > 0) (lastPrice / pos.avg - 1) * 100 else 0.0
+        return CycleProgress(maxOf(asOfDay - sd, 0), ret, pos.avg)
+    }
+
     /** 매매 기록 → 현재 사이클 + 누적 실현손익 (resolve_all_cycles). */
     private fun resolve(trades: List<Trade>): Cyc {
         val sorted = trades.filter { it.qty > 0 && it.price > 0 }.sortedBy { it.date }
