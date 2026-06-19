@@ -135,6 +135,26 @@ private fun DrawScope.star(cx: Float, cy: Float, rOuter: Float) {
     drawPath(p, Color.Black, style = Stroke(1.5f))
 }
 
+/** 로그축 1-2-5 눈금 시퀀스 (범위 [lo,hi] 내). */
+private fun log125(lo: Double, hi: Double): List<Double> {
+    if (lo <= 0 || hi <= lo) return emptyList()
+    val out = ArrayList<Double>()
+    var e = Math.floor(Math.log10(lo)).toInt()
+    while (e <= 9) {
+        val dec = Math.pow(10.0, e.toDouble())
+        for (m in intArrayOf(1, 2, 5)) {
+            val v = m * dec
+            if (v in lo..hi) out.add(v)
+        }
+        if (dec > hi) break
+        e++
+    }
+    return out
+}
+
+private fun fmt125(v: Double): String =
+    if (v >= 1) "%.0f".format(v) else if (v >= 0.1) "%.1f".format(v) else "%.2f".format(v)
+
 /** 임계값 위쪽 면적 채움 (Z>80, RSI>70 등). */
 private fun DrawScope.fillAbove(data: DoubleArray, threshold: Double, xAt: (Int) -> Float, yAt: (Double) -> Float, color: Color) {
     val n = data.size
@@ -218,12 +238,19 @@ fun RegressionScatter(
         // 현재 위치 ★ (별표)
         val li = n - 1
         if (spyNorm[li] > 0 && tickerNorm[li] > 0) star(sx(spyNorm[li]), sy(tickerNorm[li]), 11f)
-        // 축 숫자 (정규화값) — y 좌측 상/하, x 우측 하단, β 우측 상단
+        // 로그축 눈금 (1·2·5·10·20·50·100 …) — x는 하단, y는 좌측
         val gx = 0xCCADBAC7.toInt()
-        label("%.2f".format(yHi), 4f, 26f, gx, 22f)
-        label("%.2f".format(yLo), 4f, size.height - 6f, gx, 22f)
-        label("%.2f".format(xHi), size.width - 4f, size.height - 6f, gx, 22f, Paint.Align.RIGHT)
-        label("β=${"%.2f".format(beta)}", size.width - 4f, 26f, 0xFFADBAC7.toInt(), 22f, Paint.Align.RIGHT)
+        for (v in log125(Math.pow(10.0, lxLo), Math.pow(10.0, lxHi))) {
+            val xx = sx(v)
+            drawLine(Color(0x55ADBAC7), Offset(xx, size.height), Offset(xx, size.height - 4f), 1f)
+            label(fmt125(v), xx, size.height - 6f, gx, 17f, Paint.Align.CENTER)
+        }
+        for (v in log125(Math.pow(10.0, lyLo), Math.pow(10.0, lyHi))) {
+            val yy = sy(v)
+            drawLine(Color(0x55ADBAC7), Offset(0f, yy), Offset(4f, yy), 1f)
+            label(fmt125(v), 5f, yy - 2f, gx, 17f)
+        }
+        label("β=${"%.2f".format(beta)}", size.width - 4f, 24f, 0xFFADBAC7.toInt(), 20f, Paint.Align.RIGHT)
         chartBorder()
     }
 }
