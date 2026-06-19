@@ -41,7 +41,7 @@ private fun wonAbs(usd: Double, rate: Double) = "%,.0f원".format(usd * rate)
 @Composable
 fun PortfolioScreen(vm: PortfolioViewModel = viewModel()) {
     val s = vm.state
-    LaunchedEffect(Unit) { if (s.result == null && !s.empty && !s.loading) vm.load() }
+    LaunchedEffect(AppState.dataVersion) { vm.sync(AppState.dataVersion) }
 
     Column(
         modifier = Modifier.fillMaxSize().background(BgApp)

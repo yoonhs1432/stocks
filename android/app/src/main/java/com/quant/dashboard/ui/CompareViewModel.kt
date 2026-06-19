@@ -26,6 +26,16 @@ class CompareViewModel : ViewModel() {
     var state by mutableStateOf(CompareState())
         private set
 
+    private var loadedVersion = -1
+
+    /** AppState.dataVersion 변경(기준일·설정) 시 강제 재로드, 아니면 최초 1회만. */
+    fun sync(version: Int) {
+        if (version != loadedVersion) {
+            loadedVersion = version
+            load(force = true)
+        } else loadIfEmpty()
+    }
+
     fun loadIfEmpty() {
         if (state.rows.isEmpty() && !state.loading) load()
     }

@@ -40,6 +40,18 @@ class AnalysisViewModel : ViewModel() {
     }
 
     private var spyCache: List<Pair<Long, Double>> = emptyList()
+    private var loadedVersion = -1
+
+    /** AppState.dataVersion 변경(기준일·설정) 시 재로드, 아니면 최초 1회만. */
+    fun sync(version: Int) {
+        if (version != loadedVersion) {
+            loadedVersion = version
+            refresh()
+        } else if (state.result == null && !state.loading) {
+            load()
+            if (overview.isEmpty()) loadOverview()
+        }
+    }
 
     fun select(ticker: String) {
         if (ticker != state.ticker) state = state.copy(ticker = ticker)
@@ -50,11 +62,12 @@ class AnalysisViewModel : ViewModel() {
         state = state.copy(loading = true, error = null)
         viewModelScope.launch {
             val range = Store.lookbackRange()
+            val interval = Store.candleInterval()
             val holder = withContext(Dispatchers.IO) {
                 try {
-                    if (spyCache.isEmpty()) spyCache = Yahoo.closes(Tickers.BASE, range)
-                    val spy = spyCache
-                    val candles = Yahoo.ohlc(ticker, range)
+                    if (spyCache.isEmpty()) spyCache = Yahoo.closes(Tickers.BASE, range, interval)
+                    val spy = Store.sliceAsof(spyCache)
+                    val candles = Store.sliceAsofCandles(Yahoo.ohlc(ticker, range, interval))
                     val tk = candles.map { Pair(it.t, it.close) }
                     when {
                         spy.isEmpty() -> Result.failure(Exception("SPY 시세를 가져오지 못했습니다"))

@@ -16,26 +16,31 @@ object OverviewRepo {
         val ticker: String, val name: String, val price: Double,
         val day: Double, val week: Double, val fromHigh: Double,
         val zPct: Double, val mPct: Double, val signal: String,
-        val beta: Double, val sigmaPct: Double, val holding: Boolean,
+        val beta: Double, val sigmaPct: Double,
+        val holding: Boolean,      // 현재 보유 중 (★)
+        val hasHistory: Boolean,   // 과거 매매 이력만 (☆)
     )
 
     @Volatile private var cache: List<Row> = emptyList()
     @Volatile private var ts = 0L
+    @Volatile private var key = ""   // range|interval|asof — 설정 변경 시 캐시 무효화
 
     fun cached(): List<Row> = cache
 
     /** force=false면 5분 캐시 재사용. IO 디스패처에서 호출 권장. */
     suspend fun load(force: Boolean = false): List<Row> {
         val now = System.currentTimeMillis()
-        if (!force && cache.isNotEmpty() && now - ts < 300_000) return cache
         val range = Store.lookbackRange()
-        val spy = Yahoo.closes(Tickers.BASE, range)
+        val interval = Store.candleInterval()
+        val curKey = "$range|$interval|${Store.asofDate() ?: ""}"
+        if (!force && cache.isNotEmpty() && key == curKey && now - ts < 300_000) return cache
+        val spy = Store.sliceAsof(Yahoo.closes(Tickers.BASE, range, interval))
         if (spy.isEmpty()) return cache
         val trades = Store.loadTrades()
         val rows = coroutineScope {
             Store.loadTickers().map { tk ->
                 async(Dispatchers.IO) {
-                    val r = Quant.analyze(spy, Yahoo.closes(tk, range)) ?: return@async null
+                    val r = Quant.analyze(spy, Store.sliceAsof(Yahoo.closes(tk, range, interval))) ?: return@async null
                     val p = r.price; val m = p.size
                     if (m < 2) return@async null
                     val prevD = p[m - 2]
@@ -49,11 +54,12 @@ object OverviewRepo {
                         fromHigh = if (high > 0) (p[m - 1] / high - 1) * 100 else 0.0,
                         zPct = r.lastZpct, mPct = r.lastMpct, signal = r.signal,
                         beta = r.beta, sigmaPct = r.sigmaPct, holding = held,
+                        hasHistory = trades[tk].orEmpty().isNotEmpty(),
                     )
                 }
             }.awaitAll().filterNotNull()
         }
-        if (rows.isNotEmpty()) { cache = rows; ts = now }
+        if (rows.isNotEmpty()) { cache = rows; ts = now; key = curKey }
         return rows
     }
 }

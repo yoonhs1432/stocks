@@ -38,7 +38,7 @@ private fun pnColor(v: Double) = when {
 @Composable
 fun CompareScreen(vm: CompareViewModel = viewModel()) {
     val s = vm.state
-    LaunchedEffect(Unit) { vm.loadIfEmpty() }
+    LaunchedEffect(AppState.dataVersion) { vm.sync(AppState.dataVersion) }
 
     Column(
         modifier = Modifier.fillMaxSize().background(BgApp)

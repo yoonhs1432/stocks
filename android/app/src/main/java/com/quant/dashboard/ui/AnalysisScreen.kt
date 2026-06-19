@@ -61,10 +61,7 @@ fun AnalysisScreen(vm: AnalysisViewModel = viewModel()) {
     val s = vm.state
     var periodMonths by remember { mutableStateOf(2) }
 
-    LaunchedEffect(Unit) {
-        if (s.result == null && !s.loading) vm.load()
-        if (vm.overview.isEmpty()) vm.loadOverview()
-    }
+    LaunchedEffect(AppState.dataVersion) { vm.sync(AppState.dataVersion) }
 
     val ov = vm.overview.associateBy { it.ticker }
     val tickers = if (vm.overview.isNotEmpty())

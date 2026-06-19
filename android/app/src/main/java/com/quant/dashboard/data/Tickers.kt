@@ -14,7 +14,9 @@ object Tickers {
         "BTC-USD" to "BTC", "ETH-USD" to "ETH", "005930" to "삼전", "000660" to "하닉",
     )
 
-    fun displayName(ticker: String): String = DISPLAY[ticker] ?: ticker
+    /** 사용자 override > 하드코딩 표시명 > 코드 그대로. */
+    fun displayName(ticker: String): String =
+        Store.nameOverrides()[ticker] ?: DISPLAY[ticker] ?: ticker
 
     /** 한국 종목(6자리 코드 = Yahoo .KS) → 원화 표시. */
     fun isKrw(ticker: String): Boolean = ticker.length == 6 && ticker.all { it.isDigit() }

@@ -16,18 +16,25 @@ object Yahoo {
     private val HOSTS = listOf("query1.finance.yahoo.com", "query2.finance.yahoo.com")
 
     /** (epochSec, close) 리스트. 실패 시 빈 리스트. */
-    fun closes(symbol: String, range: String = "2y"): List<Pair<Long, Double>> =
-        ohlc(symbol, range).map { Pair(it.t, it.close) }
+    fun closes(symbol: String, range: String = "2y", interval: String = "1d"): List<Pair<Long, Double>> =
+        ohlc(symbol, range, interval).map { Pair(it.t, it.close) }
 
-    /** OHLC 봉 리스트. 실패 시 빈 리스트. */
-    fun ohlc(symbol: String, range: String = "2y"): List<Candle> {
-        val yahooSym = toYahooSymbol(symbol)
+    /** OHLC 봉 리스트. 실패 시 빈 리스트. 한국 종목은 .KS→.KQ 순으로 시도. */
+    fun ohlc(symbol: String, range: String = "2y", interval: String = "1d"): List<Candle> {
+        for (sym in symbolCandidates(symbol)) {
+            val out = fetch(sym, range, interval)
+            if (out.isNotEmpty()) return out
+        }
+        return emptyList()
+    }
+
+    private fun fetch(yahooSym: String, range: String, interval: String): List<Candle> {
         for (host in HOSTS) {
             try {
                 val url = URL(
                     "https://$host/v8/finance/chart/" +
                         URLEncoder.encode(yahooSym, "UTF-8") +
-                        "?range=$range&interval=1d"
+                        "?range=$range&interval=$interval"
                 )
                 val conn = (url.openConnection() as HttpURLConnection).apply {
                     requestMethod = "GET"
@@ -59,8 +66,8 @@ object Yahoo {
         return emptyList()
     }
 
-    /** 한국 6자리 코드는 Yahoo에서 .KS 접미사 필요 (KOSDAQ는 추후 .KQ 보정). */
-    private fun toYahooSymbol(symbol: String): String {
-        return if (symbol.length == 6 && symbol.all { it.isDigit() }) "$symbol.KS" else symbol
-    }
+    /** 한국 6자리 코드는 KOSPI(.KS)/KOSDAQ(.KQ) 둘 다 시도. 그 외는 그대로. */
+    private fun symbolCandidates(symbol: String): List<String> =
+        if (symbol.length == 6 && symbol.all { it.isDigit() }) listOf("$symbol.KS", "$symbol.KQ")
+        else listOf(symbol)
 }

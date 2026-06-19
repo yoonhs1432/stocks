@@ -1,6 +1,7 @@
 package com.quant.dashboard.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -27,6 +28,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.quant.dashboard.data.MarketRepo
+import com.quant.dashboard.data.Store
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -35,6 +37,27 @@ private data class Tab(val emoji: String, val label: String)
 private val TABS = listOf(
     Tab("📊", "분석"), Tab("🗺️", "비교"), Tab("💼", "포트폴리오"), Tab("⚙️", "설정"),
 )
+
+/**
+ * 앱 전역 상태 — 기준일(As-of)·설정 변경 시 모든 탭이 자동으로 데이터를 다시 로드하도록
+ * dataVersion을 관찰. (Streamlit의 st.rerun + 슬라이싱 동작 미러)
+ */
+object AppState {
+    var asof by mutableStateOf(Store.asofDate())
+        private set
+    var dataVersion by mutableStateOf(0)
+        private set
+
+    /** 기준일 설정/해제 (null=해제) 후 전 탭 리로드 트리거. */
+    fun setAsof(d: String?) {
+        Store.setAsofDate(d)
+        asof = Store.asofDate()
+        bump()
+    }
+
+    /** 설정(종목·시드·기간·봉기준 등) 변경 후 전 탭 리로드 트리거. */
+    fun bump() { dataVersion++ }
+}
 
 @Composable
 fun AppScaffold() {
@@ -86,6 +109,16 @@ private fun MarketHeader() {
             .padding(horizontal = 10.dp, vertical = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
+        // 기준일(As-of) 활성 배지 — 탭하면 해제
+        AppState.asof?.let { d ->
+            Box(
+                Modifier.background(Color(0xFFCA8A04), RoundedCornerShape(8.dp))
+                    .clickable { AppState.setAsof(null) }
+                    .padding(horizontal = 7.dp, vertical = 2.dp),
+            ) {
+                Text("📅 $d ✕", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            }
+        }
         val spy = i.spyRet6m?.let { "SPY(6M) ${if (it >= 0) "+" else ""}${"%.1f".format(it * 100)}%" } ?: "SPY —"
         Badge("$regimeText  $spy", regimeColor)
         i.vix?.let {

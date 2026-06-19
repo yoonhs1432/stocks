@@ -10,12 +10,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -35,6 +37,7 @@ import com.quant.dashboard.ui.theme.BgApp
 import com.quant.dashboard.ui.theme.Loss
 import com.quant.dashboard.ui.theme.TextPrimary
 import com.quant.dashboard.ui.theme.TextSecondary
+import java.time.LocalDate
 
 private val RANGES = listOf("6개월" to "6mo", "1년" to "1y", "2년" to "2y")
 
@@ -44,6 +47,11 @@ fun SettingsScreen() {
     var input by remember { mutableStateOf("") }
     var seed by remember { mutableStateOf(Store.seedUsd().toInt().toString()) }
     var range by remember { mutableStateOf(Store.lookbackRange()) }
+    var interval by remember { mutableStateOf(Store.candleInterval()) }
+    // 종목별 이름 override 편집 버퍼
+    val nameEdits = remember { mutableStateMapOf<String, String>().apply { putAll(Store.nameOverrides()) } }
+    // 개별/ETF 토글 갱신용 카운터
+    var indivVer by remember { mutableStateOf(0) }
 
     Column(
         modifier = Modifier.fillMaxSize().background(BgApp)
@@ -61,20 +69,54 @@ fun SettingsScreen() {
                 singleLine = true, modifier = Modifier.weight(1f),
             )
             Button(onClick = {
-                seed.toDoubleOrNull()?.let { if (it > 0) Store.setSeedUsd(it) }
+                seed.toDoubleOrNull()?.let { if (it > 0) { Store.setSeedUsd(it); AppState.bump() } }
             }) { Text("저장") }
         }
 
-        // ── 분석 시작일 ──
+        // ── 분석 기간 ──
         Text("분석 시작일 (조회 기간)", color = TextSecondary, fontSize = 12.sp)
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             RANGES.forEach { (label, r) ->
                 FilterChip(selected = range == r, onClick = {
-                    range = r; Store.setLookbackRange(r)
+                    range = r; Store.setLookbackRange(r); AppState.bump()
                 }, label = { Text(label, fontSize = 12.sp) })
             }
         }
-        Text("변경 후 분석·비교 탭 🔄 시 반영", color = TextSecondary, fontSize = 11.sp)
+
+        // ── 봉 기준 (일봉/주봉) ──
+        Text("봉 기준", color = TextSecondary, fontSize = 12.sp)
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            listOf("일봉" to "1d", "주봉" to "1wk").forEach { (label, iv) ->
+                FilterChip(selected = interval == iv, onClick = {
+                    interval = iv; Store.setCandleInterval(iv); AppState.bump()
+                }, label = { Text(label, fontSize = 12.sp) })
+            }
+        }
+
+        // ── 기준일(As-of) 시뮬레이션 ──
+        Text("📅 기준일 시뮬레이션", color = TextPrimary, fontSize = 15.sp,
+            fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 6.dp))
+        var asofEnabled by remember { mutableStateOf(Store.asofDate() != null) }
+        var asofText by remember { mutableStateOf(Store.asofDate() ?: LocalDate.now().toString()) }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Checkbox(checked = asofEnabled, onCheckedChange = {
+                asofEnabled = it
+                if (!it) AppState.setAsof(null)
+            })
+            Text("과거 시점 재현 (이 날짜까지 데이터만)", color = TextSecondary, fontSize = 12.sp)
+        }
+        if (asofEnabled) {
+            Row(verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(asofText, { asofText = it }, label = { Text("기준일 (YYYY-MM-DD)") },
+                    singleLine = true, modifier = Modifier.weight(1f))
+                Button(onClick = {
+                    val ok = try { LocalDate.parse(asofText.trim()); true } catch (e: Exception) { false }
+                    if (ok) AppState.setAsof(asofText.trim())
+                }) { Text("적용") }
+            }
+        }
+        AppState.asof?.let { Text("현재 기준일: $it (헤더 배지 ✕ 또는 체크 해제로 해제)", color = TextSecondary, fontSize = 11.sp) }
 
         // ── Gist 연동 (기존 데이터 불러오기) ──
         Text("☁️ Gist 불러오기 (매매기록·종목)", color = TextPrimary, fontSize = 15.sp,
@@ -111,6 +153,7 @@ fun SettingsScreen() {
                     gistMsg = msg
                     busy = false
                     tickers = Store.loadTickers().toList()
+                    AppState.bump()
                 }
             },
             modifier = Modifier.fillMaxWidth(),
@@ -119,6 +162,7 @@ fun SettingsScreen() {
         Text("데스크톱과 같은 Gist 사용 (quant_trade_history.json 등). 불러오면 로컬 데이터를 덮어씁니다.",
             color = TextSecondary, fontSize = 11.sp)
 
+        // ── 종목 관리 ──
         Text("종목 관리", color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold,
             modifier = Modifier.padding(top = 6.dp))
 
@@ -134,27 +178,45 @@ fun SettingsScreen() {
                     Store.addTicker(input)
                     tickers = Store.loadTickers().toList()
                     input = ""
+                    AppState.bump()
                 }
             }) { Text("추가") }
         }
-        Text("최소 1개 유지 · 잘못된 티커는 데이터 로드 실패 (한국=6자리 코드)",
+        Text("최소 ${Store.MIN_TICKERS}개 유지 · 한국=6자리 코드(.KS/.KQ 자동) · 이름/개별 편집은 행별",
             color = TextSecondary, fontSize = 11.sp)
 
-        tickers.forEach { tk ->
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text("${Tickers.displayName(tk)}  ($tk)", color = TextPrimary, fontSize = 14.sp)
-                TextButton(onClick = {
-                    Store.removeTicker(tk)
-                    tickers = Store.loadTickers().toList()
-                }) { Text("삭제", color = Loss) }
+        // indivVer를 읽어 토글 시 재구성 보장
+        indivVer.let {
+            tickers.forEach { tk ->
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    OutlinedTextField(
+                        value = nameEdits[tk] ?: "",
+                        onValueChange = { nameEdits[tk] = it },
+                        placeholder = { Text(Tickers.displayName(tk), fontSize = 12.sp) },
+                        label = { Text(tk, fontSize = 10.sp) },
+                        singleLine = true, modifier = Modifier.weight(1.6f),
+                    )
+                    val indiv = Store.isIndividual(tk)
+                    FilterChip(selected = indiv, onClick = {
+                        Store.setIndividual(tk, !indiv); indivVer++; AppState.bump()
+                    }, label = { Text(if (indiv) "개별" else "ETF", fontSize = 11.sp) })
+                    TextButton(onClick = {
+                        Store.removeTicker(tk)
+                        tickers = Store.loadTickers().toList()
+                        AppState.bump()
+                    }) { Text("삭제", color = Loss, fontSize = 12.sp) }
+                }
             }
         }
-
-        Text("변경 후 분석·비교 탭은 새로고침(🔄) 시 반영됩니다.",
+        Button(onClick = {
+            nameEdits.forEach { (tk, nm) -> Store.setNameOverride(tk, nm) }
+            AppState.bump()
+        }, modifier = Modifier.fillMaxWidth()) { Text("이름 저장") }
+        Text("이름 칸을 비우고 저장하면 기본 표시명으로 되돌아갑니다.",
             color = TextSecondary, fontSize = 11.sp)
     }
 }
