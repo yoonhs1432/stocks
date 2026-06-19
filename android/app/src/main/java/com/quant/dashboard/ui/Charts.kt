@@ -29,7 +29,6 @@ import java.util.Date
 import java.util.Locale
 import kotlin.math.atan2
 import kotlin.math.cos
-import kotlin.math.roundToInt
 import kotlin.math.sin
 
 /** 의존성 없는 Compose Canvas 차트. 가격($)·Z·M·RSI를 세로 스택으로. */
@@ -547,41 +546,53 @@ fun ScatterChart(
 
         val xs = FloatArray(pts.size) { sx(pts[it].x) }
         val ys = FloatArray(pts.size) { sy(pts[it].y) }
+        val rb = 13f
         // 점 (큰 원 + 흰 테두리)
         for (i in pts.indices) {
-            drawCircle(pts[i].color, 14f, Offset(xs[i], ys[i]))
-            drawCircle(Color.White, 14f, Offset(xs[i], ys[i]), style = Stroke(2f))
+            drawCircle(pts[i].color, rb, Offset(xs[i], ys[i]))
+            drawCircle(Color.White, rb, Offset(xs[i], ys[i]), style = Stroke(2f))
         }
-        // 라벨 — top-center(라벨 위) 또는 8방향 분산
-        val r = 18f
-        if (labelTopCenter) {
-            for (i in pts.indices) label(pts[i].label, xs[i], ys[i] - 16f, 0xFFE6EDF3.toInt(), 22f, Paint.Align.CENTER)
-        } else
-        for (i in pts.indices) {
-            var best = Float.MAX_VALUE; var nd = -1
-            for (j in pts.indices) {
-                if (i == j) continue
-                val dx = xs[j] - xs[i]; val dy = ys[j] - ys[i]
-                val d = dx * dx + dy * dy
-                if (d < best) { best = d; nd = j }
-            }
-            val ax = if (nd >= 0) -(xs[nd] - xs[i]) else 1f
-            val ay = if (nd >= 0) -(ys[nd] - ys[i]) else 0f
-            val k = if (ax == 0f && ay == 0f) 0
-                else (((Math.toDegrees(kotlin.math.atan2(ay, ax).toDouble()) / 45.0).roundToInt()) % 8 + 8) % 8
-            // k: 0=오른,1=오른아래,2=아래,3=왼아래,4=왼,5=왼위,6=위,7=오른위
-            val (ox, oy, align) = when (k) {
-                0 -> Triple(r, 5f, Paint.Align.LEFT)
-                1 -> Triple(r, r, Paint.Align.LEFT)
-                2 -> Triple(0f, r + 12f, Paint.Align.CENTER)
-                3 -> Triple(-r, r, Paint.Align.RIGHT)
-                4 -> Triple(-r, 5f, Paint.Align.RIGHT)
-                5 -> Triple(-r, -r + 4f, Paint.Align.RIGHT)
-                6 -> Triple(0f, -r, Paint.Align.CENTER)
-                else -> Triple(r, -r + 4f, Paint.Align.LEFT)
-            }
-            label(pts[i].label, xs[i] + ox, ys[i] + oy, 0xFFE6EDF3.toInt(), 22f, align)
+        // ── 라벨 겹침 회피 배치 (그리디 8방향: 원·기존라벨과 겹침 최소 위치 선택) ──
+        val ts = 27f
+        val tp = Paint().apply { textSize = ts; isAntiAlias = true }
+        val occ = ArrayList<FloatArray>(pts.size * 2)
+        for (i in pts.indices) occ.add(floatArrayOf(xs[i] - rb, ys[i] - rb, xs[i] + rb, ys[i] + rb))
+        fun ovl(a: FloatArray, b: FloatArray): Float {
+            val dx = minOf(a[2], b[2]) - maxOf(a[0], b[0])
+            val dy = minOf(a[3], b[3]) - maxOf(a[1], b[1])
+            return (if (dx > 0) dx else 0f) * (if (dy > 0) dy else 0f)
         }
+        val ddx = floatArrayOf(0f, 0f, 1f, -1f, 1f, -1f, 1f, -1f)
+        val ddy = floatArrayOf(-1f, 1f, 0f, 0f, -1f, -1f, 1f, 1f)
+        val dal = arrayOf(
+            Paint.Align.CENTER, Paint.Align.CENTER, Paint.Align.LEFT, Paint.Align.RIGHT,
+            Paint.Align.LEFT, Paint.Align.RIGHT, Paint.Align.LEFT, Paint.Align.RIGHT,
+        )
+        val lblX = FloatArray(pts.size); val lblY = FloatArray(pts.size)
+        val lblA = arrayOfNulls<Paint.Align>(pts.size)
+        // 위(y큰)·바깥 점부터 배치 → 중앙 밀집부는 남은 자리로
+        for (i in pts.indices.sortedByDescending { ys[it] }) {
+            val w = tp.measureText(pts[i].label); val h = ts
+            var bestSc = Float.MAX_VALUE; var bx0 = 0f; var by0 = 0f; var bal = Paint.Align.CENTER
+            for (k in 0 until 8) {
+                val d = rb + 6f
+                val cx = xs[i] + ddx[k] * d; val cy = ys[i] + ddy[k] * d
+                val al = dal[k]
+                val x0 = when (al) { Paint.Align.LEFT -> cx; Paint.Align.RIGHT -> cx - w; else -> cx - w / 2 }
+                val y1 = if (ddy[k] < 0) cy else if (ddy[k] > 0) cy + h else cy + h / 2
+                val y0 = y1 - h
+                val rect = floatArrayOf(x0, y0, x0 + w, y1)
+                var sc = 0.01f * k
+                for (b in occ) sc += ovl(rect, b)
+                if (x0 < 1f || x0 + w > size.width - 1f || y0 < 1f || y1 > size.height - 1f) sc += 1e5f
+                if (sc < bestSc) { bestSc = sc; bx0 = x0; by0 = y0; bal = al }
+            }
+            occ.add(floatArrayOf(bx0, by0, bx0 + w, by0 + h))
+            lblA[i] = bal
+            lblX[i] = when (bal) { Paint.Align.LEFT -> bx0; Paint.Align.RIGHT -> bx0 + w; else -> bx0 + w / 2 }
+            lblY[i] = by0 + ts * 0.8f
+        }
+        for (i in pts.indices) label(pts[i].label, lblX[i], lblY[i], 0xFFE6EDF3.toInt(), ts, lblA[i]!!)
         if (xAxisLabel.isNotEmpty()) label(xAxisLabel, size.width - 8f, size.height - 8f, 0x88FFFFFF.toInt(), 22f, Paint.Align.RIGHT)
         if (yAxisLabel.isNotEmpty()) label(yAxisLabel, 6f, 22f, 0x88FFFFFF.toInt(), 22f)
         chartBorder()
