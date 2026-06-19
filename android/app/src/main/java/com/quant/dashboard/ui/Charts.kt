@@ -175,7 +175,7 @@ fun RegressionScatter(
     val lxLo = Math.log10(xLo * 0.98); val lxHi = Math.log10(xHi * 1.02)
     val lyLo = Math.log10(yLo * 0.88); val lyHi = Math.log10(yHi * 1.18)
     val order = (0 until n).sortedBy { spyNorm[it] }
-    Canvas(modifier = modifier.fillMaxWidth().height(180.dp)) {
+    Canvas(modifier = modifier.fillMaxWidth().height(90.dp)) {
         fun sx(v: Double) = (size.width * (Math.log10(v) - lxLo) / (lxHi - lxLo)).toFloat()
         fun sy(v: Double) = (size.height * (1 - (Math.log10(v) - lyLo) / (lyHi - lyLo))).toFloat()
         // 가이드 곡선 (y = c·x^guideN)
@@ -218,7 +218,12 @@ fun RegressionScatter(
         // 현재 위치 ★ (별표)
         val li = n - 1
         if (spyNorm[li] > 0 && tickerNorm[li] > 0) star(sx(spyNorm[li]), sy(tickerNorm[li]), 11f)
-        label("β = ${"%.2f".format(beta)}", 6f, 24f, 0xFFADBAC7.toInt(), 22f)
+        // 축 숫자 (정규화값) — y 좌측 상/하, x 우측 하단, β 우측 상단
+        val gx = 0xCCADBAC7.toInt()
+        label("%.2f".format(yHi), 4f, 26f, gx, 22f)
+        label("%.2f".format(yLo), 4f, size.height - 6f, gx, 22f)
+        label("%.2f".format(xHi), size.width - 4f, size.height - 6f, gx, 22f, Paint.Align.RIGHT)
+        label("β=${"%.2f".format(beta)}", size.width - 4f, 26f, 0xFFADBAC7.toInt(), 22f, Paint.Align.RIGHT)
         chartBorder()
     }
 }
@@ -244,7 +249,7 @@ fun PriceChart(
     val pad = (hi - lo) * 0.05
     lo -= pad; hi += pad
 
-    Canvas(modifier = modifier.fillMaxWidth().height(190.dp)) {
+    Canvas(modifier = modifier.fillMaxWidth().height(90.dp)) {
         fun xAt(i: Int) = size.width * i / (n - 1)
         fun yAt(v: Double) = (size.height * (1 - (v - lo) / (hi - lo))).toFloat()
 
@@ -284,7 +289,7 @@ fun CandleChart(
     if (hi <= lo) return
     val pad = (hi - lo) * 0.05
     lo -= pad; hi += pad
-    Canvas(modifier = modifier.fillMaxWidth().height(210.dp)) {
+    Canvas(modifier = modifier.fillMaxWidth().height(90.dp)) {
         fun xAt(i: Int) = size.width * i / (n - 1)
         fun yAt(v: Double) = (size.height * (1 - (v - lo) / (hi - lo))).toFloat()
         val band = Path().apply {
@@ -323,7 +328,7 @@ fun ZmChart(zPct: DoubleArray, mPct: DoubleArray, markers: List<Mark> = emptyLis
             topLabel: String = "", modifier: Modifier = Modifier) {
     val n = zPct.size
     if (n < 2) return
-    Canvas(modifier = modifier.fillMaxWidth().height(120.dp)) {
+    Canvas(modifier = modifier.fillMaxWidth().height(90.dp)) {
         fun xAt(i: Int) = size.width * i / (n - 1)
         fun yAt(v: Double) = (size.height * (1 - v / 100.0)).toFloat()
         // Z>80 빨강 면적
@@ -354,7 +359,7 @@ fun ZmScatter(
 ) {
     val n = zPct.size
     if (n < 2) return
-    Canvas(modifier = modifier.fillMaxWidth().height(220.dp)) {
+    Canvas(modifier = modifier.fillMaxWidth().height(110.dp)) {
         // 범위 -5~105 (app.py): 별표가 0/100 극단에 가도 안 잘리게 마진
         val lo = -5.0; val hi = 105.0; val span = hi - lo
         fun px(v: Double) = (size.width * ((v - lo) / span)).toFloat()
@@ -364,10 +369,10 @@ fun ZmScatter(
             dotline(Color(0x88FFFFFF), px(t.toDouble()), 0f, px(t.toDouble()), size.height, 0.6f)
             dotline(Color(0x88FFFFFF), 0f, py(t.toDouble()), size.width, py(t.toDouble()), 0.6f)
         }
-        // 좌측 Y / 하단 X 눈금 숫자만 (0/50/100)
+        // 좌측 Y / 하단 X 눈금 숫자 (0/50/100) — 크고 또렷하게
         for (t in intArrayOf(0, 50, 100)) {
-            label(t.toString(), 2f, py(t.toDouble()) - 2f, 0x77FFFFFF.toInt(), 15f)
-            label(t.toString(), px(t.toDouble()), size.height - 3f, 0x77FFFFFF.toInt(), 15f, Paint.Align.CENTER)
+            label(t.toString(), 3f, py(t.toDouble()) + 8f, 0xCCFFFFFF.toInt(), 24f)
+            label(t.toString(), px(t.toDouble()), size.height - 4f, 0xCCFFFFFF.toInt(), 24f, Paint.Align.CENTER)
         }
         // 시간 궤적 점 — Turbo 컬러맵 (파랑→청록→초록→노랑→빨강), size5, 테두리 없음
         for (i in 0 until n) {
@@ -452,7 +457,7 @@ fun MacdChart(macd: DoubleArray, signal: DoubleArray, topLabel: String = "", mod
     for (v in signal) if (!v.isNaN() && kotlin.math.abs(v) > mx) mx = kotlin.math.abs(v)
     if (mx <= 0) mx = 1.0
     mx *= 1.15
-    Canvas(modifier = modifier.fillMaxWidth().height(110.dp)) {
+    Canvas(modifier = modifier.fillMaxWidth().height(90.dp)) {
         fun xAt(i: Int) = size.width * i / (n - 1)
         fun yAt(v: Double) = (size.height * (1 - (v + mx) / (2 * mx))).toFloat()
         // 0 중립선 실선 (app.py)

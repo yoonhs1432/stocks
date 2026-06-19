@@ -3,6 +3,7 @@ package com.quant.dashboard.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -86,8 +87,8 @@ fun AnalysisScreen(vm: AnalysisViewModel = viewModel()) {
         }
 
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            // ── 좌측: 종목 알약 버튼 ──
-            Column(Modifier.weight(0.33f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            // ── 좌측: 종목 알약 버튼 (폭 ⅔로 축소) ──
+            Column(Modifier.weight(0.22f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 tickers.forEach { tk ->
                     TickerPill(tk, ov[tk], selected = tk == s.ticker) { vm.select(tk) }
                 }
@@ -101,7 +102,7 @@ fun AnalysisScreen(vm: AnalysisViewModel = viewModel()) {
             }
 
             // ── 우측: 분석 콘텐츠 ──
-            Column(Modifier.weight(0.67f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.weight(0.78f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 when {
                     s.loading -> Row(Modifier.fillMaxWidth().padding(24.dp), Arrangement.Center) {
                         CircularProgressIndicator()
@@ -130,15 +131,15 @@ private fun TickerPill(tk: String, row: com.quant.dashboard.data.OverviewRepo.Ro
     val dayStr = row?.let { (if (it.day >= 0) "+" else "") + "%.1f%%".format(it.day) } ?: ""
     val mark = when { row?.holding == true -> "★ "; row?.hasHistory == true -> "☆ "; else -> "" }
     Box(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(bg)
-            .then(if (selected) Modifier.border(2.dp, Color.White, RoundedCornerShape(10.dp)) else Modifier)
-            .clickable { onClick() }.padding(horizontal = 8.dp, vertical = 9.dp),
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(7.dp)).background(bg)
+            .then(if (selected) Modifier.border(1.5.dp, Color.White, RoundedCornerShape(7.dp)) else Modifier)
+            .clickable { onClick() }.padding(horizontal = 5.dp, vertical = 4.dp),
         contentAlignment = Alignment.Center,
     ) {
         Text(
-            "$mark${Tickers.displayName(tk)}  $dayStr",
+            "$mark${Tickers.displayName(tk)} $dayStr",
             color = if (dark) Color.White else Color.Black,
-            fontSize = 12.sp, maxLines = 1, fontWeight = FontWeight.Bold,
+            fontSize = 10.sp, maxLines = 1, fontWeight = FontWeight.Bold,
         )
     }
 }
@@ -188,16 +189,18 @@ private fun Accordion(title: String, content: @Composable () -> Unit) {
 
 @Composable
 private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayPct: Double?) {
-    // ── 종목명 + σ·β·Z·M 인라인 헤더 ──
-    Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    // ── 종목명 + σ·β·Z·M 인라인 (한 줄, 넘치면 가로 스크롤) ──
+    Row(
+        verticalAlignment = Alignment.Bottom,
+        horizontalArrangement = Arrangement.spacedBy(7.dp),
+        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+    ) {
         Text(Tickers.displayName(ticker), color = pctColor(r.lastMpct),
-            fontSize = 20.sp, fontWeight = FontWeight.Bold)
-    }
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("σ ±%.0f%%".format(r.sigmaPct), color = TextSecondary, fontSize = 12.sp)
-        Text("β·SPY %.1f×".format(r.beta), color = TextSecondary, fontSize = 12.sp)
-        Text("Z %.0f".format(r.lastZpct), color = pctColor(r.lastZpct), fontSize = 12.sp, fontWeight = FontWeight.Bold)
-        Text("M %.0f".format(r.lastMpct), color = pctColor(r.lastMpct), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        Text("σ±%.0f%%".format(r.sigmaPct), color = TextSecondary, fontSize = 11.sp)
+        Text("β·SPY %.1f×".format(r.beta), color = TextSecondary, fontSize = 11.sp)
+        Text("Z %.0f".format(r.lastZpct), color = pctColor(r.lastZpct), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+        Text("M %.0f".format(r.lastMpct), color = pctColor(r.lastMpct), fontSize = 11.sp, fontWeight = FontWeight.Bold)
     }
 
     // ── 정보 카드 (현재가/평균단가/보유) ──
@@ -281,15 +284,13 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
             }
         }
     }
-    val regMarkIdx = priceMarks.map { it.x to it.buy }
+    // ① 회귀 산점도 — 전체 분석기간(조회기간 미적용)
+    Text("회귀 산점도 (SPY 대비) · 분석기간", color = TextSecondary, fontSize = 11.sp)
+    RegressionScatter(r.spyNorm, r.tickerNorm, r.predicted,
+        r.bandUpper, r.bandLower, r.beta, markIdx = scatterIdx)
 
-    // ① 회귀 산점도
-    Text("회귀 산점도 (SPY 대비)", color = TextSecondary, fontSize = 11.sp)
-    RegressionScatter(seg(r.spyNorm), seg(r.tickerNorm), seg(r.predicted),
-        seg(r.bandUpper), seg(r.bandLower), r.beta, markIdx = regMarkIdx)
-
-    // ② Z·M 궤적
-    Text("Z·M 궤적 (시간 파랑→빨강, ● 현재)", color = TextSecondary, fontSize = 11.sp)
+    // ② Z·M 궤적 — 전체 분석기간(조회기간 미적용)
+    Text("Z·M 궤적 (Turbo 시간색, ★ 현재) · 분석기간", color = TextSecondary, fontSize = 11.sp)
     ZmScatter(r.zPct, r.mPct, scatterIdx)
 
     // ③ 가격 캔들
