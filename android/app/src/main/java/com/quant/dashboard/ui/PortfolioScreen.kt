@@ -21,6 +21,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.quant.dashboard.data.Store
+import com.quant.dashboard.data.Tickers
 import com.quant.dashboard.quant.Portfolio
 import com.quant.dashboard.ui.theme.BgApp
 import com.quant.dashboard.ui.theme.BgCard
@@ -105,6 +107,24 @@ private fun ResultBody(r: Portfolio.Result) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text(rz.name, color = TextPrimary, fontSize = 13.sp)
                 Text(money(rz.realized), color = pc(rz.realized), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            }
+        }
+    }
+
+    // ── 사이클 통계 (완료된 사이클) ──
+    val statsList = Store.loadTrades().mapNotNull { (tk, list) ->
+        Portfolio.cycleStats(list)?.let { Tickers.displayName(tk) to it }
+    }
+    if (statsList.isNotEmpty()) {
+        Text("사이클 통계 (완료 사이클)", color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+        statsList.forEach { (name, st) ->
+            val pf = st.profitFactor?.let { "%.2f".format(it) } ?: "∞"
+            Column {
+                Text(name, color = TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                Text(
+                    "${st.count}회 · 승률 ${st.winRate.toInt()}% · PF $pf · 평균 ${if (st.avgRet >= 0) "+" else ""}${"%.1f".format(st.avgRet)}% · ${st.avgHoldDays.toInt()}일",
+                    color = TextSecondary, fontSize = 12.sp,
+                )
             }
         }
     }

@@ -5,29 +5,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.quant.dashboard.data.Store
-import com.quant.dashboard.data.Tickers
-import com.quant.dashboard.data.Yahoo
-import com.quant.dashboard.quant.Quant
+import com.quant.dashboard.data.OverviewRepo
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-data class CompareRow(
-    val ticker: String,
-    val name: String,
-    val price: Double,
-    val day: Double,
-    val week: Double,
-    val fromHigh: Double,
-    val zPct: Double,
-    val mPct: Double,
-    val signal: String,
-)
+typealias CompareRow = OverviewRepo.Row
 
-enum class SortKey { M, Z, DAY, WEEK, FROM_HIGH, PRICE, NAME }
+enum class SortKey { M, Z, DAY, WEEK, FROM_HIGH, PRICE, NAME, BETA, SIGMA }
 
 data class CompareState(
     val loading: Boolean = false,
@@ -45,31 +30,11 @@ class CompareViewModel : ViewModel() {
         if (state.rows.isEmpty() && !state.loading) load()
     }
 
-    fun load() {
+    fun load(force: Boolean = false) {
         state = state.copy(loading = true, error = null)
         viewModelScope.launch {
-            val rows = withContext(Dispatchers.IO) {
-                val spy = Yahoo.closes(Tickers.BASE)
-                if (spy.isEmpty()) return@withContext null
-                Store.loadTickers().map { tk ->
-                    async {
-                        val r = Quant.analyze(spy, Yahoo.closes(tk)) ?: return@async null
-                        val p = r.price; val m = p.size
-                        if (m < 2) return@async null
-                        val prevD = p[m - 2]
-                        val prevW = if (m > 5) p[m - 6] else prevD
-                        val high = p.max()
-                        CompareRow(
-                            ticker = tk, name = Tickers.displayName(tk), price = p[m - 1],
-                            day = if (prevD > 0) (p[m - 1] / prevD - 1) * 100 else 0.0,
-                            week = if (prevW > 0) (p[m - 1] / prevW - 1) * 100 else 0.0,
-                            fromHigh = if (high > 0) (p[m - 1] / high - 1) * 100 else 0.0,
-                            zPct = r.lastZpct, mPct = r.lastMpct, signal = r.signal,
-                        )
-                    }
-                }.awaitAll().filterNotNull()
-            }
-            state = if (rows == null) state.copy(loading = false, error = "시세를 가져오지 못했습니다")
+            val rows = withContext(Dispatchers.IO) { OverviewRepo.load(force) }
+            state = if (rows.isEmpty()) state.copy(loading = false, error = "시세를 가져오지 못했습니다")
             else state.copy(loading = false, rows = rows, error = null)
         }
     }
@@ -80,15 +45,17 @@ class CompareViewModel : ViewModel() {
     }
 
     fun sorted(): List<CompareRow> {
-        val sel = { r: CompareRow ->
-            when (state.sortKey) {
-                SortKey.M -> r.mPct; SortKey.Z -> r.zPct; SortKey.DAY -> r.day
-                SortKey.WEEK -> r.week; SortKey.FROM_HIGH -> r.fromHigh; SortKey.PRICE -> r.price
-                SortKey.NAME -> 0.0
-            }
+        val base = when (state.sortKey) {
+            SortKey.NAME -> state.rows.sortedBy { it.name }
+            SortKey.PRICE -> state.rows.sortedBy { it.price }
+            SortKey.DAY -> state.rows.sortedBy { it.day }
+            SortKey.WEEK -> state.rows.sortedBy { it.week }
+            SortKey.FROM_HIGH -> state.rows.sortedBy { it.fromHigh }
+            SortKey.Z -> state.rows.sortedBy { it.zPct }
+            SortKey.M -> state.rows.sortedBy { it.mPct }
+            SortKey.BETA -> state.rows.sortedBy { it.beta }
+            SortKey.SIGMA -> state.rows.sortedBy { it.sigmaPct }
         }
-        val base = if (state.sortKey == SortKey.NAME) state.rows.sortedBy { it.name }
-        else state.rows.sortedBy { sel(it) }
         return if (state.sortDesc) base.reversed() else base
     }
 }

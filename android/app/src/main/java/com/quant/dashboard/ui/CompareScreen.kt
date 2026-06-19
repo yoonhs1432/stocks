@@ -75,6 +75,24 @@ fun CompareScreen(vm: CompareViewModel = viewModel()) {
                 }
                 Text("헤더를 눌러 정렬 · 색: 매수=빨강 / 매도=파랑",
                     color = TextSecondary, fontSize = 11.sp)
+
+                // ── Z·M 사분면 (전 종목 현재 위치) ──
+                Text("🎯 종목별 Z·M 현재 위치", color = TextPrimary,
+                    fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                ZmQuadrant(s.rows.map {
+                    ScatterPt(it.zPct, it.mPct, it.name, pctColor(it.mPct))
+                })
+                Text("X=Z(가격 위치) · Y=M(모멘텀) · 임계 20/40/60/80",
+                    color = TextSecondary, fontSize = 11.sp)
+
+                // ── σ·β 산점도 (변동성·시장민감도) ──
+                Text("📊 변동성(σ) · 시장민감도(β)", color = TextPrimary,
+                    fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                BetaSigmaScatter(s.rows.map {
+                    ScatterPt(it.beta, it.sigmaPct, it.name, pctColor(it.mPct))
+                })
+                Text("X=β·SPY · Y=σ%(로그) · 색=모멘텀",
+                    color = TextSecondary, fontSize = 11.sp)
             }
         }
     }

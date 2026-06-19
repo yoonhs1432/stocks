@@ -2,6 +2,7 @@ package com.quant.dashboard.ui
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.quant.dashboard.data.OverviewRepo
 import com.quant.dashboard.data.Store
 import com.quant.dashboard.data.Tickers
 import com.quant.dashboard.data.Yahoo
@@ -25,6 +26,17 @@ class AnalysisViewModel : ViewModel() {
         UiState(ticker = Store.loadTickers().firstOrNull() ?: Tickers.DEFAULT.first())
     )
         private set
+
+    // 종목 버튼용 전 종목 요약 (모멘텀 색/정렬)
+    var overview by mutableStateOf<List<OverviewRepo.Row>>(emptyList())
+        private set
+
+    fun loadOverview(force: Boolean = false) {
+        viewModelScope.launch {
+            val rows = withContext(Dispatchers.IO) { OverviewRepo.load(force) }
+            if (rows.isNotEmpty()) overview = rows
+        }
+    }
 
     // SPY 시세는 종목 간 재사용 (캐시)
     private var spyCache: List<Pair<Long, Double>> = emptyList()

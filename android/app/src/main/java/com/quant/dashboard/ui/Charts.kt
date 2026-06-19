@@ -207,6 +207,79 @@ fun EquityChart(values: DoubleArray, modifier: Modifier = Modifier) {
     }
 }
 
+/** MACD(보라) + Signal(흰) + 0선 + 교차 마커(▲빨강 상향 / ▼파랑 하향). */
+@Composable
+fun MacdChart(macd: DoubleArray, signal: DoubleArray, modifier: Modifier = Modifier) {
+    val n = macd.size
+    if (n < 2) return
+    var mx = 0.0
+    for (v in macd) if (!v.isNaN() && kotlin.math.abs(v) > mx) mx = kotlin.math.abs(v)
+    for (v in signal) if (!v.isNaN() && kotlin.math.abs(v) > mx) mx = kotlin.math.abs(v)
+    if (mx <= 0) mx = 1.0
+    mx *= 1.15
+    Canvas(modifier = modifier.fillMaxWidth().height(110.dp)) {
+        fun xAt(i: Int) = size.width * i / (n - 1)
+        fun yAt(v: Double) = (size.height * (1 - (v + mx) / (2 * mx))).toFloat()
+        drawLine(Color(0x55FFFFFF), Offset(0f, yAt(0.0)), Offset(size.width, yAt(0.0)), 1f)
+        poly(macd, ::xAt, ::yAt, Color(0xFF7C3AED), 2f)
+        poly(signal, ::xAt, ::yAt, Color(0xFFE6EDF3), 1f)
+        for (i in 1 until n) {
+            if (macd[i].isNaN() || signal[i].isNaN() || macd[i - 1].isNaN() || signal[i - 1].isNaN()) continue
+            val prev = macd[i - 1] - signal[i - 1]
+            val cur = macd[i] - signal[i]
+            if (prev < 0 && cur >= 0) marker(xAt(i), yAt(macd[i]), true)
+            else if (prev > 0 && cur <= 0) marker(xAt(i), yAt(macd[i]), false)
+        }
+    }
+}
+
+/** 산점도 한 점. */
+data class ScatterPt(val x: Double, val y: Double, val label: String, val color: Color)
+
+private fun DrawScope.dot(cx: Float, cy: Float, color: Color, label: String) {
+    drawCircle(color, 7f, Offset(cx, cy))
+    drawCircle(Color.White, 7f, Offset(cx, cy), style = Stroke(1f))
+    if (label.isNotEmpty()) label(label, cx + 9f, cy + 4f, 0xCCC9D1D9.toInt(), 20f)
+}
+
+/** Z·M 사분면 (전 종목 현재 위치). X=Z, Y=M, 0~100 고정. */
+@Composable
+fun ZmQuadrant(points: List<ScatterPt>, modifier: Modifier = Modifier) {
+    if (points.isEmpty()) return
+    Canvas(modifier = modifier.fillMaxWidth().height(300.dp)) {
+        fun px(v: Double) = (size.width * (v / 100.0)).toFloat()
+        fun py(v: Double) = (size.height * (1 - v / 100.0)).toFloat()
+        for (t in intArrayOf(20, 40, 60, 80)) {
+            drawLine(Color(0x22FFFFFF), Offset(px(t.toDouble()), 0f), Offset(px(t.toDouble()), size.height), 1f)
+            drawLine(Color(0x22FFFFFF), Offset(0f, py(t.toDouble())), Offset(size.width, py(t.toDouble())), 1f)
+        }
+        drawLine(Color(0x55FFFFFF), Offset(px(50.0), 0f), Offset(px(50.0), size.height), 1.2f)
+        drawLine(Color(0x55FFFFFF), Offset(0f, py(50.0)), Offset(size.width, py(50.0)), 1.2f)
+        for (p in points) dot(px(p.x.coerceIn(0.0, 100.0)), py(p.y.coerceIn(0.0, 100.0)), p.color, p.label)
+        label("Z->", size.width - 40f, size.height - 8f, 0x88FFFFFF.toInt(), 22f)
+        label("M^", 6f, 22f, 0x88FFFFFF.toInt(), 22f)
+    }
+}
+
+/** β·σ 산점도. X=β(선형), Y=σ%(로그). */
+@Composable
+fun BetaSigmaScatter(points: List<ScatterPt>, modifier: Modifier = Modifier) {
+    if (points.size < 2) return
+    val xmin = points.minOf { it.x } - 0.5
+    val xmax = points.maxOf { it.x } + 0.5
+    val ylo = maxOf(points.minOf { it.y } * 0.8, 0.5)
+    val yhi = points.maxOf { it.y } * 1.25
+    val lyl = kotlin.math.log10(ylo); val lyh = kotlin.math.log10(yhi)
+    Canvas(modifier = modifier.fillMaxWidth().height(300.dp)) {
+        fun px(v: Double) = (size.width * ((v - xmin) / (xmax - xmin))).toFloat()
+        fun py(v: Double) = (size.height * (1 - (kotlin.math.log10(v.coerceAtLeast(0.01)) - lyl) / (lyh - lyl))).toFloat()
+        if (xmin < 0 && xmax > 0) drawLine(Color(0x55FFFFFF), Offset(px(0.0), 0f), Offset(px(0.0), size.height), 1f)
+        for (p in points) dot(px(p.x), py(p.y), p.color, p.label)
+        label("β x", size.width - 44f, size.height - 8f, 0x88FFFFFF.toInt(), 22f)
+        label("σ% (log)", 6f, 22f, 0x88FFFFFF.toInt(), 22f)
+    }
+}
+
 /** 차트 하단 공통 X축 날짜 라벨 (start · mid · end). */
 @Composable
 fun DateAxis(datesEpochSec: LongArray, modifier: Modifier = Modifier) {

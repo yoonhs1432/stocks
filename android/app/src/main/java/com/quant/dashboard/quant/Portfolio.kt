@@ -34,6 +34,51 @@ object Portfolio {
         val cumulative: Double, val currentPnl: Double?,
     )
 
+    /** 현재 보유 수량 (외부에서 '보유 중' 판정용). */
+    fun currentHoldQty(trades: List<Trade>): Int = resolve(trades).holdQty
+
+    data class CycleStats(
+        val count: Int, val winRate: Double, val avgRet: Double,
+        val avgHoldDays: Double, val profitFactor: Double?,
+        val bestPct: Double, val worstPct: Double,
+    )
+
+    /** 완료된 사이클(0주→매수→…→0주) 승률·PF·평균보유 (compute_cycle_stats). */
+    fun cycleStats(trades: List<Trade>): CycleStats? {
+        val sorted = trades.filter { it.qty > 0 && it.price > 0 }.sortedBy { it.date }
+        data class C(val ret: Double, val pnl: Double, val days: Long)
+        val cycles = ArrayList<C>()
+        var holdQty = 0; var buyQty = 0; var buyCost = 0.0; var sellProceeds = 0.0
+        var startDay: Long? = null
+        for (r in sorted) {
+            val day = try { LocalDate.parse(r.date).toEpochDay() } catch (e: Exception) { continue }
+            if (r.type == "buy") {
+                if (holdQty == 0) { startDay = day; buyQty = 0; buyCost = 0.0; sellProceeds = 0.0 }
+                holdQty += r.qty; buyQty += r.qty; buyCost += r.qty * r.price
+            } else if (r.type == "sell" && holdQty > 0) {
+                sellProceeds += r.qty * r.price
+                holdQty = maxOf(holdQty - r.qty, 0)
+                if (holdQty == 0 && buyQty > 0) {
+                    val pnl = sellProceeds - buyCost
+                    cycles.add(C(pnl / buyCost * 100, pnl, (day - (startDay ?: day))))
+                }
+            }
+        }
+        if (cycles.isEmpty()) return null
+        val wins = cycles.filter { it.ret > 0 }
+        val gain = wins.sumOf { it.pnl }
+        val loss = kotlin.math.abs(cycles.filter { it.ret <= 0 }.sumOf { it.pnl })
+        return CycleStats(
+            count = cycles.size,
+            winRate = wins.size.toDouble() / cycles.size * 100,
+            avgRet = cycles.sumOf { it.ret } / cycles.size,
+            avgHoldDays = cycles.sumOf { it.days }.toDouble() / cycles.size,
+            profitFactor = if (loss > 0) gain / loss else null,
+            bestPct = cycles.maxOf { it.ret },
+            worstPct = cycles.minOf { it.ret },
+        )
+    }
+
     /** 매매 기록 → 현재 사이클 + 누적 실현손익 (resolve_all_cycles). */
     private fun resolve(trades: List<Trade>): Cyc {
         val sorted = trades.filter { it.qty > 0 && it.price > 0 }.sortedBy { it.date }

@@ -1,8 +1,10 @@
 package com.quant.dashboard.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -10,9 +12,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -36,6 +37,7 @@ import com.quant.dashboard.data.Trade
 import com.quant.dashboard.quant.Quant
 import com.quant.dashboard.ui.theme.BgApp
 import com.quant.dashboard.ui.theme.Loss
+import com.quant.dashboard.ui.theme.Neutral
 import com.quant.dashboard.ui.theme.TextPrimary
 import com.quant.dashboard.ui.theme.TextSecondary
 import com.quant.dashboard.ui.theme.pctColor
@@ -52,26 +54,46 @@ private val PERIODS = listOf("1개월" to 1, "2개월" to 2, "4개월" to 4, "1�
 @Composable
 fun AnalysisScreen(vm: AnalysisViewModel = viewModel()) {
     val s = vm.state
-    var menuOpen by remember { mutableStateOf(false) }
     var periodMonths by remember { mutableStateOf(2) }
 
-    LaunchedEffect(Unit) { if (s.result == null && !s.loading) vm.load() }
+    LaunchedEffect(Unit) {
+        if (s.result == null && !s.loading) vm.load()
+        if (vm.overview.isEmpty()) vm.loadOverview()
+    }
 
     Column(
         modifier = Modifier.fillMaxSize().background(BgApp)
             .verticalScroll(rememberScrollState()).padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = { menuOpen = true }) { Text("${Tickers.displayName(s.ticker)} ▾") }
-            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                Store.loadTickers().forEach { tk ->
-                    DropdownMenuItem(text = { Text(Tickers.displayName(tk)) },
-                        onClick = { menuOpen = false; vm.select(tk) })
+        // ── 종목 버튼 (모멘텀 색, 가로 스크롤, M 낮은 순) ──
+        val ov = vm.overview.associateBy { it.ticker }
+        val tickers = if (vm.overview.isNotEmpty())
+            Store.loadTickers().sortedBy { ov[it]?.mPct ?: 50.0 } else Store.loadTickers()
+        Row(
+            Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            tickers.forEach { tk ->
+                val row = ov[tk]
+                val bg = if (row != null) pctColor(row.mPct) else Neutral
+                val dark = row != null && (row.mPct < 20 || row.mPct >= 80)
+                val dayStr = row?.let { (if (it.day >= 0) "+" else "") + "%.1f%%".format(it.day) } ?: ""
+                Button(
+                    onClick = { vm.select(tk) },
+                    colors = ButtonDefaults.buttonColors(containerColor = bg),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                ) {
+                    Text(
+                        (if (row?.holding == true) "★ " else "") + Tickers.displayName(tk) + "  " + dayStr,
+                        color = if (dark) Color.White else Color.Black,
+                        fontSize = 12.sp,
+                        fontWeight = if (tk == s.ticker) FontWeight.Bold else FontWeight.Normal,
+                    )
                 }
             }
-            Button(onClick = { vm.refresh() }) { Text("🔄") }
+            Button(onClick = { vm.refresh(); vm.loadOverview(true) }) { Text("🔄") }
         }
 
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -140,6 +162,9 @@ private fun ResultView(r: Quant.Result, periodMonths: Int, ticker: String) {
 
     Text("Z(흰) · M(주황) — 20/40/60/80", color = TextSecondary, fontSize = 12.sp)
     ZmChart(seg(r.zPct), seg(r.mPct), zmMarks)
+
+    Text("MACD(보라) · Signal(흰) · 교차 ▲▼", color = TextSecondary, fontSize = 12.sp)
+    MacdChart(seg(r.macd), seg(r.macdSignal))
 
     Text("RSI — 30/70", color = TextSecondary, fontSize = 12.sp)
     RsiChart(seg(r.rsi))
