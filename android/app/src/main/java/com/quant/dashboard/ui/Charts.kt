@@ -40,11 +40,11 @@ data class Mark(val x: Int, val y: Double, val buy: Boolean)
 /** 완료 사이클 평균매수→평균매도 화살표 (x=윈도우 인덱스, y=가격, profit=수익여부). */
 data class CycleArrow(val x1: Int, val y1: Double, val x2: Int, val y2: Double, val profit: Boolean)
 
-private fun DrawScope.marker(cx: Float, cy: Float, buy: Boolean) {
+private fun DrawScope.marker(cx: Float, cy: Float, buy: Boolean, r: Float = 9f) {
     val col = if (buy) Color(0xFFDC2626) else Color(0xFF2563EB)
-    drawCircle(col, 9f, Offset(cx, cy))
-    drawCircle(Color.White, 9f, Offset(cx, cy), style = Stroke(1.5f))
-    label(if (buy) "↑" else "↓", cx, cy + 7f, 0xFFFFFFFF.toInt(), 20f, Paint.Align.CENTER)
+    drawCircle(col, r, Offset(cx, cy))
+    drawCircle(Color.White, r, Offset(cx, cy), style = Stroke(1.5f))
+    label(if (buy) "↑" else "↓", cx, cy + r * 0.78f, 0xFFFFFFFF.toInt(), r * 2.2f, Paint.Align.CENTER)
 }
 
 /** 사이클 화살표 (app.py 평균매수→평균매도 주석 화살표). 수익=녹색/손실=빨강. */
@@ -210,9 +210,9 @@ fun RegressionScatter(
         for (k in 0 until n) { val i = order[k]; val o = Offset(sx(spyNorm[i]), sy(predicted[i])); if (prev != null) drawLine(Color(0xFFADBAC7), prev, o, 2f); prev = o }
         // Turbo 점
         for (i in 0 until n) if (spyNorm[i] > 0 && tickerNorm[i] > 0) drawCircle(turbo(i.toFloat() / (n - 1)), 4f, Offset(sx(spyNorm[i]), sy(tickerNorm[i])))
-        // 매매 마커 (회귀 패널 위 ↑/↓ 풍선)
+        // 매매 마커 (회귀 패널 위 ↑/↓ 풍선) — 점이 작아 마커도 작게(r6)
         for ((i, buy) in markIdx) if (i in 0 until n && spyNorm[i] > 0 && tickerNorm[i] > 0) {
-            marker(sx(spyNorm[i]), sy(tickerNorm[i]), buy)
+            marker(sx(spyNorm[i]), sy(tickerNorm[i]), buy, 6f)
         }
         // 현재 위치 ★ (별표)
         val li = n - 1
