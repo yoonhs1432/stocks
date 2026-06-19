@@ -254,21 +254,18 @@ fun PriceChart(
             close()
         }
         drawPath(band, Color(0x22FFFFFF))
-        poly(predictedDollar, ::xAt, ::yAt, Color(0xFFADBAC7), 1.5f)
         poly(priceDollar, ::xAt, ::yAt, Color(0xFFE6EDF3), 2.5f)
 
         val gray = 0xFFADBAC7.toInt()
         label("$currency${"%,.0f".format(hi)}", 6f, 24f, gray, 24f)
         label("$currency${"%,.0f".format(lo)}", 6f, size.height - 10f, gray, 24f)
 
-        for (a in arrows) if (a.x1 in 0 until n && a.x2 in 0 until n)
-            arrow(xAt(a.x1), yAt(a.y1), xAt(a.x2), yAt(a.y2), a.profit)
         for (m in markers) if (m.x in 0 until n) marker(xAt(m.x), yAt(m.y), m.buy)
         chartBorder()
     }
 }
 
-/** 캔들(상승=빨강/하락=파랑) + 회귀선 + ±1.5σ 밴드 + 매매 마커. 값은 가격($/₩) 단위. */
+/** 캔들(상승=빨강/하락=파랑) + ±1.5σ 밴드 + 흰 종가선 + 매매 마커. 값은 가격($/₩) 단위. */
 @Composable
 fun CandleChart(
     opens: DoubleArray, highs: DoubleArray, lows: DoubleArray, closes: DoubleArray,
@@ -296,7 +293,6 @@ fun CandleChart(
             close()
         }
         drawPath(band, Color(0x1AFFFFFF))
-        poly(predicted, ::xAt, ::yAt, Color(0xFFADBAC7), 1.5f)
         // 흰 종가선 (캔들 뒤)
         poly(closes, ::xAt, ::yAt, Color(0x99E6EDF3), 0.8f)
         // 캔들
@@ -315,8 +311,6 @@ fun CandleChart(
         label("$currency${"%,.0f".format(hi)}", size.width - 6f, 24f, gray, 22f, Paint.Align.RIGHT)
         label("$currency${"%,.0f".format(lo)}", size.width - 6f, size.height - 10f, gray, 22f, Paint.Align.RIGHT)
         if (topLabel.isNotEmpty()) label(topLabel, 6f, 26f, 0xFFE6EDF3.toInt(), 26f)
-        for (a in arrows) if (a.x1 in 0 until n && a.x2 in 0 until n)
-            arrow(xAt(a.x1), yAt(a.y1), xAt(a.x2), yAt(a.y2), a.profit)
         for (m in markers) if (m.x in 0 until n) marker(xAt(m.x), yAt(m.y), m.buy)
         chartBorder()
     }
