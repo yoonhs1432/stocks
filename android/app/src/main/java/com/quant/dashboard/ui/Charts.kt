@@ -40,11 +40,12 @@ data class Mark(val x: Int, val y: Double, val buy: Boolean)
 /** 완료 사이클 평균매수→평균매도 화살표 (x=윈도우 인덱스, y=가격, profit=수익여부). */
 data class CycleArrow(val x1: Int, val y1: Double, val x2: Int, val y2: Double, val profit: Boolean)
 
-private fun DrawScope.marker(cx: Float, cy: Float, buy: Boolean, r: Float = 9f) {
+private fun DrawScope.marker(cx: Float, cy: Float, buy: Boolean, r: Float = 7f) {
     val col = if (buy) Color(0xFFDC2626) else Color(0xFF2563EB)
     drawCircle(col, r, Offset(cx, cy))
-    drawCircle(Color.White, r, Offset(cx, cy), style = Stroke(1.5f))
-    label(if (buy) "↑" else "↓", cx, cy + r * 0.78f, 0xFFFFFFFF.toInt(), r * 2.2f, Paint.Align.CENTER)
+    drawCircle(Color.White, r, Offset(cx, cy), style = Stroke(1.2f))
+    // 내부 화살표 — 원에 꽉 차게 (글리프 높이 ≈ 지름)
+    label(if (buy) "↑" else "↓", cx, cy + r * 0.92f, 0xFFFFFFFF.toInt(), r * 2.7f, Paint.Align.CENTER)
 }
 
 /** 사이클 화살표 (app.py 평균매수→평균매도 주석 화살표). 수익=녹색/손실=빨강. */
