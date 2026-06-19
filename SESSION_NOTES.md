@@ -1,7 +1,34 @@
 # SESSION_NOTES — 최근 작업 핸드오프
 
 > 새 세션 시작 시 이 파일을 읽으면 직전 세션의 맥락을 이어받을 수 있음.
-> 마지막 업데이트: 2026-06-10 (Fable 세션 — 전체 코드 리뷰 반영, 브랜치 claude/code-review-v5-0-fge8s1)
+> 마지막 업데이트: 2026-06-19 (Android 포팅 기능 패리티 세션, 브랜치 claude/android-native)
+
+## 2026-06-19 Android 포팅 패리티 세션 (app.py 정답지 → Kotlin 전수 대조)
+
+> `app.py`를 정답지로 삼아 분석수식/차트/화면기능 3영역 전수 감사 후 누락 일괄 구현. CI(android.yml) 빌드 그린 확인.
+
+### 감사 결론
+- **분석 핵심 수식(회귀 Z·모멘텀 M·RSI·MACD·β·σ·밴드·5단계 신호)·포트폴리오 손익/MDD/사이클 통계는 app.py와 완전 일치** — 손대지 않음.
+- 차트 5종 색/면적/마커도 대체로 일치. 점선 임계선·눈금 라벨은 직전 커밋(74d0685)의 의도된 차이로 유지.
+
+### 신규 구현 (전부 claude/android-native)
+- **기준일(As-of) 시뮬레이션**: `Store.sliceAsof()`로 전 시계열 슬라이싱, 헤더 ✕배지·설정 체크박스/날짜.
+- **AppState(전역 상태)**: `asof`·`dataVersion` 관찰 → 설정 변경 시 분석/비교/포트폴리오 탭이 `vm.sync(version)`으로 자동 재로드(수동 새로고침 불필요). ⚠️ `asof` 프로퍼티 자동 setter와 충돌 방지 위해 설정 함수는 `applyAsof()`로 명명(`setAsof` 금지).
+- **봉 기준(일봉/주봉)** interval → Yahoo 전달, **KOSDAQ `.KS`→`.KQ` fallback**(Yahoo.symbolCandidates).
+- **종목명 override 편집** + **개별/ETF 토글**(Store.individualTickers, isIndividual=저장셋∪한국6자리), MIN_TICKERS=3.
+- 탭1: ETF/개별 필터·직접입력 분석·★보유/☆이력 표식·지표설명 expander·현재가 평가손익%·**현재 사이클 진행 게이지**(Portfolio.currentCycleProgress).
+- 매매 **메모 인라인 편집**(Store.updateTradeMemo) + 포트폴리오 **📒 매매 일지**(전 종목 시간순).
+- 포트폴리오 **MDD 날짜**·자산추이 **일/주/월 단위**(resampleEquity). 비교표 ★/☆.
+- 차트: 회귀 산점도 **매매마커(markIdx)** + 가격/캔들 **사이클 화살표 CycleArrow**(평균매수→평균매도, 수익=녹색/손실=빨강).
+
+### 의도적 미포팅 (복원 금지/주의)
+- **7단계 통합신호(`score_to_signal`/`MACD_Hist_Z`)**: Android는 5단계 신호만 노출 → 생략. 분석 정확도 영향 없음.
+- **KRX 종목명 자동조회**: 온디바이스라 데이터 소스(pykrx 등) 부재 → 불가. **종목명 override 편집**으로 대체.
+- 1.5년 조회기간: Yahoo range 토큰에 없어 보류(6mo/1y/2y만).
+
+---
+
+## (이전) 2026-06-10 코드 리뷰 반영 세션 메모는 아래에 보존
 
 ## 2026-06-10 코드 리뷰 반영 세션 (app.py 6,040 → ~5,600줄)
 

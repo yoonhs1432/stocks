@@ -29,16 +29,18 @@
 ### ✅ 1단계 — (참고) FastAPI 백엔드
 `backend/` — app.py 수식 포팅. 온디바이스로 방향 전환하며 **참고용**으로만 보존.
 
-### 🔄 2단계 — Android v1 (진행 중)
+### ✅ 2단계 — Android v1 (완료)
 - Gradle(Kotlin DSL) 프로젝트 + GitHub Actions 빌드 파이프라인
-- `Quant.kt`: 회귀 Z-score, 모멘텀 M, RSI/MACD (app.py 수식 Kotlin 포팅)
-- `Yahoo.kt`: 종가 페치 (US 티커. 한국 6자리는 `.KS` 매핑)
-- 첫 화면: 종목 선택 → 분석 요약(β·σ·Z·M·신호) + 가격/밴드·Z·M·RSI Canvas 차트
+- `Quant.kt`: 회귀 Z-score, 모멘텀 M, RSI/MACD (app.py 수식 Kotlin 포팅, 전수 대조 일치)
+- `Yahoo.kt`: 종가 페치 (US 티커. 한국 6자리는 `.KS`→`.KQ` fallback)
+- 분석/비교/포트폴리오/설정 4탭 + 캔들·Z·M·MACD·RSI·산점도 Canvas 차트
 
-### ⬜ 3단계 — 기능 확장
-- 비교 표 / Z·M 산점도 / 포트폴리오 / 매매기록 입력·삭제 (로컬 저장)
-- 캔들 차트, 기준일 시뮬레이션, pull-to-refresh
-- 한국 종목 Yahoo 심볼(.KS/.KQ) 정확 매핑, 종목명
+### ✅ 3단계 — 기능 확장 (대부분 완료, 2026-06-19)
+- 비교 표 / Z·M·σ·β 산점도 / 포트폴리오(손익·MDD·사이클통계·매매일지) / 매매기록 입력·삭제·메모편집
+- 캔들 차트, **기준일(As-of) 시뮬레이션**, 회귀 매매마커 + 사이클 화살표
+- 한국 종목 `.KS/.KQ` 매핑, 종목명 override 편집, 개별/ETF 필터, 봉기준(일/주봉)
+- 설정 변경 시 전 탭 자동 반영(AppState.dataVersion)
+- ⬜ 잔여: 7단계 통합신호(의도 생략), KRX 이름 자동조회(온디바이스 불가→override 대체), pull-to-refresh
 
 ## 컨벤션
 - 색상: 매수/수익=빨강(#dc2626), 매도/손실=파랑(#2563eb). 신호 라벨 5단계.
