@@ -238,9 +238,9 @@ fun MacdChart(macd: DoubleArray, signal: DoubleArray, modifier: Modifier = Modif
 data class ScatterPt(val x: Double, val y: Double, val label: String, val color: Color)
 
 private fun DrawScope.dot(cx: Float, cy: Float, color: Color, label: String) {
-    drawCircle(color, 7f, Offset(cx, cy))
-    drawCircle(Color.White, 7f, Offset(cx, cy), style = Stroke(1f))
-    if (label.isNotEmpty()) label(label, cx + 9f, cy + 4f, 0xCCC9D1D9.toInt(), 20f)
+    drawCircle(color, 5f, Offset(cx, cy))
+    drawCircle(Color.White, 5f, Offset(cx, cy), style = Stroke(1f))
+    if (label.isNotEmpty()) label(label, cx + 7f, cy + 3f, 0xB0C9D1D9.toInt(), 16f)
 }
 
 /** Z·M 사분면 (전 종목 현재 위치). X=Z, Y=M, 0~100 고정. */

@@ -2,6 +2,7 @@ package com.quant.dashboard.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -9,6 +10,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -86,15 +88,16 @@ fun AnalysisScreen(vm: AnalysisViewModel = viewModel()) {
                 Button(
                     onClick = { vm.select(tk) },
                     colors = ButtonDefaults.buttonColors(containerColor = bg),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                    modifier = if (selected)
-                        Modifier.border(2.dp, Color.White, RoundedCornerShape(50)) else Modifier,
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                    modifier = Modifier
+                        .height(32.dp)
+                        .then(if (selected) Modifier.border(2.dp, Color.White, RoundedCornerShape(50)) else Modifier),
                 ) {
                     Text(
                         (if (row?.holding == true) "★ " else "") + Tickers.displayName(tk) + "  " + dayStr,
                         color = if (dark) Color.White else Color.Black,
-                        fontSize = 12.sp,
-                        fontWeight = if (tk == s.ticker) FontWeight.Bold else FontWeight.Normal,
+                        fontSize = 11.sp,
+                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
                     )
                 }
             }
@@ -199,45 +202,51 @@ private fun TradeSection(ticker: String) {
     var date by remember { mutableStateOf(LocalDate.now().toString()) }
     var memo by remember { mutableStateOf("") }
     var err by remember { mutableStateOf<String?>(null) }
+    var expanded by remember { mutableStateOf(false) }
 
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text("📝 매매 기록 — ${Tickers.displayName(ticker)}",
-            color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+        Text(
+            "📝 매매 기록 — ${Tickers.displayName(ticker)}  ${if (expanded) "▲" else "▼"} (${trades.size})",
+            color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold,
+            modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded },
+        )
 
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            FilterChip(selected = type == "buy", onClick = { type = "buy" },
-                label = { Text("매수") })
-            FilterChip(selected = type == "sell", onClick = { type = "sell" },
-                label = { Text("매도") })
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            OutlinedTextField(date, { date = it }, label = { Text("날짜") },
-                singleLine = true, modifier = Modifier.weight(1.4f))
-            OutlinedTextField(qty, { qty = it }, label = { Text("수량") },
-                singleLine = true, modifier = Modifier.weight(1f))
-            OutlinedTextField(price, { price = it }, label = { Text("단가$") },
-                singleLine = true, modifier = Modifier.weight(1f))
-        }
-        OutlinedTextField(memo, { memo = it }, label = { Text("메모 (선택)") },
-            singleLine = true, modifier = Modifier.fillMaxWidth())
-        Button(onClick = {
-            val q = qty.toIntOrNull()
-            val p = price.toDoubleOrNull()
-            if (q == null || q <= 0 || p == null || p <= 0) {
-                err = "수량·단가를 올바르게 입력하세요"
-            } else {
-                Store.addTrade(ticker, Trade(date.trim(), type, q, p, memo.ifBlank { null }))
-                qty = ""; price = ""; memo = ""; err = null; refresh++
+        if (expanded) {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                FilterChip(selected = type == "buy", onClick = { type = "buy" },
+                    label = { Text("매수") })
+                FilterChip(selected = type == "sell", onClick = { type = "sell" },
+                    label = { Text("매도") })
             }
-        }) { Text("저장") }
-        err?.let { Text(it, color = Loss, fontSize = 12.sp) }
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                OutlinedTextField(date, { date = it }, label = { Text("날짜") },
+                    singleLine = true, modifier = Modifier.weight(1.4f))
+                OutlinedTextField(qty, { qty = it }, label = { Text("수량") },
+                    singleLine = true, modifier = Modifier.weight(1f))
+                OutlinedTextField(price, { price = it }, label = { Text("단가$") },
+                    singleLine = true, modifier = Modifier.weight(1f))
+            }
+            OutlinedTextField(memo, { memo = it }, label = { Text("메모 (선택)") },
+                singleLine = true, modifier = Modifier.fillMaxWidth())
+            Button(onClick = {
+                val q = qty.toIntOrNull()
+                val p = price.toDoubleOrNull()
+                if (q == null || q <= 0 || p == null || p <= 0) {
+                    err = "수량·단가를 올바르게 입력하세요"
+                } else {
+                    Store.addTrade(ticker, Trade(date.trim(), type, q, p, memo.ifBlank { null }))
+                    qty = ""; price = ""; memo = ""; err = null; refresh++
+                }
+            }) { Text("저장") }
+            err?.let { Text(it, color = Loss, fontSize = 12.sp) }
 
-        trades.forEachIndexed { i, t ->
-            Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
-                Text("${t.date}  ${if (t.type == "buy") "▲" else "▼"} ${t.qty}주 @$${"%.2f".format(t.price)}",
-                    color = TextSecondary, fontSize = 12.sp)
-                TextButton(onClick = { Store.deleteTrade(ticker, i); refresh++ }) {
-                    Text("삭제", color = Loss, fontSize = 12.sp)
+            trades.forEachIndexed { i, t ->
+                Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
+                    Text("${t.date}  ${if (t.type == "buy") "▲" else "▼"} ${t.qty}주 @$${"%.2f".format(t.price)}",
+                        color = TextSecondary, fontSize = 12.sp)
+                    TextButton(onClick = { Store.deleteTrade(ticker, i); refresh++ }) {
+                        Text("삭제", color = Loss, fontSize = 12.sp)
+                    }
                 }
             }
         }
