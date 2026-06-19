@@ -65,75 +65,98 @@ fun AnalysisScreen(vm: AnalysisViewModel = viewModel()) {
         if (vm.overview.isEmpty()) vm.loadOverview()
     }
 
+    val ov = vm.overview.associateBy { it.ticker }
+    val tickers = if (vm.overview.isNotEmpty())
+        Store.loadTickers().sortedBy { ov[it]?.mPct ?: 50.0 } else Store.loadTickers()
+
     Column(
         modifier = Modifier.fillMaxSize().background(BgApp)
-            .verticalScroll(rememberScrollState()).padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+            .verticalScroll(rememberScrollState()).padding(8.dp),
     ) {
-        // ── 종목 버튼 (모멘텀 색, 가로 스크롤, M 낮은 순) ──
-        val ov = vm.overview.associateBy { it.ticker }
-        val tickers = if (vm.overview.isNotEmpty())
-            Store.loadTickers().sortedBy { ov[it]?.mPct ?: 50.0 } else Store.loadTickers()
-        Row(
-            Modifier.horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            tickers.forEach { tk ->
-                val row = ov[tk]
-                val bg = if (row != null) pctColor(row.mPct) else Neutral
-                val dark = row != null && (row.mPct < 20 || row.mPct >= 80)
-                val dayStr = row?.let { (if (it.day >= 0) "+" else "") + "%.1f%%".format(it.day) } ?: ""
-                val selected = tk == s.ticker
-                Button(
-                    onClick = { vm.select(tk) },
-                    colors = ButtonDefaults.buttonColors(containerColor = bg),
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                    modifier = Modifier
-                        .height(32.dp)
-                        .then(if (selected) Modifier.border(2.dp, Color.White, RoundedCornerShape(50)) else Modifier),
-                ) {
-                    Text(
-                        (if (row?.holding == true) "★ " else "") + Tickers.displayName(tk) + "  " + dayStr,
-                        color = if (dark) Color.White else Color.Black,
-                        fontSize = 11.sp,
-                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                    )
-                }
-            }
-            Button(onClick = { vm.refresh(); vm.loadOverview(true) }) { Text("🔄") }
-        }
-
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            PERIODS.forEach { (label, m) ->
-                FilterChip(selected = periodMonths == m, onClick = { periodMonths = m },
-                    label = { Text(label, fontSize = 12.sp) })
+            // ── 좌측: 종목 버튼 세로 리스트 ──
+            Column(
+                Modifier.weight(0.30f),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                tickers.forEach { tk ->
+                    val row = ov[tk]
+                    val bg = if (row != null) pctColor(row.mPct) else Neutral
+                    val dark = row != null && (row.mPct < 20 || row.mPct >= 80)
+                    val dayStr = row?.let { (if (it.day >= 0) "+" else "") + "%.1f%%".format(it.day) } ?: ""
+                    val selected = tk == s.ticker
+                    Button(
+                        onClick = { vm.select(tk) },
+                        colors = ButtonDefaults.buttonColors(containerColor = bg),
+                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                        shape = RoundedCornerShape(6.dp),
+                        modifier = Modifier.fillMaxWidth().height(30.dp)
+                            .then(if (selected) Modifier.border(2.dp, Color.White, RoundedCornerShape(6.dp)) else Modifier),
+                    ) {
+                        Text(
+                            (if (row?.holding == true) "★" else "") + Tickers.displayName(tk) + " " + dayStr,
+                            color = if (dark) Color.White else Color.Black,
+                            fontSize = 10.sp, maxLines = 1,
+                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                        )
+                    }
+                }
+                Button(onClick = { vm.refresh() },
+                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                    modifier = Modifier.fillMaxWidth().height(30.dp)) { Text("🔄", fontSize = 11.sp) }
+            }
+
+            // ── 우측: 콘텐츠 ──
+            Column(
+                Modifier.weight(0.70f),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    PERIODS.forEach { (label, m) ->
+                        FilterChip(selected = periodMonths == m, onClick = { periodMonths = m },
+                            label = { Text(label, fontSize = 11.sp) })
+                    }
+                }
+                when {
+                    s.loading -> Row(Modifier.fillMaxWidth().padding(24.dp), Arrangement.Center) {
+                        CircularProgressIndicator()
+                    }
+                    s.error != null -> Text("⚠️ ${s.error}", color = signalColor("strong_sell"))
+                    s.result != null -> ResultView(s.result, periodMonths, s.ticker, s.ohlc)
+                }
+                TradeSection(s.ticker)
             }
         }
-
-        when {
-            s.loading -> Row(Modifier.fillMaxWidth().padding(24.dp), Arrangement.Center) {
-                CircularProgressIndicator()
-            }
-            s.error != null -> Text("⚠️ ${s.error}", color = signalColor("strong_sell"))
-            s.result != null -> ResultView(s.result, periodMonths, s.ticker, s.ohlc)
-        }
-
-        TradeSection(s.ticker)
     }
 }
 
 @Composable
 private fun ResultView(r: Quant.Result, periodMonths: Int, ticker: String, ohlc: List<com.quant.dashboard.data.Candle>) {
-    Text(Tickers.priceLabel(ticker, r.lastPrice), color = TextPrimary, fontSize = 22.sp, fontWeight = FontWeight.Bold)
-    Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-        Metric("β·SPY", "%.2f×".format(r.beta))
+    // 종목 헤더: 종목명 + σ·β·Z·M
+    Text(Tickers.displayName(ticker), color = pctColor(r.lastMpct), fontSize = 18.sp, fontWeight = FontWeight.Bold)
+    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         Metric("σ", "±%.0f%%".format(r.sigmaPct))
+        Metric("β·SPY", "%.1f×".format(r.beta))
         Metric("Z", "%.0f".format(r.lastZpct), pctColor(r.lastZpct))
         Metric("M", "%.0f".format(r.lastMpct), pctColor(r.lastMpct))
     }
+
+    // 정보 카드: 현재가 / 평균단가 / 보유수량
+    val pos = remember(ticker) { com.quant.dashboard.quant.Portfolio.position(Store.loadTrades()[ticker].orEmpty()) }
+    Row(
+        Modifier.fillMaxWidth()
+            .border(1.5.dp, if (pos != null) Color(0xFF3FB950) else Color(0xFF6B7280), RoundedCornerShape(8.dp))
+            .padding(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Metric("현재가", Tickers.priceLabel(ticker, r.lastPrice))
+        if (pos != null) {
+            Metric("평균단가", Tickers.priceLabel(ticker, pos.avg))
+            Metric("보유", "${pos.qty}주")
+        }
+    }
     Text("신호: ${SIGNAL_LABEL[r.signal] ?: r.signal}",
-        color = signalColor(r.signal), fontWeight = FontWeight.Bold, fontSize = 15.sp)
+        color = signalColor(r.signal), fontWeight = FontWeight.Bold, fontSize = 14.sp)
 
     val n = r.dates.size
     val cutoff = r.dates[n - 1] - periodMonths.toLong() * 30 * 86400
@@ -165,8 +188,16 @@ private fun ResultView(r: Quant.Result, periodMonths: Int, ticker: String, ohlc:
         }
     }
 
-    Text("캔들 · 회귀선 · ±1.5σ", color = TextSecondary, fontSize = 12.sp)
-    // OHLC를 분석 날짜(window)에 정렬 — 없으면 NaN
+    // ① 회귀 산점도 (로그-로그, Turbo + 밴드 + ★) — 모두 정규화(Norm) 값
+    Text("회귀 산점도 (SPY 대비)", color = TextSecondary, fontSize = 11.sp)
+    RegressionScatter(seg(r.spyNorm), seg(r.tickerNorm), seg(r.predicted),
+        seg(r.bandUpper), seg(r.bandLower), r.beta)
+
+    // ② Z·M 시간 궤적 산점도
+    Text("Z·M 궤적 (시간 파랑→빨강, ● 현재)", color = TextSecondary, fontSize = 11.sp)
+    ZmScatter(r.zPct, r.mPct, scatterIdx)
+
+    // ③ 가격 캔들
     val candleByDay = remember(ohlc) { ohlc.associateBy { it.t / 86400L } }
     val wN = n - start
     val opens = DoubleArray(wN); val highs = DoubleArray(wN)
@@ -176,29 +207,30 @@ private fun ResultView(r: Quant.Result, periodMonths: Int, ticker: String, ohlc:
         if (cd != null) { opens[i] = cd.open; highs[i] = cd.high; lows[i] = cd.low; closes[i] = cd.close }
         else { opens[i] = Double.NaN; highs[i] = Double.NaN; lows[i] = Double.NaN; closes[i] = Double.NaN }
     }
-    val hasCandles = closes.any { !it.isNaN() }
-    if (hasCandles) {
+    val priceLbl = Tickers.priceLabel(ticker, r.lastPrice)
+    if (closes.any { !it.isNaN() }) {
         CandleChart(opens, highs, lows, closes,
             segDollar(r.predicted), segDollar(r.bandUpper), segDollar(r.bandLower),
-            priceMarks, Tickers.currencySymbol(ticker))
+            priceMarks, Tickers.currencySymbol(ticker), priceLbl)
     } else {
         PriceChart(segDollar(r.tickerNorm), segDollar(r.predicted), segDollar(r.bandUpper), segDollar(r.bandLower),
             priceMarks, Tickers.currencySymbol(ticker))
     }
 
-    Text("Z(흰) · M(주황) — 20/40/60/80", color = TextSecondary, fontSize = 12.sp)
-    ZmChart(seg(r.zPct), seg(r.mPct), zmMarks)
+    // ④ Z+M 라인
+    ZmChart(seg(r.zPct), seg(r.mPct), zmMarks,
+        topLabel = "Z ${"%.0f".format(r.lastZpct)} · M ${"%.0f".format(r.lastMpct)}")
 
-    Text("MACD(보라) · Signal(흰) · 교차 ▲▼", color = TextSecondary, fontSize = 12.sp)
-    MacdChart(seg(r.macd), seg(r.macdSignal))
+    // ⑤ MACD
+    val macdW = seg(r.macd); val sigW = seg(r.macdSignal)
+    val macdLast = macdW.lastOrNull { !it.isNaN() } ?: 0.0
+    val sigLast = sigW.lastOrNull { !it.isNaN() } ?: 0.0
+    MacdChart(macdW, sigW, topLabel = "${"%.2f".format(sigLast)} (${"%+.2f".format(macdLast - sigLast)})")
 
-    Text("RSI — 30/70", color = TextSecondary, fontSize = 12.sp)
-    RsiChart(seg(r.rsi))
+    // ⑥ RSI
+    RsiChart(seg(r.rsi), topLabel = "RSI ${"%.1f".format(r.rsi.lastOrNull { !it.isNaN() } ?: 50.0)}")
 
     DateAxis(dates)
-
-    Text("Z·M 사분면 (시간 궤적 파랑→빨강, ● 현재)", color = TextSecondary, fontSize = 12.sp)
-    ZmScatter(r.zPct, r.mPct, scatterIdx)
 }
 
 @Composable

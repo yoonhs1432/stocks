@@ -69,6 +69,102 @@ private fun DrawScope.poly(data: DoubleArray, xAt: (Int) -> Float, yAt: (Double)
     }
 }
 
+/** Turbo 컬러맵 근사 (파랑→청록→초록→노랑→빨강). */
+private fun turbo(t: Float): Color {
+    val x = t.coerceIn(0f, 1f)
+    val stops = listOf(
+        Color(0xFF30123B), Color(0xFF28BBEC), Color(0xFFA2FC3C),
+        Color(0xFFFB8022), Color(0xFF7A0403),
+    )
+    val seg = x * (stops.size - 1)
+    val i = seg.toInt().coerceIn(0, stops.size - 2)
+    return lerp(stops[i], stops[i + 1], seg - i)
+}
+
+/** 임계값 위쪽 면적 채움 (Z>80, RSI>70 등). */
+private fun DrawScope.fillAbove(data: DoubleArray, threshold: Double, xAt: (Int) -> Float, yAt: (Double) -> Float, color: Color) {
+    val n = data.size
+    val p = Path(); p.moveTo(xAt(0), yAt(threshold))
+    for (i in 0 until n) { val v = if (data[i].isNaN()) threshold else maxOf(data[i], threshold); p.lineTo(xAt(i), yAt(v)) }
+    for (i in n - 1 downTo 0) p.lineTo(xAt(i), yAt(threshold))
+    p.close(); drawPath(p, color)
+}
+
+/** 임계값 아래쪽 면적 채움 (RSI<30 등). */
+private fun DrawScope.fillBelow(data: DoubleArray, threshold: Double, xAt: (Int) -> Float, yAt: (Double) -> Float, color: Color) {
+    val n = data.size
+    val p = Path(); p.moveTo(xAt(0), yAt(threshold))
+    for (i in 0 until n) { val v = if (data[i].isNaN()) threshold else minOf(data[i], threshold); p.lineTo(xAt(i), yAt(v)) }
+    for (i in n - 1 downTo 0) p.lineTo(xAt(i), yAt(threshold))
+    p.close(); drawPath(p, color)
+}
+
+/**
+ * ① 회귀 산점도 (로그-로그). X=SPY_Norm, Y=종목_Norm.
+ * Turbo 시간순 점 + 회귀선 + ±1.5σ 밴드 + 가이드 점선 + 현재 위치 ★ + β 라벨.
+ */
+@Composable
+fun RegressionScatter(
+    spyNorm: DoubleArray, tickerNorm: DoubleArray, predicted: DoubleArray,
+    bandU: DoubleArray, bandL: DoubleArray, beta: Double, modifier: Modifier = Modifier,
+) {
+    val n = spyNorm.size
+    if (n < 2) return
+    val guideN = 4.0
+    var xLo = Double.MAX_VALUE; var xHi = -Double.MAX_VALUE
+    for (v in spyNorm) if (v > 0 && v.isFinite()) { if (v < xLo) xLo = v; if (v > xHi) xHi = v }
+    var yLo = Double.MAX_VALUE; var yHi = -Double.MAX_VALUE
+    for (arr in listOf(tickerNorm, bandU, bandL)) for (v in arr) if (v > 0 && v.isFinite()) { if (v < yLo) yLo = v; if (v > yHi) yHi = v }
+    if (xHi <= xLo || yHi <= yLo) return
+    val lxLo = Math.log10(xLo * 0.98); val lxHi = Math.log10(xHi * 1.02)
+    val lyLo = Math.log10(yLo * 0.88); val lyHi = Math.log10(yHi * 1.18)
+    val order = (0 until n).sortedBy { spyNorm[it] }
+    Canvas(modifier = modifier.fillMaxWidth().height(180.dp)) {
+        fun sx(v: Double) = (size.width * (Math.log10(v) - lxLo) / (lxHi - lxLo)).toFloat()
+        fun sy(v: Double) = (size.height * (1 - (Math.log10(v) - lyLo) / (lyHi - lyLo))).toFloat()
+        // 가이드 곡선 (y = c·x^guideN)
+        var ecLo = Double.MAX_VALUE; var ecHi = -Double.MAX_VALUE
+        for (i in 0 until n) if (spyNorm[i] > 0) {
+            val ec = tickerNorm[i] / Math.pow(spyNorm[i], guideN)
+            if (ec > 0 && ec.isFinite()) { if (ec < ecLo) ecLo = ec; if (ec > ecHi) ecHi = ec }
+        }
+        if (ecLo < Double.MAX_VALUE) {
+            val lcLo = Math.log10(ecLo) - 1.0; val lcHi = Math.log10(ecHi) + 1.0
+            for (g in 0 until 15) {
+                val c = Math.pow(10.0, lcLo + (lcHi - lcLo) * g / 14.0)
+                var prev: Offset? = null
+                for (s in 0..24) {
+                    val xv = xLo * Math.pow(xHi / xLo, s / 24.0)
+                    val yv = c * Math.pow(xv, guideN)
+                    if (yv > 0) {
+                        val o = Offset(sx(xv), sy(yv))
+                        if (prev != null && s % 2 == 0) drawLine(Color(0x66C8C8C8), prev, o, 1f)
+                        prev = o
+                    }
+                }
+            }
+        }
+        // 밴드
+        val bp = Path(); bp.moveTo(sx(spyNorm[order[0]]), sy(bandU[order[0]]))
+        for (k in 1 until n) { val i = order[k]; bp.lineTo(sx(spyNorm[i]), sy(bandU[i])) }
+        for (k in n - 1 downTo 0) { val i = order[k]; bp.lineTo(sx(spyNorm[i]), sy(bandL[i])) }
+        bp.close(); drawPath(bp, Color(0x33969696))
+        // 회귀선
+        var prev: Offset? = null
+        for (k in 0 until n) { val i = order[k]; val o = Offset(sx(spyNorm[i]), sy(predicted[i])); if (prev != null) drawLine(Color(0xFFADBAC7), prev, o, 2f); prev = o }
+        // Turbo 점
+        for (i in 0 until n) if (spyNorm[i] > 0 && tickerNorm[i] > 0) drawCircle(turbo(i.toFloat() / (n - 1)), 4f, Offset(sx(spyNorm[i]), sy(tickerNorm[i])))
+        // 현재 위치 ★
+        val li = n - 1
+        if (spyNorm[li] > 0 && tickerNorm[li] > 0) {
+            drawCircle(Color.White, 7f, Offset(sx(spyNorm[li]), sy(tickerNorm[li])))
+            drawCircle(Color.Black, 7f, Offset(sx(spyNorm[li]), sy(tickerNorm[li])), style = Stroke(1.5f))
+        }
+        label("β = ${"%.2f".format(beta)}", 6f, 24f, 0xFFADBAC7.toInt(), 22f)
+    }
+}
+
+
 /** 가격($) + 회귀선 + ±1.5σ 밴드. 우측에 최고/최저가 라벨. */
 @Composable
 fun PriceChart(
@@ -117,6 +213,7 @@ fun CandleChart(
     predicted: DoubleArray, bandUpper: DoubleArray, bandLower: DoubleArray,
     markers: List<Mark> = emptyList(),
     currency: String = "$",
+    topLabel: String = "",
     modifier: Modifier = Modifier,
 ) {
     val n = closes.size
@@ -129,7 +226,6 @@ fun CandleChart(
     Canvas(modifier = modifier.fillMaxWidth().height(210.dp)) {
         fun xAt(i: Int) = size.width * i / (n - 1)
         fun yAt(v: Double) = (size.height * (1 - (v - lo) / (hi - lo))).toFloat()
-        // 밴드
         val band = Path().apply {
             moveTo(0f, yAt(bandUpper[0]))
             for (i in 1 until n) lineTo(xAt(i), yAt(bandUpper[i]))
@@ -138,6 +234,8 @@ fun CandleChart(
         }
         drawPath(band, Color(0x1AFFFFFF))
         poly(predicted, ::xAt, ::yAt, Color(0xFFADBAC7), 1.5f)
+        // 흰 종가선 (캔들 뒤)
+        poly(closes, ::xAt, ::yAt, Color(0x99E6EDF3), 0.8f)
         // 캔들
         val w = (size.width / n * 0.6f).coerceAtLeast(1.5f)
         for (i in 0 until n) {
@@ -151,27 +249,31 @@ fun CandleChart(
             drawRect(col, topLeft = Offset(cx - w / 2, top), size = Size(w, maxOf(bot - top, 1f)))
         }
         val gray = 0xFFADBAC7.toInt()
-        label("$currency${"%,.0f".format(hi)}", 6f, 24f, gray, 24f)
-        label("$currency${"%,.0f".format(lo)}", 6f, size.height - 10f, gray, 24f)
+        label("$currency${"%,.0f".format(hi)}", size.width - 6f, 24f, gray, 22f, Paint.Align.RIGHT)
+        label("$currency${"%,.0f".format(lo)}", size.width - 6f, size.height - 10f, gray, 22f, Paint.Align.RIGHT)
+        if (topLabel.isNotEmpty()) label(topLabel, 6f, 26f, 0xFFE6EDF3.toInt(), 26f)
         for (m in markers) if (m.x in 0 until n) marker(xAt(m.x), yAt(m.y), m.buy)
     }
 }
 
-/** Z(흰)·M(주황) 백분위 0~100, 임계선 20/40/60/80. */
+/** Z(흰)·M(주황) 백분위 0~100, 임계선 20/40/60/80, Z>80 빨강 면적. */
 @Composable
-fun ZmChart(zPct: DoubleArray, mPct: DoubleArray, markers: List<Mark> = emptyList(), modifier: Modifier = Modifier) {
+fun ZmChart(zPct: DoubleArray, mPct: DoubleArray, markers: List<Mark> = emptyList(),
+            topLabel: String = "", modifier: Modifier = Modifier) {
     val n = zPct.size
     if (n < 2) return
     Canvas(modifier = modifier.fillMaxWidth().height(120.dp)) {
         fun xAt(i: Int) = size.width * i / (n - 1)
         fun yAt(v: Double) = (size.height * (1 - v / 100.0)).toFloat()
+        // Z>80 빨강 면적
+        fillAbove(zPct, 80.0, ::xAt, ::yAt, Color(0x40F85149))
         for (t in intArrayOf(20, 40, 60, 80)) {
             val y = yAt(t.toDouble())
-            drawLine(Color(0x33FFFFFF), Offset(0f, y), Offset(size.width, y), 1f)
-            label(t.toString(), 4f, y - 3f, 0x66FFFFFF, 20f)
+            drawLine(Color(0x55FFFFFF), Offset(0f, y), Offset(size.width, y), 0.8f)
         }
         poly(zPct, ::xAt, ::yAt, Color(0xFFE6EDF3), 2f)
         poly(mPct, ::xAt, ::yAt, Color(0xFFF97316), 1.5f)
+        if (topLabel.isNotEmpty()) label(topLabel, 6f, 22f, 0xFFE6EDF3.toInt(), 22f)
         for (m in markers) if (m.x in 0 until n) marker(xAt(m.x), yAt(m.y), m.buy)
     }
 }
@@ -222,25 +324,27 @@ fun ZmScatter(
     }
 }
 
-/** RSI 0~100, 30/70 임계선. */
+/** RSI 0~100, 70/50/30 임계선 + >70 빨강·<30 파랑 면적. */
 @Composable
-fun RsiChart(rsi: DoubleArray, modifier: Modifier = Modifier) {
+fun RsiChart(rsi: DoubleArray, topLabel: String = "", modifier: Modifier = Modifier) {
     val n = rsi.size
     if (n < 2) return
     Canvas(modifier = modifier.fillMaxWidth().height(90.dp)) {
         fun xAt(i: Int) = size.width * i / (n - 1)
         fun yAt(v: Double) = (size.height * (1 - v / 100.0)).toFloat()
-        drawLine(Profit.copy(alpha = 0.5f), Offset(0f, yAt(70.0)), Offset(size.width, yAt(70.0)), 1f)
-        drawLine(Loss.copy(alpha = 0.5f), Offset(0f, yAt(30.0)), Offset(size.width, yAt(30.0)), 1f)
-        label("70", 4f, yAt(70.0) - 3f, 0x66FFFFFF, 20f)
-        label("30", 4f, yAt(30.0) - 3f, 0x66FFFFFF, 20f)
+        fillAbove(rsi, 70.0, ::xAt, ::yAt, Color(0x47F85149))
+        fillBelow(rsi, 30.0, ::xAt, ::yAt, Color(0x4758A6FF))
+        drawLine(Color(0xB3F85149), Offset(0f, yAt(70.0)), Offset(size.width, yAt(70.0)), 0.7f)
+        drawLine(Color(0x88768390), Offset(0f, yAt(50.0)), Offset(size.width, yAt(50.0)), 0.5f)
+        drawLine(Color(0xB358A6FF), Offset(0f, yAt(30.0)), Offset(size.width, yAt(30.0)), 0.7f)
         poly(rsi, ::xAt, ::yAt, Color(0xFF22D3EE), 2f)
+        if (topLabel.isNotEmpty()) label(topLabel, 6f, 22f, 0xFF22D3EE.toInt(), 22f)
     }
 }
 
-/** 자산추이(누적손익 $) 라인 + 0 기준선. */
+/** 자산추이(누적손익) 라인 + 색 마커 + 0 기준 점선. unit 접미사(예: 만원). */
 @Composable
-fun EquityChart(values: DoubleArray, modifier: Modifier = Modifier) {
+fun EquityChart(values: DoubleArray, unit: String = "$", modifier: Modifier = Modifier) {
     val n = values.size
     if (n < 2) return
     var lo = values.minNaN(); var hi = values.maxNaN()
@@ -249,20 +353,33 @@ fun EquityChart(values: DoubleArray, modifier: Modifier = Modifier) {
     if (hi <= lo) hi = lo + 1.0
     val pad = (hi - lo) * 0.08
     lo -= pad; hi += pad
-    Canvas(modifier = modifier.fillMaxWidth().height(140.dp)) {
+    Canvas(modifier = modifier.fillMaxWidth().height(160.dp)) {
         fun xAt(i: Int) = size.width * i / (n - 1)
         fun yAt(v: Double) = (size.height * (1 - (v - lo) / (hi - lo))).toFloat()
         val y0 = yAt(0.0)
-        drawLine(Color(0x55FFFFFF), Offset(0f, y0), Offset(size.width, y0), 1f)
+        // 0선 점선
+        var dx = 0f
+        while (dx < size.width) { drawLine(Color(0x888B949E), Offset(dx, y0), Offset(dx + 6f, y0), 0.8f); dx += 12f }
         poly(values, ::xAt, ::yAt, Color(0xFFF85149), 2f)
-        label("$%,.0f".format(hi), 6f, 24f, 0xFFADBAC7.toInt(), 22f)
-        label("$%,.0f".format(lo), 6f, size.height - 8f, 0xFFADBAC7.toInt(), 22f)
+        for (i in 0 until n) {
+            if (values[i].isNaN()) continue
+            val c = if (values[i] >= 0) Color(0xFFDC2626) else Color(0xFF2563EB)
+            drawCircle(c, 5f, Offset(xAt(i), yAt(values[i])))
+            drawCircle(Color(0xFF0D1117), 5f, Offset(xAt(i), yAt(values[i])), style = Stroke(1f))
+        }
+        if (unit == "만원") {
+            label("${"%,.0f".format(hi)}만원", size.width - 6f, 22f, 0xFFADBAC7.toInt(), 20f, Paint.Align.RIGHT)
+            label("${"%,.0f".format(lo)}만원", size.width - 6f, size.height - 8f, 0xFFADBAC7.toInt(), 20f, Paint.Align.RIGHT)
+        } else {
+            label("$unit${"%,.0f".format(hi)}", 6f, 22f, 0xFFADBAC7.toInt(), 20f)
+            label("$unit${"%,.0f".format(lo)}", 6f, size.height - 8f, 0xFFADBAC7.toInt(), 20f)
+        }
     }
 }
 
 /** MACD(보라) + Signal(흰) + 0선 + 교차 마커(▲빨강 상향 / ▼파랑 하향). */
 @Composable
-fun MacdChart(macd: DoubleArray, signal: DoubleArray, modifier: Modifier = Modifier) {
+fun MacdChart(macd: DoubleArray, signal: DoubleArray, topLabel: String = "", modifier: Modifier = Modifier) {
     val n = macd.size
     if (n < 2) return
     var mx = 0.0
@@ -273,9 +390,9 @@ fun MacdChart(macd: DoubleArray, signal: DoubleArray, modifier: Modifier = Modif
     Canvas(modifier = modifier.fillMaxWidth().height(110.dp)) {
         fun xAt(i: Int) = size.width * i / (n - 1)
         fun yAt(v: Double) = (size.height * (1 - (v + mx) / (2 * mx))).toFloat()
-        drawLine(Color(0x55FFFFFF), Offset(0f, yAt(0.0)), Offset(size.width, yAt(0.0)), 1f)
+        drawLine(Color(0x88768390), Offset(0f, yAt(0.0)), Offset(size.width, yAt(0.0)), 0.5f)
         poly(macd, ::xAt, ::yAt, Color(0xFF7C3AED), 2f)
-        poly(signal, ::xAt, ::yAt, Color(0xFFE6EDF3), 1f)
+        poly(signal, ::xAt, ::yAt, Color(0xFFE6EDF3), 0.9f)
         for (i in 1 until n) {
             if (macd[i].isNaN() || signal[i].isNaN() || macd[i - 1].isNaN() || signal[i - 1].isNaN()) continue
             val prev = macd[i - 1] - signal[i - 1]
@@ -283,6 +400,7 @@ fun MacdChart(macd: DoubleArray, signal: DoubleArray, modifier: Modifier = Modif
             if (prev < 0 && cur >= 0) marker(xAt(i), yAt(macd[i]), true)
             else if (prev > 0 && cur <= 0) marker(xAt(i), yAt(macd[i]), false)
         }
+        if (topLabel.isNotEmpty()) label(topLabel, 6f, 22f, 0xFFE6EDF3.toInt(), 22f)
     }
 }
 
@@ -304,6 +422,7 @@ fun ScatterChart(
     vLines: List<GridLine> = emptyList(),
     hLines: List<GridLine> = emptyList(),
     xAxisLabel: String = "", yAxisLabel: String = "",
+    labelTopCenter: Boolean = false,
     height: Dp = 340.dp,
     modifier: Modifier = Modifier,
 ) {
@@ -333,8 +452,11 @@ fun ScatterChart(
             drawCircle(pts[i].color, 14f, Offset(xs[i], ys[i]))
             drawCircle(Color.White, 14f, Offset(xs[i], ys[i]), style = Stroke(2f))
         }
-        // 라벨 — 가장 가까운 점 반대 방향(8방향)에 배치
+        // 라벨 — top-center(라벨 위) 또는 8방향 분산
         val r = 18f
+        if (labelTopCenter) {
+            for (i in pts.indices) label(pts[i].label, xs[i], ys[i] - 16f, 0xFFE6EDF3.toInt(), 22f, Paint.Align.CENTER)
+        } else
         for (i in pts.indices) {
             var best = Float.MAX_VALUE; var nd = -1
             for (j in pts.indices) {

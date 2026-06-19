@@ -113,7 +113,7 @@ private fun ResultBody(r: Portfolio.Result, rate: Double) {
     // ── 자산 추이 (만원) ──
     if (r.equity.size >= 2) {
         Text("자산 추이 (누적손익, 만원)", color = TextSecondary, fontSize = 12.sp)
-        EquityChart(r.equity.map { it.second * rate / 10000.0 }.toDoubleArray())
+        EquityChart(r.equity.map { it.second * rate / 10000.0 }.toDoubleArray(), unit = "만원")
     }
 
     // ── 사이클 통계 ──

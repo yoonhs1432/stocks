@@ -37,6 +37,14 @@ object Portfolio {
     /** 현재 보유 수량 (외부에서 '보유 중' 판정용). */
     fun currentHoldQty(trades: List<Trade>): Int = resolve(trades).holdQty
 
+    data class Position(val qty: Int, val avg: Double)
+
+    /** 보유 중이면 (수량, 평균단가). 아니면 null. */
+    fun position(trades: List<Trade>): Position? {
+        val c = resolve(trades)
+        return if (c.holdQty > 0 && c.buyQty > 0) Position(c.holdQty, c.buyCost / c.buyQty) else null
+    }
+
     data class CycleStats(
         val count: Int, val winRate: Double, val avgRet: Double,
         val avgHoldDays: Double, val profitFactor: Double?,

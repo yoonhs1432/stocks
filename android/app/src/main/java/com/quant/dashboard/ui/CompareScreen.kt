@@ -80,15 +80,16 @@ fun CompareScreen(vm: CompareViewModel = viewModel()) {
                 // ── Z·M 사분면 (전 종목 현재 위치) ──
                 Text("🎯 종목별 Z·M 현재 위치", color = TextPrimary,
                     fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                val faint = Color(0x22FFFFFF); val mid = Color(0x88FFFFFF)
+                // 임계선 10/50/90 (강매수 빨강 / 중립 회 / 강매도 파랑)
+                val gMid = Color(0x998B949E); val gBuy = Color(0x66DC2626); val gSell = Color(0x661D4ED8)
+                val zmLines = listOf(GridLine(50.0, gMid, 1.0f), GridLine(10.0, gBuy, 0.8f), GridLine(90.0, gSell, 0.8f))
                 ScatterChart(
                     points = s.rows.map { ScatterPt(it.zPct, it.mPct, it.name, pctColor(it.mPct)) },
-                    xMin = 0.0, xMax = 100.0, yMin = 0.0, yMax = 100.0,
-                    vLines = listOf(GridLine(50.0, mid, 1.5f), GridLine(20.0, faint, 1f), GridLine(80.0, faint, 1f)),
-                    hLines = listOf(GridLine(50.0, mid, 1.5f), GridLine(20.0, faint, 1f), GridLine(80.0, faint, 1f)),
-                    xAxisLabel = "Z->", yAxisLabel = "M^", height = 360.dp,
+                    xMin = -5.0, xMax = 105.0, yMin = -5.0, yMax = 105.0,
+                    vLines = zmLines, hLines = zmLines,
+                    xAxisLabel = "Z->", yAxisLabel = "M^", labelTopCenter = true, height = 360.dp,
                 )
-                Text("X=Z(가격 위치) · Y=M(모멘텀) · 임계 20/50/80",
+                Text("X=Z(가격 위치) · Y=M(모멘텀) · 임계선 10/50/90",
                     color = TextSecondary, fontSize = 11.sp)
 
                 // ── σ·β 산점도 (변동성·시장민감도) ──
