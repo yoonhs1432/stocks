@@ -72,6 +72,7 @@ fun PriceChart(
     bandUpper: DoubleArray,
     bandLower: DoubleArray,
     markers: List<Mark> = emptyList(),
+    currency: String = "$",
     modifier: Modifier = Modifier,
 ) {
     val n = priceDollar.size
@@ -97,8 +98,8 @@ fun PriceChart(
         poly(priceDollar, ::xAt, ::yAt, Color(0xFFE6EDF3), 2.5f)
 
         val gray = 0xFFADBAC7.toInt()
-        label("$%,.0f".format(hi), 6f, 24f, gray, 24f)
-        label("$%,.0f".format(lo), 6f, size.height - 10f, gray, 24f)
+        label("$currency${"%,.0f".format(hi)}", 6f, 24f, gray, 24f)
+        label("$currency${"%,.0f".format(lo)}", 6f, size.height - 10f, gray, 24f)
 
         for (m in markers) if (m.x in 0 until n) marker(xAt(m.x), yAt(m.y), m.buy)
     }
@@ -135,7 +136,7 @@ fun ZmScatter(
 ) {
     val n = zPct.size
     if (n < 2) return
-    Canvas(modifier = modifier.fillMaxWidth().height(260.dp)) {
+    Canvas(modifier = modifier.fillMaxWidth().height(180.dp)) {
         fun px(v: Double) = (size.width * (v / 100.0)).toFloat()
         fun py(v: Double) = (size.height * (1 - v / 100.0)).toFloat()
         // 임계선 20/40/60/80
@@ -146,12 +147,12 @@ fun ZmScatter(
         // 중앙선 50
         drawLine(Color(0x55FFFFFF), Offset(px(50.0), 0f), Offset(px(50.0), size.height), 1.2f)
         drawLine(Color(0x55FFFFFF), Offset(0f, py(50.0)), Offset(size.width, py(50.0)), 1.2f)
-        // 시간 궤적 점 (파랑→빨강)
+        // 시간 궤적 점 (파랑→빨강) — 작고 옅게
         val cold = Color(0xFF1F3B8F); val hot = Color(0xFFF85149)
         for (i in 0 until n) {
             if (zPct[i].isNaN() || mPct[i].isNaN()) continue
-            val c = lerp(cold, hot, i.toFloat() / (n - 1))
-            drawCircle(c, 3f, Offset(px(zPct[i]), py(mPct[i])))
+            val c = lerp(cold, hot, i.toFloat() / (n - 1)).copy(alpha = 0.7f)
+            drawCircle(c, 1.6f, Offset(px(zPct[i]), py(mPct[i])))
         }
         // 매매 마커
         for ((idx, buy) in tradeIdx) if (idx in 0 until n) {

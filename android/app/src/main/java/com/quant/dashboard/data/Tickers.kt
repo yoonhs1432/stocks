@@ -15,4 +15,13 @@ object Tickers {
     )
 
     fun displayName(ticker: String): String = DISPLAY[ticker] ?: ticker
+
+    /** 한국 종목(6자리 코드 = Yahoo .KS) → 원화 표시. */
+    fun isKrw(ticker: String): Boolean = ticker.length == 6 && ticker.all { it.isDigit() }
+
+    fun currencySymbol(ticker: String): String = if (isKrw(ticker)) "₩" else "$"
+
+    /** 통화 기호 + 천단위 가격 문자열. 원화는 정수, 달러는 소수 2자리. */
+    fun priceLabel(ticker: String, value: Double): String =
+        if (isKrw(ticker)) "₩${"%,.0f".format(value)}" else "$${"%,.2f".format(value)}"
 }

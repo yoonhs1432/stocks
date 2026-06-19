@@ -25,6 +25,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.quant.dashboard.ui.theme.BgApp
 import com.quant.dashboard.ui.theme.Loss
 import com.quant.dashboard.ui.theme.Neutral
+import com.quant.dashboard.data.Tickers
 import com.quant.dashboard.ui.theme.Profit
 import com.quant.dashboard.ui.theme.TextPrimary
 import com.quant.dashboard.ui.theme.TextSecondary
@@ -64,7 +65,7 @@ fun CompareScreen(vm: CompareViewModel = viewModel()) {
                 vm.sorted().forEach { r ->
                     Row(Modifier.fillMaxWidth()) {
                         Cell(r.name, 2.2f, TextPrimary, TextAlign.Start, FontWeight.SemiBold)
-                        Cell("$%,.2f".format(r.price), 2f, TextPrimary)
+                        Cell(Tickers.priceLabel(r.ticker, r.price), 2f, TextPrimary)
                         Cell(signed(r.day), 1.4f, pnColor(r.day))
                         Cell(signed(r.week), 1.4f, pnColor(r.week))
                         Cell("%.0f".format(r.zPct), 1f, pctColor(r.zPct))
