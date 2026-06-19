@@ -16,9 +16,24 @@ android {
         versionName = "0.1"
     }
 
+    // 고정 서명키 — 매 빌드 동일 키로 서명해야 폰에서 '덮어쓰기 설치'가 됨
+    // (개인 사이드로드용. 키가 매번 바뀌면 '패키지 충돌'로 삭제 후 재설치해야 함)
+    signingConfigs {
+        create("shared") {
+            storeFile = file("quant.keystore")
+            storePassword = "quant123"
+            keyAlias = "quant"
+            keyPassword = "quant123"
+        }
+    }
+
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("shared")
+        }
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("shared")
         }
     }
 
