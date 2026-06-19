@@ -121,4 +121,24 @@ object Store {
         val l = loadTickers()
         if (l.size > 1) { l.remove(t); saveTickers(l) }
     }
+
+    // ── 설정 (시드, 분석 기간) ──
+    private fun settings(): JSONObject {
+        val file = f("settings.json")
+        if (dir != null && file.exists()) {
+            try { return JSONObject(file.readText()) } catch (e: Exception) {}
+        }
+        return JSONObject()
+    }
+
+    private fun saveSettings(o: JSONObject) {
+        try { f("settings.json").writeText(o.toString(2)) } catch (e: Exception) {}
+    }
+
+    fun seedUsd(): Double = settings().optDouble("seed", 20_000.0)
+    fun setSeedUsd(v: Double) { saveSettings(settings().put("seed", v)) }
+
+    /** Yahoo range 문자열: "6mo" / "1y" / "2y". 기본 2y. */
+    fun lookbackRange(): String = settings().optString("range", "2y")
+    fun setLookbackRange(r: String) { saveSettings(settings().put("range", r)) }
 }

@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -31,12 +32,11 @@ import com.quant.dashboard.ui.theme.Neutral
 import com.quant.dashboard.ui.theme.Profit
 import com.quant.dashboard.ui.theme.TextPrimary
 import com.quant.dashboard.ui.theme.TextSecondary
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 private fun pc(v: Double) = if (v > 0) Profit else if (v < 0) Loss else Neutral
-private fun money(v: Double) = (if (v >= 0) "+$" else "-$") + "%,.0f".format(kotlin.math.abs(v))
+private fun won(usd: Double, rate: Double) =
+    (if (usd >= 0) "+" else "-") + "%,.0f원".format(kotlin.math.abs(usd * rate))
+private fun wonAbs(usd: Double, rate: Double) = "%,.0f원".format(usd * rate)
 
 @Composable
 fun PortfolioScreen(vm: PortfolioViewModel = viewModel()) {
@@ -59,59 +59,64 @@ fun PortfolioScreen(vm: PortfolioViewModel = viewModel()) {
                 CircularProgressIndicator()
             }
             s.empty -> Text(
-                "매매 기록이 없습니다.\n분석 탭에서 종목을 보고 ‘매매 기록 추가’로 입력하세요.",
+                "매매 기록이 없습니다.\n분석 탭에서 종목을 보고 ‘매매 기록’으로 입력하세요.",
                 color = TextSecondary, fontSize = 14.sp,
             )
-            s.result != null -> ResultBody(s.result)
+            s.result != null -> ResultBody(s.result, s.rate)
         }
     }
 }
 
 @Composable
-private fun ResultBody(r: Portfolio.Result) {
-    val curVal = r.seed + r.totalPnl
-    val retPct = if (r.seed > 0) r.totalPnl / r.seed * 100 else 0.0
-
-    // 손익 종합 카드
-    Column(
-        Modifier.fillMaxWidth().background(BgCard).padding(14.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        Text("평가자산 $${"%,.0f".format(curVal)}", color = TextPrimary, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-        Text("${money(r.totalPnl)}  (${if (retPct >= 0) "+" else ""}${"%.2f".format(retPct)}%)",
-            color = pc(r.totalPnl), fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-        Text("고점대비 ${"%.1f".format(r.currentDd)}%  ·  MDD ${"%.1f".format(r.mdd)}%" +
-            (r.mddDate?.let { "  (${SimpleDateFormat("yy/MM/dd", Locale.US).format(Date(it * 1000L))})" } ?: ""),
-            color = TextSecondary, fontSize = 12.sp)
-    }
-
-    if (r.equity.size >= 2) {
-        Text("자산 추이 (누적손익 $)", color = TextSecondary, fontSize = 12.sp)
-        EquityChart(r.equity.map { it.second }.toDoubleArray())
-    }
-
-    if (r.holdings.isNotEmpty()) {
-        Text("보유 종목", color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+private fun ResultBody(r: Portfolio.Result, rate: Double) {
+    // ── 평가금액 (보유 평가 합) ──
+    val evalSum = r.holdings.sumOf { it.eval }
+    val pnlSum = r.holdings.sumOf { it.pnl }
+    Column(Modifier.fillMaxWidth().background(BgCard, RoundedCornerShape(12.dp)).padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text("평가금액", color = TextSecondary, fontSize = 12.sp)
+        Text(wonAbs(evalSum, rate), color = TextPrimary, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        val rp = if (evalSum - pnlSum != 0.0) pnlSum / (evalSum - pnlSum) * 100 else 0.0
+        Text("${won(pnlSum, rate)} (${if (rp >= 0) "+" else ""}${"%.2f".format(rp)}%)",
+            color = pc(pnlSum), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
         r.holdings.forEach { h ->
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("${h.name} ${h.qty}주", color = TextPrimary, fontSize = 13.sp)
-                Text("$${"%,.0f".format(h.eval)}  ${money(h.pnl)} (${if (h.retPct >= 0) "+" else ""}${"%.1f".format(h.retPct)}%)",
-                    color = pc(h.pnl), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("● ${h.name} ${h.qty}주", color = TextPrimary, fontSize = 13.sp)
+                Text("${wonAbs(h.eval, rate)}  ${won(h.pnl, rate)} (${if (h.retPct >= 0) "+" else ""}${"%.1f".format(h.retPct)}%)",
+                    color = pc(h.pnl), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
             }
         }
     }
 
-    if (r.realized.isNotEmpty()) {
-        Text("실현손익", color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-        r.realized.forEach { rz ->
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(rz.name, color = TextPrimary, fontSize = 13.sp)
-                Text(money(rz.realized), color = pc(rz.realized), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+    // ── 손익 종합 (시드 + 누적손익) ──
+    val total = r.seed + r.totalPnl
+    val retPct = if (r.seed > 0) r.totalPnl / r.seed * 100 else 0.0
+    Column(Modifier.fillMaxWidth().background(BgCard, RoundedCornerShape(12.dp)).padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text("💰 손익 종합", color = TextSecondary, fontSize = 12.sp)
+        Text(wonAbs(total, rate), color = TextPrimary, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        Text("${won(r.totalPnl, rate)} (${if (retPct >= 0) "+" else ""}${"%.2f".format(retPct)}%)",
+            color = pc(r.totalPnl), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        Text("고점대비 ${"%.1f".format(r.currentDd)}% · MDD ${"%.1f".format(r.mdd)}%",
+            color = TextSecondary, fontSize = 12.sp)
+        if (r.realized.isNotEmpty()) {
+            Text("종목별 실현손익", color = TextSecondary, fontSize = 11.sp, modifier = Modifier.padding(top = 4.dp))
+            r.realized.forEach { rz ->
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("● ${rz.name}", color = TextPrimary, fontSize = 13.sp)
+                    Text(won(rz.realized, rate), color = pc(rz.realized), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                }
             }
         }
     }
 
-    // ── 사이클 통계 (완료된 사이클) ──
+    // ── 자산 추이 (만원) ──
+    if (r.equity.size >= 2) {
+        Text("자산 추이 (누적손익, 만원)", color = TextSecondary, fontSize = 12.sp)
+        EquityChart(r.equity.map { it.second * rate / 10000.0 }.toDoubleArray())
+    }
+
+    // ── 사이클 통계 ──
     val statsList = Store.loadTrades().mapNotNull { (tk, list) ->
         Portfolio.cycleStats(list)?.let { Tickers.displayName(tk) to it }
     }

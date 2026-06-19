@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
@@ -35,8 +36,9 @@ data class Mark(val x: Int, val y: Double, val buy: Boolean)
 
 private fun DrawScope.marker(cx: Float, cy: Float, buy: Boolean) {
     val col = if (buy) Color(0xFFDC2626) else Color(0xFF2563EB)
-    drawCircle(col, 8f, Offset(cx, cy))
-    drawCircle(Color.White, 8f, Offset(cx, cy), style = Stroke(1.5f))
+    drawCircle(col, 9f, Offset(cx, cy))
+    drawCircle(Color.White, 9f, Offset(cx, cy), style = Stroke(1.5f))
+    label(if (buy) "↑" else "↓", cx, cy + 7f, 0xFFFFFFFF.toInt(), 20f, Paint.Align.CENTER)
 }
 
 private fun DoubleArray.minNaN(): Double {
@@ -104,6 +106,53 @@ fun PriceChart(
         label("$currency${"%,.0f".format(hi)}", 6f, 24f, gray, 24f)
         label("$currency${"%,.0f".format(lo)}", 6f, size.height - 10f, gray, 24f)
 
+        for (m in markers) if (m.x in 0 until n) marker(xAt(m.x), yAt(m.y), m.buy)
+    }
+}
+
+/** 캔들(상승=빨강/하락=파랑) + 회귀선 + ±1.5σ 밴드 + 매매 마커. 값은 가격($/₩) 단위. */
+@Composable
+fun CandleChart(
+    opens: DoubleArray, highs: DoubleArray, lows: DoubleArray, closes: DoubleArray,
+    predicted: DoubleArray, bandUpper: DoubleArray, bandLower: DoubleArray,
+    markers: List<Mark> = emptyList(),
+    currency: String = "$",
+    modifier: Modifier = Modifier,
+) {
+    val n = closes.size
+    if (n < 2) return
+    var lo = minOf(lows.minNaN(), bandLower.minNaN())
+    var hi = maxOf(highs.maxNaN(), bandUpper.maxNaN())
+    if (hi <= lo) return
+    val pad = (hi - lo) * 0.05
+    lo -= pad; hi += pad
+    Canvas(modifier = modifier.fillMaxWidth().height(210.dp)) {
+        fun xAt(i: Int) = size.width * i / (n - 1)
+        fun yAt(v: Double) = (size.height * (1 - (v - lo) / (hi - lo))).toFloat()
+        // 밴드
+        val band = Path().apply {
+            moveTo(0f, yAt(bandUpper[0]))
+            for (i in 1 until n) lineTo(xAt(i), yAt(bandUpper[i]))
+            for (i in n - 1 downTo 0) lineTo(xAt(i), yAt(bandLower[i]))
+            close()
+        }
+        drawPath(band, Color(0x1AFFFFFF))
+        poly(predicted, ::xAt, ::yAt, Color(0xFFADBAC7), 1.5f)
+        // 캔들
+        val w = (size.width / n * 0.6f).coerceAtLeast(1.5f)
+        for (i in 0 until n) {
+            if (opens[i].isNaN() || highs[i].isNaN() || lows[i].isNaN() || closes[i].isNaN()) continue
+            val up = closes[i] >= opens[i]
+            val col = if (up) Color(0xFFF85149) else Color(0xFF58A6FF)
+            val cx = xAt(i)
+            drawLine(col, Offset(cx, yAt(highs[i])), Offset(cx, yAt(lows[i])), 1.5f)
+            val top = yAt(maxOf(opens[i], closes[i]))
+            val bot = yAt(minOf(opens[i], closes[i]))
+            drawRect(col, topLeft = Offset(cx - w / 2, top), size = Size(w, maxOf(bot - top, 1f)))
+        }
+        val gray = 0xFFADBAC7.toInt()
+        label("$currency${"%,.0f".format(hi)}", 6f, 24f, gray, 24f)
+        label("$currency${"%,.0f".format(lo)}", 6f, size.height - 10f, gray, 24f)
         for (m in markers) if (m.x in 0 until n) marker(xAt(m.x), yAt(m.y), m.buy)
     }
 }

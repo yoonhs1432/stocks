@@ -28,13 +28,14 @@ object OverviewRepo {
     suspend fun load(force: Boolean = false): List<Row> {
         val now = System.currentTimeMillis()
         if (!force && cache.isNotEmpty() && now - ts < 300_000) return cache
-        val spy = Yahoo.closes(Tickers.BASE)
+        val range = Store.lookbackRange()
+        val spy = Yahoo.closes(Tickers.BASE, range)
         if (spy.isEmpty()) return cache
         val trades = Store.loadTrades()
         val rows = coroutineScope {
             Store.loadTickers().map { tk ->
                 async(Dispatchers.IO) {
-                    val r = Quant.analyze(spy, Yahoo.closes(tk)) ?: return@async null
+                    val r = Quant.analyze(spy, Yahoo.closes(tk, range)) ?: return@async null
                     val p = r.price; val m = p.size
                     if (m < 2) return@async null
                     val prevD = p[m - 2]

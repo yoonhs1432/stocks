@@ -1,7 +1,11 @@
 package com.quant.dashboard.ui
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.quant.dashboard.data.Candle
 import com.quant.dashboard.data.OverviewRepo
 import com.quant.dashboard.data.Store
 import com.quant.dashboard.data.Tickers
@@ -10,15 +14,13 @@ import com.quant.dashboard.quant.Quant
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
 
 data class UiState(
     val ticker: String = Tickers.DEFAULT.first(),
     val loading: Boolean = false,
     val error: String? = null,
     val result: Quant.Result? = null,
+    val ohlc: List<Candle> = emptyList(),
 )
 
 class AnalysisViewModel : ViewModel() {
@@ -27,7 +29,6 @@ class AnalysisViewModel : ViewModel() {
     )
         private set
 
-    // 종목 버튼용 전 종목 요약 (모멘텀 색/정렬)
     var overview by mutableStateOf<List<OverviewRepo.Row>>(emptyList())
         private set
 
@@ -38,7 +39,6 @@ class AnalysisViewModel : ViewModel() {
         }
     }
 
-    // SPY 시세는 종목 간 재사용 (캐시)
     private var spyCache: List<Pair<Long, Double>> = emptyList()
 
     fun select(ticker: String) {
@@ -49,28 +49,31 @@ class AnalysisViewModel : ViewModel() {
     fun load(ticker: String = state.ticker) {
         state = state.copy(loading = true, error = null)
         viewModelScope.launch {
-            val res = withContext(Dispatchers.IO) {
+            val range = Store.lookbackRange()
+            val holder = withContext(Dispatchers.IO) {
                 try {
-                    if (spyCache.isEmpty()) spyCache = Yahoo.closes(Tickers.BASE)
+                    if (spyCache.isEmpty()) spyCache = Yahoo.closes(Tickers.BASE, range)
                     val spy = spyCache
-                    val tk = Yahoo.closes(ticker)
+                    val candles = Yahoo.ohlc(ticker, range)
+                    val tk = candles.map { Pair(it.t, it.close) }
                     when {
                         spy.isEmpty() -> Result.failure(Exception("SPY 시세를 가져오지 못했습니다"))
                         tk.isEmpty() -> Result.failure(Exception("$ticker 시세를 가져오지 못했습니다"))
                         else -> {
                             val r = Quant.analyze(spy, tk)
                             if (r == null) Result.failure(Exception("분석 데이터 부족"))
-                            else Result.success(r)
+                            else Result.success(Pair(r, candles))
                         }
                     }
                 } catch (e: Exception) {
                     Result.failure(e)
                 }
             }
-            state = if (res.isSuccess) {
-                state.copy(loading = false, result = res.getOrNull(), error = null)
+            state = if (holder.isSuccess) {
+                val (r, candles) = holder.getOrNull()!!
+                state.copy(loading = false, result = r, ohlc = candles, error = null)
             } else {
-                state.copy(loading = false, error = res.exceptionOrNull()?.message ?: "오류")
+                state.copy(loading = false, error = holder.exceptionOrNull()?.message ?: "오류")
             }
         }
     }
@@ -78,5 +81,6 @@ class AnalysisViewModel : ViewModel() {
     fun refresh() {
         spyCache = emptyList()
         load()
+        loadOverview(true)
     }
 }

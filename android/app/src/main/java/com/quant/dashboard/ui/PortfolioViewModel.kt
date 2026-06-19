@@ -19,6 +19,7 @@ data class PortfolioState(
     val loading: Boolean = false,
     val empty: Boolean = false,
     val result: Portfolio.Result? = null,
+    val rate: Double = 1400.0,   // USD/KRW
 )
 
 class PortfolioViewModel : ViewModel() {
@@ -28,7 +29,7 @@ class PortfolioViewModel : ViewModel() {
     fun load() {
         state = state.copy(loading = true)
         viewModelScope.launch {
-            val res = withContext(Dispatchers.IO) {
+            val pair = withContext(Dispatchers.IO) {
                 val trades = Store.loadTrades()
                 if (trades.isEmpty()) return@withContext null
                 val tickers = trades.keys.toList()
@@ -37,15 +38,18 @@ class PortfolioViewModel : ViewModel() {
                 }.awaitAll().toMap()
                 val hist = series.filterValues { it.isNotEmpty() }
                 val lastClose = hist.mapValues { (_, v) -> v.last().second }
-                Portfolio.compute(
+                val rate = Yahoo.closes("KRW=X", "1mo").lastOrNull()?.second ?: 1400.0
+                val res = Portfolio.compute(
                     trades = trades,
                     name = { Tickers.displayName(it) },
                     lastClose = lastClose,
                     hist = hist,
+                    seed = Store.seedUsd(),
                 )
+                res to rate
             }
-            state = if (res == null) PortfolioState(loading = false, empty = true)
-            else PortfolioState(loading = false, result = res)
+            state = if (pair == null) PortfolioState(loading = false, empty = true)
+            else PortfolioState(loading = false, result = pair.first, rate = pair.second)
         }
     }
 }

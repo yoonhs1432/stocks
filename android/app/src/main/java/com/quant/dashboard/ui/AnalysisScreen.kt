@@ -116,7 +116,7 @@ fun AnalysisScreen(vm: AnalysisViewModel = viewModel()) {
                 CircularProgressIndicator()
             }
             s.error != null -> Text("⚠️ ${s.error}", color = signalColor("strong_sell"))
-            s.result != null -> ResultView(s.result, periodMonths, s.ticker)
+            s.result != null -> ResultView(s.result, periodMonths, s.ticker, s.ohlc)
         }
 
         TradeSection(s.ticker)
@@ -124,7 +124,7 @@ fun AnalysisScreen(vm: AnalysisViewModel = viewModel()) {
 }
 
 @Composable
-private fun ResultView(r: Quant.Result, periodMonths: Int, ticker: String) {
+private fun ResultView(r: Quant.Result, periodMonths: Int, ticker: String, ohlc: List<com.quant.dashboard.data.Candle>) {
     Text(Tickers.priceLabel(ticker, r.lastPrice), color = TextPrimary, fontSize = 22.sp, fontWeight = FontWeight.Bold)
     Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
         Metric("β·SPY", "%.2f×".format(r.beta))
@@ -165,9 +165,26 @@ private fun ResultView(r: Quant.Result, periodMonths: Int, ticker: String) {
         }
     }
 
-    Text("가격 · 회귀선 · ±1.5σ", color = TextSecondary, fontSize = 12.sp)
-    PriceChart(segDollar(r.tickerNorm), segDollar(r.predicted), segDollar(r.bandUpper), segDollar(r.bandLower),
-        priceMarks, Tickers.currencySymbol(ticker))
+    Text("캔들 · 회귀선 · ±1.5σ", color = TextSecondary, fontSize = 12.sp)
+    // OHLC를 분석 날짜(window)에 정렬 — 없으면 NaN
+    val candleByDay = remember(ohlc) { ohlc.associateBy { it.t / 86400L } }
+    val wN = n - start
+    val opens = DoubleArray(wN); val highs = DoubleArray(wN)
+    val lows = DoubleArray(wN); val closes = DoubleArray(wN)
+    for (i in 0 until wN) {
+        val cd = candleByDay[dates[i] / 86400L]
+        if (cd != null) { opens[i] = cd.open; highs[i] = cd.high; lows[i] = cd.low; closes[i] = cd.close }
+        else { opens[i] = Double.NaN; highs[i] = Double.NaN; lows[i] = Double.NaN; closes[i] = Double.NaN }
+    }
+    val hasCandles = closes.any { !it.isNaN() }
+    if (hasCandles) {
+        CandleChart(opens, highs, lows, closes,
+            segDollar(r.predicted), segDollar(r.bandUpper), segDollar(r.bandLower),
+            priceMarks, Tickers.currencySymbol(ticker))
+    } else {
+        PriceChart(segDollar(r.tickerNorm), segDollar(r.predicted), segDollar(r.bandUpper), segDollar(r.bandLower),
+            priceMarks, Tickers.currencySymbol(ticker))
+    }
 
     Text("Z(흰) · M(주황) — 20/40/60/80", color = TextSecondary, fontSize = 12.sp)
     ZmChart(seg(r.zPct), seg(r.mPct), zmMarks)

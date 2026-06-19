@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -30,17 +31,48 @@ import com.quant.dashboard.ui.theme.Loss
 import com.quant.dashboard.ui.theme.TextPrimary
 import com.quant.dashboard.ui.theme.TextSecondary
 
+private val RANGES = listOf("6개월" to "6mo", "1년" to "1y", "2년" to "2y")
+
 @Composable
 fun SettingsScreen() {
     var tickers by remember { mutableStateOf(Store.loadTickers().toList()) }
     var input by remember { mutableStateOf("") }
+    var seed by remember { mutableStateOf(Store.seedUsd().toInt().toString()) }
+    var range by remember { mutableStateOf(Store.lookbackRange()) }
 
     Column(
         modifier = Modifier.fillMaxSize().background(BgApp)
             .verticalScroll(rememberScrollState()).padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Text("⚙️ 설정 — 종목 관리", color = TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        Text("⚙️ 설정", color = TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+
+        // ── 시드 ($) ──
+        Text("시드 ($)", color = TextSecondary, fontSize = 12.sp)
+        Row(verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(
+                value = seed, onValueChange = { seed = it },
+                singleLine = true, modifier = Modifier.weight(1f),
+            )
+            Button(onClick = {
+                seed.toDoubleOrNull()?.let { if (it > 0) Store.setSeedUsd(it) }
+            }) { Text("저장") }
+        }
+
+        // ── 분석 시작일 ──
+        Text("분석 시작일 (조회 기간)", color = TextSecondary, fontSize = 12.sp)
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            RANGES.forEach { (label, r) ->
+                FilterChip(selected = range == r, onClick = {
+                    range = r; Store.setLookbackRange(r)
+                }, label = { Text(label, fontSize = 12.sp) })
+            }
+        }
+        Text("변경 후 분석·비교 탭 🔄 시 반영", color = TextSecondary, fontSize = 11.sp)
+
+        Text("종목 관리", color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(top = 6.dp))
 
         Row(verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)) {
