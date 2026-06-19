@@ -3,8 +3,8 @@ package com.quant.dashboard.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -30,6 +30,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -77,7 +78,7 @@ fun AnalysisScreen(vm: AnalysisViewModel = viewModel()) {
             // ── 좌측: 종목 버튼 세로 리스트 ──
             Column(
                 Modifier.weight(0.30f),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
+                verticalArrangement = Arrangement.spacedBy(3.dp),
             ) {
                 tickers.forEach { tk ->
                     val row = ov[tk]
@@ -85,25 +86,28 @@ fun AnalysisScreen(vm: AnalysisViewModel = viewModel()) {
                     val dark = row != null && (row.mPct < 20 || row.mPct >= 80)
                     val dayStr = row?.let { (if (it.day >= 0) "+" else "") + "%.1f%%".format(it.day) } ?: ""
                     val selected = tk == s.ticker
-                    Button(
-                        onClick = { vm.select(tk) },
-                        colors = ButtonDefaults.buttonColors(containerColor = bg),
-                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
-                        shape = RoundedCornerShape(6.dp),
-                        modifier = Modifier.fillMaxWidth().height(30.dp)
-                            .then(if (selected) Modifier.border(2.dp, Color.White, RoundedCornerShape(6.dp)) else Modifier),
+                    Box(
+                        Modifier.fillMaxWidth()
+                            .clip(RoundedCornerShape(5.dp))
+                            .background(bg)
+                            .then(if (selected) Modifier.border(1.5.dp, Color.White, RoundedCornerShape(5.dp)) else Modifier)
+                            .clickable { vm.select(tk) }
+                            .padding(horizontal = 6.dp, vertical = 5.dp),
                     ) {
                         Text(
-                            (if (row?.holding == true) "★" else "") + Tickers.displayName(tk) + " " + dayStr,
+                            (if (row?.holding == true) "★" else "") + Tickers.displayName(tk) + "  " + dayStr,
                             color = if (dark) Color.White else Color.Black,
-                            fontSize = 10.sp, maxLines = 1,
-                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                            fontSize = 11.sp, maxLines = 1,
+                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
                         )
                     }
                 }
-                Button(onClick = { vm.refresh() },
-                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
-                    modifier = Modifier.fillMaxWidth().height(30.dp)) { Text("🔄", fontSize = 11.sp) }
+                Box(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(5.dp))
+                        .background(Color(0xFF21262D)).clickable { vm.refresh() }
+                        .padding(vertical = 5.dp),
+                    contentAlignment = Alignment.Center,
+                ) { Text("🔄", fontSize = 12.sp) }
             }
 
             // ── 우측: 콘텐츠 ──

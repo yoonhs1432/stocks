@@ -18,14 +18,19 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.quant.dashboard.data.Gist
 import com.quant.dashboard.data.Store
 import com.quant.dashboard.data.Tickers
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import com.quant.dashboard.ui.theme.BgApp
 import com.quant.dashboard.ui.theme.Loss
 import com.quant.dashboard.ui.theme.TextPrimary
@@ -70,6 +75,49 @@ fun SettingsScreen() {
             }
         }
         Text("변경 후 분석·비교 탭 🔄 시 반영", color = TextSecondary, fontSize = 11.sp)
+
+        // ── Gist 연동 (기존 데이터 불러오기) ──
+        Text("☁️ Gist 불러오기 (매매기록·종목)", color = TextPrimary, fontSize = 15.sp,
+            fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 6.dp))
+        var token by remember { mutableStateOf(Store.gistToken()) }
+        var gistId by remember { mutableStateOf(Store.gistId()) }
+        var gistMsg by remember { mutableStateOf<String?>(null) }
+        var busy by remember { mutableStateOf(false) }
+        val scope = rememberCoroutineScope()
+        OutlinedTextField(token, { token = it }, label = { Text("GitHub Token (ghp_…)") },
+            singleLine = true, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(gistId, { gistId = it }, label = { Text("Gist ID") },
+            singleLine = true, modifier = Modifier.fillMaxWidth())
+        Button(
+            enabled = !busy,
+            onClick = {
+                Store.setGist(token, gistId)
+                busy = true; gistMsg = "불러오는 중…"
+                scope.launch {
+                    val msg = withContext(Dispatchers.IO) {
+                        try {
+                            val tradesTxt = Gist.fetchFile(token.trim(), gistId.trim(), Gist.FILE_TRADES)
+                            val tickersTxt = Gist.fetchFile(token.trim(), gistId.trim(), Gist.FILE_TICKERS)
+                            if (tradesTxt == null && tickersTxt == null) "실패: 토큰/Gist ID 확인 또는 파일 없음"
+                            else {
+                                val nt = tradesTxt?.let { Store.saveTradesFromJson(it) } ?: 0
+                                val nk = tickersTxt?.let { Store.saveTickersFromJson(it) } ?: 0
+                                "완료: 매매 ${nt}종목 · 종목리스트 ${nk}개 불러옴"
+                            }
+                        } catch (e: Exception) {
+                            "오류: ${e.message}"
+                        }
+                    }
+                    gistMsg = msg
+                    busy = false
+                    tickers = Store.loadTickers().toList()
+                }
+            },
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text(if (busy) "불러오는 중…" else "Gist에서 불러오기") }
+        gistMsg?.let { Text(it, color = TextSecondary, fontSize = 12.sp) }
+        Text("데스크톱과 같은 Gist 사용 (quant_trade_history.json 등). 불러오면 로컬 데이터를 덮어씁니다.",
+            color = TextSecondary, fontSize = 11.sp)
 
         Text("종목 관리", color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold,
             modifier = Modifier.padding(top = 6.dp))

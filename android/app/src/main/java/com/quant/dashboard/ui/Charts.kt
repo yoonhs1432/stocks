@@ -12,6 +12,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.lerp
@@ -79,6 +80,13 @@ private fun turbo(t: Float): Color {
     val seg = x * (stops.size - 1)
     val i = seg.toInt().coerceIn(0, stops.size - 2)
     return lerp(stops[i], stops[i + 1], seg - i)
+}
+
+private val DASH = PathEffect.dashPathEffect(floatArrayOf(8f, 8f))
+
+/** 점선. */
+private fun DrawScope.dline(color: Color, x1: Float, y1: Float, x2: Float, y2: Float, w: Float) {
+    drawLine(color, Offset(x1, y1), Offset(x2, y2), w, pathEffect = DASH)
 }
 
 /** 임계값 위쪽 면적 채움 (Z>80, RSI>70 등). */
@@ -269,7 +277,8 @@ fun ZmChart(zPct: DoubleArray, mPct: DoubleArray, markers: List<Mark> = emptyLis
         fillAbove(zPct, 80.0, ::xAt, ::yAt, Color(0x40F85149))
         for (t in intArrayOf(20, 40, 60, 80)) {
             val y = yAt(t.toDouble())
-            drawLine(Color(0x55FFFFFF), Offset(0f, y), Offset(size.width, y), 0.8f)
+            dline(Color(0x66FFFFFF), 0f, y, size.width, y, 0.8f)
+            label(t.toString(), 2f, y - 2f, 0x88FFFFFF.toInt(), 17f)
         }
         poly(zPct, ::xAt, ::yAt, Color(0xFFE6EDF3), 2f)
         poly(mPct, ::xAt, ::yAt, Color(0xFFF97316), 1.5f)
@@ -293,14 +302,19 @@ fun ZmScatter(
     Canvas(modifier = modifier.fillMaxWidth().height(220.dp)) {
         fun px(v: Double) = (size.width * (v / 100.0)).toFloat()
         fun py(v: Double) = (size.height * (1 - v / 100.0)).toFloat()
-        // 임계선 20/40/60/80
+        // 임계선 20/40/60/80 (점선) + 눈금 숫자
         for (t in intArrayOf(20, 40, 60, 80)) {
-            drawLine(Color(0x22FFFFFF), Offset(px(t.toDouble()), 0f), Offset(px(t.toDouble()), size.height), 1f)
-            drawLine(Color(0x22FFFFFF), Offset(0f, py(t.toDouble())), Offset(size.width, py(t.toDouble())), 1f)
+            dline(Color(0x44FFFFFF), px(t.toDouble()), 0f, px(t.toDouble()), size.height, 0.8f)
+            dline(Color(0x44FFFFFF), 0f, py(t.toDouble()), size.width, py(t.toDouble()), 0.8f)
         }
         // 중앙선 50
-        drawLine(Color(0x55FFFFFF), Offset(px(50.0), 0f), Offset(px(50.0), size.height), 1.2f)
-        drawLine(Color(0x55FFFFFF), Offset(0f, py(50.0)), Offset(size.width, py(50.0)), 1.2f)
+        dline(Color(0x88FFFFFF), px(50.0), 0f, px(50.0), size.height, 1f)
+        dline(Color(0x88FFFFFF), 0f, py(50.0), size.width, py(50.0), 1f)
+        // 좌측 Y 눈금(0/50/100), 하단 X 눈금(0/50/100)
+        for (t in intArrayOf(0, 50, 100)) {
+            label(t.toString(), 2f, py(t.toDouble()) - 2f, 0x77FFFFFF.toInt(), 16f)
+            label(t.toString(), px(t.toDouble()), size.height - 2f, 0x77FFFFFF.toInt(), 16f, Paint.Align.CENTER)
+        }
         // 시간 궤적 점 (파랑→빨강, turbo 느낌) — 또렷하게
         val cold = Color(0xFF2563EB); val hot = Color(0xFFF85149)
         for (i in 0 until n) {
@@ -334,9 +348,11 @@ fun RsiChart(rsi: DoubleArray, topLabel: String = "", modifier: Modifier = Modif
         fun yAt(v: Double) = (size.height * (1 - v / 100.0)).toFloat()
         fillAbove(rsi, 70.0, ::xAt, ::yAt, Color(0x47F85149))
         fillBelow(rsi, 30.0, ::xAt, ::yAt, Color(0x4758A6FF))
-        drawLine(Color(0xB3F85149), Offset(0f, yAt(70.0)), Offset(size.width, yAt(70.0)), 0.7f)
-        drawLine(Color(0x88768390), Offset(0f, yAt(50.0)), Offset(size.width, yAt(50.0)), 0.5f)
-        drawLine(Color(0xB358A6FF), Offset(0f, yAt(30.0)), Offset(size.width, yAt(30.0)), 0.7f)
+        dline(Color(0xCCF85149), 0f, yAt(70.0), size.width, yAt(70.0), 1f)
+        dline(Color(0x88768390), 0f, yAt(50.0), size.width, yAt(50.0), 0.6f)
+        dline(Color(0xCC58A6FF), 0f, yAt(30.0), size.width, yAt(30.0), 1f)
+        label("70", 2f, yAt(70.0) - 2f, 0xCCF85149.toInt(), 17f)
+        label("30", 2f, yAt(30.0) - 2f, 0xCC58A6FF.toInt(), 17f)
         poly(rsi, ::xAt, ::yAt, Color(0xFF22D3EE), 2f)
         if (topLabel.isNotEmpty()) label(topLabel, 6f, 22f, 0xFF22D3EE.toInt(), 22f)
     }
@@ -390,7 +406,7 @@ fun MacdChart(macd: DoubleArray, signal: DoubleArray, topLabel: String = "", mod
     Canvas(modifier = modifier.fillMaxWidth().height(110.dp)) {
         fun xAt(i: Int) = size.width * i / (n - 1)
         fun yAt(v: Double) = (size.height * (1 - (v + mx) / (2 * mx))).toFloat()
-        drawLine(Color(0x88768390), Offset(0f, yAt(0.0)), Offset(size.width, yAt(0.0)), 0.5f)
+        dline(Color(0x99768390), 0f, yAt(0.0), size.width, yAt(0.0), 0.6f)
         poly(macd, ::xAt, ::yAt, Color(0xFF7C3AED), 2f)
         poly(signal, ::xAt, ::yAt, Color(0xFFE6EDF3), 0.9f)
         for (i in 1 until n) {

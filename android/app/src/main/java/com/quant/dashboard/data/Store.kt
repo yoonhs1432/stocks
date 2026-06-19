@@ -141,4 +141,41 @@ object Store {
     /** Yahoo range 문자열: "6mo" / "1y" / "2y". 기본 2y. */
     fun lookbackRange(): String = settings().optString("range", "2y")
     fun setLookbackRange(r: String) { saveSettings(settings().put("range", r)) }
+
+    // ── Gist 연동 ──
+    fun gistToken(): String = settings().optString("gist_token", "")
+    fun gistId(): String = settings().optString("gist_id", "")
+    fun setGist(token: String, id: String) {
+        saveSettings(settings().put("gist_token", token.trim()).put("gist_id", id.trim()))
+    }
+
+    /** 데스크톱 quant_trade_history.json 포맷 → 로컬 매매기록 덮어쓰기. 종목 수 반환. */
+    fun saveTradesFromJson(text: String): Int {
+        val obj = JSONObject(text)
+        val map = LinkedHashMap<String, MutableList<Trade>>()
+        for (key in obj.keys()) {
+            val arr = obj.getJSONArray(key)
+            val list = ArrayList<Trade>()
+            for (i in 0 until arr.length()) {
+                val t = arr.getJSONObject(i)
+                list.add(Trade(
+                    t.getString("date"), t.getString("type"),
+                    t.getInt("qty"), t.getDouble("price"),
+                    if (t.has("memo")) t.optString("memo") else null,
+                ))
+            }
+            map[key] = list
+        }
+        saveTrades(map)
+        return map.size
+    }
+
+    /** 데스크톱 quant_target_tickers.json 포맷 → 로컬 종목 리스트 덮어쓰기. */
+    fun saveTickersFromJson(text: String): Int {
+        val arr = JSONObject(text).getJSONArray("tickers")
+        val out = ArrayList<String>()
+        for (i in 0 until arr.length()) out.add(arr.getString(i).trim().uppercase())
+        if (out.isNotEmpty()) { saveTickers(out); return out.size }
+        return 0
+    }
 }
