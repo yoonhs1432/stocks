@@ -90,7 +90,7 @@ fun CompareScreen(vm: CompareViewModel = viewModel()) {
                     vLines = zmLines, hLines = zmLines,
                     xAxisLabel = "Z->", yAxisLabel = "M^", labelTopCenter = true, height = 360.dp,
                 )
-                Text("X=Z(가격 위치) · Y=M(모멘텀) · 임계선 10/50/90",
+                Text("X=Z(가격 위치), Y=M(모멘텀) · Q1↑↑=강세 / Q3↓↓=약세 · 임계선 10/50/90",
                     color = TextSecondary, fontSize = 11.sp)
 
                 // ── σ·β 산점도 (변동성·시장민감도) ──
