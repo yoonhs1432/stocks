@@ -269,10 +269,36 @@ private fun ResultView(r: Quant.Result, periodMonths: Int, ticker: String, ohlc:
         }
     }
 
-    // ① 회귀 산점도 (로그-로그, Turbo + 밴드 + ★) — 모두 정규화(Norm) 값
+    // 완료 사이클 평균매수→평균매도 화살표 (윈도우 인덱스)
+    val arrows = ArrayList<CycleArrow>()
+    run {
+        val sorted = trades.filter { it.qty > 0 && it.price > 0 }.sortedBy { it.date }
+        var holdQty = 0; var buyQty = 0; var buyCost = 0.0; var sellQty = 0; var sellProceeds = 0.0
+        var firstBuyFull = -1; var lastSellFull = -1
+        for (t in sorted) {
+            val sec = try { LocalDate.parse(t.date).toEpochDay() * 86400 } catch (e: Exception) { continue }
+            var full = -1
+            for (i in r.dates.indices) { if (r.dates[i] <= sec) full = i else break }
+            if (t.type == "buy") {
+                if (holdQty == 0) { buyQty = 0; buyCost = 0.0; sellQty = 0; sellProceeds = 0.0; firstBuyFull = full }
+                holdQty += t.qty; buyQty += t.qty; buyCost += t.qty * t.price
+            } else if (t.type == "sell" && holdQty > 0) {
+                sellQty += t.qty; sellProceeds += t.qty * t.price; lastSellFull = full
+                holdQty = maxOf(holdQty - t.qty, 0)
+                if (holdQty == 0 && buyQty > 0 && sellQty > 0) {
+                    val avgBuy = buyCost / buyQty; val avgSell = sellProceeds / sellQty
+                    val x1 = firstBuyFull - start; val x2 = lastSellFull - start
+                    if (x1 >= 0 && x2 >= 0) arrows.add(CycleArrow(x1, avgBuy, x2, avgSell, avgSell >= avgBuy))
+                }
+            }
+        }
+    }
+    val regMarkIdx = priceMarks.map { it.x to it.buy }
+
+    // ① 회귀 산점도 (로그-로그, Turbo + 밴드 + ★ + 매매마커) — 모두 정규화(Norm) 값
     Text("회귀 산점도 (SPY 대비)", color = TextSecondary, fontSize = 11.sp)
     RegressionScatter(seg(r.spyNorm), seg(r.tickerNorm), seg(r.predicted),
-        seg(r.bandUpper), seg(r.bandLower), r.beta)
+        seg(r.bandUpper), seg(r.bandLower), r.beta, markIdx = regMarkIdx)
 
     // ② Z·M 시간 궤적 산점도
     Text("Z·M 궤적 (시간 파랑→빨강, ● 현재)", color = TextSecondary, fontSize = 11.sp)
@@ -292,10 +318,11 @@ private fun ResultView(r: Quant.Result, periodMonths: Int, ticker: String, ohlc:
     if (closes.any { !it.isNaN() }) {
         CandleChart(opens, highs, lows, closes,
             segDollar(r.predicted), segDollar(r.bandUpper), segDollar(r.bandLower),
-            priceMarks, Tickers.currencySymbol(ticker), priceLbl)
+            markers = priceMarks, arrows = arrows,
+            currency = Tickers.currencySymbol(ticker), topLabel = priceLbl)
     } else {
         PriceChart(segDollar(r.tickerNorm), segDollar(r.predicted), segDollar(r.bandUpper), segDollar(r.bandLower),
-            priceMarks, Tickers.currencySymbol(ticker))
+            markers = priceMarks, arrows = arrows, currency = Tickers.currencySymbol(ticker))
     }
 
     // ④ Z+M 라인

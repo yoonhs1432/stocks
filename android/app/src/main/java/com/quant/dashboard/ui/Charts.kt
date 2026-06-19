@@ -28,18 +28,35 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlin.math.atan2
+import kotlin.math.cos
 import kotlin.math.roundToInt
+import kotlin.math.sin
 
 /** 의존성 없는 Compose Canvas 차트. 가격($)·Z·M·RSI를 세로 스택으로. */
 
 /** 차트 위 매매 마커 (x=윈도우 내 인덱스, y=해당 차트 y척도 값, buy 여부). */
 data class Mark(val x: Int, val y: Double, val buy: Boolean)
 
+/** 완료 사이클 평균매수→평균매도 화살표 (x=윈도우 인덱스, y=가격, profit=수익여부). */
+data class CycleArrow(val x1: Int, val y1: Double, val x2: Int, val y2: Double, val profit: Boolean)
+
 private fun DrawScope.marker(cx: Float, cy: Float, buy: Boolean) {
     val col = if (buy) Color(0xFFDC2626) else Color(0xFF2563EB)
     drawCircle(col, 9f, Offset(cx, cy))
     drawCircle(Color.White, 9f, Offset(cx, cy), style = Stroke(1.5f))
     label(if (buy) "↑" else "↓", cx, cy + 7f, 0xFFFFFFFF.toInt(), 20f, Paint.Align.CENTER)
+}
+
+/** 사이클 화살표 (app.py 평균매수→평균매도 주석 화살표). 수익=녹색/손실=빨강. */
+private fun DrawScope.arrow(x1: Float, y1: Float, x2: Float, y2: Float, profit: Boolean) {
+    val col = if (profit) Color(0xFF16A34A) else Color(0xFFDC2626)
+    drawLine(col, Offset(x1, y1), Offset(x2, y2), 2.5f)
+    val ang = atan2(y2 - y1, x2 - x1)
+    val len = 16f
+    val a1 = ang + 2.618f   // 150°
+    val a2 = ang - 2.618f
+    drawLine(col, Offset(x2, y2), Offset(x2 + len * cos(a1), y2 + len * sin(a1)), 2.5f)
+    drawLine(col, Offset(x2, y2), Offset(x2 + len * cos(a2), y2 + len * sin(a2)), 2.5f)
 }
 
 private fun DoubleArray.minNaN(): Double {
@@ -114,7 +131,9 @@ private fun DrawScope.fillBelow(data: DoubleArray, threshold: Double, xAt: (Int)
 @Composable
 fun RegressionScatter(
     spyNorm: DoubleArray, tickerNorm: DoubleArray, predicted: DoubleArray,
-    bandU: DoubleArray, bandL: DoubleArray, beta: Double, modifier: Modifier = Modifier,
+    bandU: DoubleArray, bandL: DoubleArray, beta: Double,
+    markIdx: List<Pair<Int, Boolean>> = emptyList(),
+    modifier: Modifier = Modifier,
 ) {
     val n = spyNorm.size
     if (n < 2) return
@@ -162,6 +181,10 @@ fun RegressionScatter(
         for (k in 0 until n) { val i = order[k]; val o = Offset(sx(spyNorm[i]), sy(predicted[i])); if (prev != null) drawLine(Color(0xFFADBAC7), prev, o, 2f); prev = o }
         // Turbo 점
         for (i in 0 until n) if (spyNorm[i] > 0 && tickerNorm[i] > 0) drawCircle(turbo(i.toFloat() / (n - 1)), 4f, Offset(sx(spyNorm[i]), sy(tickerNorm[i])))
+        // 매매 마커 (회귀 패널 위 ↑/↓ 풍선)
+        for ((i, buy) in markIdx) if (i in 0 until n && spyNorm[i] > 0 && tickerNorm[i] > 0) {
+            marker(sx(spyNorm[i]), sy(tickerNorm[i]), buy)
+        }
         // 현재 위치 ★
         val li = n - 1
         if (spyNorm[li] > 0 && tickerNorm[li] > 0) {
@@ -181,6 +204,7 @@ fun PriceChart(
     bandUpper: DoubleArray,
     bandLower: DoubleArray,
     markers: List<Mark> = emptyList(),
+    arrows: List<CycleArrow> = emptyList(),
     currency: String = "$",
     modifier: Modifier = Modifier,
 ) {
@@ -210,6 +234,8 @@ fun PriceChart(
         label("$currency${"%,.0f".format(hi)}", 6f, 24f, gray, 24f)
         label("$currency${"%,.0f".format(lo)}", 6f, size.height - 10f, gray, 24f)
 
+        for (a in arrows) if (a.x1 in 0 until n && a.x2 in 0 until n)
+            arrow(xAt(a.x1), yAt(a.y1), xAt(a.x2), yAt(a.y2), a.profit)
         for (m in markers) if (m.x in 0 until n) marker(xAt(m.x), yAt(m.y), m.buy)
     }
 }
@@ -220,6 +246,7 @@ fun CandleChart(
     opens: DoubleArray, highs: DoubleArray, lows: DoubleArray, closes: DoubleArray,
     predicted: DoubleArray, bandUpper: DoubleArray, bandLower: DoubleArray,
     markers: List<Mark> = emptyList(),
+    arrows: List<CycleArrow> = emptyList(),
     currency: String = "$",
     topLabel: String = "",
     modifier: Modifier = Modifier,
@@ -260,6 +287,8 @@ fun CandleChart(
         label("$currency${"%,.0f".format(hi)}", size.width - 6f, 24f, gray, 22f, Paint.Align.RIGHT)
         label("$currency${"%,.0f".format(lo)}", size.width - 6f, size.height - 10f, gray, 22f, Paint.Align.RIGHT)
         if (topLabel.isNotEmpty()) label(topLabel, 6f, 26f, 0xFFE6EDF3.toInt(), 26f)
+        for (a in arrows) if (a.x1 in 0 until n && a.x2 in 0 until n)
+            arrow(xAt(a.x1), yAt(a.y1), xAt(a.x2), yAt(a.y2), a.profit)
         for (m in markers) if (m.x in 0 until n) marker(xAt(m.x), yAt(m.y), m.buy)
     }
 }
