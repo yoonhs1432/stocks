@@ -204,7 +204,7 @@ fun ZmScatter(
         for (i in 0 until n) {
             if (zPct[i].isNaN() || mPct[i].isNaN()) continue
             val c = lerp(cold, hot, i.toFloat() / (n - 1))
-            drawCircle(c, 3.2f, Offset(px(zPct[i]), py(mPct[i])))
+            drawCircle(c, 5f, Offset(px(zPct[i]), py(mPct[i])))
         }
         // 매매 마커
         for ((idx, buy) in tradeIdx) if (idx in 0 until n) {
@@ -307,7 +307,11 @@ fun ScatterChart(
     height: Dp = 340.dp,
     modifier: Modifier = Modifier,
 ) {
-    if (points.isEmpty()) return
+    // NaN/무한 좌표 제거 (없으면 좌표·라벨 각도 계산에서 크래시)
+    val pts = points.filter { it.x.isFinite() && it.y.isFinite() && (!yLog || it.y > 0) }
+    if (pts.isEmpty()) return
+    val vL = vLines.filter { it.v.isFinite() }
+    val hL = hLines.filter { it.v.isFinite() }
     val lyMin = if (yLog) kotlin.math.log10(maxOf(yMin, 1e-6)) else yMin
     val lyMax = if (yLog) kotlin.math.log10(maxOf(yMax, 1e-6)) else yMax
     val xSpan = if (xMax > xMin) xMax - xMin else 1.0
@@ -319,21 +323,21 @@ fun ScatterChart(
             val yy = if (yLog) kotlin.math.log10(y.coerceAtLeast(1e-6)) else y
             return (pad + (size.height - 2 * pad) * (1 - (yy - lyMin) / ySpan)).toFloat()
         }
-        for (g in vLines) drawLine(g.color, Offset(sx(g.v), 0f), Offset(sx(g.v), size.height), g.width)
-        for (g in hLines) drawLine(g.color, Offset(0f, sy(g.v)), Offset(size.width, sy(g.v)), g.width)
+        for (g in vL) drawLine(g.color, Offset(sx(g.v), 0f), Offset(sx(g.v), size.height), g.width)
+        for (g in hL) drawLine(g.color, Offset(0f, sy(g.v)), Offset(size.width, sy(g.v)), g.width)
 
-        val xs = FloatArray(points.size) { sx(points[it].x) }
-        val ys = FloatArray(points.size) { sy(points[it].y) }
+        val xs = FloatArray(pts.size) { sx(pts[it].x) }
+        val ys = FloatArray(pts.size) { sy(pts[it].y) }
         // 점 (큰 원 + 흰 테두리)
-        for (i in points.indices) {
-            drawCircle(points[i].color, 13f, Offset(xs[i], ys[i]))
-            drawCircle(Color.White, 13f, Offset(xs[i], ys[i]), style = Stroke(2f))
+        for (i in pts.indices) {
+            drawCircle(pts[i].color, 14f, Offset(xs[i], ys[i]))
+            drawCircle(Color.White, 14f, Offset(xs[i], ys[i]), style = Stroke(2f))
         }
         // 라벨 — 가장 가까운 점 반대 방향(8방향)에 배치
-        val r = 17f
-        for (i in points.indices) {
+        val r = 18f
+        for (i in pts.indices) {
             var best = Float.MAX_VALUE; var nd = -1
-            for (j in points.indices) {
+            for (j in pts.indices) {
                 if (i == j) continue
                 val dx = xs[j] - xs[i]; val dy = ys[j] - ys[i]
                 val d = dx * dx + dy * dy
@@ -341,7 +345,8 @@ fun ScatterChart(
             }
             val ax = if (nd >= 0) -(xs[nd] - xs[i]) else 1f
             val ay = if (nd >= 0) -(ys[nd] - ys[i]) else 0f
-            val k = (((Math.toDegrees(kotlin.math.atan2(ay, ax).toDouble()) / 45.0).roundToInt()) % 8 + 8) % 8
+            val k = if (ax == 0f && ay == 0f) 0
+                else (((Math.toDegrees(kotlin.math.atan2(ay, ax).toDouble()) / 45.0).roundToInt()) % 8 + 8) % 8
             // k: 0=오른,1=오른아래,2=아래,3=왼아래,4=왼,5=왼위,6=위,7=오른위
             val (ox, oy, align) = when (k) {
                 0 -> Triple(r, 5f, Paint.Align.LEFT)
@@ -353,7 +358,7 @@ fun ScatterChart(
                 6 -> Triple(0f, -r, Paint.Align.CENTER)
                 else -> Triple(r, -r + 4f, Paint.Align.LEFT)
             }
-            label(points[i].label, xs[i] + ox, ys[i] + oy, 0xFFE6EDF3.toInt(), 22f, align)
+            label(pts[i].label, xs[i] + ox, ys[i] + oy, 0xFFE6EDF3.toInt(), 22f, align)
         }
         if (xAxisLabel.isNotEmpty()) label(xAxisLabel, size.width - 8f, size.height - 8f, 0x88FFFFFF.toInt(), 22f, Paint.Align.RIGHT)
         if (yAxisLabel.isNotEmpty()) label(yAxisLabel, 6f, 22f, 0x88FFFFFF.toInt(), 22f)

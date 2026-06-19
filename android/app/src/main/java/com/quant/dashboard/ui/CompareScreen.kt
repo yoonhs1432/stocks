@@ -94,12 +94,13 @@ fun CompareScreen(vm: CompareViewModel = viewModel()) {
                 // ── σ·β 산점도 (변동성·시장민감도) ──
                 Text("📊 변동성(σ) · 시장민감도(β)", color = TextPrimary,
                     fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                val betas = s.rows.map { it.beta }
-                val sigmas = s.rows.map { it.sigmaPct }
-                val medB = betas.sorted()[betas.size / 2]
-                val medS = sigmas.sorted()[sigmas.size / 2]
+                val finite = s.rows.filter { it.beta.isFinite() && it.sigmaPct.isFinite() && it.sigmaPct > 0 }
+                val betas = finite.map { it.beta }
+                val sigmas = finite.map { it.sigmaPct }
+                val medB = if (betas.isNotEmpty()) betas.sorted()[betas.size / 2] else 0.0
+                val medS = if (sigmas.isNotEmpty()) sigmas.sorted()[sigmas.size / 2] else 1.0
                 ScatterChart(
-                    points = s.rows.map { ScatterPt(it.beta, it.sigmaPct, it.name, pctColor(it.mPct)) },
+                    points = finite.map { ScatterPt(it.beta, it.sigmaPct, it.name, pctColor(it.mPct)) },
                     xMin = (betas.minOrNull() ?: -1.0) - 0.8,
                     xMax = (betas.maxOrNull() ?: 1.0) + 1.0,
                     yMin = maxOf((sigmas.minOrNull() ?: 1.0) * 0.8, 0.5),
