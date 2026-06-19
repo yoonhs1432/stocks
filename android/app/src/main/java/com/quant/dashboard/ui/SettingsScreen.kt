@@ -93,6 +93,17 @@ fun SettingsScreen() {
             }
         }
 
+        // ── 차트 조회기간 ──
+        var chartM by remember { mutableStateOf(Store.chartMonths()) }
+        Text("차트 조회기간", color = TextSecondary, fontSize = 12.sp)
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            listOf("1개월" to 1, "2개월" to 2, "4개월" to 4, "1년" to 12).forEach { (label, m) ->
+                FilterChip(selected = chartM == m, onClick = {
+                    chartM = m; Store.setChartMonths(m); AppState.bump()
+                }, label = { Text(label, fontSize = 12.sp) })
+            }
+        }
+
         // ── 기준일(As-of) 시뮬레이션 ──
         Text("📅 기준일 시뮬레이션", color = TextPrimary, fontSize = 15.sp,
             fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 6.dp))

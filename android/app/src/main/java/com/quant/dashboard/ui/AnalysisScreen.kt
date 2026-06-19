@@ -6,7 +6,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -16,7 +15,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.OutlinedTextField
@@ -36,9 +34,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.quant.dashboard.data.Candle
 import com.quant.dashboard.data.Store
 import com.quant.dashboard.data.Tickers
 import com.quant.dashboard.data.Trade
+import com.quant.dashboard.quant.Portfolio
 import com.quant.dashboard.quant.Quant
 import com.quant.dashboard.ui.theme.BgApp
 import com.quant.dashboard.ui.theme.Loss
@@ -50,19 +50,10 @@ import com.quant.dashboard.ui.theme.pctColor
 import com.quant.dashboard.ui.theme.signalColor
 import java.time.LocalDate
 
-val SIGNAL_LABEL = mapOf(
-    "strong_buy" to "강한 매수", "buy" to "매수", "hold" to "중립",
-    "sell" to "매도", "strong_sell" to "강한 매도",
-)
-
-private val PERIODS = listOf("1개월" to 1, "2개월" to 2, "4개월" to 4, "1년" to 12)
-
 @Composable
 fun AnalysisScreen(vm: AnalysisViewModel = viewModel()) {
     val s = vm.state
-    var periodMonths by remember { mutableStateOf(2) }
     var filter by remember { mutableStateOf("전체") }   // 전체 / ETF / 개별
-    var custom by remember { mutableStateOf("") }
 
     LaunchedEffect(AppState.dataVersion) { vm.sync(AppState.dataVersion) }
 
@@ -80,166 +71,168 @@ fun AnalysisScreen(vm: AnalysisViewModel = viewModel()) {
     Column(
         modifier = Modifier.fillMaxSize().background(BgApp)
             .verticalScroll(rememberScrollState()).padding(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        // ── 분류 필터 + 직접입력 ──
-        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        // ── 컴팩트 분류 라디오 (전체/ETF/개별) ──
+        Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             listOf("전체", "ETF", "개별").forEach { f ->
-                FilterChip(selected = filter == f, onClick = { filter = f },
-                    label = { Text(f, fontSize = 11.sp) })
+                Text(
+                    "${if (filter == f) "●" else "○"} $f",
+                    color = if (filter == f) TextPrimary else TextSecondary,
+                    fontSize = 13.sp, fontWeight = if (filter == f) FontWeight.Bold else FontWeight.Normal,
+                    modifier = Modifier.clickable { filter = f },
+                )
             }
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(top = 4.dp, bottom = 6.dp)) {
-            OutlinedTextField(custom, { custom = it },
-                placeholder = { Text("직접 분석 (예: NVDA, 005930)", fontSize = 11.sp) },
-                singleLine = true, modifier = Modifier.weight(1f))
-            Button(onClick = {
-                val t = custom.trim().uppercase()
-                if (t.isNotEmpty()) { vm.select(t); custom = "" }
-            }) { Text("분석") }
         }
 
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            // ── 좌측: 종목 버튼 세로 리스트 ──
-            Column(
-                Modifier.weight(0.30f),
-                verticalArrangement = Arrangement.spacedBy(3.dp),
-            ) {
+            // ── 좌측: 종목 알약 버튼 ──
+            Column(Modifier.weight(0.33f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                 tickers.forEach { tk ->
-                    val row = ov[tk]
-                    val bg = if (row != null) pctColor(row.mPct) else Neutral
-                    val dark = row != null && (row.mPct < 20 || row.mPct >= 80)
-                    val dayStr = row?.let { (if (it.day >= 0) "+" else "") + "%.1f%%".format(it.day) } ?: ""
-                    val selected = tk == s.ticker
-                    // ★ 보유 중 / ☆ 과거 이력만
-                    val mark = when {
-                        row?.holding == true -> "★"
-                        row?.hasHistory == true -> "☆"
-                        else -> ""
-                    }
-                    Box(
-                        Modifier.fillMaxWidth()
-                            .clip(RoundedCornerShape(5.dp))
-                            .background(bg)
-                            .then(if (selected) Modifier.border(1.5.dp, Color.White, RoundedCornerShape(5.dp)) else Modifier)
-                            .clickable { vm.select(tk) }
-                            .padding(horizontal = 6.dp, vertical = 5.dp),
-                    ) {
-                        Text(
-                            mark + Tickers.displayName(tk) + "  " + dayStr,
-                            color = if (dark) Color.White else Color.Black,
-                            fontSize = 11.sp, maxLines = 1,
-                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                        )
-                    }
+                    TickerPill(tk, ov[tk], selected = tk == s.ticker) { vm.select(tk) }
                 }
+                DirectInput { vm.select(it) }
                 Box(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(5.dp))
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
                         .background(Color(0xFF21262D)).clickable { vm.refresh() }
-                        .padding(vertical = 5.dp),
+                        .padding(vertical = 7.dp),
                     contentAlignment = Alignment.Center,
-                ) { Text("🔄", fontSize = 12.sp) }
+                ) { Text("🔄 refresh", color = TextSecondary, fontSize = 11.sp) }
             }
 
-            // ── 우측: 콘텐츠 ──
-            Column(
-                Modifier.weight(0.70f),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    PERIODS.forEach { (label, m) ->
-                        FilterChip(selected = periodMonths == m, onClick = { periodMonths = m },
-                            label = { Text(label, fontSize = 11.sp) })
-                    }
-                }
+            // ── 우측: 분석 콘텐츠 ──
+            Column(Modifier.weight(0.67f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 when {
                     s.loading -> Row(Modifier.fillMaxWidth().padding(24.dp), Arrangement.Center) {
                         CircularProgressIndicator()
                     }
                     s.error != null -> Text("⚠️ ${s.error}", color = signalColor("strong_sell"))
-                    s.result != null -> ResultView(s.result, periodMonths, s.ticker, s.ohlc)
+                    s.result != null -> ResultView(s.result, s.ticker, s.ohlc, ov[s.ticker]?.day)
                 }
-                TradeSection(s.ticker)
             }
+        }
+
+        // ── 하단 풀폭 아코디언 (지표설명 · 매매기록 · 사이클통계) ──
+        if (s.result != null) {
+            Accordion("ℹ️ 지표 설명 (σ · β·SPY · Z · M)") { IndicatorHelpBody() }
+            Accordion("📝 매매 기록 입력") { TradeInputSection(s.ticker) }
+            Accordion("🗑️ 매매 기록 삭제 / 메모 편집") { TradeListSection(s.ticker) }
+            Accordion("📈 사이클 통계") { CycleStatsSection(s.ticker, s.result.lastPrice) }
         }
     }
 }
 
+/** 좌측 종목 알약 버튼 — 모멘텀색 배경, ★보유/☆이력, 중앙정렬 굵은 라벨 + 일간%. */
 @Composable
-private fun ResultView(r: Quant.Result, periodMonths: Int, ticker: String, ohlc: List<com.quant.dashboard.data.Candle>) {
-    // 종목 헤더: 종목명 + σ·β·Z·M
-    Text(Tickers.displayName(ticker), color = pctColor(r.lastMpct), fontSize = 18.sp, fontWeight = FontWeight.Bold)
-    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        Metric("σ", "±%.0f%%".format(r.sigmaPct))
-        Metric("β·SPY", "%.1f×".format(r.beta))
-        Metric("Z", "%.0f".format(r.lastZpct), pctColor(r.lastZpct))
-        Metric("M", "%.0f".format(r.lastMpct), pctColor(r.lastMpct))
-    }
-
-    // 지표 설명 expander (모바일에서 툴팁 안 보이는 문제 보완)
-    var helpOpen by remember { mutableStateOf(false) }
-    Text("ℹ️ 지표 설명 (σ·β·Z·M) ${if (helpOpen) "▲" else "▼"}",
-        color = TextSecondary, fontSize = 11.sp,
-        modifier = Modifier.fillMaxWidth().clickable { helpOpen = !helpOpen })
-    if (helpOpen) {
+private fun TickerPill(tk: String, row: com.quant.dashboard.data.OverviewRepo.Row?, selected: Boolean, onClick: () -> Unit) {
+    val bg = if (row != null) pctColor(row.mPct) else Neutral
+    val dark = row != null && (row.mPct < 20 || row.mPct >= 80)
+    val dayStr = row?.let { (if (it.day >= 0) "+" else "") + "%.1f%%".format(it.day) } ?: ""
+    val mark = when { row?.holding == true -> "★ "; row?.hasHistory == true -> "☆ "; else -> "" }
+    Box(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(bg)
+            .then(if (selected) Modifier.border(2.dp, Color.White, RoundedCornerShape(10.dp)) else Modifier)
+            .clickable { onClick() }.padding(horizontal = 8.dp, vertical = 9.dp),
+        contentAlignment = Alignment.Center,
+    ) {
         Text(
-            "σ = SPY 회귀 잔차의 변동성(±%). 클수록 SPY 추세에서 벗어나는 폭이 큼.\n" +
-                "β = SPY 대비 민감도(배). 1보다 크면 SPY보다 더 출렁임.\n" +
-                "Z = 회귀선 대비 현재 가격 위치(0~100). 낮을수록 저평가(매수), 높을수록 고평가(매도).\n" +
-                "M = 모멘텀(0~100). RSI·MACD·변곡을 변동성으로 정규화한 종합 추세. 낮을수록 매수 우위.",
-            color = TextSecondary, fontSize = 11.sp,
-            modifier = Modifier.fillMaxWidth()
-                .background(Color(0xFF161B22), RoundedCornerShape(6.dp)).padding(8.dp),
+            "$mark${Tickers.displayName(tk)}  $dayStr",
+            color = if (dark) Color.White else Color.Black,
+            fontSize = 12.sp, maxLines = 1, fontWeight = FontWeight.Bold,
         )
     }
+}
 
-    // 정보 카드: 현재가 / 평균단가 / 보유수량 / 평가손익%
+/** 좌측 하단 "직접 입력" — 탭하면 입력칸 노출. */
+@Composable
+private fun DirectInput(onAnalyze: (String) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    var text by remember { mutableStateOf("") }
+    if (!open) {
+        Box(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
+                .border(1.dp, Color(0xFF30363D), RoundedCornerShape(8.dp))
+                .clickable { open = true }.padding(vertical = 7.dp),
+            contentAlignment = Alignment.Center,
+        ) { Text("직접 입력", color = TextSecondary, fontSize = 11.sp) }
+    } else {
+        OutlinedTextField(text, { text = it },
+            placeholder = { Text("NVDA · 005930", fontSize = 11.sp) },
+            singleLine = true, modifier = Modifier.fillMaxWidth())
+        Box(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(Loss)
+                .clickable {
+                    val t = text.trim().uppercase()
+                    if (t.isNotEmpty()) { onAnalyze(t); open = false; text = "" }
+                }.padding(vertical = 7.dp),
+            contentAlignment = Alignment.Center,
+        ) { Text("분석", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold) }
+    }
+}
+
+/** 하단 아코디언 카드 (Streamlit expander 미러). */
+@Composable
+private fun Accordion(title: String, content: @Composable () -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+            .border(1.dp, Color(0xFF30363D), RoundedCornerShape(10.dp)).padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text("${if (open) "⌄" else "›"}  $title", color = TextPrimary, fontSize = 14.sp,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.fillMaxWidth().clickable { open = !open })
+        if (open) content()
+    }
+}
+
+@Composable
+private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayPct: Double?) {
+    // ── 종목명 + σ·β·Z·M 인라인 헤더 ──
+    Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(Tickers.displayName(ticker), color = pctColor(r.lastMpct),
+            fontSize = 20.sp, fontWeight = FontWeight.Bold)
+    }
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("σ ±%.0f%%".format(r.sigmaPct), color = TextSecondary, fontSize = 12.sp)
+        Text("β·SPY %.1f×".format(r.beta), color = TextSecondary, fontSize = 12.sp)
+        Text("Z %.0f".format(r.lastZpct), color = pctColor(r.lastZpct), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+        Text("M %.0f".format(r.lastMpct), color = pctColor(r.lastMpct), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+    }
+
+    // ── 정보 카드 (현재가/평균단가/보유) ──
     val trades = remember(ticker) { Store.loadTrades()[ticker].orEmpty() }
-    val pos = remember(ticker) { com.quant.dashboard.quant.Portfolio.position(trades) }
+    val pos = remember(ticker) { Portfolio.position(trades) }
     Row(
         Modifier.fillMaxWidth()
             .border(1.5.dp, if (pos != null) Color(0xFF3FB950) else Color(0xFF6B7280), RoundedCornerShape(8.dp))
             .padding(8.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        Metric("현재가", Tickers.priceLabel(ticker, r.lastPrice))
-        if (pos != null) {
-            Metric("평균단가", Tickers.priceLabel(ticker, pos.avg))
-            Metric("보유", "${pos.qty}주")
-            val ret = if (pos.avg > 0) (r.lastPrice / pos.avg - 1) * 100 else 0.0
-            Metric("평가손익", "${if (ret >= 0) "+" else ""}${"%.1f%%".format(ret)}",
-                if (ret > 0) Profit else if (ret < 0) Loss else Neutral)
-        }
-    }
-    Text("신호: ${SIGNAL_LABEL[r.signal] ?: r.signal}",
-        color = signalColor(r.signal), fontWeight = FontWeight.Bold, fontSize = 14.sp)
-
-    // 현재 사이클 진행 게이지 (보유 중일 때, 완료 사이클 평균 대비)
-    val progress = remember(ticker) { com.quant.dashboard.quant.Portfolio.currentCycleProgress(trades, r.lastPrice) }
-    val cstats = remember(ticker) { com.quant.dashboard.quant.Portfolio.cycleStats(trades) }
-    if (progress != null) {
-        val avgDays = cstats?.avgHoldDays ?: 0.0
-        val ratio = if (avgDays > 0) (progress.heldDays / avgDays).coerceIn(0.0, 1.5) else 0.0
-        Column(
-            Modifier.fillMaxWidth().background(Color(0xFF161B22), RoundedCornerShape(8.dp)).padding(8.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            val retC = if (progress.curRetPct > 0) Profit else if (progress.curRetPct < 0) Loss else Neutral
-            Text("현재 사이클: ${progress.heldDays}일 보유 · 평가 ${if (progress.curRetPct >= 0) "+" else ""}${"%.1f%%".format(progress.curRetPct)}",
-                color = retC, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-            if (cstats != null) {
-                // 평균 보유일 대비 진행도 바
-                Box(Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)).background(Color(0xFF30363D))) {
-                    Box(Modifier.fillMaxWidth((ratio / 1.5).toFloat()).height(6.dp)
-                        .clip(RoundedCornerShape(3.dp)).background(if (ratio >= 1.0) Loss else Color(0xFF3FB950)))
+        Column {
+            Text("현재가", color = TextSecondary, fontSize = 11.sp)
+            Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(Tickers.priceLabel(ticker, r.lastPrice), color = TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                dayPct?.let {
+                    Text("(${if (it >= 0) "+" else ""}${"%.1f%%".format(it)})",
+                        color = if (it > 0) Profit else if (it < 0) Loss else Neutral, fontSize = 11.sp)
                 }
-                Text("평균 보유 ${cstats.avgHoldDays.toInt()}일 · 평균 ${if (cstats.avgRet >= 0) "+" else ""}${"%.1f%%".format(cstats.avgRet)} (${cstats.count}회)",
-                    color = TextSecondary, fontSize = 11.sp)
+            }
+        }
+        if (pos != null) {
+            Column {
+                Text("평균단가", color = TextSecondary, fontSize = 11.sp)
+                Text(Tickers.priceLabel(ticker, pos.avg), color = TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            }
+            Column {
+                Text("보유수량", color = TextSecondary, fontSize = 11.sp)
+                Text("${pos.qty}주", color = TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
             }
         }
     }
 
+    // ── 차트 윈도우 + 매매 마커/화살표 ──
+    val periodMonths = Store.chartMonths()
     val n = r.dates.size
     val cutoff = r.dates[n - 1] - periodMonths.toLong() * 30 * 86400
     var start = 0
@@ -249,18 +242,15 @@ private fun ResultView(r: Quant.Result, periodMonths: Int, ticker: String, ohlc:
     fun segDollar(a: DoubleArray) = DoubleArray(n - start) { a[start + it] * base }
     val dates = r.dates.copyOfRange(start, n)
 
-    // 매매 마커 — 윈도우 인덱스 매핑 (trades는 위에서 로드)
     val priceMarks = ArrayList<Mark>()
     val zmMarks = ArrayList<Mark>()
     val scatterIdx = ArrayList<Pair<Int, Boolean>>()
     for (t in trades) {
         val sec = try { LocalDate.parse(t.date).toEpochDay() * 86400 } catch (e: Exception) { continue }
         val buy = t.type == "buy"
-        // 전체 인덱스 (산점도용)
         var full = -1
         for (i in r.dates.indices) { if (r.dates[i] <= sec) full = i else break }
         if (full >= 0) scatterIdx.add(full to buy)
-        // 윈도우 인덱스 (라인 차트용)
         if (full >= start) {
             val wi = full - start
             priceMarks.add(Mark(wi, t.price, buy))
@@ -268,8 +258,6 @@ private fun ResultView(r: Quant.Result, periodMonths: Int, ticker: String, ohlc:
             if (!mv.isNaN()) zmMarks.add(Mark(wi, mv, buy))
         }
     }
-
-    // 완료 사이클 평균매수→평균매도 화살표 (윈도우 인덱스)
     val arrows = ArrayList<CycleArrow>()
     run {
         val sorted = trades.filter { it.qty > 0 && it.price > 0 }.sortedBy { it.date }
@@ -295,12 +283,12 @@ private fun ResultView(r: Quant.Result, periodMonths: Int, ticker: String, ohlc:
     }
     val regMarkIdx = priceMarks.map { it.x to it.buy }
 
-    // ① 회귀 산점도 (로그-로그, Turbo + 밴드 + ★ + 매매마커) — 모두 정규화(Norm) 값
+    // ① 회귀 산점도
     Text("회귀 산점도 (SPY 대비)", color = TextSecondary, fontSize = 11.sp)
     RegressionScatter(seg(r.spyNorm), seg(r.tickerNorm), seg(r.predicted),
         seg(r.bandUpper), seg(r.bandLower), r.beta, markIdx = regMarkIdx)
 
-    // ② Z·M 시간 궤적 산점도
+    // ② Z·M 궤적
     Text("Z·M 궤적 (시간 파랑→빨강, ● 현재)", color = TextSecondary, fontSize = 11.sp)
     ZmScatter(r.zPct, r.mPct, scatterIdx)
 
@@ -342,90 +330,100 @@ private fun ResultView(r: Quant.Result, periodMonths: Int, ticker: String, ohlc:
 }
 
 @Composable
-fun Metric(label: String, value: String, valueColor: Color = TextPrimary) {
-    Column {
-        Text(label, color = TextSecondary, fontSize = 11.sp)
-        Text(value, color = valueColor, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-    }
+private fun IndicatorHelpBody() {
+    Text(
+        "σ = SPY 회귀 잔차의 변동성(±%). 클수록 SPY 추세에서 벗어나는 폭이 큼.\n" +
+            "β·SPY = SPY 대비 민감도(배). 1보다 크면 SPY보다 더 출렁임.\n" +
+            "Z = 회귀선 대비 현재 가격 위치(0~100). 낮을수록 저평가(매수), 높을수록 고평가(매도).\n" +
+            "M = 모멘텀(0~100). RSI·MACD·변곡을 변동성으로 정규화한 종합 추세. 낮을수록 매수 우위.",
+        color = TextSecondary, fontSize = 12.sp,
+    )
 }
 
 @Composable
-private fun TradeSection(ticker: String) {
+private fun TradeInputSection(ticker: String) {
     var refresh by remember { mutableStateOf(0) }
-    val trades = remember(ticker, refresh) { Store.loadTrades()[ticker].orEmpty() }
     var type by remember { mutableStateOf("buy") }
     var qty by remember { mutableStateOf("") }
     var price by remember { mutableStateOf("") }
     var date by remember { mutableStateOf(LocalDate.now().toString()) }
     var memo by remember { mutableStateOf("") }
     var err by remember { mutableStateOf<String?>(null) }
-    var expanded by remember { mutableStateOf(false) }
-
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text(
-            "📝 매매 기록 — ${Tickers.displayName(ticker)}  ${if (expanded) "▲" else "▼"} (${trades.size})",
-            color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold,
-            modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded },
-        )
-
-        if (expanded) {
+    refresh.let {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("종목: ${Tickers.displayName(ticker)}", color = TextSecondary, fontSize = 12.sp)
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                FilterChip(selected = type == "buy", onClick = { type = "buy" },
-                    label = { Text("매수") })
-                FilterChip(selected = type == "sell", onClick = { type = "sell" },
-                    label = { Text("매도") })
+                FilterChip(selected = type == "buy", onClick = { type = "buy" }, label = { Text("매수") })
+                FilterChip(selected = type == "sell", onClick = { type = "sell" }, label = { Text("매도") })
             }
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                OutlinedTextField(date, { date = it }, label = { Text("날짜") },
-                    singleLine = true, modifier = Modifier.weight(1.4f))
-                OutlinedTextField(qty, { qty = it }, label = { Text("수량") },
-                    singleLine = true, modifier = Modifier.weight(1f))
-                OutlinedTextField(price, { price = it }, label = { Text("단가$") },
-                    singleLine = true, modifier = Modifier.weight(1f))
+                OutlinedTextField(date, { date = it }, label = { Text("날짜") }, singleLine = true, modifier = Modifier.weight(1.4f))
+                OutlinedTextField(qty, { qty = it }, label = { Text("수량") }, singleLine = true, modifier = Modifier.weight(1f))
+                OutlinedTextField(price, { price = it }, label = { Text("단가$") }, singleLine = true, modifier = Modifier.weight(1f))
             }
-            OutlinedTextField(memo, { memo = it }, label = { Text("메모 (선택)") },
-                singleLine = true, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(memo, { memo = it }, label = { Text("메모 (선택)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
             Button(onClick = {
-                val q = qty.toIntOrNull()
-                val p = price.toDoubleOrNull()
-                if (q == null || q <= 0 || p == null || p <= 0) {
-                    err = "수량·단가를 올바르게 입력하세요"
-                } else {
-                    Store.addTrade(ticker, Trade(date.trim(), type, q, p, memo.ifBlank { null }))
-                    qty = ""; price = ""; memo = ""; err = null; refresh++
-                }
+                val q = qty.toIntOrNull(); val p = price.toDoubleOrNull()
+                if (q == null || q <= 0 || p == null || p <= 0) err = "수량·단가를 올바르게 입력하세요"
+                else { Store.addTrade(ticker, Trade(date.trim(), type, q, p, memo.ifBlank { null })); qty = ""; price = ""; memo = ""; err = null; refresh++ }
             }) { Text("저장") }
             err?.let { Text(it, color = Loss, fontSize = 12.sp) }
+        }
+    }
+}
 
-            var editIdx by remember { mutableStateOf(-1) }
-            var editMemo by remember { mutableStateOf("") }
-            trades.forEachIndexed { i, t ->
-                Column {
-                    Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
-                        Text(
-                            "${t.date}  ${if (t.type == "buy") "▲" else "▼"} ${t.qty}주 @$${"%.2f".format(t.price)}" +
-                                (t.memo?.let { "  · $it" } ?: ""),
-                            color = TextSecondary, fontSize = 12.sp, modifier = Modifier.weight(1f),
-                        )
-                        TextButton(onClick = { editIdx = if (editIdx == i) -1 else i; editMemo = t.memo ?: "" }) {
-                            Text("메모", fontSize = 12.sp)
-                        }
-                        TextButton(onClick = { Store.deleteTrade(ticker, i); refresh++ }) {
-                            Text("삭제", color = Loss, fontSize = 12.sp)
-                        }
-                    }
-                    if (editIdx == i) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalAlignment = Alignment.CenterVertically) {
-                            OutlinedTextField(editMemo, { editMemo = it }, label = { Text("메모") },
-                                singleLine = true, modifier = Modifier.weight(1f))
-                            Button(onClick = {
-                                Store.updateTradeMemo(ticker, i, editMemo); editIdx = -1; refresh++
-                            }) { Text("저장") }
-                        }
-                    }
+@Composable
+private fun TradeListSection(ticker: String) {
+    var refresh by remember { mutableStateOf(0) }
+    val trades = remember(ticker, refresh) { Store.loadTrades()[ticker].orEmpty() }
+    var editIdx by remember { mutableStateOf(-1) }
+    var editMemo by remember { mutableStateOf("") }
+    if (trades.isEmpty()) { Text("기록 없음", color = TextSecondary, fontSize = 12.sp); return }
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        trades.forEachIndexed { i, t ->
+            Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
+                Text("${t.date}  ${if (t.type == "buy") "▲" else "▼"} ${t.qty}주 @$${"%.2f".format(t.price)}" + (t.memo?.let { "  · $it" } ?: ""),
+                    color = TextSecondary, fontSize = 12.sp, modifier = Modifier.weight(1f))
+                TextButton(onClick = { editIdx = if (editIdx == i) -1 else i; editMemo = t.memo ?: "" }) { Text("메모", fontSize = 12.sp) }
+                TextButton(onClick = { Store.deleteTrade(ticker, i); refresh++ }) { Text("삭제", color = Loss, fontSize = 12.sp) }
+            }
+            if (editIdx == i) {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(editMemo, { editMemo = it }, label = { Text("메모") }, singleLine = true, modifier = Modifier.weight(1f))
+                    Button(onClick = { Store.updateTradeMemo(ticker, i, editMemo); editIdx = -1; refresh++ }) { Text("저장") }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun CycleStatsSection(ticker: String, lastPrice: Double) {
+    val trades = remember(ticker) { Store.loadTrades()[ticker].orEmpty() }
+    val progress = remember(ticker) { Portfolio.currentCycleProgress(trades, lastPrice) }
+    val cstats = remember(ticker) { Portfolio.cycleStats(trades) }
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        if (progress != null) {
+            val retC = if (progress.curRetPct > 0) Profit else if (progress.curRetPct < 0) Loss else Neutral
+            Text("현재 사이클: ${progress.heldDays}일 보유 · 평가 ${if (progress.curRetPct >= 0) "+" else ""}${"%.1f%%".format(progress.curRetPct)}",
+                color = retC, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            if (cstats != null) {
+                val avgDays = cstats.avgHoldDays
+                val ratio = if (avgDays > 0) (progress.heldDays / avgDays).coerceIn(0.0, 1.5) else 0.0
+                Box(Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)).background(Color(0xFF30363D))) {
+                    Box(Modifier.fillMaxWidth((ratio / 1.5).toFloat()).height(6.dp)
+                        .clip(RoundedCornerShape(3.dp)).background(if (ratio >= 1.0) Loss else Color(0xFF3FB950)))
+                }
+            }
+        }
+        if (cstats != null) {
+            val pf = cstats.profitFactor?.let { "%.2f".format(it) } ?: "∞"
+            Text("완료 ${cstats.count}회 · 승률 ${cstats.winRate.toInt()}% · PF $pf · 평균 ${if (cstats.avgRet >= 0) "+" else ""}${"%.1f".format(cstats.avgRet)}% · 평균보유 ${cstats.avgHoldDays.toInt()}일",
+                color = TextSecondary, fontSize = 12.sp)
+            Text("최고 ${"%.1f".format(cstats.bestPct)}% · 최저 ${"%.1f".format(cstats.worstPct)}%",
+                color = TextSecondary, fontSize = 12.sp)
+        } else if (progress == null) {
+            Text("완료된 사이클 없음", color = TextSecondary, fontSize = 12.sp)
         }
     }
 }

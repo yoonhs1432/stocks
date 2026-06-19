@@ -173,6 +173,10 @@ object Store {
     fun candleInterval(): String = settings().optString("interval", "1d")
     fun setCandleInterval(v: String) { saveSettings(settings().put("interval", v)) }
 
+    /** 차트 조회기간(개월): 1/2/4/12. app.py 차트 조회기간 미러. 기본 2개월. */
+    fun chartMonths(): Int = settings().optInt("chart_months", 2)
+    fun setChartMonths(v: Int) { saveSettings(settings().put("chart_months", v)) }
+
     // ── 기준일(As-of) 시뮬레이션 ──
     /** 설정된 기준일 (ISO yyyy-MM-dd). 미설정/공백이면 null. */
     fun asofDate(): String? = settings().optString("asof", "").ifBlank { null }
