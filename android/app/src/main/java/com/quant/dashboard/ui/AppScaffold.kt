@@ -49,7 +49,7 @@ object AppState {
         private set
 
     /** 기준일 설정/해제 (null=해제) 후 전 탭 리로드 트리거. */
-    fun setAsof(d: String?) {
+    fun applyAsof(d: String?) {
         Store.setAsofDate(d)
         asof = Store.asofDate()
         bump()
@@ -113,7 +113,7 @@ private fun MarketHeader() {
         AppState.asof?.let { d ->
             Box(
                 Modifier.background(Color(0xFFCA8A04), RoundedCornerShape(8.dp))
-                    .clickable { AppState.setAsof(null) }
+                    .clickable { AppState.applyAsof(null) }
                     .padding(horizontal = 7.dp, vertical = 2.dp),
             ) {
                 Text("📅 $d ✕", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)

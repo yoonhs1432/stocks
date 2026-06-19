@@ -101,7 +101,7 @@ fun SettingsScreen() {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Checkbox(checked = asofEnabled, onCheckedChange = {
                 asofEnabled = it
-                if (!it) AppState.setAsof(null)
+                if (!it) AppState.applyAsof(null)
             })
             Text("과거 시점 재현 (이 날짜까지 데이터만)", color = TextSecondary, fontSize = 12.sp)
         }
@@ -112,7 +112,7 @@ fun SettingsScreen() {
                     singleLine = true, modifier = Modifier.weight(1f))
                 Button(onClick = {
                     val ok = try { LocalDate.parse(asofText.trim()); true } catch (e: Exception) { false }
-                    if (ok) AppState.setAsof(asofText.trim())
+                    if (ok) AppState.applyAsof(asofText.trim())
                 }) { Text("적용") }
             }
         }
