@@ -107,8 +107,8 @@ fun CompareScreen(vm: CompareViewModel = viewModel()) {
                     yMin = maxOf((sigmas.minOrNull() ?: 1.0) * 0.8, 0.5),
                     yMax = (sigmas.maxOrNull() ?: 10.0) * 1.25,
                     yLog = true,
-                    vLines = listOf(GridLine(medB, mid, 1.2f), GridLine(0.0, faint, 1f)),
-                    hLines = listOf(GridLine(medS, mid, 1.2f)),
+                    vLines = listOf(GridLine(medB, Color(0x88E5E7EB), 1.2f), GridLine(0.0, Color(0x99768390), 1.2f)),
+                    hLines = listOf(GridLine(medS, Color(0x88E5E7EB), 1.2f)),
                     xAxisLabel = "β x", yAxisLabel = "σ% (log)", height = 360.dp,
                 )
                 Text("X=β·SPY · Y=σ%(로그) · 색=모멘텀 · 점선=중앙값",
