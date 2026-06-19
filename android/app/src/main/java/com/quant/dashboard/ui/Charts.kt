@@ -164,8 +164,8 @@ fun ZmScatter(
             drawCircle(Color.Black, 7f, Offset(px(zPct[li]), py(mPct[li])), style = Stroke(2f))
         }
         // 축 라벨
-        label("Z→", size.width - 40f, size.height - 8f, 0x88FFFFFF, 22f)
-        label("M↑", 6f, 22f, 0x88FFFFFF, 22f)
+        label("Z->", size.width - 40f, size.height - 8f, 0x88FFFFFF.toInt(), 22f)
+        label("M^", 6f, 22f, 0x88FFFFFF.toInt(), 22f)
     }
 }
 
