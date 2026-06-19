@@ -12,6 +12,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -24,6 +26,15 @@ import java.util.Date
 import java.util.Locale
 
 /** 의존성 없는 Compose Canvas 차트. 가격($)·Z·M·RSI를 세로 스택으로. */
+
+/** 차트 위 매매 마커 (x=윈도우 내 인덱스, y=해당 차트 y척도 값, buy 여부). */
+data class Mark(val x: Int, val y: Double, val buy: Boolean)
+
+private fun DrawScope.marker(cx: Float, cy: Float, buy: Boolean) {
+    val col = if (buy) Color(0xFFDC2626) else Color(0xFF2563EB)
+    drawCircle(col, 8f, Offset(cx, cy))
+    drawCircle(Color.White, 8f, Offset(cx, cy), style = Stroke(1.5f))
+}
 
 private fun DoubleArray.minNaN(): Double {
     var m = Double.POSITIVE_INFINITY
@@ -60,6 +71,7 @@ fun PriceChart(
     predictedDollar: DoubleArray,
     bandUpper: DoubleArray,
     bandLower: DoubleArray,
+    markers: List<Mark> = emptyList(),
     modifier: Modifier = Modifier,
 ) {
     val n = priceDollar.size
@@ -87,12 +99,14 @@ fun PriceChart(
         val gray = 0xFFADBAC7.toInt()
         label("$%,.0f".format(hi), 6f, 24f, gray, 24f)
         label("$%,.0f".format(lo), 6f, size.height - 10f, gray, 24f)
+
+        for (m in markers) if (m.x in 0 until n) marker(xAt(m.x), yAt(m.y), m.buy)
     }
 }
 
 /** Z(흰)·M(주황) 백분위 0~100, 임계선 20/40/60/80. */
 @Composable
-fun ZmChart(zPct: DoubleArray, mPct: DoubleArray, modifier: Modifier = Modifier) {
+fun ZmChart(zPct: DoubleArray, mPct: DoubleArray, markers: List<Mark> = emptyList(), modifier: Modifier = Modifier) {
     val n = zPct.size
     if (n < 2) return
     Canvas(modifier = modifier.fillMaxWidth().height(120.dp)) {
@@ -105,6 +119,53 @@ fun ZmChart(zPct: DoubleArray, mPct: DoubleArray, modifier: Modifier = Modifier)
         }
         poly(zPct, ::xAt, ::yAt, Color(0xFFE6EDF3), 2f)
         poly(mPct, ::xAt, ::yAt, Color(0xFFF97316), 1.5f)
+        for (m in markers) if (m.x in 0 until n) marker(xAt(m.x), yAt(m.y), m.buy)
+    }
+}
+
+/**
+ * Z·M 사분면 산점도. X=Z(0~100), Y=M(0~100). 시간 순서대로 색(파랑→빨강) 궤적 +
+ * 현재 위치 별표 + 매매 마커. tradeIdx: (전체 인덱스, 매수여부).
+ */
+@Composable
+fun ZmScatter(
+    zPct: DoubleArray, mPct: DoubleArray,
+    tradeIdx: List<Pair<Int, Boolean>> = emptyList(),
+    modifier: Modifier = Modifier,
+) {
+    val n = zPct.size
+    if (n < 2) return
+    Canvas(modifier = modifier.fillMaxWidth().height(260.dp)) {
+        fun px(v: Double) = (size.width * (v / 100.0)).toFloat()
+        fun py(v: Double) = (size.height * (1 - v / 100.0)).toFloat()
+        // 임계선 20/40/60/80
+        for (t in intArrayOf(20, 40, 60, 80)) {
+            drawLine(Color(0x22FFFFFF), Offset(px(t.toDouble()), 0f), Offset(px(t.toDouble()), size.height), 1f)
+            drawLine(Color(0x22FFFFFF), Offset(0f, py(t.toDouble())), Offset(size.width, py(t.toDouble())), 1f)
+        }
+        // 중앙선 50
+        drawLine(Color(0x55FFFFFF), Offset(px(50.0), 0f), Offset(px(50.0), size.height), 1.2f)
+        drawLine(Color(0x55FFFFFF), Offset(0f, py(50.0)), Offset(size.width, py(50.0)), 1.2f)
+        // 시간 궤적 점 (파랑→빨강)
+        val cold = Color(0xFF1F3B8F); val hot = Color(0xFFF85149)
+        for (i in 0 until n) {
+            if (zPct[i].isNaN() || mPct[i].isNaN()) continue
+            val c = lerp(cold, hot, i.toFloat() / (n - 1))
+            drawCircle(c, 3f, Offset(px(zPct[i]), py(mPct[i])))
+        }
+        // 매매 마커
+        for ((idx, buy) in tradeIdx) if (idx in 0 until n) {
+            if (!zPct[idx].isNaN() && !mPct[idx].isNaN()) marker(px(zPct[idx]), py(mPct[idx]), buy)
+        }
+        // 현재 위치 (흰 별 대용: 큰 흰 원 + 검정 테두리)
+        val li = n - 1
+        if (!zPct[li].isNaN() && !mPct[li].isNaN()) {
+            drawCircle(Color.White, 7f, Offset(px(zPct[li]), py(mPct[li])))
+            drawCircle(Color.Black, 7f, Offset(px(zPct[li]), py(mPct[li])), style = Stroke(2f))
+        }
+        // 축 라벨
+        label("Z→", size.width - 40f, size.height - 8f, 0x88FFFFFF, 22f)
+        label("M↑", 6f, 22f, 0x88FFFFFF, 22f)
     }
 }
 

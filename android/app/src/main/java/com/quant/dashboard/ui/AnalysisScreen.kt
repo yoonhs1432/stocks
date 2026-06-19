@@ -86,7 +86,7 @@ fun AnalysisScreen(vm: AnalysisViewModel = viewModel()) {
                 CircularProgressIndicator()
             }
             s.error != null -> Text("⚠️ ${s.error}", color = signalColor("strong_sell"))
-            s.result != null -> ResultView(s.result, periodMonths)
+            s.result != null -> ResultView(s.result, periodMonths, s.ticker)
         }
 
         TradeSection(s.ticker)
@@ -94,7 +94,7 @@ fun AnalysisScreen(vm: AnalysisViewModel = viewModel()) {
 }
 
 @Composable
-private fun ResultView(r: Quant.Result, periodMonths: Int) {
+private fun ResultView(r: Quant.Result, periodMonths: Int, ticker: String) {
     Text("$${"%,.2f".format(r.lastPrice)}", color = TextPrimary, fontSize = 22.sp, fontWeight = FontWeight.Bold)
     Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
         Metric("β·SPY", "%.2f×".format(r.beta))
@@ -114,16 +114,40 @@ private fun ResultView(r: Quant.Result, periodMonths: Int) {
     fun segDollar(a: DoubleArray) = DoubleArray(n - start) { a[start + it] * base }
     val dates = r.dates.copyOfRange(start, n)
 
+    // 매매 마커 — 윈도우 인덱스 매핑
+    val trades = remember(ticker, n) { Store.loadTrades()[ticker].orEmpty() }
+    val priceMarks = ArrayList<Mark>()
+    val zmMarks = ArrayList<Mark>()
+    val scatterIdx = ArrayList<Pair<Int, Boolean>>()
+    for (t in trades) {
+        val sec = try { LocalDate.parse(t.date).toEpochDay() * 86400 } catch (e: Exception) { continue }
+        val buy = t.type == "buy"
+        // 전체 인덱스 (산점도용)
+        var full = -1
+        for (i in r.dates.indices) { if (r.dates[i] <= sec) full = i else break }
+        if (full >= 0) scatterIdx.add(full to buy)
+        // 윈도우 인덱스 (라인 차트용)
+        if (full >= start) {
+            val wi = full - start
+            priceMarks.add(Mark(wi, t.price, buy))
+            val mv = seg(r.mPct)[wi]
+            if (!mv.isNaN()) zmMarks.add(Mark(wi, mv, buy))
+        }
+    }
+
     Text("가격 · 회귀선 · ±1.5σ", color = TextSecondary, fontSize = 12.sp)
-    PriceChart(segDollar(r.tickerNorm), segDollar(r.predicted), segDollar(r.bandUpper), segDollar(r.bandLower))
+    PriceChart(segDollar(r.tickerNorm), segDollar(r.predicted), segDollar(r.bandUpper), segDollar(r.bandLower), priceMarks)
 
     Text("Z(흰) · M(주황) — 20/40/60/80", color = TextSecondary, fontSize = 12.sp)
-    ZmChart(seg(r.zPct), seg(r.mPct))
+    ZmChart(seg(r.zPct), seg(r.mPct), zmMarks)
 
     Text("RSI — 30/70", color = TextSecondary, fontSize = 12.sp)
     RsiChart(seg(r.rsi))
 
     DateAxis(dates)
+
+    Text("Z·M 사분면 (시간 궤적 파랑→빨강, ● 현재)", color = TextSecondary, fontSize = 12.sp)
+    ZmScatter(r.zPct, r.mPct, scatterIdx)
 }
 
 @Composable
