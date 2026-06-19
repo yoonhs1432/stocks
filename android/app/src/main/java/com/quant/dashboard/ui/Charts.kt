@@ -16,6 +16,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.quant.dashboard.ui.theme.Loss
@@ -24,6 +25,8 @@ import com.quant.dashboard.ui.theme.TextSecondary
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.math.atan2
+import kotlin.math.roundToInt
 
 /** 의존성 없는 Compose Canvas 차트. 가격($)·Z·M·RSI를 세로 스택으로. */
 
@@ -136,7 +139,7 @@ fun ZmScatter(
 ) {
     val n = zPct.size
     if (n < 2) return
-    Canvas(modifier = modifier.fillMaxWidth().height(180.dp)) {
+    Canvas(modifier = modifier.fillMaxWidth().height(220.dp)) {
         fun px(v: Double) = (size.width * (v / 100.0)).toFloat()
         fun py(v: Double) = (size.height * (1 - v / 100.0)).toFloat()
         // 임계선 20/40/60/80
@@ -147,12 +150,12 @@ fun ZmScatter(
         // 중앙선 50
         drawLine(Color(0x55FFFFFF), Offset(px(50.0), 0f), Offset(px(50.0), size.height), 1.2f)
         drawLine(Color(0x55FFFFFF), Offset(0f, py(50.0)), Offset(size.width, py(50.0)), 1.2f)
-        // 시간 궤적 점 (파랑→빨강) — 작고 옅게
-        val cold = Color(0xFF1F3B8F); val hot = Color(0xFFF85149)
+        // 시간 궤적 점 (파랑→빨강, turbo 느낌) — 또렷하게
+        val cold = Color(0xFF2563EB); val hot = Color(0xFFF85149)
         for (i in 0 until n) {
             if (zPct[i].isNaN() || mPct[i].isNaN()) continue
-            val c = lerp(cold, hot, i.toFloat() / (n - 1)).copy(alpha = 0.7f)
-            drawCircle(c, 1.6f, Offset(px(zPct[i]), py(mPct[i])))
+            val c = lerp(cold, hot, i.toFloat() / (n - 1))
+            drawCircle(c, 3.2f, Offset(px(zPct[i]), py(mPct[i])))
         }
         // 매매 마커
         for ((idx, buy) in tradeIdx) if (idx in 0 until n) {
@@ -237,49 +240,77 @@ fun MacdChart(macd: DoubleArray, signal: DoubleArray, modifier: Modifier = Modif
 /** 산점도 한 점. */
 data class ScatterPt(val x: Double, val y: Double, val label: String, val color: Color)
 
-private fun DrawScope.dot(cx: Float, cy: Float, color: Color, label: String) {
-    drawCircle(color, 5f, Offset(cx, cy))
-    drawCircle(Color.White, 5f, Offset(cx, cy), style = Stroke(1f))
-    if (label.isNotEmpty()) label(label, cx + 7f, cy + 3f, 0xB0C9D1D9.toInt(), 16f)
-}
+/** 임계/중앙선. */
+data class GridLine(val v: Double, val color: Color, val width: Float)
 
-/** Z·M 사분면 (전 종목 현재 위치). X=Z, Y=M, 0~100 고정. */
+/**
+ * Streamlit 스타일 라벨 산점도 — 큰 흰테두리 점 + 종목명 라벨(8방향 분산으로 겹침 완화) + 임계선.
+ * yLog=true면 Y축 로그(σ%용).
+ */
 @Composable
-fun ZmQuadrant(points: List<ScatterPt>, modifier: Modifier = Modifier) {
+fun ScatterChart(
+    points: List<ScatterPt>,
+    xMin: Double, xMax: Double, yMin: Double, yMax: Double,
+    yLog: Boolean = false,
+    vLines: List<GridLine> = emptyList(),
+    hLines: List<GridLine> = emptyList(),
+    xAxisLabel: String = "", yAxisLabel: String = "",
+    height: Dp = 340.dp,
+    modifier: Modifier = Modifier,
+) {
     if (points.isEmpty()) return
-    Canvas(modifier = modifier.fillMaxWidth().height(300.dp)) {
-        fun px(v: Double) = (size.width * (v / 100.0)).toFloat()
-        fun py(v: Double) = (size.height * (1 - v / 100.0)).toFloat()
-        for (t in intArrayOf(20, 40, 60, 80)) {
-            drawLine(Color(0x22FFFFFF), Offset(px(t.toDouble()), 0f), Offset(px(t.toDouble()), size.height), 1f)
-            drawLine(Color(0x22FFFFFF), Offset(0f, py(t.toDouble())), Offset(size.width, py(t.toDouble())), 1f)
+    val lyMin = if (yLog) kotlin.math.log10(maxOf(yMin, 1e-6)) else yMin
+    val lyMax = if (yLog) kotlin.math.log10(maxOf(yMax, 1e-6)) else yMax
+    val xSpan = if (xMax > xMin) xMax - xMin else 1.0
+    val ySpan = if (lyMax > lyMin) lyMax - lyMin else 1.0
+    Canvas(modifier = modifier.fillMaxWidth().height(height)) {
+        val pad = 8f
+        fun sx(x: Double) = (pad + (size.width - 2 * pad) * ((x - xMin) / xSpan)).toFloat()
+        fun sy(y: Double): Float {
+            val yy = if (yLog) kotlin.math.log10(y.coerceAtLeast(1e-6)) else y
+            return (pad + (size.height - 2 * pad) * (1 - (yy - lyMin) / ySpan)).toFloat()
         }
-        drawLine(Color(0x55FFFFFF), Offset(px(50.0), 0f), Offset(px(50.0), size.height), 1.2f)
-        drawLine(Color(0x55FFFFFF), Offset(0f, py(50.0)), Offset(size.width, py(50.0)), 1.2f)
-        for (p in points) dot(px(p.x.coerceIn(0.0, 100.0)), py(p.y.coerceIn(0.0, 100.0)), p.color, p.label)
-        label("Z->", size.width - 40f, size.height - 8f, 0x88FFFFFF.toInt(), 22f)
-        label("M^", 6f, 22f, 0x88FFFFFF.toInt(), 22f)
+        for (g in vLines) drawLine(g.color, Offset(sx(g.v), 0f), Offset(sx(g.v), size.height), g.width)
+        for (g in hLines) drawLine(g.color, Offset(0f, sy(g.v)), Offset(size.width, sy(g.v)), g.width)
+
+        val xs = FloatArray(points.size) { sx(points[it].x) }
+        val ys = FloatArray(points.size) { sy(points[it].y) }
+        // 점 (큰 원 + 흰 테두리)
+        for (i in points.indices) {
+            drawCircle(points[i].color, 13f, Offset(xs[i], ys[i]))
+            drawCircle(Color.White, 13f, Offset(xs[i], ys[i]), style = Stroke(2f))
+        }
+        // 라벨 — 가장 가까운 점 반대 방향(8방향)에 배치
+        val r = 17f
+        for (i in points.indices) {
+            var best = Float.MAX_VALUE; var nd = -1
+            for (j in points.indices) {
+                if (i == j) continue
+                val dx = xs[j] - xs[i]; val dy = ys[j] - ys[i]
+                val d = dx * dx + dy * dy
+                if (d < best) { best = d; nd = j }
+            }
+            val ax = if (nd >= 0) -(xs[nd] - xs[i]) else 1f
+            val ay = if (nd >= 0) -(ys[nd] - ys[i]) else 0f
+            val k = (((Math.toDegrees(kotlin.math.atan2(ay, ax).toDouble()) / 45.0).roundToInt()) % 8 + 8) % 8
+            // k: 0=오른,1=오른아래,2=아래,3=왼아래,4=왼,5=왼위,6=위,7=오른위
+            val (ox, oy, align) = when (k) {
+                0 -> Triple(r, 5f, Paint.Align.LEFT)
+                1 -> Triple(r, r, Paint.Align.LEFT)
+                2 -> Triple(0f, r + 12f, Paint.Align.CENTER)
+                3 -> Triple(-r, r, Paint.Align.RIGHT)
+                4 -> Triple(-r, 5f, Paint.Align.RIGHT)
+                5 -> Triple(-r, -r + 4f, Paint.Align.RIGHT)
+                6 -> Triple(0f, -r, Paint.Align.CENTER)
+                else -> Triple(r, -r + 4f, Paint.Align.LEFT)
+            }
+            label(points[i].label, xs[i] + ox, ys[i] + oy, 0xFFE6EDF3.toInt(), 22f, align)
+        }
+        if (xAxisLabel.isNotEmpty()) label(xAxisLabel, size.width - 8f, size.height - 8f, 0x88FFFFFF.toInt(), 22f, Paint.Align.RIGHT)
+        if (yAxisLabel.isNotEmpty()) label(yAxisLabel, 6f, 22f, 0x88FFFFFF.toInt(), 22f)
     }
 }
 
-/** β·σ 산점도. X=β(선형), Y=σ%(로그). */
-@Composable
-fun BetaSigmaScatter(points: List<ScatterPt>, modifier: Modifier = Modifier) {
-    if (points.size < 2) return
-    val xmin = points.minOf { it.x } - 0.5
-    val xmax = points.maxOf { it.x } + 0.5
-    val ylo = maxOf(points.minOf { it.y } * 0.8, 0.5)
-    val yhi = points.maxOf { it.y } * 1.25
-    val lyl = kotlin.math.log10(ylo); val lyh = kotlin.math.log10(yhi)
-    Canvas(modifier = modifier.fillMaxWidth().height(300.dp)) {
-        fun px(v: Double) = (size.width * ((v - xmin) / (xmax - xmin))).toFloat()
-        fun py(v: Double) = (size.height * (1 - (kotlin.math.log10(v.coerceAtLeast(0.01)) - lyl) / (lyh - lyl))).toFloat()
-        if (xmin < 0 && xmax > 0) drawLine(Color(0x55FFFFFF), Offset(px(0.0), 0f), Offset(px(0.0), size.height), 1f)
-        for (p in points) dot(px(p.x), py(p.y), p.color, p.label)
-        label("β x", size.width - 44f, size.height - 8f, 0x88FFFFFF.toInt(), 22f)
-        label("σ% (log)", 6f, 22f, 0x88FFFFFF.toInt(), 22f)
-    }
-}
 
 /** 차트 하단 공통 X축 날짜 라벨 (start · mid · end). */
 @Composable

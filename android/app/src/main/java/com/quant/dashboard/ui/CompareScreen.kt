@@ -80,19 +80,36 @@ fun CompareScreen(vm: CompareViewModel = viewModel()) {
                 // ── Z·M 사분면 (전 종목 현재 위치) ──
                 Text("🎯 종목별 Z·M 현재 위치", color = TextPrimary,
                     fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                ZmQuadrant(s.rows.map {
-                    ScatterPt(it.zPct, it.mPct, it.name, pctColor(it.mPct))
-                })
-                Text("X=Z(가격 위치) · Y=M(모멘텀) · 임계 20/40/60/80",
+                val faint = Color(0x22FFFFFF); val mid = Color(0x88FFFFFF)
+                ScatterChart(
+                    points = s.rows.map { ScatterPt(it.zPct, it.mPct, it.name, pctColor(it.mPct)) },
+                    xMin = 0.0, xMax = 100.0, yMin = 0.0, yMax = 100.0,
+                    vLines = listOf(GridLine(50.0, mid, 1.5f), GridLine(20.0, faint, 1f), GridLine(80.0, faint, 1f)),
+                    hLines = listOf(GridLine(50.0, mid, 1.5f), GridLine(20.0, faint, 1f), GridLine(80.0, faint, 1f)),
+                    xAxisLabel = "Z->", yAxisLabel = "M^", height = 360.dp,
+                )
+                Text("X=Z(가격 위치) · Y=M(모멘텀) · 임계 20/50/80",
                     color = TextSecondary, fontSize = 11.sp)
 
                 // ── σ·β 산점도 (변동성·시장민감도) ──
                 Text("📊 변동성(σ) · 시장민감도(β)", color = TextPrimary,
                     fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                BetaSigmaScatter(s.rows.map {
-                    ScatterPt(it.beta, it.sigmaPct, it.name, pctColor(it.mPct))
-                })
-                Text("X=β·SPY · Y=σ%(로그) · 색=모멘텀",
+                val betas = s.rows.map { it.beta }
+                val sigmas = s.rows.map { it.sigmaPct }
+                val medB = betas.sorted()[betas.size / 2]
+                val medS = sigmas.sorted()[sigmas.size / 2]
+                ScatterChart(
+                    points = s.rows.map { ScatterPt(it.beta, it.sigmaPct, it.name, pctColor(it.mPct)) },
+                    xMin = (betas.minOrNull() ?: -1.0) - 0.8,
+                    xMax = (betas.maxOrNull() ?: 1.0) + 1.0,
+                    yMin = maxOf((sigmas.minOrNull() ?: 1.0) * 0.8, 0.5),
+                    yMax = (sigmas.maxOrNull() ?: 10.0) * 1.25,
+                    yLog = true,
+                    vLines = listOf(GridLine(medB, mid, 1.2f), GridLine(0.0, faint, 1f)),
+                    hLines = listOf(GridLine(medS, mid, 1.2f)),
+                    xAxisLabel = "β x", yAxisLabel = "σ% (log)", height = 360.dp,
+                )
+                Text("X=β·SPY · Y=σ%(로그) · 색=모멘텀 · 점선=중앙값",
                     color = TextSecondary, fontSize = 11.sp)
             }
         }
