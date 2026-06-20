@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 증권앱 느낌의 다크 네이비 배경 (대각 그라데이션 + 옅은 그리드) -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path android:pathData="M0,0h108v108h-108z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="0" android:startY="0"
+                android:endX="108" android:endY="108">
+                <item android:offset="0.0" android:color="#FF18243F" />
+                <item android:offset="1.0" android:color="#FF080C14" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <!-- 옅은 격자선 -->
+    <path android:strokeColor="#1AAEB9C7" android:strokeWidth="0.8"
+        android:pathData="M0,36 H108 M0,72 H108 M36,0 V108 M72,0 V108" />
+</vector>

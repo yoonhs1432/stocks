@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 상승 캔들(한국식: 상승=빨강/하락=파랑) + 상승 추세선 + 화살표 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- 하락 캔들(파랑) -->
+    <path android:fillColor="#FF3D7DE0"
+        android:pathData="M33,50 h2 v26 h-2 z M29,56 h10 v14 h-10 z" />
+    <!-- 상승 캔들 3개(빨강): 심지 + 몸통 -->
+    <path android:fillColor="#FFE84D5E"
+        android:pathData="M49,40 h2 v28 h-2 z M45,46 h10 v16 h-10 z
+                          M65,30 h2 v30 h-2 z M61,36 h10 v18 h-10 z
+                          M81,20 h2 v32 h-2 z M77,26 h10 v20 h-10 z" />
+    <!-- 상승 추세선 -->
+    <path android:strokeColor="#FFF5C451" android:strokeWidth="3.2"
+        android:strokeLineCap="round" android:strokeLineJoin="round"
+        android:pathData="M26,66 L45,52 L63,42 L84,27" />
+    <!-- 추세선 끝 화살표 -->
+    <path android:fillColor="#FFF5C451"
+        android:pathData="M88,22 L78,25 L85,32 z" />
+</vector>
