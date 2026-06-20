@@ -203,7 +203,9 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
             Text("현재가", color = TextSecondary, fontSize = 11.sp)
             Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(Tickers.priceLabel(ticker, r.lastPrice), color = TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                dayPct?.let {
+                // 보유 중이면 매수 평균단가 대비 손익률, 아니면 일간 등락률
+                val chgPct = if (pos != null && pos.avg > 0) (r.lastPrice / pos.avg - 1.0) * 100.0 else dayPct
+                chgPct?.let {
                     Text("(${if (it >= 0) "+" else ""}${"%.1f%%".format(it)})",
                         color = if (it > 0) Profit else if (it < 0) Loss else Neutral, fontSize = 11.sp)
                 }
