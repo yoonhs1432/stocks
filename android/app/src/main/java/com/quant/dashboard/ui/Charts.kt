@@ -494,9 +494,9 @@ fun ZmChart(zPct: DoubleArray, mPct: DoubleArray, markers: List<Mark> = emptyLis
         fun xAt(i: Int) = plotW * i / (n - 1)
         fun yAt(v: Double) = (size.height * (1 - v / 100.0)).toFloat()
         rightAxis(listOf(0.0, 50.0, 100.0), ::yAt, plotW) { "%.0f".format(it) }
-        // 임계선 20/40/60/80 흰색 점선 (app.py dash='dot')
+        // 임계선 20/40/60/80 — 얇은 흰색 실선
         for (t in intArrayOf(20, 40, 60, 80)) {
-            dotline(Color(0x55FFFFFF), 0f, yAt(t.toDouble()), plotW, yAt(t.toDouble()), 0.6f)
+            drawLine(Color(0xD9FFFFFF), Offset(0f, yAt(t.toDouble())), Offset(plotW, yAt(t.toDouble())), 0.7f)
         }
         clipRect(0f, 0f, plotW, size.height) {
             poly(zPct, ::xAt, ::yAt, Color(0xFFEEF2F8), 2f)       // Z 흰
@@ -572,6 +572,10 @@ fun RsiChart(rsi: DoubleArray, topLabel: String = "", modifier: Modifier = Modif
         fun xAt(i: Int) = plotW * i / (n - 1)
         fun yAt(v: Double) = (size.height * (1 - v / 100.0)).toFloat()
         rightAxis(listOf(30.0, 50.0, 70.0), ::yAt, plotW) { "%.0f".format(it) }
+        // 30·70 — 얇은 흰색 실선 (50은 우측축 옅은 그리드 유지)
+        for (t in intArrayOf(30, 70)) {
+            drawLine(Color(0xD9FFFFFF), Offset(0f, yAt(t.toDouble())), Offset(plotW, yAt(t.toDouble())), 0.7f)
+        }
         clipRect(0f, 0f, plotW, size.height) {
             poly(rsi, ::xAt, ::yAt, ORANGE, 2f)
             poly(sig, ::xAt, ::yAt, ORANGE2, 1.3f)
@@ -641,6 +645,8 @@ fun MacdChart(macd: DoubleArray, signal: DoubleArray, topLabel: String = "", mod
         fun xAt(i: Int) = plotW * i / (n - 1)
         fun yAt(v: Double) = (size.height * (1 - (v + mx) / (2 * mx))).toFloat()
         rightAxis(listOf(0.0), ::yAt, plotW) { "%.2f".format(it) }
+        // 0선 — 얇은 흰색 실선
+        drawLine(Color(0xD9FFFFFF), Offset(0f, yAt(0.0)), Offset(plotW, yAt(0.0)), 0.7f)
         clipRect(0f, 0f, plotW, size.height) {
             poly(macd, ::xAt, ::yAt, ORANGE, 2f)
             poly(signal, ::xAt, ::yAt, ORANGE2, 1.3f)
