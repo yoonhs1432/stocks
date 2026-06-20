@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -24,6 +25,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -134,44 +136,31 @@ private fun ResultBody(r: Portfolio.Result, rate: Double) {
         }
     }
 
-    // ── 자산 추이 (만원, 일/주/월 단위) ──
+    // ── 자산 추이 (만원, 일/주/월 단위, 최근 N개월) ──
     if (r.equity.size >= 2) {
-        var unit by remember { mutableStateOf("일") }
+        var unit by remember { mutableStateOf(Store.equityUnit()) }
+        val months = Store.equityMonths()
         Row(verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("자산 추이 (누적손익, 만원)", color = TextSecondary, fontSize = 12.sp)
+            Text("자산 추이 (누적손익, 만원·최근 ${months}개월)", color = TextSecondary, fontSize = 12.sp)
             listOf("일", "주", "월").forEach { u ->
                 Text(u, color = if (unit == u) TextPrimary else TextSecondary,
                     fontSize = 12.sp, fontWeight = if (unit == u) FontWeight.Bold else FontWeight.Normal,
                     modifier = Modifier.clickable { unit = u })
             }
         }
-        val series = resampleEquity(r.equity, unit).map { it * rate / 10000.0 }.toDoubleArray()
+        // 최근 months개월로 x축 범위 제한
+        val cut = r.equity.last().first - months.toLong() * 30 * 86400
+        val windowed = r.equity.filter { it.first >= cut }
+        val src = if (windowed.size >= 2) windowed else r.equity
+        val series = resampleEquity(src, unit).map { it * rate / 10000.0 }.toDoubleArray()
         EquityChart(series, unit = "만원")
-    }
-
-    // ── 사이클 통계 ──
-    val statsList = Store.loadTrades().mapNotNull { (tk, list) ->
-        Portfolio.cycleStats(list)?.let { Tickers.displayName(tk) to it }
-    }
-    if (statsList.isNotEmpty()) {
-        Text("사이클 통계 (완료 사이클)", color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-        statsList.forEach { (name, st) ->
-            val pf = st.profitFactor?.let { "%.2f".format(it) } ?: "∞"
-            Column {
-                Text(name, color = TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                Text(
-                    "${st.count}회 · 승률 ${st.winRate.toInt()}% · PF $pf · 평균 ${if (st.avgRet >= 0) "+" else ""}${"%.1f".format(st.avgRet)}% · ${st.avgHoldDays.toInt()}일",
-                    color = TextSecondary, fontSize = 12.sp,
-                )
-            }
-        }
     }
 
     TradeJournal()
 }
 
-/** 📒 매매 일지 — 전 종목 매매 기록을 시간순(최신)으로 나열. */
+/** 📒 매매 일지 — 전 종목 매매 기록을 표 형식(최신순)으로. */
 @Composable
 private fun TradeJournal() {
     data class Entry(val date: String, val name: String, val type: String, val qty: Int, val price: Double, val memo: String?)
@@ -186,13 +175,32 @@ private fun TradeJournal() {
         color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold,
         modifier = Modifier.fillMaxWidth().clickable { open = !open })
     if (open) {
+        // 헤더
+        Row(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+            JCell("날짜", 2.1f, TextSecondary, FontWeight.SemiBold)
+            JCell("종목", 1.6f, TextSecondary, FontWeight.SemiBold)
+            JCell("구분", 1.1f, TextSecondary, FontWeight.SemiBold, TextAlign.Center)
+            JCell("수량", 1f, TextSecondary, FontWeight.SemiBold, TextAlign.End)
+            JCell("단가", 1.6f, TextSecondary, FontWeight.SemiBold, TextAlign.End)
+            JCell("메모", 2f, TextSecondary, FontWeight.SemiBold)
+        }
         entries.forEach { e ->
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("${e.date}  ${e.name}", color = TextSecondary, fontSize = 12.sp, modifier = Modifier.weight(1f))
-                Text("${if (e.type == "buy") "▲매수" else "▼매도"} ${e.qty}@$${"%.2f".format(e.price)}" +
-                    (e.memo?.let { "  · $it" } ?: ""),
-                    color = if (e.type == "buy") Profit else Loss, fontSize = 12.sp)
+            val buy = e.type == "buy"
+            Row(Modifier.fillMaxWidth().padding(vertical = 1.dp)) {
+                JCell(e.date, 2.1f, TextSecondary)
+                JCell(e.name, 1.6f, TextPrimary, FontWeight.SemiBold)
+                JCell(if (buy) "매수" else "매도", 1.1f, if (buy) Profit else Loss, FontWeight.SemiBold, TextAlign.Center)
+                JCell("${e.qty}", 1f, TextPrimary, align = TextAlign.End)
+                JCell("$${"%.2f".format(e.price)}", 1.6f, TextPrimary, align = TextAlign.End)
+                JCell(e.memo ?: "", 2f, TextSecondary)
             }
         }
     }
+}
+
+@Composable
+private fun RowScope.JCell(text: String, weight: Float, color: Color,
+                           fw: FontWeight = FontWeight.Normal, align: TextAlign = TextAlign.Start) {
+    Text(text, color = color, fontSize = 11.sp, fontWeight = fw, textAlign = align,
+        maxLines = 1, modifier = Modifier.weight(weight).padding(horizontal = 2.dp))
 }

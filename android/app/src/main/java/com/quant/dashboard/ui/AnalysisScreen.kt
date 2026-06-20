@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -69,20 +68,44 @@ fun AnalysisScreen(vm: AnalysisViewModel = viewModel()) {
         }
     }
 
+    var diOpen by remember { mutableStateOf(false) }
+    var diText by remember { mutableStateOf("") }
+
     Column(
         modifier = Modifier.fillMaxSize().background(BgApp)
             .verticalScroll(rememberScrollState()).padding(8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        // ── 컴팩트 분류 라디오 (전체/ETF/개별) ──
-        Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-            listOf("전체", "ETF", "개별").forEach { f ->
-                Text(
-                    "${if (filter == f) "●" else "○"} $f",
-                    color = if (filter == f) TextPrimary else TextSecondary,
-                    fontSize = 13.sp, fontWeight = if (filter == f) FontWeight.Bold else FontWeight.Normal,
-                    modifier = Modifier.clickable { filter = f },
-                )
+        // ── 분류 라디오(전체/ETF/개별) + 직접입력 + refresh (한 줄) ──
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                listOf("전체", "ETF", "개별").forEach { f ->
+                    Text(
+                        "${if (filter == f) "●" else "○"} $f",
+                        color = if (filter == f) TextPrimary else TextSecondary,
+                        fontSize = 13.sp, fontWeight = if (filter == f) FontWeight.Bold else FontWeight.Normal,
+                        modifier = Modifier.clickable { filter = f },
+                    )
+                }
+            }
+            Text(if (diOpen) "⌨ 닫기" else "⌨ 직접입력", color = TextSecondary, fontSize = 12.sp,
+                modifier = Modifier.clickable { diOpen = !diOpen }.padding(end = 10.dp))
+            Box(
+                Modifier.clip(RoundedCornerShape(6.dp)).background(Color(0xFF21262D))
+                    .clickable { vm.refresh() }.padding(horizontal = 8.dp, vertical = 4.dp),
+            ) { Text("🔄", fontSize = 13.sp) }
+        }
+        // 직접입력 펼침
+        if (diOpen) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(diText, { diText = it },
+                    placeholder = { Text("NVDA · 005930", fontSize = 11.sp) },
+                    singleLine = true, modifier = Modifier.weight(1f))
+                Button(onClick = {
+                    val t = diText.trim().uppercase()
+                    if (t.isNotEmpty()) { vm.select(t); diOpen = false; diText = "" }
+                }) { Text("분석") }
             }
         }
 
@@ -92,15 +115,7 @@ fun AnalysisScreen(vm: AnalysisViewModel = viewModel()) {
                 tickers.forEach { tk ->
                     TickerPill(tk, ov[tk], selected = tk == s.ticker) { vm.select(tk) }
                 }
-                DirectInput { vm.select(it) }
-                Box(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
-                        .background(Color(0xFF21262D)).clickable { vm.refresh() }
-                        .padding(vertical = 7.dp),
-                    contentAlignment = Alignment.Center,
-                ) { Text("🔄 refresh", color = TextSecondary, fontSize = 11.sp) }
             }
-
             // ── 우측: 분석 콘텐츠 ──
             Column(Modifier.weight(0.78f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 when {
@@ -113,12 +128,11 @@ fun AnalysisScreen(vm: AnalysisViewModel = viewModel()) {
             }
         }
 
-        // ── 하단 풀폭 아코디언 (지표설명 · 매매기록 · 사이클통계) ──
+        // ── 하단 풀폭 아코디언 (지표설명 · 매매기록) ──
         if (s.result != null) {
             Accordion("ℹ️ 지표 설명 (σ · β·SPY · Z · M)") { IndicatorHelpBody() }
             Accordion("📝 매매 기록 입력") { TradeInputSection(s.ticker) }
             Accordion("🗑️ 매매 기록 삭제 / 메모 편집") { TradeListSection(s.ticker) }
-            Accordion("📈 사이클 통계") { CycleStatsSection(s.ticker, s.result.lastPrice) }
         }
     }
 }
@@ -141,33 +155,6 @@ private fun TickerPill(tk: String, row: com.quant.dashboard.data.OverviewRepo.Ro
             color = if (dark) Color.White else Color.Black,
             fontSize = 10.sp, maxLines = 1, fontWeight = FontWeight.Bold,
         )
-    }
-}
-
-/** 좌측 하단 "직접 입력" — 탭하면 입력칸 노출. */
-@Composable
-private fun DirectInput(onAnalyze: (String) -> Unit) {
-    var open by remember { mutableStateOf(false) }
-    var text by remember { mutableStateOf("") }
-    if (!open) {
-        Box(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
-                .border(1.dp, Color(0xFF30363D), RoundedCornerShape(8.dp))
-                .clickable { open = true }.padding(vertical = 7.dp),
-            contentAlignment = Alignment.Center,
-        ) { Text("직접 입력", color = TextSecondary, fontSize = 11.sp) }
-    } else {
-        OutlinedTextField(text, { text = it },
-            placeholder = { Text("NVDA · 005930", fontSize = 11.sp) },
-            singleLine = true, modifier = Modifier.fillMaxWidth())
-        Box(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(Loss)
-                .clickable {
-                    val t = text.trim().uppercase()
-                    if (t.isNotEmpty()) { onAnalyze(t); open = false; text = "" }
-                }.padding(vertical = 7.dp),
-            contentAlignment = Alignment.Center,
-        ) { Text("분석", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold) }
     }
 }
 
@@ -398,33 +385,3 @@ private fun TradeListSection(ticker: String) {
     }
 }
 
-@Composable
-private fun CycleStatsSection(ticker: String, lastPrice: Double) {
-    val trades = remember(ticker) { Store.loadTrades()[ticker].orEmpty() }
-    val progress = remember(ticker) { Portfolio.currentCycleProgress(trades, lastPrice) }
-    val cstats = remember(ticker) { Portfolio.cycleStats(trades) }
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        if (progress != null) {
-            val retC = if (progress.curRetPct > 0) Profit else if (progress.curRetPct < 0) Loss else Neutral
-            Text("현재 사이클: ${progress.heldDays}일 보유 · 평가 ${if (progress.curRetPct >= 0) "+" else ""}${"%.1f%%".format(progress.curRetPct)}",
-                color = retC, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-            if (cstats != null) {
-                val avgDays = cstats.avgHoldDays
-                val ratio = if (avgDays > 0) (progress.heldDays / avgDays).coerceIn(0.0, 1.5) else 0.0
-                Box(Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)).background(Color(0xFF30363D))) {
-                    Box(Modifier.fillMaxWidth((ratio / 1.5).toFloat()).height(6.dp)
-                        .clip(RoundedCornerShape(3.dp)).background(if (ratio >= 1.0) Loss else Color(0xFF3FB950)))
-                }
-            }
-        }
-        if (cstats != null) {
-            val pf = cstats.profitFactor?.let { "%.2f".format(it) } ?: "∞"
-            Text("완료 ${cstats.count}회 · 승률 ${cstats.winRate.toInt()}% · PF $pf · 평균 ${if (cstats.avgRet >= 0) "+" else ""}${"%.1f".format(cstats.avgRet)}% · 평균보유 ${cstats.avgHoldDays.toInt()}일",
-                color = TextSecondary, fontSize = 12.sp)
-            Text("최고 ${"%.1f".format(cstats.bestPct)}% · 최저 ${"%.1f".format(cstats.worstPct)}%",
-                color = TextSecondary, fontSize = 12.sp)
-        } else if (progress == null) {
-            Text("완료된 사이클 없음", color = TextSecondary, fontSize = 12.sp)
-        }
-    }
-}

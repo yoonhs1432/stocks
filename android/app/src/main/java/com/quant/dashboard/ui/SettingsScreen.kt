@@ -104,6 +104,28 @@ fun SettingsScreen() {
             }
         }
 
+        // ── 포트폴리오 자산추이 기본 단위 ──
+        var eqUnit by remember { mutableStateOf(Store.equityUnit()) }
+        Text("자산추이 기본 단위", color = TextSecondary, fontSize = 12.sp)
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            listOf("일", "주", "월").forEach { u ->
+                FilterChip(selected = eqUnit == u, onClick = {
+                    eqUnit = u; Store.setEquityUnit(u); AppState.bump()
+                }, label = { Text(u, fontSize = 12.sp) })
+            }
+        }
+
+        // ── 포트폴리오 자산추이 기간 ──
+        var eqM by remember { mutableStateOf(Store.equityMonths()) }
+        Text("자산추이 기간", color = TextSecondary, fontSize = 12.sp)
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            listOf("1개월" to 1, "2개월" to 2, "3개월" to 3, "6개월" to 6, "1년" to 12, "전체" to 600).forEach { (label, m) ->
+                FilterChip(selected = eqM == m, onClick = {
+                    eqM = m; Store.setEquityMonths(m); AppState.bump()
+                }, label = { Text(label, fontSize = 12.sp) })
+            }
+        }
+
         // ── 기준일(As-of) 시뮬레이션 ──
         Text("📅 기준일 시뮬레이션", color = TextPrimary, fontSize = 15.sp,
             fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 6.dp))

@@ -180,6 +180,14 @@ object Store {
     fun chartMonths(): Int = settings().optInt("chart_months", 2)
     fun setChartMonths(v: Int) { saveSettings(settings().put("chart_months", v)) }
 
+    /** 포트폴리오 자산추이 기본 단위: 일/주/월. 기본 주. */
+    fun equityUnit(): String = settings().optString("equity_unit", "주")
+    fun setEquityUnit(v: String) { saveSettings(settings().put("equity_unit", v)) }
+
+    /** 포트폴리오 자산추이 x축 기간(개월). 기본 2개월. */
+    fun equityMonths(): Int = settings().optInt("equity_months", 2)
+    fun setEquityMonths(v: Int) { saveSettings(settings().put("equity_months", v)) }
+
     // ── 기준일(As-of) 시뮬레이션 ──
     /** 설정된 기준일 (ISO yyyy-MM-dd). 미설정/공백이면 null. */
     fun asofDate(): String? = settings().optString("asof", "").ifBlank { null }
