@@ -1,20 +1,27 @@
 package com.quant.dashboard.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
@@ -24,22 +31,37 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.quant.dashboard.data.Gist
 import com.quant.dashboard.data.Store
 import com.quant.dashboard.data.Tickers
+import com.quant.dashboard.ui.theme.BgApp
+import com.quant.dashboard.ui.theme.BorderColor
+import com.quant.dashboard.ui.theme.Loss
+import com.quant.dashboard.ui.theme.Profit
+import com.quant.dashboard.ui.theme.TextPrimary
+import com.quant.dashboard.ui.theme.TextSecondary
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import com.quant.dashboard.ui.theme.BgApp
-import com.quant.dashboard.ui.theme.Loss
-import com.quant.dashboard.ui.theme.TextPrimary
-import com.quant.dashboard.ui.theme.TextSecondary
 import java.time.LocalDate
 
 private val RANGES = listOf("6개월" to "6mo", "1년" to "1y", "2년" to "2y")
+
+@Composable
+private fun SectionHeader(title: String) {
+    Text(title, color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold,
+        modifier = Modifier.padding(top = 12.dp, bottom = 1.dp))
+    Box(Modifier.fillMaxWidth().height(1.dp).background(BorderColor))
+}
+
+@Composable
+private fun Label(text: String) = Text(text, color = TextSecondary, fontSize = 12.sp)
 
 @Composable
 fun SettingsScreen() {
@@ -48,99 +70,54 @@ fun SettingsScreen() {
     var seed by remember { mutableStateOf(Store.seedUsd().toInt().toString()) }
     var range by remember { mutableStateOf(Store.lookbackRange()) }
     var interval by remember { mutableStateOf(Store.candleInterval()) }
-    // 종목별 이름 override 편집 버퍼
     val nameEdits = remember { mutableStateMapOf<String, String>().apply { putAll(Store.nameOverrides()) } }
-    // 개별/ETF 토글 갱신용 카운터
     var indivVer by remember { mutableStateOf(0) }
 
     Column(
         modifier = Modifier.fillMaxSize().background(BgApp)
             .verticalScroll(rememberScrollState()).padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Text("⚙️ 설정", color = TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
 
-        // ── 시드 ($) ──
-        Text("시드 ($)", color = TextSecondary, fontSize = 12.sp)
-        Row(verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedTextField(
-                value = seed, onValueChange = { seed = it },
-                singleLine = true, modifier = Modifier.weight(1f),
-            )
-            Button(onClick = {
-                seed.toDoubleOrNull()?.let { if (it > 0) { Store.setSeedUsd(it); AppState.bump() } }
-            }) { Text("저장") }
+        // ══════════ 분석 ══════════
+        SectionHeader("📈 분석")
+        Label("시드 ($)")
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(seed, { seed = it }, singleLine = true, modifier = Modifier.weight(1f))
+            Button(onClick = { seed.toDoubleOrNull()?.let { if (it > 0) { Store.setSeedUsd(it); AppState.bump() } } }) { Text("저장") }
         }
-
-        // ── 분석 기간 ──
-        Text("분석 시작일 (조회 기간)", color = TextSecondary, fontSize = 12.sp)
+        Label("분석 기간 (조회)")
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             RANGES.forEach { (label, r) ->
-                FilterChip(selected = range == r, onClick = {
-                    range = r; Store.setLookbackRange(r); AppState.bump()
-                }, label = { Text(label, fontSize = 12.sp) })
+                FilterChip(selected = range == r, onClick = { range = r; Store.setLookbackRange(r); AppState.bump() },
+                    label = { Text(label, fontSize = 12.sp) })
             }
         }
-
-        // ── 봉 기준 (일봉/주봉) ──
-        Text("봉 기준", color = TextSecondary, fontSize = 12.sp)
+        Label("봉 기준")
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             listOf("일봉" to "1d", "주봉" to "1wk").forEach { (label, iv) ->
-                FilterChip(selected = interval == iv, onClick = {
-                    interval = iv; Store.setCandleInterval(iv); AppState.bump()
-                }, label = { Text(label, fontSize = 12.sp) })
+                FilterChip(selected = interval == iv, onClick = { interval = iv; Store.setCandleInterval(iv); AppState.bump() },
+                    label = { Text(label, fontSize = 12.sp) })
             }
         }
-
-        // ── 차트 조회기간 ──
         var chartM by remember { mutableStateOf(Store.chartMonths()) }
-        Text("차트 조회기간", color = TextSecondary, fontSize = 12.sp)
+        Label("차트 조회기간")
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             listOf("1개월" to 1, "2개월" to 2, "4개월" to 4, "1년" to 12).forEach { (label, m) ->
-                FilterChip(selected = chartM == m, onClick = {
-                    chartM = m; Store.setChartMonths(m); AppState.bump()
-                }, label = { Text(label, fontSize = 12.sp) })
+                FilterChip(selected = chartM == m, onClick = { chartM = m; Store.setChartMonths(m); AppState.bump() },
+                    label = { Text(label, fontSize = 12.sp) })
             }
         }
-
-        // ── 포트폴리오 자산추이 기본 단위 ──
-        var eqUnit by remember { mutableStateOf(Store.equityUnit()) }
-        Text("자산추이 기본 단위", color = TextSecondary, fontSize = 12.sp)
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            listOf("일", "주", "월").forEach { u ->
-                FilterChip(selected = eqUnit == u, onClick = {
-                    eqUnit = u; Store.setEquityUnit(u); AppState.bump()
-                }, label = { Text(u, fontSize = 12.sp) })
-            }
-        }
-
-        // ── 포트폴리오 자산추이 기간 ──
-        var eqM by remember { mutableStateOf(Store.equityMonths()) }
-        Text("자산추이 기간", color = TextSecondary, fontSize = 12.sp)
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            listOf("1개월" to 1, "2개월" to 2, "3개월" to 3, "6개월" to 6, "1년" to 12, "전체" to 600).forEach { (label, m) ->
-                FilterChip(selected = eqM == m, onClick = {
-                    eqM = m; Store.setEquityMonths(m); AppState.bump()
-                }, label = { Text(label, fontSize = 12.sp) })
-            }
-        }
-
-        // ── 기준일(As-of) 시뮬레이션 ──
-        Text("📅 기준일 시뮬레이션", color = TextPrimary, fontSize = 15.sp,
-            fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 6.dp))
+        // 기준일 시뮬레이션
         var asofEnabled by remember { mutableStateOf(Store.asofDate() != null) }
         var asofText by remember { mutableStateOf(Store.asofDate() ?: LocalDate.now().toString()) }
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Checkbox(checked = asofEnabled, onCheckedChange = {
-                asofEnabled = it
-                if (!it) AppState.applyAsof(null)
-            })
-            Text("과거 시점 재현 (이 날짜까지 데이터만)", color = TextSecondary, fontSize = 12.sp)
+            Checkbox(checked = asofEnabled, onCheckedChange = { asofEnabled = it; if (!it) AppState.applyAsof(null) })
+            Text("📅 기준일 시뮬레이션 (이 날짜까지 데이터만)", color = TextSecondary, fontSize = 12.sp)
         }
         if (asofEnabled) {
-            Row(verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(asofText, { asofText = it }, label = { Text("기준일 (YYYY-MM-DD)") },
                     singleLine = true, modifier = Modifier.weight(1f))
                 Button(onClick = {
@@ -149,103 +126,101 @@ fun SettingsScreen() {
                 }) { Text("적용") }
             }
         }
-        AppState.asof?.let { Text("현재 기준일: $it (헤더 배지 ✕ 또는 체크 해제로 해제)", color = TextSecondary, fontSize = 11.sp) }
+        AppState.asof?.let { Text("현재 기준일: $it (헤더 ✕로 해제)", color = TextSecondary, fontSize = 11.sp) }
 
-        // ── Gist 연동 (기존 데이터 불러오기) ──
-        Text("☁️ Gist 불러오기 (매매기록·종목)", color = TextPrimary, fontSize = 15.sp,
-            fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 6.dp))
+        // ══════════ 포트폴리오 ══════════
+        SectionHeader("💼 포트폴리오")
+        var eqUnit by remember { mutableStateOf(Store.equityUnit()) }
+        Label("자산추이 기본 단위")
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            listOf("일", "주", "월").forEach { u ->
+                FilterChip(selected = eqUnit == u, onClick = { eqUnit = u; Store.setEquityUnit(u); AppState.bump() },
+                    label = { Text(u, fontSize = 12.sp) })
+            }
+        }
+        var eqM by remember { mutableStateOf(Store.equityMonths()) }
+        Label("자산추이 기간")
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            listOf("1개월" to 1, "2개월" to 2, "3개월" to 3, "6개월" to 6, "1년" to 12, "전체" to 600).forEach { (label, m) ->
+                FilterChip(selected = eqM == m, onClick = { eqM = m; Store.setEquityMonths(m); AppState.bump() },
+                    label = { Text(label, fontSize = 12.sp) })
+            }
+        }
+
+        // ══════════ 데이터 (Gist) — 접힘 ══════════
+        SectionHeader("☁️ 데이터 (Gist 연동)")
         var token by remember { mutableStateOf(Store.gistToken()) }
         var gistId by remember { mutableStateOf(Store.gistId()) }
         var gistMsg by remember { mutableStateOf<String?>(null) }
         var busy by remember { mutableStateOf(false) }
+        var gistOpen by remember { mutableStateOf(false) }
         val scope = rememberCoroutineScope()
-        OutlinedTextField(token, { token = it }, label = { Text("GitHub Token (ghp_…)") },
-            singleLine = true, modifier = Modifier.fillMaxWidth())
-        OutlinedTextField(gistId, { gistId = it }, label = { Text("Gist ID") },
-            singleLine = true, modifier = Modifier.fillMaxWidth())
-        Button(
-            enabled = !busy,
-            onClick = {
-                Store.setGist(token, gistId)
-                busy = true; gistMsg = "불러오는 중…"
-                scope.launch {
-                    val msg = withContext(Dispatchers.IO) {
-                        try {
-                            val tradesTxt = Gist.fetchFile(token.trim(), gistId.trim(), Gist.FILE_TRADES)
-                            val tickersTxt = Gist.fetchFile(token.trim(), gistId.trim(), Gist.FILE_TICKERS)
-                            val settingsTxt = Gist.fetchFile(token.trim(), gistId.trim(), Gist.FILE_SETTINGS)
-                            if (tradesTxt == null && tickersTxt == null && settingsTxt == null) "실패: 토큰/Gist ID 확인 또는 파일 없음"
-                            else {
-                                val nt = tradesTxt?.let { Store.saveTradesFromJson(it) } ?: 0
-                                val nk = tickersTxt?.let { Store.saveTickersFromJson(it) } ?: 0
-                                val ni = settingsTxt?.let { Store.saveSettingsFromJson(it) } ?: 0
-                                "완료: 매매 ${nt}종목 · 종목 ${nk}개 · 개별 ${ni}개 불러옴"
-                            }
-                        } catch (e: Exception) {
-                            "오류: ${e.message}"
+        val status = gistMsg ?: if (token.isNotBlank() && gistId.isNotBlank()) "연동됨 (탭하여 불러오기)" else "미설정"
+        Text("${if (gistOpen) "▲" else "▼"}  $status", color = TextSecondary, fontSize = 12.sp,
+            modifier = Modifier.fillMaxWidth().clickable { gistOpen = !gistOpen })
+        if (gistOpen) {
+            OutlinedTextField(token, { token = it }, label = { Text("GitHub Token (ghp_…)") },
+                singleLine = true, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(gistId, { gistId = it }, label = { Text("Gist ID") },
+                singleLine = true, modifier = Modifier.fillMaxWidth())
+            Button(
+                enabled = !busy,
+                onClick = {
+                    Store.setGist(token, gistId)
+                    busy = true; gistMsg = "불러오는 중…"
+                    scope.launch {
+                        val msg = withContext(Dispatchers.IO) {
+                            try {
+                                val tradesTxt = Gist.fetchFile(token.trim(), gistId.trim(), Gist.FILE_TRADES)
+                                val tickersTxt = Gist.fetchFile(token.trim(), gistId.trim(), Gist.FILE_TICKERS)
+                                val settingsTxt = Gist.fetchFile(token.trim(), gistId.trim(), Gist.FILE_SETTINGS)
+                                if (tradesTxt == null && tickersTxt == null && settingsTxt == null) "실패: 토큰/Gist ID 확인 또는 파일 없음"
+                                else {
+                                    val nt = tradesTxt?.let { Store.saveTradesFromJson(it) } ?: 0
+                                    val nk = tickersTxt?.let { Store.saveTickersFromJson(it) } ?: 0
+                                    val ni = settingsTxt?.let { Store.saveSettingsFromJson(it) } ?: 0
+                                    "✓ 불러옴: 매매 ${nt}종목 · 종목 ${nk}개 · 개별 ${ni}개"
+                                }
+                            } catch (e: Exception) { "오류: ${e.message}" }
                         }
+                        gistMsg = msg; busy = false
+                        tickers = Store.loadTickers().toList()
+                        nameEdits.clear(); nameEdits.putAll(Store.nameOverrides())
+                        indivVer++; AppState.bump()
                     }
-                    gistMsg = msg
-                    busy = false
-                    tickers = Store.loadTickers().toList()
-                    nameEdits.clear(); nameEdits.putAll(Store.nameOverrides())
-                    indivVer++   // 개별/ETF 토글 즉시 갱신
-                    AppState.bump()
-                }
-            },
-            modifier = Modifier.fillMaxWidth(),
-        ) { Text(if (busy) "불러오는 중…" else "Gist에서 불러오기") }
-        gistMsg?.let { Text(it, color = TextSecondary, fontSize = 12.sp) }
-        Text("데스크톱과 같은 Gist 사용 (quant_trade_history.json 등). 불러오면 로컬 데이터를 덮어씁니다.",
-            color = TextSecondary, fontSize = 11.sp)
+                },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text(if (busy) "불러오는 중…" else "Gist에서 불러오기") }
+            Text("데스크톱과 같은 Gist 사용. 불러오면 로컬 데이터를 덮어씁니다.",
+                color = TextSecondary, fontSize = 11.sp)
+        }
 
-        // ── 종목 관리 ──
-        Text("종목 관리", color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(top = 6.dp))
-
-        Row(verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedTextField(
-                value = input, onValueChange = { input = it },
-                placeholder = { Text("티커 (예: NVDA, 005930)") },
-                singleLine = true, modifier = Modifier.weight(1f),
-            )
+        // ══════════ 종목 관리 (2열 컴팩트) ══════════
+        SectionHeader("📋 종목 관리")
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(input, { input = it }, placeholder = { Text("티커 (NVDA·005930)") },
+                singleLine = true, modifier = Modifier.weight(1f))
             Button(onClick = {
-                if (input.isNotBlank()) {
-                    Store.addTicker(input)
-                    tickers = Store.loadTickers().toList()
-                    input = ""
-                    AppState.bump()
-                }
+                if (input.isNotBlank()) { Store.addTicker(input); tickers = Store.loadTickers().toList(); input = ""; AppState.bump() }
             }) { Text("추가") }
         }
-        Text("최소 ${Store.MIN_TICKERS}개 유지 · 한국=6자리 코드(.KS/.KQ 자동) · 이름/개별 편집은 행별",
+        Text("최소 ${Store.MIN_TICKERS}개 · 한국=6자리(.KS/.KQ 자동) · 개별/ETF·이름 셀에서 편집",
             color = TextSecondary, fontSize = 11.sp)
 
-        // indivVer를 읽어 토글 시 재구성 보장
         indivVer.let {
-            tickers.forEach { tk ->
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    OutlinedTextField(
-                        value = nameEdits[tk] ?: "",
-                        onValueChange = { nameEdits[tk] = it },
-                        placeholder = { Text(Tickers.displayName(tk), fontSize = 12.sp) },
-                        label = { Text(tk, fontSize = 10.sp) },
-                        singleLine = true, modifier = Modifier.weight(1.6f),
-                    )
-                    val indiv = Store.isIndividual(tk)
-                    FilterChip(selected = indiv, onClick = {
-                        Store.setIndividual(tk, !indiv); indivVer++; AppState.bump()
-                    }, label = { Text(if (indiv) "개별" else "ETF", fontSize = 11.sp) })
-                    TextButton(onClick = {
-                        Store.removeTicker(tk)
-                        tickers = Store.loadTickers().toList()
-                        AppState.bump()
-                    }) { Text("삭제", color = Loss, fontSize = 12.sp) }
+            tickers.chunked(2).forEach { pair ->
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.Top) {
+                    pair.forEach { tk ->
+                        TickerCell(
+                            tk = tk, weight = 1f,
+                            nameValue = nameEdits[tk] ?: "",
+                            onName = { nameEdits[tk] = it },
+                            onToggle = { Store.setIndividual(tk, !Store.isIndividual(tk)); indivVer++; AppState.bump() },
+                            onDelete = { Store.removeTicker(tk); tickers = Store.loadTickers().toList(); AppState.bump() },
+                        )
+                    }
+                    if (pair.size == 1) Spacer(Modifier.weight(1f))
                 }
             }
         }
@@ -253,7 +228,41 @@ fun SettingsScreen() {
             nameEdits.forEach { (tk, nm) -> Store.setNameOverride(tk, nm) }
             AppState.bump()
         }, modifier = Modifier.fillMaxWidth()) { Text("이름 저장") }
-        Text("이름 칸을 비우고 저장하면 기본 표시명으로 되돌아갑니다.",
-            color = TextSecondary, fontSize = 11.sp)
+        Text("이름 칸을 비우고 저장하면 기본 표시명으로 복귀.", color = TextSecondary, fontSize = 11.sp)
+    }
+}
+
+/** 종목 관리 컴팩트 셀 — 티커 + 개별/ETF 토글 + 삭제 + 이름 편집. */
+@Composable
+private fun RowScope.TickerCell(
+    tk: String, weight: Float, nameValue: String,
+    onName: (String) -> Unit, onToggle: () -> Unit, onDelete: () -> Unit,
+) {
+    val indiv = Store.isIndividual(tk)
+    Column(
+        Modifier.weight(weight).border(1.dp, BorderColor, RoundedCornerShape(8.dp)).padding(6.dp),
+        verticalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(tk, color = TextPrimary, fontSize = 12.sp, fontWeight = FontWeight.Bold,
+                maxLines = 1, modifier = Modifier.weight(1f))
+            Text(if (indiv) "개별" else "ETF", color = if (indiv) Profit else TextSecondary, fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.clickable { onToggle() }.padding(horizontal = 4.dp))
+            Text("✕", color = Loss, fontSize = 13.sp, modifier = Modifier.clickable { onDelete() }.padding(start = 2.dp))
+        }
+        BasicTextField(
+            value = nameValue, onValueChange = onName, singleLine = true,
+            textStyle = TextStyle(color = TextPrimary, fontSize = 11.sp),
+            cursorBrush = SolidColor(TextPrimary),
+            modifier = Modifier.fillMaxWidth().background(Color(0xFF0D1117), RoundedCornerShape(4.dp))
+                .padding(horizontal = 5.dp, vertical = 4.dp),
+            decorationBox = { inner ->
+                Box(Modifier.fillMaxWidth()) {
+                    if (nameValue.isEmpty()) Text(Tickers.displayName(tk), color = TextSecondary, fontSize = 11.sp)
+                    inner()
+                }
+            },
+        )
     }
 }

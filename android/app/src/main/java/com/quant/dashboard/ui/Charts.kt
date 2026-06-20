@@ -546,14 +546,14 @@ fun ScatterChart(
 
         val xs = FloatArray(pts.size) { sx(pts[it].x) }
         val ys = FloatArray(pts.size) { sy(pts[it].y) }
-        val rb = 13f
+        val rb = 18f
         // 점 (큰 원 + 흰 테두리)
         for (i in pts.indices) {
             drawCircle(pts[i].color, rb, Offset(xs[i], ys[i]))
-            drawCircle(Color.White, rb, Offset(xs[i], ys[i]), style = Stroke(2f))
+            drawCircle(Color.White, rb, Offset(xs[i], ys[i]), style = Stroke(2.5f))
         }
         // ── 라벨 겹침 회피 배치 (그리디 8방향: 원·기존라벨과 겹침 최소 위치 선택) ──
-        val ts = 27f
+        val ts = 33f
         val tp = Paint().apply { textSize = ts; isAntiAlias = true }
         val occ = ArrayList<FloatArray>(pts.size * 2)
         for (i in pts.indices) occ.add(floatArrayOf(xs[i] - rb, ys[i] - rb, xs[i] + rb, ys[i] + rb))
