@@ -40,12 +40,20 @@ data class Mark(val x: Int, val y: Double, val buy: Boolean)
 /** 완료 사이클 평균매수→평균매도 화살표 (x=윈도우 인덱스, y=가격, profit=수익여부). */
 data class CycleArrow(val x1: Int, val y1: Double, val x2: Int, val y2: Double, val profit: Boolean)
 
-private fun DrawScope.marker(cx: Float, cy: Float, buy: Boolean, r: Float = 9f) {
+// 모든 차트의 숫자/값 라벨 공통 스타일 (크기·색 통일)
+private const val AX_SIZE = 25f
+private val AX_COLOR = 0xFFADBAC7.toInt()
+
+private fun DrawScope.marker(cx: Float, cy: Float, buy: Boolean, r: Float = 13.5f) {
     val col = if (buy) Color(0xFFDC2626) else Color(0xFF2563EB)
     drawCircle(col, r, Offset(cx, cy))
-    drawCircle(Color.White, r, Offset(cx, cy), style = Stroke(1.2f))
-    // 내부 화살표 — 원에 꽉 차게 (글리프 높이 ≈ 지름)
-    label(if (buy) "↑" else "↓", cx, cy + r * 0.92f, 0xFFFFFFFF.toInt(), r * 2.7f, Paint.Align.CENTER)
+    drawCircle(Color.White, r, Offset(cx, cy), style = Stroke(0.8f))   // 얇은 흰 테두리
+    // 내부 ↑/↓ — 굵게(fakeBold) + 원에 꽉 차게
+    val p = Paint().apply {
+        color = 0xFFFFFFFF.toInt(); textSize = r * 2.3f
+        textAlign = Paint.Align.CENTER; isAntiAlias = true; isFakeBoldText = true
+    }
+    drawContext.canvas.nativeCanvas.drawText(if (buy) "↑" else "↓", cx, cy + r * 0.85f, p)
 }
 
 /** 사이클 화살표 (app.py 평균매수→평균매도 주석 화살표). 수익=녹색/손실=빨강. */
@@ -234,25 +242,24 @@ fun RegressionScatter(
             for (i in 0 until n) if (spyNorm[i] > 0 && tickerNorm[i] > 0) drawCircle(turbo(i.toFloat() / (n - 1)), 6f, Offset(sx(spyNorm[i]), sy(tickerNorm[i])))
             // 매매 마커
             for ((i, buy) in markIdx) if (i in 0 until n && spyNorm[i] > 0 && tickerNorm[i] > 0) {
-                marker(sx(spyNorm[i]), sy(tickerNorm[i]), buy, 9f)
+                marker(sx(spyNorm[i]), sy(tickerNorm[i]), buy)
             }
             // 현재 위치 ★
             val li = n - 1
             if (spyNorm[li] > 0 && tickerNorm[li] > 0) star(sx(spyNorm[li]), sy(tickerNorm[li]), 14f)
         }
-        // 로그축 눈금 (1·2·5·10·20·50·100 …) — x는 하단, y는 좌측 (크게)
-        val gx = 0xDDADBAC7.toInt()
+        // 로그축 눈금 (1·2·5·10·20·50·100 …) — x는 하단, y는 좌측
         for (v in log125(Math.pow(10.0, lxLo), Math.pow(10.0, lxHi))) {
             val xx = sx(v)
             drawLine(Color(0x66ADBAC7), Offset(xx, size.height), Offset(xx, size.height - 5f), 1f)
-            label(fmt125(v), xx, size.height - 7f, gx, 26f, Paint.Align.CENTER)
+            label(fmt125(v), xx, size.height - 7f, AX_COLOR, AX_SIZE, Paint.Align.CENTER)
         }
         for (v in log125(Math.pow(10.0, lyLo), Math.pow(10.0, lyHi))) {
             val yy = sy(v)
             drawLine(Color(0x66ADBAC7), Offset(0f, yy), Offset(5f, yy), 1f)
-            label(fmt125(v), 6f, yy - 2f, gx, 26f)
+            label(fmt125(v), 6f, yy - 2f, AX_COLOR, AX_SIZE)
         }
-        label("β=${"%.2f".format(beta)}", size.width - 5f, 28f, 0xFFADBAC7.toInt(), 26f, Paint.Align.RIGHT)
+        label("β=${"%.2f".format(beta)}", size.width - 5f, AX_SIZE + 2f, AX_COLOR, AX_SIZE, Paint.Align.RIGHT)
         chartBorder()
     }
 }
@@ -286,9 +293,8 @@ fun PriceChart(
             poly(priceDollar, ::xAt, ::yAt, Color(0xFFE6EDF3), 2.5f)
             for (m in markers) if (m.x in 0 until n) marker(xAt(m.x), yAt(m.y), m.buy)
         }
-        val gray = 0xFFADBAC7.toInt()
-        label("$currency${"%,.0f".format(hi)}", 6f, 28f, gray, 26f)
-        label("$currency${"%,.0f".format(lo)}", 6f, size.height - 8f, gray, 26f)
+        label("$currency${"%,.0f".format(hi)}", 6f, AX_SIZE, AX_COLOR, AX_SIZE)
+        label("$currency${"%,.0f".format(lo)}", 6f, size.height - 8f, AX_COLOR, AX_SIZE)
         chartBorder()
     }
 }
@@ -332,10 +338,9 @@ fun CandleChart(
             }
             for (m in markers) if (m.x in 0 until n) marker(xAt(m.x), yAt(m.y), m.buy)
         }
-        val gray = 0xFFADBAC7.toInt()
-        label("$currency${"%,.0f".format(hi)}", size.width - 6f, 28f, gray, 26f, Paint.Align.RIGHT)
-        label("$currency${"%,.0f".format(lo)}", size.width - 6f, size.height - 8f, gray, 26f, Paint.Align.RIGHT)
-        if (topLabel.isNotEmpty()) label(topLabel, 6f, 28f, 0xFFE6EDF3.toInt(), 28f)
+        label("$currency${"%,.0f".format(hi)}", size.width - 6f, AX_SIZE, AX_COLOR, AX_SIZE, Paint.Align.RIGHT)
+        label("$currency${"%,.0f".format(lo)}", size.width - 6f, size.height - 8f, AX_COLOR, AX_SIZE, Paint.Align.RIGHT)
+        if (topLabel.isNotEmpty()) label(topLabel, 6f, AX_SIZE, AX_COLOR, AX_SIZE)
         chartBorder()
     }
 }
@@ -356,10 +361,10 @@ fun ZmChart(zPct: DoubleArray, mPct: DoubleArray, markers: List<Mark> = emptyLis
             dotline(Color(0x88FFFFFF), 0f, yAt(t.toDouble()), size.width, yAt(t.toDouble()), 0.6f)
         }
         // 좌측 Y 눈금 0/50/100
-        for (t in intArrayOf(0, 50, 100)) label(t.toString(), 3f, yAt(t.toDouble()) - 3f, 0xCCFFFFFF.toInt(), 24f)
+        for (t in intArrayOf(0, 50, 100)) label(t.toString(), 3f, yAt(t.toDouble()) - 3f, AX_COLOR, AX_SIZE)
         poly(zPct, ::xAt, ::yAt, Color(0xFFE6EDF3), 2f)
         poly(mPct, ::xAt, ::yAt, Color(0xFFF97316), 1.5f)
-        if (topLabel.isNotEmpty()) label(topLabel, 6f, 22f, 0xFFE6EDF3.toInt(), 22f)
+        if (topLabel.isNotEmpty()) label(topLabel, 6f, AX_SIZE, AX_COLOR, AX_SIZE)
         for (m in markers) if (m.x in 0 until n) marker(xAt(m.x), yAt(m.y), m.buy)
         chartBorder()
     }
@@ -389,8 +394,8 @@ fun ZmScatter(
         }
         // 좌측 Y / 하단 X 눈금 숫자 (0/50/100) — 크고 또렷하게
         for (t in intArrayOf(0, 50, 100)) {
-            label(t.toString(), 4f, py(t.toDouble()) + 10f, 0xDDFFFFFF.toInt(), 28f)
-            label(t.toString(), px(t.toDouble()), size.height - 5f, 0xDDFFFFFF.toInt(), 28f, Paint.Align.CENTER)
+            label(t.toString(), 4f, py(t.toDouble()) + AX_SIZE * 0.38f, AX_COLOR, AX_SIZE)
+            label(t.toString(), px(t.toDouble()), size.height - 5f, AX_COLOR, AX_SIZE, Paint.Align.CENTER)
         }
         // 시간 궤적 점 — Turbo 컬러맵 (크게)
         for (i in 0 until n) {
@@ -422,9 +427,9 @@ fun RsiChart(rsi: DoubleArray, topLabel: String = "", modifier: Modifier = Modif
         drawLine(Color(0xFFF85149), Offset(0f, yAt(70.0)), Offset(size.width, yAt(70.0)), 0.7f)
         drawLine(Color(0xFF768390), Offset(0f, yAt(50.0)), Offset(size.width, yAt(50.0)), 0.5f)
         drawLine(Color(0xFF58A6FF), Offset(0f, yAt(30.0)), Offset(size.width, yAt(30.0)), 0.7f)
-        for (t in intArrayOf(0, 50, 100)) label(t.toString(), 3f, yAt(t.toDouble()) - 3f, 0xCCFFFFFF.toInt(), 24f)
+        for (t in intArrayOf(0, 50, 100)) label(t.toString(), 3f, yAt(t.toDouble()) - 3f, AX_COLOR, AX_SIZE)
         poly(rsi, ::xAt, ::yAt, Color(0xFF22D3EE), 2f)
-        if (topLabel.isNotEmpty()) label(topLabel, 6f, 22f, 0xFF22D3EE.toInt(), 22f)
+        if (topLabel.isNotEmpty()) label(topLabel, 6f, AX_SIZE, AX_COLOR, AX_SIZE)
         chartBorder()
     }
 }
@@ -455,11 +460,11 @@ fun EquityChart(values: DoubleArray, unit: String = "$", modifier: Modifier = Mo
             drawCircle(Color(0xFF0D1117), 5f, Offset(xAt(i), yAt(values[i])), style = Stroke(1f))
         }
         if (unit == "만원") {
-            label("${"%,.0f".format(hi)}만원", size.width - 6f, 22f, 0xFFADBAC7.toInt(), 20f, Paint.Align.RIGHT)
-            label("${"%,.0f".format(lo)}만원", size.width - 6f, size.height - 8f, 0xFFADBAC7.toInt(), 20f, Paint.Align.RIGHT)
+            label("${"%,.0f".format(hi)}만원", size.width - 6f, AX_SIZE, AX_COLOR, AX_SIZE, Paint.Align.RIGHT)
+            label("${"%,.0f".format(lo)}만원", size.width - 6f, size.height - 8f, AX_COLOR, AX_SIZE, Paint.Align.RIGHT)
         } else {
-            label("$unit${"%,.0f".format(hi)}", 6f, 22f, 0xFFADBAC7.toInt(), 20f)
-            label("$unit${"%,.0f".format(lo)}", 6f, size.height - 8f, 0xFFADBAC7.toInt(), 20f)
+            label("$unit${"%,.0f".format(hi)}", 6f, AX_SIZE, AX_COLOR, AX_SIZE)
+            label("$unit${"%,.0f".format(lo)}", 6f, size.height - 8f, AX_COLOR, AX_SIZE)
         }
         chartBorder()
     }
@@ -480,7 +485,7 @@ fun MacdChart(macd: DoubleArray, signal: DoubleArray, topLabel: String = "", mod
         fun yAt(v: Double) = (size.height * (1 - (v + mx) / (2 * mx))).toFloat()
         // 0 중립선 실선 (app.py)
         drawLine(Color(0xFF768390), Offset(0f, yAt(0.0)), Offset(size.width, yAt(0.0)), 0.5f)
-        label("0", 3f, yAt(0.0) - 3f, 0xCCFFFFFF.toInt(), 24f)
+        label("0", 3f, yAt(0.0) - 3f, AX_COLOR, AX_SIZE)
         poly(macd, ::xAt, ::yAt, Color(0xFF7C3AED), 2f)
         poly(signal, ::xAt, ::yAt, Color(0xFFE6EDF3), 0.9f)
         for (i in 1 until n) {
@@ -490,7 +495,7 @@ fun MacdChart(macd: DoubleArray, signal: DoubleArray, topLabel: String = "", mod
             if (prev < 0 && cur >= 0) marker(xAt(i), yAt(macd[i]), true)
             else if (prev > 0 && cur <= 0) marker(xAt(i), yAt(macd[i]), false)
         }
-        if (topLabel.isNotEmpty()) label(topLabel, 6f, 22f, 0xFFE6EDF3.toInt(), 22f)
+        if (topLabel.isNotEmpty()) label(topLabel, 6f, AX_SIZE, AX_COLOR, AX_SIZE)
         chartBorder()
     }
 }
