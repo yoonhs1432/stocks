@@ -39,14 +39,17 @@ object Store {
                 val arr = obj.getJSONArray(key)
                 val list = ArrayList<Trade>()
                 for (i in 0 until arr.length()) {
-                    val t = arr.getJSONObject(i)
+                    val t = arr.optJSONObject(i) ?: continue
+                    val date = t.optString("date", "").trim()
+                    val type = t.optString("type", "").trim().lowercase()
+                    if (date.isEmpty() || (type != "buy" && type != "sell")) continue
                     list.add(
                         Trade(
-                            date = t.getString("date"),
-                            type = t.getString("type"),
-                            qty = t.getInt("qty"),
-                            price = t.getDouble("price"),
-                            memo = if (t.has("memo")) t.optString("memo") else null,
+                            date = date,
+                            type = type,
+                            qty = t.optDouble("qty", 0.0).toInt(),
+                            price = t.optDouble("price", 0.0),
+                            memo = if (t.has("memo") && !t.isNull("memo")) t.optString("memo").ifBlank { null } else null,
                         )
                     )
                 }
@@ -226,22 +229,31 @@ object Store {
         saveSettings(settings().put("gist_token", token.trim()).put("gist_id", id.trim()))
     }
 
-    /** 데스크톱 quant_trade_history.json 포맷 → 로컬 매매기록 덮어쓰기. 종목 수 반환. */
+    /** 데스크톱 quant_trade_history.json 포맷 → 로컬 매매기록 덮어쓰기. 종목 수 반환.
+     *  데스크톱은 누락 필드를 r.get('qty',0)처럼 관대하게 다루므로 여기서도 opt*로 안전 파싱. */
     fun saveTradesFromJson(text: String): Int {
         val obj = JSONObject(text)
         val map = LinkedHashMap<String, MutableList<Trade>>()
         for (key in obj.keys()) {
-            val arr = obj.getJSONArray(key)
+            val arr = obj.optJSONArray(key) ?: continue
             val list = ArrayList<Trade>()
             for (i in 0 until arr.length()) {
-                val t = arr.getJSONObject(i)
-                list.add(Trade(
-                    t.getString("date"), t.getString("type"),
-                    t.getInt("qty"), t.getDouble("price"),
-                    if (t.has("memo")) t.optString("memo") else null,
-                ))
+                val t = arr.optJSONObject(i) ?: continue
+                val date = t.optString("date", "").trim()
+                val type = t.optString("type", "").trim().lowercase()
+                if (date.isEmpty() || (type != "buy" && type != "sell")) continue
+                // qty: 정수/실수/문자열 무엇이든 관대하게
+                val qty = when {
+                    t.has("qty") && !t.isNull("qty") -> t.optDouble("qty", 0.0).toInt()
+                    t.has("quantity") && !t.isNull("quantity") -> t.optDouble("quantity", 0.0).toInt()
+                    t.has("shares") && !t.isNull("shares") -> t.optDouble("shares", 0.0).toInt()
+                    else -> 0
+                }
+                val price = t.optDouble("price", 0.0)
+                val memo = if (t.has("memo") && !t.isNull("memo")) t.optString("memo").ifBlank { null } else null
+                list.add(Trade(date, type, qty, price, memo))
             }
-            map[key] = list
+            if (list.isNotEmpty()) map[key] = list
         }
         saveTrades(map)
         return map.size
@@ -249,9 +261,13 @@ object Store {
 
     /** 데스크톱 quant_target_tickers.json 포맷 → 로컬 종목 리스트 덮어쓰기. */
     fun saveTickersFromJson(text: String): Int {
-        val arr = JSONObject(text).getJSONArray("tickers")
+        val obj = JSONObject(text)
+        val arr = obj.optJSONArray("tickers") ?: return 0
         val out = ArrayList<String>()
-        for (i in 0 until arr.length()) out.add(arr.getString(i).trim().uppercase())
+        for (i in 0 until arr.length()) {
+            val s = arr.optString(i, "").trim().uppercase()
+            if (s.isNotEmpty()) out.add(s)
+        }
         if (out.isNotEmpty()) { saveTickers(out); return out.size }
         return 0
     }
