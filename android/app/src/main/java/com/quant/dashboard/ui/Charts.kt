@@ -423,9 +423,11 @@ fun CandleChart(
     // y범위는 종목 가격(고/저)에만 맞춤
     var lo = lows.minNaN()
     var hi = highs.maxNaN()
-    if (hi <= lo) return
-    val pad = (hi - lo) * 0.10
-    val ymin = lo - pad; val ymax = hi + pad
+    if (hi <= lo || lo <= 0) return
+    // 로그 y축 — 비율 변화가 균일하게 보이도록 (log10 공간 패딩)
+    val lLo = Math.log10(lo); val lHi = Math.log10(hi)
+    val lPad = (lHi - lLo) * 0.10 + 1e-6
+    val ymin = lLo - lPad; val ymax = lHi + lPad
     // 실제 최고/최저 캔들 위치
     var hiI = -1; var loI = -1
     var hiV = -Double.MAX_VALUE; var loV = Double.MAX_VALUE
@@ -439,8 +441,9 @@ fun CandleChart(
     Canvas(modifier = modifier.fillMaxWidth().height(110.dp)) {
         val plotW = size.width - RIGHT_PAD
         fun xAt(i: Int) = plotW * i / (n - 1)
-        fun yAt(v: Double) = (size.height * (1 - (v - ymin) / (ymax - ymin))).toFloat()
-        rightAxis(niceTicks(ymin, ymax, 5), ::yAt, plotW) { priceFmt(it) }
+        fun yAt(v: Double) = (size.height * (1 - (Math.log10(v) - ymin) / (ymax - ymin))).toFloat()
+        // 라벨은 보기 좋은 숫자, 위치는 로그 척도
+        rightAxis(niceTicks(lo, hi, 5), ::yAt, plotW) { priceFmt(it) }
         // 현재가 수평선(옅음)
         drawLine(Color(0x66E84D5E), Offset(0f, yAt(cur)), Offset(plotW, yAt(cur)), 0.8f)
         clipRect(0f, 0f, plotW, size.height) {
