@@ -48,10 +48,13 @@ private fun DrawScope.marker(cx: Float, cy: Float, buy: Boolean, r: Float = 13.5
     val col = if (buy) Color(0xFFDC2626) else Color(0xFF2563EB)
     drawCircle(col, r, Offset(cx, cy))
     drawCircle(Color.White, r, Offset(cx, cy), style = Stroke(0.8f))   // 얇은 흰 테두리
-    // 내부 ↑/↓ — 굵게(fakeBold) + 원에 꽉 차게
+    // 내부 ↑/↓ — bold + 흰 외곽선(FILL_AND_STROKE)으로 두껍게, 원에 꽉 차게
     val p = Paint().apply {
         color = 0xFFFFFFFF.toInt(); textSize = r * 2.3f
         textAlign = Paint.Align.CENTER; isAntiAlias = true; isFakeBoldText = true
+        style = Paint.Style.FILL_AND_STROKE
+        strokeWidth = r * 0.22f
+        strokeJoin = Paint.Join.ROUND
     }
     drawContext.canvas.nativeCanvas.drawText(if (buy) "↑" else "↓", cx, cy + r * 0.85f, p)
 }
