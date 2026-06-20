@@ -176,23 +176,24 @@ private fun TradeJournal() {
         modifier = Modifier.fillMaxWidth().clickable { open = !open })
     if (open) {
         // 헤더
-        Row(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
-            JCell("날짜", 2.1f, TextSecondary, FontWeight.SemiBold)
-            JCell("종목", 1.6f, TextSecondary, FontWeight.SemiBold)
-            JCell("구분", 1.1f, TextSecondary, FontWeight.SemiBold, TextAlign.Center)
-            JCell("수량", 1f, TextSecondary, FontWeight.SemiBold, TextAlign.End)
-            JCell("단가", 1.6f, TextSecondary, FontWeight.SemiBold, TextAlign.End)
-            JCell("메모", 2f, TextSecondary, FontWeight.SemiBold)
+        Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.Top) {
+            JCell("날짜", 1.9f, TextSecondary, FontWeight.SemiBold)
+            JCell("종목", 1.3f, TextSecondary, FontWeight.SemiBold)
+            JCell("구분", 1.0f, TextSecondary, FontWeight.SemiBold, TextAlign.Center)
+            JCell("수량", 0.8f, TextSecondary, FontWeight.SemiBold, TextAlign.End)
+            JCell("단가", 1.5f, TextSecondary, FontWeight.SemiBold, TextAlign.End)
+            JCell("메모", 3.2f, TextSecondary, FontWeight.SemiBold)
         }
         entries.forEach { e ->
             val buy = e.type == "buy"
-            Row(Modifier.fillMaxWidth().padding(vertical = 1.dp)) {
-                JCell(e.date, 2.1f, TextSecondary)
-                JCell(e.name, 1.6f, TextPrimary, FontWeight.SemiBold)
-                JCell(if (buy) "매수" else "매도", 1.1f, if (buy) Profit else Loss, FontWeight.SemiBold, TextAlign.Center)
-                JCell("${e.qty}", 1f, TextPrimary, align = TextAlign.End)
-                JCell("$${"%.2f".format(e.price)}", 1.6f, TextPrimary, align = TextAlign.End)
-                JCell(e.memo ?: "", 2f, TextSecondary)
+            Row(Modifier.fillMaxWidth().padding(vertical = 1.dp), verticalAlignment = Alignment.Top) {
+                JCell(e.date, 1.9f, TextSecondary)
+                JCell(e.name, 1.3f, TextPrimary, FontWeight.SemiBold)
+                JCell(if (buy) "매수" else "매도", 1.0f, if (buy) Profit else Loss, FontWeight.SemiBold, TextAlign.Center)
+                JCell("${e.qty}", 0.8f, TextPrimary, align = TextAlign.End)
+                JCell("$${"%.2f".format(e.price)}", 1.5f, TextPrimary, align = TextAlign.End)
+                // 메모: 줄바꿈 허용(잘리지 않게)
+                JCell(e.memo ?: "", 3.2f, TextSecondary, maxLines = Int.MAX_VALUE)
             }
         }
     }
@@ -200,7 +201,8 @@ private fun TradeJournal() {
 
 @Composable
 private fun RowScope.JCell(text: String, weight: Float, color: Color,
-                           fw: FontWeight = FontWeight.Normal, align: TextAlign = TextAlign.Start) {
+                           fw: FontWeight = FontWeight.Normal, align: TextAlign = TextAlign.Start,
+                           maxLines: Int = 1) {
     Text(text, color = color, fontSize = 11.sp, fontWeight = fw, textAlign = align,
-        maxLines = 1, modifier = Modifier.weight(weight).padding(horizontal = 2.dp))
+        maxLines = maxLines, modifier = Modifier.weight(weight).padding(horizontal = 2.dp))
 }

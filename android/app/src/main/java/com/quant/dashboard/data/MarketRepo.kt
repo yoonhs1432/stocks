@@ -6,15 +6,21 @@ package com.quant.dashboard.data
  */
 object MarketRepo {
     data class Info(
-        val regime: String,        // bull/bear/correction/neutral/unknown
-        val spyRet6m: Double?,     // 6개월 수익률 (소수)
-        val vix: Double?,
-        val us10y: Double?,
-        val usdkrw: Double?,
+        val spy: Double?,       // SPY 일간 등락 %
+        val nasdaq: Double?,    // NASDAQ(^IXIC) 일간 등락 %
+        val kospi: Double?,     // KOSPI(^KS11) 일간 등락 %
+        val us10y: Double?,     // 미 10년물 금리 %
+        val usdkrw: Double?,    // USD/KRW
     )
 
     @Volatile private var cache: Info? = null
     @Volatile private var ts = 0L
+
+    /** 직전 종가 대비 당일 등락률(%). */
+    private fun dayPct(symbol: String): Double? {
+        val c = Yahoo.closes(symbol, "5d").map { it.second }
+        return if (c.size >= 2 && c[c.size - 2] > 0) (c.last() / c[c.size - 2] - 1) * 100 else null
+    }
 
     /** IO 디스패처에서 호출. 1시간 캐시. */
     suspend fun load(force: Boolean = false): Info {
@@ -22,29 +28,14 @@ object MarketRepo {
         val c = cache
         if (!force && c != null && now - ts < 3_600_000) return c
 
-        var regime = "unknown"; var ret6m: Double? = null
-        val spy = Yahoo.closes("SPY", "2y")
-        if (spy.size >= 200) {
-            val closes = spy.map { it.second }
-            val last = closes.last()
-            val sma200 = closes.takeLast(200).average()
-            ret6m = if (closes.size >= 126) last / closes[closes.size - 126] - 1 else null
-            val above = last > sma200
-            regime = when {
-                ret6m == null -> "neutral"
-                above && ret6m > 0.05 -> "bull"
-                !above && ret6m < -0.10 -> "bear"
-                !above && ret6m <= 0.0 -> "correction"
-                else -> "neutral"
-            }
-        }
-        var us10y = Yahoo.closes("^TNX", "1mo").lastOrNull()?.second
+        var us10y = Yahoo.closes("^TNX", "5d").lastOrNull()?.second
         if (us10y != null && us10y > 50) us10y /= 10.0
         val info = Info(
-            regime = regime, spyRet6m = ret6m,
-            vix = Yahoo.closes("^VIX", "1mo").lastOrNull()?.second,
+            spy = dayPct("SPY"),
+            nasdaq = dayPct("^IXIC"),
+            kospi = dayPct("^KS11"),
             us10y = us10y,
-            usdkrw = Yahoo.closes("KRW=X", "1mo").lastOrNull()?.second,
+            usdkrw = Yahoo.closes("KRW=X", "5d").lastOrNull()?.second,
         )
         cache = info; ts = now
         return info

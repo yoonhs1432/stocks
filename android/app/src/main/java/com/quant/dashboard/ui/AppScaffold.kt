@@ -97,13 +97,9 @@ private fun MarketHeader() {
         info = withContext(Dispatchers.IO) { MarketRepo.load() }
     }
     val i = info ?: return
-    val (regimeText, regimeColor) = when (i.regime) {
-        "bull" -> "🟢 강세" to Color(0xFF16A34A)
-        "bear" -> "🔴 약세" to Color(0xFFDC2626)
-        "correction" -> "🟠 조정" to Color(0xFFFB923C)
-        "neutral" -> "⚪ 중립" to Color(0xFF6B7280)
-        else -> "⚫ —" to Color(0xFF4B5563)
-    }
+    // 일간 등락 → 한국식 색 (상승 빨강 / 하락 파랑 / 보합 회색)
+    fun pctColorOf(v: Double) = when { v > 0 -> Color(0xFFDC2626); v < 0 -> Color(0xFF2563EB); else -> Color(0xFF6B7280) }
+    fun pctText(name: String, v: Double) = "$name ${if (v >= 0) "+" else ""}${"%.1f".format(v)}%"
     Row(
         Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
             .padding(horizontal = 10.dp, vertical = 4.dp),
@@ -119,12 +115,9 @@ private fun MarketHeader() {
                 Text("📅 $d ✕", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
             }
         }
-        val spy = i.spyRet6m?.let { "SPY(6M) ${if (it >= 0) "+" else ""}${"%.1f".format(it * 100)}%" } ?: "SPY —"
-        Badge("$regimeText  $spy", regimeColor)
-        i.vix?.let {
-            val c = when { it < 15 -> Color(0xFF16A34A); it < 20 -> Color(0xFF6B7280); it < 30 -> Color(0xFFFB923C); else -> Color(0xFFDC2626) }
-            Badge("VIX ${"%.1f".format(it)}", c)
-        }
+        i.spy?.let { Badge(pctText("SPY", it), pctColorOf(it)) }
+        i.nasdaq?.let { Badge(pctText("NASDAQ", it), pctColorOf(it)) }
+        i.kospi?.let { Badge(pctText("KOSPI", it), pctColorOf(it)) }
         i.us10y?.let {
             val c = when { it < 3 -> Color(0xFF16A34A); it < 4 -> Color(0xFF6B7280); it < 5 -> Color(0xFFFB923C); else -> Color(0xFFDC2626) }
             Badge("10Y ${"%.2f".format(it)}%", c)
