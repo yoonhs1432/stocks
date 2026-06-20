@@ -214,6 +214,7 @@ fun SettingsScreen() {
                     pair.forEach { tk ->
                         TickerCell(
                             tk = tk, weight = 1f,
+                            indiv = Store.isIndividual(tk),   // indivVer.let 안이라 토글 시 재평가→셀 재구성
                             nameValue = nameEdits[tk] ?: "",
                             onName = { nameEdits[tk] = it },
                             onToggle = { Store.setIndividual(tk, !Store.isIndividual(tk)); indivVer++; AppState.bump() },
@@ -235,10 +236,9 @@ fun SettingsScreen() {
 /** 종목 관리 컴팩트 셀 — 티커 + 개별/ETF 토글(상단) / 별칭 + 삭제(하단). */
 @Composable
 private fun RowScope.TickerCell(
-    tk: String, weight: Float, nameValue: String,
+    tk: String, weight: Float, indiv: Boolean, nameValue: String,
     onName: (String) -> Unit, onToggle: () -> Unit, onDelete: () -> Unit,
 ) {
-    val indiv = Store.isIndividual(tk)
     Column(
         Modifier.weight(weight).border(1.dp, BorderColor, RoundedCornerShape(8.dp)).padding(8.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
