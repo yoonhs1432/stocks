@@ -31,6 +31,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
@@ -39,7 +40,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.quant.dashboard.data.Gist
 import com.quant.dashboard.data.Store
-import com.quant.dashboard.data.Tickers
 import com.quant.dashboard.ui.theme.BgApp
 import com.quant.dashboard.ui.theme.BorderColor
 import com.quant.dashboard.ui.theme.Loss
@@ -232,7 +232,7 @@ fun SettingsScreen() {
     }
 }
 
-/** 종목 관리 컴팩트 셀 — 티커 + 개별/ETF 토글 + 삭제 + 이름 편집. */
+/** 종목 관리 컴팩트 셀 — 티커 + 개별/ETF 토글(상단) / 별칭 + 삭제(하단). */
 @Composable
 private fun RowScope.TickerCell(
     tk: String, weight: Float, nameValue: String,
@@ -240,29 +240,38 @@ private fun RowScope.TickerCell(
 ) {
     val indiv = Store.isIndividual(tk)
     Column(
-        Modifier.weight(weight).border(1.dp, BorderColor, RoundedCornerShape(8.dp)).padding(6.dp),
-        verticalArrangement = Arrangement.spacedBy(3.dp),
+        Modifier.weight(weight).border(1.dp, BorderColor, RoundedCornerShape(8.dp)).padding(8.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
+        // 상단: 티커 + 개별/ETF 토글(큰 버튼)
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(tk, color = TextPrimary, fontSize = 12.sp, fontWeight = FontWeight.Bold,
+            Text(tk, color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold,
                 maxLines = 1, modifier = Modifier.weight(1f))
-            Text(if (indiv) "개별" else "ETF", color = if (indiv) Profit else TextSecondary, fontSize = 10.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.clickable { onToggle() }.padding(horizontal = 4.dp))
-            Text("✕", color = Loss, fontSize = 13.sp, modifier = Modifier.clickable { onDelete() }.padding(start = 2.dp))
+            Box(
+                Modifier.clip(RoundedCornerShape(6.dp))
+                    .background(if (indiv) Profit else Color(0xFF30363D))
+                    .clickable { onToggle() }
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+            ) { Text(if (indiv) "개별" else "ETF", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold) }
         }
-        BasicTextField(
-            value = nameValue, onValueChange = onName, singleLine = true,
-            textStyle = TextStyle(color = TextPrimary, fontSize = 11.sp),
-            cursorBrush = SolidColor(TextPrimary),
-            modifier = Modifier.fillMaxWidth().background(Color(0xFF0D1117), RoundedCornerShape(4.dp))
-                .padding(horizontal = 5.dp, vertical = 4.dp),
-            decorationBox = { inner ->
-                Box(Modifier.fillMaxWidth()) {
-                    if (nameValue.isEmpty()) Text(Tickers.displayName(tk), color = TextSecondary, fontSize = 11.sp)
-                    inner()
-                }
-            },
-        )
+        // 하단: 별칭 입력 + 삭제 (서로 떨어뜨림)
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            BasicTextField(
+                value = nameValue, onValueChange = onName, singleLine = true,
+                textStyle = TextStyle(color = TextPrimary, fontSize = 11.sp),
+                cursorBrush = SolidColor(TextPrimary),
+                modifier = Modifier.weight(1f).background(Color(0xFF0D1117), RoundedCornerShape(4.dp))
+                    .padding(horizontal = 6.dp, vertical = 6.dp),
+                decorationBox = { inner ->
+                    Box(Modifier.fillMaxWidth()) {
+                        if (nameValue.isEmpty()) Text("별칭(선택)", color = TextSecondary, fontSize = 11.sp)
+                        inner()
+                    }
+                },
+            )
+            Text("삭제", color = Loss, fontSize = 12.sp, fontWeight = FontWeight.Bold,
+                modifier = Modifier.clickable { onDelete() }.padding(horizontal = 6.dp, vertical = 4.dp))
+        }
     }
 }
