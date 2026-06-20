@@ -122,7 +122,9 @@ object Quant {
             momentum(macdPct[it], dmacdPct[it], rsi[it], macdPctStd[it], dmacdPctStd[it])
         }
 
-        val zPct = DoubleArray(n) { zToPct(z[it]) }
+        // warmup(Z 미정의=NaN) 구간은 NaN으로 유지 → 산점도에서 그리지 않음
+        // (이전엔 NaN→50으로 채워져 x≈50 또는 극단에 수직으로 뭉치는 버그)
+        val zPct = DoubleArray(n) { if (z[it].isNaN()) Double.NaN else zToPct(z[it]) }
         val mPct = DoubleArray(n) { zToPct(mScore[it]) }
         val bandUpper = DoubleArray(n) { exp(ln(predicted[it]) + 1.5 * stdResid) }
         val bandLower = DoubleArray(n) { exp(ln(predicted[it]) - 1.5 * stdResid) }
@@ -134,8 +136,9 @@ object Quant {
         }
         val sigmaPct = (exp(sigmaUnit) - 1) * 100
 
-        val lastZ = zPct[n - 1]
-        val lastM = mPct[n - 1]
+        // 헤더/버튼용 스칼라는 NaN이면 중립(50)으로 (zPct 마지막은 warmup 아님이라 보통 유효)
+        val lastZ = zPct[n - 1].let { if (it.isNaN()) 50.0 else it }
+        val lastM = mPct[n - 1].let { if (it.isNaN()) 50.0 else it }
         return Result(
             dates = dates, price = y, tickerNorm = yNorm, spyNorm = xNorm,
             predicted = predicted, bandUpper = bandUpper, bandLower = bandLower,
