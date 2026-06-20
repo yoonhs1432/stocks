@@ -15,6 +15,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.text.font.FontWeight
@@ -39,7 +40,7 @@ data class Mark(val x: Int, val y: Double, val buy: Boolean)
 /** 완료 사이클 평균매수→평균매도 화살표 (x=윈도우 인덱스, y=가격, profit=수익여부). */
 data class CycleArrow(val x1: Int, val y1: Double, val x2: Int, val y2: Double, val profit: Boolean)
 
-private fun DrawScope.marker(cx: Float, cy: Float, buy: Boolean, r: Float = 7f) {
+private fun DrawScope.marker(cx: Float, cy: Float, buy: Boolean, r: Float = 9f) {
     val col = if (buy) Color(0xFFDC2626) else Color(0xFF2563EB)
     drawCircle(col, r, Offset(cx, cy))
     drawCircle(Color.White, r, Offset(cx, cy), style = Stroke(1.2f))
@@ -194,62 +195,64 @@ fun RegressionScatter(
     val lxLo = Math.log10(xLo * 0.98); val lxHi = Math.log10(xHi * 1.02)
     val lyLo = Math.log10(yLo * 0.88); val lyHi = Math.log10(yHi * 1.18)
     val order = (0 until n).sortedBy { spyNorm[it] }
-    Canvas(modifier = modifier.fillMaxWidth().height(90.dp)) {
+    Canvas(modifier = modifier.fillMaxWidth().height(120.dp)) {
         fun sx(v: Double) = (size.width * (Math.log10(v) - lxLo) / (lxHi - lxLo)).toFloat()
         fun sy(v: Double) = (size.height * (1 - (Math.log10(v) - lyLo) / (lyHi - lyLo))).toFloat()
-        // 가이드 곡선 (y = c·x^guideN)
-        var ecLo = Double.MAX_VALUE; var ecHi = -Double.MAX_VALUE
-        for (i in 0 until n) if (spyNorm[i] > 0) {
-            val ec = tickerNorm[i] / Math.pow(spyNorm[i], guideN)
-            if (ec > 0 && ec.isFinite()) { if (ec < ecLo) ecLo = ec; if (ec > ecHi) ecHi = ec }
-        }
-        if (ecLo < Double.MAX_VALUE) {
-            val lcLo = Math.log10(ecLo) - 1.0; val lcHi = Math.log10(ecHi) + 1.0
-            // 가이드 곡선 15개 — app.py rgba(200,200,200,0.6) width1 dash='dot'
-            for (g in 0 until 15) {
-                val c = Math.pow(10.0, lcLo + (lcHi - lcLo) * g / 14.0)
-                val gp = Path(); var started = false
-                for (s in 0..24) {
-                    val xv = xLo * Math.pow(xHi / xLo, s / 24.0)
-                    val yv = c * Math.pow(xv, guideN)
-                    if (yv > 0) {
-                        val o = Offset(sx(xv), sy(yv))
-                        if (!started) { gp.moveTo(o.x, o.y); started = true } else gp.lineTo(o.x, o.y)
-                    }
-                }
-                drawPath(gp, Color(0x99C8C8C8), style = Stroke(1f, pathEffect = DOT))
+        // 패널 밖으로 삐져나가지 않게 클리핑 (가이드 곡선 overflow 버그 수정)
+        clipRect(0f, 0f, size.width, size.height) {
+            // 가이드 곡선 (y = c·x^guideN)
+            var ecLo = Double.MAX_VALUE; var ecHi = -Double.MAX_VALUE
+            for (i in 0 until n) if (spyNorm[i] > 0) {
+                val ec = tickerNorm[i] / Math.pow(spyNorm[i], guideN)
+                if (ec > 0 && ec.isFinite()) { if (ec < ecLo) ecLo = ec; if (ec > ecHi) ecHi = ec }
             }
+            if (ecLo < Double.MAX_VALUE) {
+                val lcLo = Math.log10(ecLo) - 1.0; val lcHi = Math.log10(ecHi) + 1.0
+                for (g in 0 until 15) {
+                    val c = Math.pow(10.0, lcLo + (lcHi - lcLo) * g / 14.0)
+                    val gp = Path(); var started = false
+                    for (s in 0..24) {
+                        val xv = xLo * Math.pow(xHi / xLo, s / 24.0)
+                        val yv = c * Math.pow(xv, guideN)
+                        if (yv > 0) {
+                            val o = Offset(sx(xv), sy(yv))
+                            if (!started) { gp.moveTo(o.x, o.y); started = true } else gp.lineTo(o.x, o.y)
+                        }
+                    }
+                    drawPath(gp, Color(0x99C8C8C8), style = Stroke(1f, pathEffect = DOT))
+                }
+            }
+            // 밴드
+            val bp = Path(); bp.moveTo(sx(spyNorm[order[0]]), sy(bandU[order[0]]))
+            for (k in 1 until n) { val i = order[k]; bp.lineTo(sx(spyNorm[i]), sy(bandU[i])) }
+            for (k in n - 1 downTo 0) { val i = order[k]; bp.lineTo(sx(spyNorm[i]), sy(bandL[i])) }
+            bp.close(); drawPath(bp, Color(0x33969696))
+            // 회귀선
+            var prev: Offset? = null
+            for (k in 0 until n) { val i = order[k]; val o = Offset(sx(spyNorm[i]), sy(predicted[i])); if (prev != null) drawLine(Color(0xFFADBAC7), prev, o, 2f); prev = o }
+            // Turbo 점 (크게)
+            for (i in 0 until n) if (spyNorm[i] > 0 && tickerNorm[i] > 0) drawCircle(turbo(i.toFloat() / (n - 1)), 6f, Offset(sx(spyNorm[i]), sy(tickerNorm[i])))
+            // 매매 마커
+            for ((i, buy) in markIdx) if (i in 0 until n && spyNorm[i] > 0 && tickerNorm[i] > 0) {
+                marker(sx(spyNorm[i]), sy(tickerNorm[i]), buy, 9f)
+            }
+            // 현재 위치 ★
+            val li = n - 1
+            if (spyNorm[li] > 0 && tickerNorm[li] > 0) star(sx(spyNorm[li]), sy(tickerNorm[li]), 14f)
         }
-        // 밴드
-        val bp = Path(); bp.moveTo(sx(spyNorm[order[0]]), sy(bandU[order[0]]))
-        for (k in 1 until n) { val i = order[k]; bp.lineTo(sx(spyNorm[i]), sy(bandU[i])) }
-        for (k in n - 1 downTo 0) { val i = order[k]; bp.lineTo(sx(spyNorm[i]), sy(bandL[i])) }
-        bp.close(); drawPath(bp, Color(0x33969696))
-        // 회귀선
-        var prev: Offset? = null
-        for (k in 0 until n) { val i = order[k]; val o = Offset(sx(spyNorm[i]), sy(predicted[i])); if (prev != null) drawLine(Color(0xFFADBAC7), prev, o, 2f); prev = o }
-        // Turbo 점
-        for (i in 0 until n) if (spyNorm[i] > 0 && tickerNorm[i] > 0) drawCircle(turbo(i.toFloat() / (n - 1)), 4f, Offset(sx(spyNorm[i]), sy(tickerNorm[i])))
-        // 매매 마커 (회귀 패널 위 ↑/↓ 풍선) — 점이 작아 마커도 작게(r6)
-        for ((i, buy) in markIdx) if (i in 0 until n && spyNorm[i] > 0 && tickerNorm[i] > 0) {
-            marker(sx(spyNorm[i]), sy(tickerNorm[i]), buy, 6f)
-        }
-        // 현재 위치 ★ (별표)
-        val li = n - 1
-        if (spyNorm[li] > 0 && tickerNorm[li] > 0) star(sx(spyNorm[li]), sy(tickerNorm[li]), 11f)
-        // 로그축 눈금 (1·2·5·10·20·50·100 …) — x는 하단, y는 좌측
-        val gx = 0xCCADBAC7.toInt()
+        // 로그축 눈금 (1·2·5·10·20·50·100 …) — x는 하단, y는 좌측 (크게)
+        val gx = 0xDDADBAC7.toInt()
         for (v in log125(Math.pow(10.0, lxLo), Math.pow(10.0, lxHi))) {
             val xx = sx(v)
-            drawLine(Color(0x55ADBAC7), Offset(xx, size.height), Offset(xx, size.height - 4f), 1f)
-            label(fmt125(v), xx, size.height - 6f, gx, 17f, Paint.Align.CENTER)
+            drawLine(Color(0x66ADBAC7), Offset(xx, size.height), Offset(xx, size.height - 5f), 1f)
+            label(fmt125(v), xx, size.height - 7f, gx, 26f, Paint.Align.CENTER)
         }
         for (v in log125(Math.pow(10.0, lyLo), Math.pow(10.0, lyHi))) {
             val yy = sy(v)
-            drawLine(Color(0x55ADBAC7), Offset(0f, yy), Offset(4f, yy), 1f)
-            label(fmt125(v), 5f, yy - 2f, gx, 17f)
+            drawLine(Color(0x66ADBAC7), Offset(0f, yy), Offset(5f, yy), 1f)
+            label(fmt125(v), 6f, yy - 2f, gx, 26f)
         }
-        label("β=${"%.2f".format(beta)}", size.width - 4f, 24f, 0xFFADBAC7.toInt(), 20f, Paint.Align.RIGHT)
+        label("β=${"%.2f".format(beta)}", size.width - 5f, 28f, 0xFFADBAC7.toInt(), 26f, Paint.Align.RIGHT)
         chartBorder()
     }
 }
@@ -269,30 +272,23 @@ fun PriceChart(
 ) {
     val n = priceDollar.size
     if (n < 2) return
-    var lo = minOf(priceDollar.minNaN(), bandLower.minNaN())
-    var hi = maxOf(priceDollar.maxNaN(), bandUpper.maxNaN())
+    // y범위는 종목 가격에만 맞춤 (밴드 제거)
+    var lo = priceDollar.minNaN()
+    var hi = priceDollar.maxNaN()
     if (hi <= lo) return
-    val pad = (hi - lo) * 0.05
+    val pad = (hi - lo) * 0.06
     lo -= pad; hi += pad
 
     Canvas(modifier = modifier.fillMaxWidth().height(90.dp)) {
         fun xAt(i: Int) = size.width * i / (n - 1)
         fun yAt(v: Double) = (size.height * (1 - (v - lo) / (hi - lo))).toFloat()
-
-        val band = Path().apply {
-            moveTo(0f, yAt(bandUpper[0]))
-            for (i in 1 until n) lineTo(xAt(i), yAt(bandUpper[i]))
-            for (i in n - 1 downTo 0) lineTo(xAt(i), yAt(bandLower[i]))
-            close()
+        clipRect(0f, 0f, size.width, size.height) {
+            poly(priceDollar, ::xAt, ::yAt, Color(0xFFE6EDF3), 2.5f)
+            for (m in markers) if (m.x in 0 until n) marker(xAt(m.x), yAt(m.y), m.buy)
         }
-        drawPath(band, Color(0x22FFFFFF))
-        poly(priceDollar, ::xAt, ::yAt, Color(0xFFE6EDF3), 2.5f)
-
         val gray = 0xFFADBAC7.toInt()
-        label("$currency${"%,.0f".format(hi)}", 6f, 24f, gray, 24f)
-        label("$currency${"%,.0f".format(lo)}", 6f, size.height - 10f, gray, 24f)
-
-        for (m in markers) if (m.x in 0 until n) marker(xAt(m.x), yAt(m.y), m.buy)
+        label("$currency${"%,.0f".format(hi)}", 6f, 28f, gray, 26f)
+        label("$currency${"%,.0f".format(lo)}", 6f, size.height - 8f, gray, 26f)
         chartBorder()
     }
 }
@@ -310,40 +306,36 @@ fun CandleChart(
 ) {
     val n = closes.size
     if (n < 2) return
-    var lo = minOf(lows.minNaN(), bandLower.minNaN())
-    var hi = maxOf(highs.maxNaN(), bandUpper.maxNaN())
+    // y범위는 종목 가격(고/저)에만 맞춤 (밴드 제거)
+    var lo = lows.minNaN()
+    var hi = highs.maxNaN()
     if (hi <= lo) return
-    val pad = (hi - lo) * 0.05
+    val pad = (hi - lo) * 0.06
     lo -= pad; hi += pad
     Canvas(modifier = modifier.fillMaxWidth().height(90.dp)) {
         fun xAt(i: Int) = size.width * i / (n - 1)
         fun yAt(v: Double) = (size.height * (1 - (v - lo) / (hi - lo))).toFloat()
-        val band = Path().apply {
-            moveTo(0f, yAt(bandUpper[0]))
-            for (i in 1 until n) lineTo(xAt(i), yAt(bandUpper[i]))
-            for (i in n - 1 downTo 0) lineTo(xAt(i), yAt(bandLower[i]))
-            close()
-        }
-        drawPath(band, Color(0x1AFFFFFF))
-        // 흰 종가선 (캔들 뒤)
-        poly(closes, ::xAt, ::yAt, Color(0x99E6EDF3), 0.8f)
-        // 캔들
-        val w = (size.width / n * 0.6f).coerceAtLeast(1.5f)
-        for (i in 0 until n) {
-            if (opens[i].isNaN() || highs[i].isNaN() || lows[i].isNaN() || closes[i].isNaN()) continue
-            val up = closes[i] >= opens[i]
-            val col = if (up) Color(0xFFF85149) else Color(0xFF58A6FF)
-            val cx = xAt(i)
-            drawLine(col, Offset(cx, yAt(highs[i])), Offset(cx, yAt(lows[i])), 1.5f)
-            val top = yAt(maxOf(opens[i], closes[i]))
-            val bot = yAt(minOf(opens[i], closes[i]))
-            drawRect(col, topLeft = Offset(cx - w / 2, top), size = Size(w, maxOf(bot - top, 1f)))
+        clipRect(0f, 0f, size.width, size.height) {
+            // 흰 종가선 (캔들 뒤)
+            poly(closes, ::xAt, ::yAt, Color(0x99E6EDF3), 0.8f)
+            // 캔들
+            val w = (size.width / n * 0.6f).coerceAtLeast(1.5f)
+            for (i in 0 until n) {
+                if (opens[i].isNaN() || highs[i].isNaN() || lows[i].isNaN() || closes[i].isNaN()) continue
+                val up = closes[i] >= opens[i]
+                val col = if (up) Color(0xFFF85149) else Color(0xFF58A6FF)
+                val cx = xAt(i)
+                drawLine(col, Offset(cx, yAt(highs[i])), Offset(cx, yAt(lows[i])), 1.5f)
+                val top = yAt(maxOf(opens[i], closes[i]))
+                val bot = yAt(minOf(opens[i], closes[i]))
+                drawRect(col, topLeft = Offset(cx - w / 2, top), size = Size(w, maxOf(bot - top, 1f)))
+            }
+            for (m in markers) if (m.x in 0 until n) marker(xAt(m.x), yAt(m.y), m.buy)
         }
         val gray = 0xFFADBAC7.toInt()
-        label("$currency${"%,.0f".format(hi)}", size.width - 6f, 24f, gray, 22f, Paint.Align.RIGHT)
-        label("$currency${"%,.0f".format(lo)}", size.width - 6f, size.height - 10f, gray, 22f, Paint.Align.RIGHT)
-        if (topLabel.isNotEmpty()) label(topLabel, 6f, 26f, 0xFFE6EDF3.toInt(), 26f)
-        for (m in markers) if (m.x in 0 until n) marker(xAt(m.x), yAt(m.y), m.buy)
+        label("$currency${"%,.0f".format(hi)}", size.width - 6f, 28f, gray, 26f, Paint.Align.RIGHT)
+        label("$currency${"%,.0f".format(lo)}", size.width - 6f, size.height - 8f, gray, 26f, Paint.Align.RIGHT)
+        if (topLabel.isNotEmpty()) label(topLabel, 6f, 28f, 0xFFE6EDF3.toInt(), 28f)
         chartBorder()
     }
 }
@@ -364,7 +356,7 @@ fun ZmChart(zPct: DoubleArray, mPct: DoubleArray, markers: List<Mark> = emptyLis
             dotline(Color(0x88FFFFFF), 0f, yAt(t.toDouble()), size.width, yAt(t.toDouble()), 0.6f)
         }
         // 좌측 Y 눈금 0/50/100
-        for (t in intArrayOf(0, 50, 100)) label(t.toString(), 2f, yAt(t.toDouble()) - 2f, 0x77FFFFFF.toInt(), 15f)
+        for (t in intArrayOf(0, 50, 100)) label(t.toString(), 3f, yAt(t.toDouble()) - 3f, 0xCCFFFFFF.toInt(), 24f)
         poly(zPct, ::xAt, ::yAt, Color(0xFFE6EDF3), 2f)
         poly(mPct, ::xAt, ::yAt, Color(0xFFF97316), 1.5f)
         if (topLabel.isNotEmpty()) label(topLabel, 6f, 22f, 0xFFE6EDF3.toInt(), 22f)
@@ -385,7 +377,7 @@ fun ZmScatter(
 ) {
     val n = zPct.size
     if (n < 2) return
-    Canvas(modifier = modifier.fillMaxWidth().height(110.dp)) {
+    Canvas(modifier = modifier.fillMaxWidth().height(130.dp)) {
         // 범위 -5~105 (app.py): 별표가 0/100 극단에 가도 안 잘리게 마진
         val lo = -5.0; val hi = 105.0; val span = hi - lo
         fun px(v: Double) = (size.width * ((v - lo) / span)).toFloat()
@@ -397,21 +389,21 @@ fun ZmScatter(
         }
         // 좌측 Y / 하단 X 눈금 숫자 (0/50/100) — 크고 또렷하게
         for (t in intArrayOf(0, 50, 100)) {
-            label(t.toString(), 3f, py(t.toDouble()) + 8f, 0xCCFFFFFF.toInt(), 24f)
-            label(t.toString(), px(t.toDouble()), size.height - 4f, 0xCCFFFFFF.toInt(), 24f, Paint.Align.CENTER)
+            label(t.toString(), 4f, py(t.toDouble()) + 10f, 0xDDFFFFFF.toInt(), 28f)
+            label(t.toString(), px(t.toDouble()), size.height - 5f, 0xDDFFFFFF.toInt(), 28f, Paint.Align.CENTER)
         }
-        // 시간 궤적 점 — Turbo 컬러맵 (파랑→청록→초록→노랑→빨강), size5, 테두리 없음
+        // 시간 궤적 점 — Turbo 컬러맵 (크게)
         for (i in 0 until n) {
             if (zPct[i].isNaN() || mPct[i].isNaN()) continue
-            drawCircle(turbo(i.toFloat() / (n - 1)), 5f, Offset(px(zPct[i]), py(mPct[i])))
+            drawCircle(turbo(i.toFloat() / (n - 1)), 8f, Offset(px(zPct[i]), py(mPct[i])))
         }
-        // 매매 마커 (circle size8 + ↑/↓, 흰 테두리)
+        // 매매 마커
         for ((idx, buy) in tradeIdx) if (idx in 0 until n) {
             if (!zPct[idx].isNaN() && !mPct[idx].isNaN()) marker(px(zPct[idx]), py(mPct[idx]), buy)
         }
         // 현재 위치 별표
         val li = n - 1
-        if (!zPct[li].isNaN() && !mPct[li].isNaN()) star(px(zPct[li]), py(mPct[li]), 11f)
+        if (!zPct[li].isNaN() && !mPct[li].isNaN()) star(px(zPct[li]), py(mPct[li]), 15f)
         chartBorder()
     }
 }
@@ -430,7 +422,7 @@ fun RsiChart(rsi: DoubleArray, topLabel: String = "", modifier: Modifier = Modif
         drawLine(Color(0xFFF85149), Offset(0f, yAt(70.0)), Offset(size.width, yAt(70.0)), 0.7f)
         drawLine(Color(0xFF768390), Offset(0f, yAt(50.0)), Offset(size.width, yAt(50.0)), 0.5f)
         drawLine(Color(0xFF58A6FF), Offset(0f, yAt(30.0)), Offset(size.width, yAt(30.0)), 0.7f)
-        for (t in intArrayOf(0, 50, 100)) label(t.toString(), 2f, yAt(t.toDouble()) - 2f, 0x77FFFFFF.toInt(), 15f)
+        for (t in intArrayOf(0, 50, 100)) label(t.toString(), 3f, yAt(t.toDouble()) - 3f, 0xCCFFFFFF.toInt(), 24f)
         poly(rsi, ::xAt, ::yAt, Color(0xFF22D3EE), 2f)
         if (topLabel.isNotEmpty()) label(topLabel, 6f, 22f, 0xFF22D3EE.toInt(), 22f)
         chartBorder()
@@ -488,7 +480,7 @@ fun MacdChart(macd: DoubleArray, signal: DoubleArray, topLabel: String = "", mod
         fun yAt(v: Double) = (size.height * (1 - (v + mx) / (2 * mx))).toFloat()
         // 0 중립선 실선 (app.py)
         drawLine(Color(0xFF768390), Offset(0f, yAt(0.0)), Offset(size.width, yAt(0.0)), 0.5f)
-        label("0", 2f, yAt(0.0) - 2f, 0x77FFFFFF.toInt(), 15f)
+        label("0", 3f, yAt(0.0) - 3f, 0xCCFFFFFF.toInt(), 24f)
         poly(macd, ::xAt, ::yAt, Color(0xFF7C3AED), 2f)
         poly(signal, ::xAt, ::yAt, Color(0xFFE6EDF3), 0.9f)
         for (i in 1 until n) {
