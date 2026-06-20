@@ -40,8 +40,8 @@ data class Mark(val x: Int, val y: Double, val buy: Boolean)
 /** 완료 사이클 평균매수→평균매도 화살표 (x=윈도우 인덱스, y=가격, profit=수익여부). */
 data class CycleArrow(val x1: Int, val y1: Double, val x2: Int, val y2: Double, val profit: Boolean)
 
-// 모든 차트의 숫자/값 라벨 공통 스타일 (크기·색 통일)
-private const val AX_SIZE = 25f
+// 모든 차트의 숫자/값 라벨 공통 스타일 — 종목 버튼 글자에 맞춰 sp 기반(밀도 추종, 크게)
+private val DrawScope.AX_SIZE: Float get() = 13.sp.toPx()
 private val AX_COLOR = 0xFFADBAC7.toInt()
 
 private fun DrawScope.marker(cx: Float, cy: Float, buy: Boolean, r: Float = 13.5f) {
@@ -144,9 +144,9 @@ private fun DrawScope.currentMarker(cx: Float, cy: Float, r: Float) {
 }
 
 // ── 증권앱 스타일 공용 (우측 축·펜넌트·크로스 화살표·십자선) ──
-private const val RIGHT_PAD = 124f   // 우측 축 라벨 + 펜넌트 공간
-private const val FLAG_W = 94f
-private const val FLAG_TIP = 13f
+private const val RIGHT_PAD = 152f   // 우측 축 라벨 + 펜넌트 공간
+private const val FLAG_W = 118f
+private const val FLAG_TIP = 14f
 private val MAGENTA = Color(0xFFFF2BD6)
 private val ORANGE = Color(0xFFE8943A)
 private val ORANGE2 = Color(0xFFF3C489)
@@ -154,8 +154,8 @@ private val ORANGE2 = Color(0xFFF3C489)
 /** 좌향 뾰족 펜넌트(고정 폭) — tip이 plotRight(현재값 위치)를 가리키고 우측 여백에 본체. 텍스트 자동 축소. */
 private fun DrawScope.pennant(plotRight: Float, y: Float, lines: List<String>, bg: Color) {
     val tip = plotRight; val x0 = tip + FLAG_TIP; val x1 = x0 + FLAG_W
-    val lineH = 25f
-    val half = (lines.size * lineH) / 2f + 3f
+    val lineH = AX_SIZE * 1.05f
+    val half = (lines.size * lineH) / 2f + 4f
     val yy = y.coerceIn(half + 1f, size.height - half - 1f)
     val path = Path().apply {
         moveTo(tip, yy); lineTo(x0, yy - half); lineTo(x1, yy - half)
@@ -164,9 +164,9 @@ private fun DrawScope.pennant(plotRight: Float, y: Float, lines: List<String>, b
     drawPath(path, bg)
     val cx = (x0 + x1) / 2f
     val tp = Paint().apply { color = 0xFFFFFFFF.toInt(); textAlign = Paint.Align.CENTER; isAntiAlias = true; isFakeBoldText = true }
-    var fs = 23f; val longest = lines.maxByOrNull { it.length } ?: ""
+    var fs = AX_SIZE; val longest = lines.maxByOrNull { it.length } ?: ""
     tp.textSize = fs
-    while (tp.measureText(longest) > FLAG_W - 10f && fs > 11f) { fs -= 1f; tp.textSize = fs }
+    while (tp.measureText(longest) > FLAG_W - 10f && fs > AX_SIZE * 0.55f) { fs -= 1f; tp.textSize = fs }
     val total = lines.size * (fs * 1.12f); var ty = yy - total / 2f + fs * 0.82f
     for (ln in lines) { drawContext.canvas.nativeCanvas.drawText(ln, cx, ty, tp); ty += fs * 1.12f }
 }
@@ -176,7 +176,7 @@ private fun DrawScope.rightAxis(ticks: List<Double>, yAt: (Double) -> Float, plo
     for (t in ticks) {
         val yy = yAt(t)
         drawLine(Color(0x2EADBAC7), Offset(0f, yy), Offset(plotRight, yy), 0.8f)
-        label(fmt(t), size.width - 4f, yy + AX_SIZE * 0.32f, AX_COLOR, AX_SIZE * 0.82f, Paint.Align.RIGHT)
+        label(fmt(t), size.width - 4f, yy + AX_SIZE * 0.34f, AX_COLOR, AX_SIZE, Paint.Align.RIGHT)
     }
 }
 
@@ -191,8 +191,8 @@ private fun DrawScope.smallCross(x: Float, y: Float, up: Boolean) {
 
 /** 산점도 현재 X/Y 값 미니 태그 (마젠타 박스 + 흰 글자). */
 private fun DrawScope.miniTag(x: Float, y: Float, text: String, bg: Color, align: Paint.Align) {
-    val tp = Paint().apply { textSize = AX_SIZE * 0.9f; textAlign = align; isAntiAlias = true; isFakeBoldText = true }
-    val w = tp.measureText(text) + 12f; val h = AX_SIZE * 0.9f + 9f
+    val tp = Paint().apply { textSize = AX_SIZE; textAlign = align; isAntiAlias = true; isFakeBoldText = true }
+    val w = tp.measureText(text) + 12f; val h = AX_SIZE + 9f
     val left = when (align) { Paint.Align.CENTER -> x - w / 2; Paint.Align.RIGHT -> x - w; else -> x }
     drawRect(bg, topLeft = Offset(left, y - h / 2f), size = Size(w, h))
     tp.color = 0xFFFFFFFF.toInt()
@@ -204,7 +204,7 @@ private fun DrawScope.crosshair(cx: Float, cy: Float, xText: String, yText: Stri
     dotline(MAGENTA, cx, 0f, cx, size.height, 1f)
     dotline(MAGENTA, 0f, cy, size.width, cy, 1f)
     currentMarker(cx, cy, 13f)
-    miniTag(cx, size.height - (AX_SIZE * 0.9f + 9f) / 2f - 1f, xText, MAGENTA, Paint.Align.CENTER)
+    miniTag(cx, size.height - (AX_SIZE + 9f) / 2f - 1f, xText, MAGENTA, Paint.Align.CENTER)
     miniTag(2f, cy, yText, MAGENTA, Paint.Align.LEFT)
 }
 
@@ -240,7 +240,7 @@ private fun DrawScope.hCallout(px: Float, py: Float, text: String, colorArgb: In
     drawLine(col, Offset(px, py), Offset(px + s * 7f, py - 5f), 2f)
     drawLine(col, Offset(px, py), Offset(px + s * 7f, py + 5f), 2f)
     val tx = (if (textRight) ex + 4f else ex - 4f).coerceIn(2f, plotW - 2f)
-    label(text, tx, py + AX_SIZE * 0.30f, colorArgb, AX_SIZE * 0.74f,
+    label(text, tx, py + AX_SIZE * 0.32f, colorArgb, AX_SIZE * 0.88f,
         if (textRight) Paint.Align.LEFT else Paint.Align.RIGHT)
 }
 
