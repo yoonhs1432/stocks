@@ -130,20 +130,17 @@ private fun DrawScope.chartBorder() {
     drawRect(Color(0xFFADBAC7), topLeft = Offset(0f, 0f), size = size, style = Stroke(1f))
 }
 
-/** 현재 위치 별표 (흰 채움 + 검정 테두리). app.py symbol='star' size12 line 1.5. */
-private fun DrawScope.star(cx: Float, cy: Float, rOuter: Float) {
-    val rInner = rOuter * 0.42f
-    val p = Path()
-    for (k in 0 until 10) {
-        val rr = if (k % 2 == 0) rOuter else rInner
-        val ang = (-90.0 + k * 36.0) * Math.PI / 180.0
-        val x = cx + (rr * cos(ang)).toFloat()
-        val y = cy + (rr * sin(ang)).toFloat()
-        if (k == 0) p.moveTo(x, y) else p.lineTo(x, y)
+/** 현재 위치 마커 — 마젠타 다이아몬드 + 흰 테두리 (어떤 팔레트 위에서도 또렷). */
+private fun DrawScope.currentMarker(cx: Float, cy: Float, r: Float) {
+    val p = Path().apply {
+        moveTo(cx, cy - r)   // 위
+        lineTo(cx + r, cy)   // 오른
+        lineTo(cx, cy + r)   // 아래
+        lineTo(cx - r, cy)   // 왼
+        close()
     }
-    p.close()
-    drawPath(p, Color.White)
-    drawPath(p, Color.Black, style = Stroke(1.5f))
+    drawPath(p, Color(0xFFFF2BD6))                 // 마젠타 채움
+    drawPath(p, Color.White, style = Stroke(2.5f)) // 흰 테두리
 }
 
 /** 로그축 1-2-5 눈금 시퀀스 (범위 [lo,hi] 내). */
@@ -247,9 +244,9 @@ fun RegressionScatter(
             for ((i, buy) in markIdx) if (i in 0 until n && spyNorm[i] > 0 && tickerNorm[i] > 0) {
                 marker(sx(spyNorm[i]), sy(tickerNorm[i]), buy)
             }
-            // 현재 위치 ★
+            // 현재 위치 — 마젠타 다이아
             val li = n - 1
-            if (spyNorm[li] > 0 && tickerNorm[li] > 0) star(sx(spyNorm[li]), sy(tickerNorm[li]), 14f)
+            if (spyNorm[li] > 0 && tickerNorm[li] > 0) currentMarker(sx(spyNorm[li]), sy(tickerNorm[li]), 13f)
         }
         // 로그축 눈금 (1·2·5·10·20·50·100 …) — x는 하단, y는 좌측
         for (v in log125(Math.pow(10.0, lxLo), Math.pow(10.0, lxHi))) {
@@ -409,9 +406,9 @@ fun ZmScatter(
         for ((idx, buy) in tradeIdx) if (idx in 0 until n) {
             if (!zPct[idx].isNaN() && !mPct[idx].isNaN()) marker(px(zPct[idx]), py(mPct[idx]), buy)
         }
-        // 현재 위치 별표
+        // 현재 위치 — 마젠타 다이아
         val li = n - 1
-        if (!zPct[li].isNaN() && !mPct[li].isNaN()) star(px(zPct[li]), py(mPct[li]), 15f)
+        if (!zPct[li].isNaN() && !mPct[li].isNaN()) currentMarker(px(zPct[li]), py(mPct[li]), 14f)
         chartBorder()
     }
 }
