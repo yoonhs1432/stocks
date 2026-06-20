@@ -151,11 +151,13 @@ fun SettingsScreen() {
                         try {
                             val tradesTxt = Gist.fetchFile(token.trim(), gistId.trim(), Gist.FILE_TRADES)
                             val tickersTxt = Gist.fetchFile(token.trim(), gistId.trim(), Gist.FILE_TICKERS)
-                            if (tradesTxt == null && tickersTxt == null) "실패: 토큰/Gist ID 확인 또는 파일 없음"
+                            val settingsTxt = Gist.fetchFile(token.trim(), gistId.trim(), Gist.FILE_SETTINGS)
+                            if (tradesTxt == null && tickersTxt == null && settingsTxt == null) "실패: 토큰/Gist ID 확인 또는 파일 없음"
                             else {
                                 val nt = tradesTxt?.let { Store.saveTradesFromJson(it) } ?: 0
                                 val nk = tickersTxt?.let { Store.saveTickersFromJson(it) } ?: 0
-                                "완료: 매매 ${nt}종목 · 종목리스트 ${nk}개 불러옴"
+                                val ni = settingsTxt?.let { Store.saveSettingsFromJson(it) } ?: 0
+                                "완료: 매매 ${nt}종목 · 종목 ${nk}개 · 개별 ${ni}개 불러옴"
                             }
                         } catch (e: Exception) {
                             "오류: ${e.message}"
@@ -164,6 +166,8 @@ fun SettingsScreen() {
                     gistMsg = msg
                     busy = false
                     tickers = Store.loadTickers().toList()
+                    nameEdits.clear(); nameEdits.putAll(Store.nameOverrides())
+                    indivVer++   // 개별/ETF 토글 즉시 갱신
                     AppState.bump()
                 }
             },

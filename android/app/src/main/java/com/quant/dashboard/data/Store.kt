@@ -271,4 +271,30 @@ object Store {
         if (out.isNotEmpty()) { saveTickers(out); return out.size }
         return 0
     }
+
+    /** 데스크톱 quant_settings.json → 개별/ETF·이름·시드·차트기간 반영. 개별 종목 수 반환. */
+    fun saveSettingsFromJson(text: String): Int {
+        val obj = JSONObject(text)
+        val s = settings()
+        var nIndiv = 0
+        // 개별 종목 (individual_tickers) → ETF/개별 구분
+        obj.optJSONArray("individual_tickers")?.let { arr ->
+            val set = ArrayList<String>()
+            for (i in 0 until arr.length()) arr.optString(i, "").trim().uppercase()
+                .takeIf { it.isNotEmpty() }?.let { set.add(it) }
+            s.put("individual", JSONArray(set)); nIndiv = set.size
+        }
+        // 종목 표시명 (display_name_overrides)
+        obj.optJSONObject("display_name_overrides")?.let { names ->
+            val out = JSONObject()
+            for (k in names.keys()) names.optString(k, "").takeIf { it.isNotBlank() }
+                ?.let { out.put(k.trim().uppercase(), it) }
+            s.put("names", out)
+        }
+        // 시드 / 차트 조회기간 (있으면)
+        if (obj.has("seed_usd")) obj.optDouble("seed_usd", 0.0).takeIf { it > 0 }?.let { s.put("seed", it) }
+        if (obj.has("view_months")) obj.optInt("view_months", 0).takeIf { it > 0 }?.let { s.put("chart_months", it) }
+        saveSettings(s)
+        return nIndiv
+    }
 }

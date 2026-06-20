@@ -11,6 +11,7 @@ import java.net.URL
 object Gist {
     const val FILE_TRADES = "quant_trade_history.json"
     const val FILE_TICKERS = "quant_target_tickers.json"
+    const val FILE_SETTINGS = "quant_settings.json"
 
     /** Gist 내 파일 content 반환. 실패 시 null. IO 디스패처에서 호출. */
     fun fetchFile(token: String, gistId: String, filename: String): String? {
