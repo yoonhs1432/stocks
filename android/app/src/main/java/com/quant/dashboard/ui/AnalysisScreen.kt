@@ -290,12 +290,12 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
         if (cd != null) { opens[i] = cd.open; highs[i] = cd.high; lows[i] = cd.low; closes[i] = cd.close }
         else { opens[i] = Double.NaN; highs[i] = Double.NaN; lows[i] = Double.NaN; closes[i] = Double.NaN }
     }
-    val priceLbl = Tickers.priceLabel(ticker, r.lastPrice)
     if (closes.any { !it.isNaN() }) {
         CandleChart(opens, highs, lows, closes,
             segDollar(r.predicted), segDollar(r.bandUpper), segDollar(r.bandLower),
             markers = priceMarks, arrows = arrows,
-            currency = Tickers.currencySymbol(ticker), topLabel = priceLbl)
+            currency = Tickers.currencySymbol(ticker), topLabel = "",
+            dates = dates, dailyChgPct = dayPct ?: Double.NaN)
     } else {
         PriceChart(segDollar(r.tickerNorm), segDollar(r.predicted), segDollar(r.bandUpper), segDollar(r.bandLower),
             markers = priceMarks, arrows = arrows, currency = Tickers.currencySymbol(ticker))
