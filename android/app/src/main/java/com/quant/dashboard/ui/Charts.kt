@@ -346,10 +346,13 @@ fun RegressionScatter(
             for ((i, buy) in markIdx) if (i in 0 until n && spyNorm[i] > 0 && tickerNorm[i] > 0) {
                 marker(sx(spyNorm[i]), sy(tickerNorm[i]), buy)
             }
-            // 현재 위치 — 흰 링(중공)
+            // 현재 위치 — 어두운 후광 + 흰 링 + 마젠타 중심(또렷하게)
             val li = n - 1
             if (spyNorm[li] > 0 && tickerNorm[li] > 0) {
-                drawCircle(Color.White, 7f, Offset(sx(spyNorm[li]), sy(tickerNorm[li])), style = Stroke(2.5f))
+                val o = Offset(sx(spyNorm[li]), sy(tickerNorm[li]))
+                drawCircle(Color(0xCC0C0E11), 13f, o)
+                drawCircle(Color.White, 11f, o, style = Stroke(3f))
+                drawCircle(Color(0xFFFF2BD6), 5.5f, o)
             }
         }
     }

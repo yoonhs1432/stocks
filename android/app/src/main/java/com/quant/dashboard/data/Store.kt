@@ -112,7 +112,11 @@ object Store {
             try {
                 val arr = JSONObject(file.readText()).getJSONArray("tickers")
                 val out = ArrayList<String>()
-                for (i in 0 until arr.length()) out.add(arr.getString(i))
+                val seen = HashSet<String>()
+                for (i in 0 until arr.length()) {
+                    val t = arr.getString(i)
+                    if (seen.add(t.uppercase())) out.add(t)   // 대소문자 무시 중복 제거
+                }
                 if (out.isNotEmpty()) return out
             } catch (e: Exception) {}
         }
