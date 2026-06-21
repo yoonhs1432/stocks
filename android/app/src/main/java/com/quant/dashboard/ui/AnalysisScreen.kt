@@ -170,6 +170,8 @@ private fun TickerPill(tk: String, row: com.quant.dashboard.data.OverviewRepo.Ro
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(3.dp),
     ) {
+        // 좌측 컬러 액센트 (M: 저=빨강 / 고=파랑)
+        if (row != null) Box(Modifier.size(3.dp, 16.dp).clip(RoundedCornerShape(2.dp)).background(pctColor(row.mPct)))
         // 상태 점: 보유=금색 채움 / 이력=금색 링 / 관심=없음
         StatusDot(when { row?.holding == true -> 2; row?.hasHistory == true -> 1; else -> 0 })
         Text(Tickers.displayName(tk), color = TextPrimary, fontSize = 11.sp,
