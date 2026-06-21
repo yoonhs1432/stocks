@@ -125,8 +125,8 @@ private fun ResultBody(r: Portfolio.Result, rate: Double) {
 
         // 보유 비중 100% 스택바
         if (evalSum > 0 && r.holdings.isNotEmpty()) {
-            Row(Modifier.fillMaxWidth().height(10.dp).padding(top = 10.dp)
-                .clip(RoundedCornerShape(5.dp))) {
+            Spacer(Modifier.height(10.dp))
+            Row(Modifier.fillMaxWidth().height(10.dp).clip(RoundedCornerShape(5.dp))) {
                 r.holdings.forEachIndexed { i, h ->
                     Box(Modifier.weight((h.eval / evalSum).toFloat().coerceAtLeast(0.001f))
                         .fillMaxHeight().background(ident(i)))
@@ -188,7 +188,7 @@ private fun ResultBody(r: Portfolio.Result, rate: Double) {
         var unit by remember { mutableStateOf(Store.equityUnit()) }
         val months = Store.equityMonths()
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            Text("자산 추이 (누적손익, 만원·최근 ${months}개월)", color = TextSecondary, fontSize = 12.sp,
+            Text("자산 추이 (누적손익) · ${months}개월", color = TextSecondary, fontSize = 12.sp,
                 modifier = Modifier.weight(1f))
             Row(Modifier.clip(RoundedCornerShape(8.dp)).background(SurfaceInput).padding(2.dp),
                 horizontalArrangement = Arrangement.spacedBy(2.dp)) {

@@ -88,29 +88,27 @@ fun AnalysisScreen(vm: AnalysisViewModel = viewModel()) {
             .verticalScroll(rememberScrollState()).padding(8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        // ── 세그먼트 필터(전체/ETF/개별) + 직접입력 + refresh (한 줄) ──
+        // ── 세그먼트 필터(전체/ETF/개별/직접입력) + refresh (한 줄) ──
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(Modifier.weight(1f).clip(RoundedCornerShape(9.dp)).background(SurfaceInput).padding(2.dp),
                 horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                listOf("전체", "ETF", "개별").forEach { f ->
-                    val on = filter == f
+                listOf("전체", "ETF", "개별", "직접입력").forEach { f ->
+                    val on = if (f == "직접입력") diOpen else (!diOpen && filter == f)
                     Box(
                         Modifier.weight(1f).clip(RoundedCornerShape(7.dp))
                             .background(if (on) SegmentOn else Color.Transparent)
-                            .clickable { filter = f }.padding(vertical = 6.dp),
+                            .clickable {
+                                if (f == "직접입력") diOpen = !diOpen
+                                else { filter = f; diOpen = false }
+                            }.padding(vertical = 6.dp),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Text(f, color = if (on) TextPrimary else TextMuted, fontSize = 12.sp,
-                            fontWeight = if (on) FontWeight.Bold else FontWeight.Normal)
+                        Text(f, color = if (on) TextPrimary else TextMuted, fontSize = 11.sp,
+                            maxLines = 1, fontWeight = if (on) FontWeight.Bold else FontWeight.Normal)
                     }
                 }
             }
-            Box(
-                Modifier.clip(RoundedCornerShape(8.dp))
-                    .background(if (diOpen) SegmentOn else SurfaceInput)
-                    .clickable { diOpen = !diOpen }.padding(horizontal = 9.dp, vertical = 7.dp),
-            ) { Text("⌨", fontSize = 13.sp) }
             Box(
                 Modifier.clip(RoundedCornerShape(8.dp)).background(SurfaceInput)
                     .clickable { vm.refresh() }.padding(horizontal = 9.dp, vertical = 7.dp),

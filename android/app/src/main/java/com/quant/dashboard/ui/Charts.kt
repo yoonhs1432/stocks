@@ -666,7 +666,7 @@ fun ScatterChart(
 fun DateAxis(datesEpochSec: LongArray, modifier: Modifier = Modifier) {
     val n = datesEpochSec.size
     if (n < 2) return
-    val fmt = SimpleDateFormat("yy/MM/dd", Locale.US)
+    val fmt = SimpleDateFormat("yy/MM", Locale.US)
     fun d(i: Int) = fmt.format(Date(datesEpochSec[i] * 1000L))
     Row(modifier = modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
         androidx.compose.material3.Text(d(0), color = TextSecondary, fontSize = 10.sp, fontWeight = FontWeight.Normal)

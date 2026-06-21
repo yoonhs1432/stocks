@@ -1,5 +1,6 @@
 package com.quant.dashboard.ui
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -11,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Scaffold
@@ -23,7 +25,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -39,14 +44,12 @@ import com.quant.dashboard.ui.theme.Profit
 import com.quant.dashboard.ui.theme.TabActive
 import com.quant.dashboard.ui.theme.TabInactive
 import com.quant.dashboard.ui.theme.TextSecondary
+import kotlin.math.cos
+import kotlin.math.sin
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-private data class Tab(val emoji: String, val label: String)
-
-private val TABS = listOf(
-    Tab("📊", "분석"), Tab("🗺️", "비교"), Tab("💼", "포트폴리오"), Tab("⚙️", "설정"),
-)
+private val TAB_LABELS = listOf("분석", "비교", "포트폴리오", "설정")
 
 /**
  * 앱 전역 상태 — 기준일(As-of)·설정 변경 시 모든 탭이 자동으로 데이터를 다시 로드하도록
@@ -98,17 +101,63 @@ private fun TabBar(current: Int, onSelect: (Int) -> Unit) {
         Row(
             Modifier.fillMaxWidth().background(BgElevated).padding(vertical = 7.dp),
         ) {
-            TABS.forEachIndexed { i, t ->
+            TAB_LABELS.forEachIndexed { i, label ->
                 val on = current == i
                 val c = if (on) TabActive else TabInactive
                 Column(
                     Modifier.weight(1f).clickable { onSelect(i) },
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                    verticalArrangement = Arrangement.spacedBy(3.dp),
                 ) {
-                    Text(t.emoji, fontSize = 17.sp)
-                    Text(t.label, fontSize = 11.sp, color = c,
+                    TabIcon(i, c)
+                    Text(label, fontSize = 11.sp, color = c,
                         fontWeight = if (on) FontWeight.Bold else FontWeight.Normal)
+                }
+            }
+        }
+    }
+}
+
+/** 단색 라인 탭 아이콘 (0=막대 / 1=산점 / 2=서류가방 / 3=톱니). */
+@Composable
+private fun TabIcon(index: Int, color: Color) {
+    Canvas(Modifier.size(22.dp)) {
+        val w = size.width; val h = size.height
+        when (index) {
+            0 -> {  // 막대 차트
+                val bw = w * 0.17f; val bottom = h * 0.84f
+                val cols = listOf(0.24f to 0.42f, 0.5f to 0.62f, 0.76f to 0.84f)
+                for ((cx, hh) in cols) {
+                    val top = bottom - h * hh
+                    drawRect(color, topLeft = Offset(w * cx - bw / 2, top), size = Size(bw, bottom - top))
+                }
+            }
+            1 -> {  // 산점도 점
+                val r = w * 0.08f
+                for ((px, py) in listOf(0.3f to 0.36f, 0.62f to 0.5f, 0.42f to 0.7f, 0.74f to 0.3f)) {
+                    drawCircle(color, r, Offset(w * px, h * py))
+                }
+            }
+            2 -> {  // 서류가방
+                val sw = w * 0.085f
+                drawRoundRect(color, topLeft = Offset(w * 0.14f, h * 0.38f),
+                    size = Size(w * 0.72f, h * 0.46f),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * 0.08f),
+                    style = Stroke(sw))
+                drawRoundRect(color, topLeft = Offset(w * 0.37f, h * 0.26f),
+                    size = Size(w * 0.26f, h * 0.16f),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * 0.05f),
+                    style = Stroke(sw))
+            }
+            else -> {  // 톱니바퀴
+                val cx = w / 2; val cy = h / 2; val sw = w * 0.085f
+                drawCircle(color, w * 0.27f, Offset(cx, cy), style = Stroke(sw))
+                drawCircle(color, w * 0.1f, Offset(cx, cy))
+                for (k in 0 until 8) {
+                    val a = Math.PI / 4 * k
+                    val c1 = Offset((cx + w * 0.27f * cos(a)).toFloat(), (cy + w * 0.27f * sin(a)).toFloat())
+                    val c2 = Offset((cx + w * 0.42f * cos(a)).toFloat(), (cy + w * 0.42f * sin(a)).toFloat())
+                    drawLine(color, c1, c2, sw)
                 }
             }
         }
