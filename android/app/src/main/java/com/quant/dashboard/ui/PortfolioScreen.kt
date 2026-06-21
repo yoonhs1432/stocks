@@ -137,16 +137,17 @@ private fun ResultBody(r: Portfolio.Result, rate: Double) {
 
         // 보유 목록
         r.holdings.forEachIndexed { i, h ->
-            Row(Modifier.fillMaxWidth().padding(top = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().padding(top = 7.dp), verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.size(8.dp).clip(RoundedCornerShape(50)).background(ident(i)))
-                Spacer(Modifier.size(6.dp))
+                Spacer(Modifier.size(7.dp))
                 Text(h.name, color = TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, fontFamily = Mono)
                 Spacer(Modifier.size(6.dp))
                 Text("${h.qty}주", color = TextMuted, fontSize = 11.sp, fontFamily = Mono, modifier = Modifier.weight(1f))
-                Text(wonAbs(h.eval, rate), color = TextPrimary, fontSize = 12.sp, fontFamily = Mono)
-                Spacer(Modifier.size(8.dp))
-                Text("${if (h.retPct >= 0) "+" else ""}${"%.1f".format(h.retPct)}%",
-                    color = pc(h.pnl), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, fontFamily = Mono)
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(wonAbs(h.eval, rate), color = TextPrimary, fontSize = 12.5.sp, fontFamily = Mono)
+                    Text("${if (h.retPct >= 0) "+" else ""}${"%.2f".format(h.retPct)}%",
+                        color = pc(h.pnl), fontSize = 11.sp, fontWeight = FontWeight.SemiBold, fontFamily = Mono)
+                }
             }
         }
     }
@@ -168,7 +169,12 @@ private fun ResultBody(r: Portfolio.Result, rate: Double) {
 
         // 종목별 실현손익 — 다이버징 막대 (이익 오른쪽 빨강 / 손실 왼쪽 파랑)
         if (r.realized.isNotEmpty()) {
-            Text("종목별 실현손익", color = TextMuted, fontSize = 11.sp, modifier = Modifier.padding(top = 8.dp))
+            Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("종목별 실현손익", color = TextMuted, fontSize = 11.sp, modifier = Modifier.weight(1f))
+                Text("◀ 손실", color = Loss, fontSize = 10.sp)
+                Spacer(Modifier.size(8.dp))
+                Text("이익 ▶", color = Profit, fontSize = 10.sp)
+            }
             val maxAbs = r.realized.maxOf { kotlin.math.abs(it.realized) }.coerceAtLeast(1e-9)
             r.realized.forEach { rz ->
                 DivergingBar(rz.name, rz.realized, (kotlin.math.abs(rz.realized) / maxAbs).toFloat(),

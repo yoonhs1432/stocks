@@ -53,6 +53,7 @@ import com.quant.dashboard.ui.theme.Neutral
 import com.quant.dashboard.ui.theme.Profit
 import com.quant.dashboard.ui.theme.SegmentOn
 import com.quant.dashboard.ui.theme.SurfaceInput
+import com.quant.dashboard.ui.theme.Teal
 import com.quant.dashboard.ui.theme.TextMuted
 import com.quant.dashboard.ui.theme.TextPrimary
 import com.quant.dashboard.ui.theme.TextSecondary
@@ -218,10 +219,12 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
     ) {
         Text(Tickers.displayName(ticker), color = Profit,
             fontSize = 22.sp, fontWeight = FontWeight.Bold, fontFamily = Mono)
-        Text("σ±%.0f%%".format(r.sigmaPct), color = TextSecondary, fontSize = 11.sp, fontFamily = Mono)
-        Text("β·SPY %.1f×".format(r.beta), color = TextSecondary, fontSize = 11.sp, fontFamily = Mono)
-        Text("Z %.0f".format(r.lastZpct), color = pctColor(r.lastZpct), fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = Mono)
-        Text("M %.0f".format(r.lastMpct), color = pctColor(r.lastMpct), fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = Mono)
+        dayPct?.let {
+            Text("${if (it >= 0) "+" else ""}${"%.1f%%".format(it)}",
+                color = if (it > 0) Profit else if (it < 0) Loss else Neutral,
+                fontSize = 13.sp, fontWeight = FontWeight.Bold, fontFamily = Mono)
+        }
+        Text("σ±%.0f%% · β %.1f".format(r.sigmaPct, r.beta), color = TextSecondary, fontSize = 11.sp, fontFamily = Mono)
     }
 
     // ── 정보 카드 (현재가/평균단가/보유) ──
@@ -309,13 +312,15 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
         }
     }
     // ① 회귀 산점도 — 전체 분석기간(조회기간 미적용)
-    Text("회귀 산점도 (SPY 대비) · 분석기간", color = TextSecondary, fontSize = 11.sp)
-    RegressionScatter(r.spyNorm, r.tickerNorm, r.predicted,
-        r.bandUpper, r.bandLower, r.beta, markIdx = scatterIdx)
+    ChartCard("회귀 산점도", "SPY 대비", "β ${"%.2f".format(r.beta)}", Profit) {
+        RegressionScatter(r.spyNorm, r.tickerNorm, r.predicted,
+            r.bandUpper, r.bandLower, r.beta, markIdx = scatterIdx)
+    }
 
     // ② Z·M 궤적 — 전체 분석기간(조회기간 미적용)
-    Text("Z·M 궤적 (Turbo 시간색, ★ 현재) · 분석기간", color = TextSecondary, fontSize = 11.sp)
-    ZmScatter(r.zPct, r.mPct, scatterIdx)
+    ChartCard("Z·M 궤적", "시간색 · ● 현재") {
+        ZmScatter(r.zPct, r.mPct, scatterIdx)
+    }
 
     // ③ 가격 캔들
     val candleByDay = remember(ohlc) { ohlc.associateBy { it.t / 86400L } }
@@ -327,31 +332,59 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
         if (cd != null) { opens[i] = cd.open; highs[i] = cd.high; lows[i] = cd.low; closes[i] = cd.close }
         else { opens[i] = Double.NaN; highs[i] = Double.NaN; lows[i] = Double.NaN; closes[i] = Double.NaN }
     }
-    if (closes.any { !it.isNaN() }) {
-        CandleChart(opens, highs, lows, closes,
-            segDollar(r.predicted), segDollar(r.bandUpper), segDollar(r.bandLower),
-            markers = priceMarks, arrows = arrows,
-            currency = Tickers.currencySymbol(ticker), topLabel = "",
-            dates = dates, dailyChgPct = dayPct ?: Double.NaN)
-    } else {
-        PriceChart(segDollar(r.tickerNorm), segDollar(r.predicted), segDollar(r.bandUpper), segDollar(r.bandLower),
-            markers = priceMarks, arrows = arrows, currency = Tickers.currencySymbol(ticker))
+    ChartCard("가격 · 일봉", value = Tickers.priceLabel(ticker, r.lastPrice)) {
+        if (closes.any { !it.isNaN() }) {
+            CandleChart(opens, highs, lows, closes,
+                segDollar(r.predicted), segDollar(r.bandUpper), segDollar(r.bandLower),
+                markers = priceMarks, arrows = arrows,
+                currency = Tickers.currencySymbol(ticker), topLabel = "",
+                dates = dates, dailyChgPct = dayPct ?: Double.NaN)
+        } else {
+            PriceChart(segDollar(r.tickerNorm), segDollar(r.predicted), segDollar(r.bandUpper), segDollar(r.bandLower),
+                markers = priceMarks, arrows = arrows, currency = Tickers.currencySymbol(ticker))
+        }
     }
 
-    // ④ Z+M 라인
-    ZmChart(seg(r.zPct), seg(r.mPct), zmMarks,
-        topLabel = "Z ${"%.0f".format(r.lastZpct)} · M ${"%.0f".format(r.lastMpct)}")
+    // ④ Z·M 오실레이터
+    ChartCard("Z ${"%.0f".format(r.lastZpct)} · M ${"%.0f".format(r.lastMpct)}", "Z 빨강 · M 회색") {
+        ZmChart(seg(r.zPct), seg(r.mPct), zmMarks)
+    }
 
     // ⑤ MACD
     val macdW = seg(r.macd); val sigW = seg(r.macdSignal)
     val macdLast = macdW.lastOrNull { !it.isNaN() } ?: 0.0
     val sigLast = sigW.lastOrNull { !it.isNaN() } ?: 0.0
-    MacdChart(macdW, sigW, topLabel = "${"%.2f".format(sigLast)} (${"%+.2f".format(macdLast - sigLast)})")
+    ChartCard("MACD", "● MACD · ● Signal",
+        "${"%.2f".format(macdLast)} (${"%+.2f".format(macdLast - sigLast)})") {
+        MacdChart(macdW, sigW)
+    }
 
     // ⑥ RSI
-    RsiChart(seg(r.rsi), topLabel = "RSI ${"%.1f".format(r.rsi.lastOrNull { !it.isNaN() } ?: 50.0)}")
+    val rsiLast = r.rsi.lastOrNull { !it.isNaN() } ?: 50.0
+    ChartCard("RSI", value = "%.1f".format(rsiLast), valueColor = Teal) {
+        RsiChart(seg(r.rsi))
+        DateAxis(dates)
+    }
+}
 
-    DateAxis(dates)
+/** 차트 카드 — 헤더(제목/부제 + 우측 값) + 플롯. */
+@Composable
+private fun ChartCard(title: String, sub: String = "", value: String = "",
+                      valueColor: Color = TextSecondary, content: @Composable () -> Unit) {
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(BgCard)
+            .border(1.dp, BorderColor, RoundedCornerShape(14.dp)).padding(10.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(title, color = TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.Bold, fontFamily = Mono)
+            if (sub.isNotEmpty()) Text("  $sub", color = TextMuted, fontSize = 11.sp)
+            Spacer(Modifier.weight(1f))
+            if (value.isNotEmpty()) Text(value, color = valueColor, fontSize = 12.sp,
+                fontWeight = FontWeight.Bold, fontFamily = Mono)
+        }
+        content()
+    }
 }
 
 @Composable
