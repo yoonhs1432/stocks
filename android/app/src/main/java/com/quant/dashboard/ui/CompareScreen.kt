@@ -1,42 +1,55 @@
 package com.quant.dashboard.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.quant.dashboard.ui.theme.BgApp
-import com.quant.dashboard.ui.theme.Loss
 import com.quant.dashboard.data.Tickers
+import com.quant.dashboard.ui.theme.BgApp
+import com.quant.dashboard.ui.theme.BorderColor
+import com.quant.dashboard.ui.theme.Gold
+import com.quant.dashboard.ui.theme.Loss
+import com.quant.dashboard.ui.theme.Mono
+import com.quant.dashboard.ui.theme.Profit
+import com.quant.dashboard.ui.theme.SurfaceInput
 import com.quant.dashboard.ui.theme.TextPrimary
 import com.quant.dashboard.ui.theme.TextSecondary
 import com.quant.dashboard.ui.theme.pctColor
 
-// app.py _pn: 상승=빨강 / 하락=파랑 / 0=회색(#a4adb8)
+// 한국식: 상승=빨강 / 하락=파랑 / 0=회색
 private val TableGray = Color(0xFFA4ADB8)
 private fun pnColor(v: Double) = when {
-    v > 0 -> Color(0xFFDC2626); v < 0 -> Color(0xFF2563EB); else -> TableGray
+    v > 0 -> Profit; v < 0 -> Loss; else -> TableGray
 }
-// app.py 비교표 Z/M 색: ≥80 파랑(매도) / ≤20 빨강(매수) / 그 외 회색
-private fun zmCellColor(pct: Double) = when {
-    pct >= 80 -> Color(0xFF2563EB); pct <= 20 -> Color(0xFFDC2626); else -> TableGray
+// Z 셀: ≥80 파랑(매도) / ≤20 빨강(매수) / 그 외 회색
+private fun zCellColor(pct: Double) = when {
+    pct >= 80 -> Loss; pct <= 20 -> Profit; else -> TableGray
 }
 
 @Composable
@@ -49,7 +62,7 @@ fun CompareScreen(vm: CompareViewModel = viewModel()) {
             .verticalScroll(rememberScrollState()).padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Text("🗺️ 종목 비교", color = TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        Text("종목 비교", color = TextPrimary, fontSize = 19.sp, fontWeight = FontWeight.Bold)
 
         when {
             s.loading -> Row(Modifier.fillMaxWidth().padding(24.dp), Arrangement.Center) {
@@ -57,29 +70,31 @@ fun CompareScreen(vm: CompareViewModel = viewModel()) {
             }
             s.error != null -> Text("⚠️ ${s.error}", color = Loss)
             else -> {
-                Row(Modifier.fillMaxWidth()) {
+                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(SurfaceInput)
+                    .padding(vertical = 5.dp, horizontal = 2.dp)) {
                     HCell(vm, "종목", SortKey.NAME, 2.2f, TextAlign.Start)
                     HCell(vm, "현재가", SortKey.PRICE, 2f)
                     HCell(vm, "일", SortKey.DAY, 1.4f)
                     HCell(vm, "주", SortKey.WEEK, 1.4f)
                     HCell(vm, "Z", SortKey.Z, 1f)
-                    HCell(vm, "M", SortKey.M, 1f)
+                    HCell(vm, "M▲", SortKey.M, 1f)
                     HCell(vm, "전고", SortKey.FROM_HIGH, 1.6f)
                 }
-                vm.sorted().forEach { r ->
-                    Row(Modifier.fillMaxWidth()) {
-                        Cell((if (r.holding) "★" else if (r.hasHistory) "☆" else "") + r.name,
-                            2.2f, TextPrimary, TextAlign.Start, FontWeight.SemiBold)
+                vm.sorted().forEachIndexed { idx, r ->
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 2.dp, vertical = 3.dp)) {
+                        DotName((if (r.holding) 2 else if (r.hasHistory) 1 else 0), r.name, 2.2f)
                         Cell(Tickers.priceLabel(r.ticker, r.price), 2f, TextPrimary)
                         Cell(signed(r.day), 1.4f, pnColor(r.day))
                         Cell(signed(r.week), 1.4f, pnColor(r.week))
-                        Cell("%.0f".format(r.zPct), 1f, zmCellColor(r.zPct))
-                        Cell("%.0f".format(r.mPct), 1f, zmCellColor(r.mPct))
+                        Cell("%.0f".format(r.zPct), 1f, zCellColor(r.zPct))
+                        Cell("%.0f".format(r.mPct), 1f, Gold, fw = FontWeight.Bold)
                         Cell("%.1f%%".format(r.fromHigh), 1.6f,
-                            if (r.fromHigh >= -3) Color(0xFFDC2626) else if (r.fromHigh >= -15) TableGray else Color(0xFF2563EB))
+                            if (r.fromHigh >= -3) Profit else if (r.fromHigh >= -50) TableGray else Loss)
                     }
+                    if (idx < vm.sorted().lastIndex)
+                        Box(Modifier.fillMaxWidth().height(1.dp).background(BorderColor))
                 }
-                Text("헤더를 눌러 정렬 · 색: 매수=빨강 / 매도=파랑",
+                Text("● 보유 / ○ 이력 · 헤더 탭=정렬 · 색: 매수 빨강·매도 파랑",
                     color = TextSecondary, fontSize = 11.sp)
 
                 // ── Z·M 사분면 (전 종목 현재 위치) ──
@@ -126,18 +141,33 @@ fun CompareScreen(vm: CompareViewModel = viewModel()) {
 @Composable
 private fun RowScope.HCell(vm: CompareViewModel, text: String, key: SortKey, weight: Float, align: TextAlign = TextAlign.End) {
     val s = vm.state
-    val mark = if (s.sortKey == key) (if (s.sortDesc) " ▼" else " ▲") else ""
+    val on = s.sortKey == key
+    val mark = if (on) (if (s.sortDesc) " ▼" else " ▲") else ""
     Text(
-        text + mark, color = TextSecondary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold,
-        textAlign = align,
+        text + mark, color = if (on) TextPrimary else TextSecondary, fontSize = 11.sp,
+        fontWeight = FontWeight.SemiBold, textAlign = align,
         modifier = Modifier.weight(weight).clickable { vm.setSort(key) },
     )
 }
 
 @Composable
 private fun RowScope.Cell(text: String, weight: Float, color: Color, align: TextAlign = TextAlign.End, fw: FontWeight = FontWeight.Normal) {
-    Text(text, color = color, fontSize = 12.sp, textAlign = align, fontWeight = fw,
-        modifier = Modifier.weight(weight))
+    Text(text, color = color, fontSize = 11.5.sp, textAlign = align, fontWeight = fw,
+        fontFamily = Mono, modifier = Modifier.weight(weight))
+}
+
+/** 종목 셀 — 상태 점(보유=금채움/이력=금링) + 티커(모노). */
+@Composable
+private fun RowScope.DotName(state: Int, name: String, weight: Float) {
+    Row(Modifier.weight(weight), verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        if (state == 0) Spacer(Modifier.size(6.dp)) else Box(
+            Modifier.size(6.dp).clip(RoundedCornerShape(50))
+                .then(if (state == 2) Modifier.background(Gold)
+                else Modifier.border(1.3.dp, Gold, RoundedCornerShape(50))),
+        )
+        Text(name, color = TextPrimary, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, fontFamily = Mono)
+    }
 }
 
 private fun signed(v: Double) = (if (v >= 0) "+" else "") + "%.1f%%".format(v)

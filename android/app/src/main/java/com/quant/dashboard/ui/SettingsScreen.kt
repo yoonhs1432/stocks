@@ -42,8 +42,11 @@ import com.quant.dashboard.data.Gist
 import com.quant.dashboard.data.Store
 import com.quant.dashboard.ui.theme.BgApp
 import com.quant.dashboard.ui.theme.BorderColor
+import com.quant.dashboard.ui.theme.DividerColor
 import com.quant.dashboard.ui.theme.Loss
 import com.quant.dashboard.ui.theme.Profit
+import com.quant.dashboard.ui.theme.SegmentOn
+import com.quant.dashboard.ui.theme.SurfaceInput
 import com.quant.dashboard.ui.theme.TextPrimary
 import com.quant.dashboard.ui.theme.TextSecondary
 import kotlinx.coroutines.Dispatchers
@@ -55,9 +58,9 @@ private val RANGES = listOf("6개월" to "6mo", "1년" to "1y", "2년" to "2y")
 
 @Composable
 private fun SectionHeader(title: String) {
-    Text(title, color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold,
-        modifier = Modifier.padding(top = 12.dp, bottom = 1.dp))
-    Box(Modifier.fillMaxWidth().height(1.dp).background(BorderColor))
+    Text(title, color = Profit, fontSize = 14.sp, fontWeight = FontWeight.Bold,
+        modifier = Modifier.padding(top = 14.dp, bottom = 3.dp))
+    Box(Modifier.fillMaxWidth().height(1.dp).background(DividerColor))
 }
 
 @Composable
@@ -249,7 +252,7 @@ private fun RowScope.TickerCell(
                 maxLines = 1, modifier = Modifier.weight(1f))
             Box(
                 Modifier.clip(RoundedCornerShape(6.dp))
-                    .background(if (indiv) Profit else Color(0xFF30363D))
+                    .background(if (indiv) Profit else SegmentOn)
                     .clickable { onToggle() }
                     .padding(horizontal = 12.dp, vertical = 6.dp),
             ) { Text(if (indiv) "개별" else "ETF", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold) }
@@ -261,7 +264,7 @@ private fun RowScope.TickerCell(
                 value = nameValue, onValueChange = onName, singleLine = true,
                 textStyle = TextStyle(color = TextPrimary, fontSize = 11.sp),
                 cursorBrush = SolidColor(TextPrimary),
-                modifier = Modifier.weight(1f).background(Color(0xFF0D1117), RoundedCornerShape(4.dp))
+                modifier = Modifier.weight(1f).background(SurfaceInput, RoundedCornerShape(4.dp))
                     .padding(horizontal = 6.dp, vertical = 6.dp),
                 decorationBox = { inner ->
                     Box(Modifier.fillMaxWidth()) {
