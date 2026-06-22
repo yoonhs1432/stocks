@@ -144,6 +144,22 @@ private fun DrawScope.currentMarker(cx: Float, cy: Float, r: Float) {
     drawPath(p, Color.White, style = Stroke(2.5f)) // 흰 테두리
 }
 
+/** 큰 마젠타 별 — 산점도 현재 위치(잘 보이게). 어두운 후광 + 마젠타 채움 + 흰 외곽. */
+private fun DrawScope.starMarker(cx: Float, cy: Float, rOuter: Float = 18f) {
+    val rInner = rOuter * 0.44f
+    val p = Path()
+    for (k in 0 until 10) {
+        val rr = if (k % 2 == 0) rOuter else rInner
+        val a = -Math.PI / 2 + k * Math.PI / 5
+        val x = (cx + rr * cos(a)).toFloat(); val y = (cy + rr * sin(a)).toFloat()
+        if (k == 0) p.moveTo(x, y) else p.lineTo(x, y)
+    }
+    p.close()
+    drawCircle(Color(0xB30C0E11), rOuter + 3f, Offset(cx, cy))   // 어두운 후광(대비)
+    drawPath(p, Color(0xFFFF2BD6))                               // 마젠타 채움
+    drawPath(p, Color.White, style = Stroke(2.2f))               // 흰 외곽
+}
+
 // ── 증권앱 스타일 공용 (우측 축·펜넌트·크로스 화살표·십자선) ──
 private const val RIGHT_PAD = 152f   // 우측 축 라벨 + 펜넌트 공간
 private const val FLAG_W = 118f
@@ -346,13 +362,10 @@ fun RegressionScatter(
             for ((i, buy) in markIdx) if (i in 0 until n && spyNorm[i] > 0 && tickerNorm[i] > 0) {
                 marker(sx(spyNorm[i]), sy(tickerNorm[i]), buy)
             }
-            // 현재 위치 — 어두운 후광 + 흰 링 + 마젠타 중심(또렷하게)
+            // 현재 위치 — 큰 마젠타 별
             val li = n - 1
             if (spyNorm[li] > 0 && tickerNorm[li] > 0) {
-                val o = Offset(sx(spyNorm[li]), sy(tickerNorm[li]))
-                drawCircle(Color(0xCC0C0E11), 13f, o)
-                drawCircle(Color.White, 11f, o, style = Stroke(3f))
-                drawCircle(Color(0xFFFF2BD6), 5.5f, o)
+                starMarker(sx(spyNorm[li]), sy(tickerNorm[li]))
             }
         }
     }
@@ -486,12 +499,10 @@ fun ZmScatter(
         for ((idx, buy) in tradeIdx) if (idx in 0 until n) {
             if (!zPct[idx].isNaN() && !mPct[idx].isNaN()) marker(px(zPct[idx]), py(mPct[idx]), buy)
         }
-        // 현재 위치 — 흰 점
+        // 현재 위치 — 큰 마젠타 별
         val li = n - 1
         if (!zPct[li].isNaN() && !mPct[li].isNaN()) {
-            val o = Offset(px(zPct[li]), py(mPct[li]))
-            drawCircle(Color.White, 6f, o)
-            drawCircle(Color(0xFF15181D), 6f, o, style = Stroke(1.5f))
+            starMarker(px(zPct[li]), py(mPct[li]))
         }
     }
 }
