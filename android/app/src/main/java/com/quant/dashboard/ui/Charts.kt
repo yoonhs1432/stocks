@@ -486,7 +486,7 @@ fun ZmChart(zPct: DoubleArray, mPct: DoubleArray, markers: List<Mark> = emptyLis
         }
         clipRect(0f, 0f, size.width, size.height) {
             poly(zPct, ::xAt, ::yAt, Color(0xFFEF6066), 2f)        // Z 빨강
-            poly(mPct, ::xAt, ::yAt, Color(0xFFC9C5BB), 1.5f)      // M 회색
+            poly(mPct, ::xAt, ::yAt, Color(0xFFFFD24D), 1.7f)      // M 노랑
             for (m in markers) if (m.x in 0 until n) marker(xAt(m.x), yAt(m.y), m.buy)
         }
     }

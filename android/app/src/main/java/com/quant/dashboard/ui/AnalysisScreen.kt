@@ -346,7 +346,7 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
     }
 
     // ④ Z·M 오실레이터
-    ChartCard("Z ${"%.0f".format(r.lastZpct)} · M ${"%.0f".format(r.lastMpct)}", "Z 빨강 · M 회색") {
+    ChartCard("Z ${"%.0f".format(r.lastZpct)} · M ${"%.0f".format(r.lastMpct)}", "Z 빨강 · M 노랑") {
         ZmChart(seg(r.zPct), seg(r.mPct), zmMarks)
     }
 
