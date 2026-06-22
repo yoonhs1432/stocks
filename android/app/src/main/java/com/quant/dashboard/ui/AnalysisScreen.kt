@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -83,98 +84,112 @@ fun AnalysisScreen(vm: AnalysisViewModel = viewModel()) {
     var diOpen by remember { mutableStateOf(false) }
     var diText by remember { mutableStateOf("") }
 
-    Column(
-        modifier = Modifier.fillMaxSize().background(BgApp)
-            .verticalScroll(rememberScrollState()).padding(8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        // ── 세그먼트 필터(전체/ETF/개별/직접입력) + refresh (한 줄) ──
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Row(Modifier.weight(1f).clip(RoundedCornerShape(9.dp)).background(SurfaceInput).padding(2.dp),
-                horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                listOf("전체", "ETF", "개별", "직접입력").forEach { f ->
-                    val on = if (f == "직접입력") diOpen else (!diOpen && filter == f)
-                    Box(
-                        Modifier.weight(1f).clip(RoundedCornerShape(7.dp))
-                            .background(if (on) SegmentOn else Color.Transparent)
-                            .clickable {
-                                if (f == "직접입력") diOpen = !diOpen
-                                else { filter = f; diOpen = false }
-                            }.padding(vertical = 6.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(f, color = if (on) TextPrimary else TextMuted, fontSize = 11.sp,
-                            maxLines = 1, fontWeight = if (on) FontWeight.Bold else FontWeight.Normal)
+    Column(modifier = Modifier.fillMaxSize().background(BgApp)) {
+        // ── 상단 고정: 세그먼트 필터 + refresh ──
+        Column(Modifier.padding(horizontal = 8.dp).padding(top = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(Modifier.weight(1f).clip(RoundedCornerShape(9.dp)).background(SurfaceInput).padding(2.dp),
+                    horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                    listOf("전체", "ETF", "개별", "직접입력").forEach { f ->
+                        val on = if (f == "직접입력") diOpen else (!diOpen && filter == f)
+                        Box(
+                            Modifier.weight(1f).clip(RoundedCornerShape(7.dp))
+                                .background(if (on) SegmentOn else Color.Transparent)
+                                .clickable {
+                                    if (f == "직접입력") diOpen = !diOpen
+                                    else { filter = f; diOpen = false }
+                                }.padding(vertical = 6.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(f, color = if (on) TextPrimary else TextMuted, fontSize = 11.sp,
+                                maxLines = 1, fontWeight = if (on) FontWeight.Bold else FontWeight.Normal)
+                        }
                     }
                 }
+                Box(
+                    Modifier.clip(RoundedCornerShape(8.dp)).background(SurfaceInput)
+                        .clickable { vm.refresh() }.padding(horizontal = 9.dp, vertical = 7.dp),
+                ) { Text("🔄", fontSize = 13.sp) }
             }
-            Box(
-                Modifier.clip(RoundedCornerShape(8.dp)).background(SurfaceInput)
-                    .clickable { vm.refresh() }.padding(horizontal = 9.dp, vertical = 7.dp),
-            ) { Text("🔄", fontSize = 13.sp) }
-        }
-        // 직접입력 펼침
-        if (diOpen) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically) {
-                OutlinedTextField(diText, { diText = it },
-                    placeholder = { Text("NVDA · 005930", fontSize = 11.sp) },
-                    singleLine = true, modifier = Modifier.weight(1f))
-                Button(onClick = {
-                    val t = diText.trim().uppercase()
-                    if (t.isNotEmpty()) { vm.select(t); diOpen = false; diText = "" }
-                }) { Text("분석") }
-            }
-        }
-
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            // ── 좌측: 종목 알약 버튼 (폭 ⅔로 축소) ──
-            Column(Modifier.weight(0.22f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                tickers.forEach { tk ->
-                    TickerPill(tk, ov[tk], selected = tk == s.ticker) { vm.select(tk) }
-                }
-            }
-            // ── 우측: 분석 콘텐츠 ──
-            Column(Modifier.weight(0.78f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                when {
-                    s.loading -> Row(Modifier.fillMaxWidth().padding(24.dp), Arrangement.Center) {
-                        CircularProgressIndicator()
-                    }
-                    s.error != null -> Text("⚠️ ${s.error}", color = signalColor("strong_sell"))
-                    s.result != null -> ResultView(s.result, s.ticker, s.ohlc, ov[s.ticker]?.day)
+            if (diOpen) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(diText, { diText = it },
+                        placeholder = { Text("NVDA · 005930", fontSize = 11.sp) },
+                        singleLine = true, modifier = Modifier.weight(1f))
+                    Button(onClick = {
+                        val t = diText.trim().uppercase()
+                        if (t.isNotEmpty()) { vm.select(t); diOpen = false; diText = "" }
+                    }) { Text("분석") }
                 }
             }
         }
 
-        // ── 하단 풀폭 아코디언 (지표설명 · 매매기록) ──
-        if (s.result != null) {
-            Accordion("📝 매매 기록 입력") { TradeInputSection(s.ticker) }
-            Accordion("🗑️ 매매 기록 삭제 / 메모 편집") { TradeListSection(s.ticker) }
+        // ── 본문(스크롤): 그래프 2열 그리드 + 매매 아코디언 ──
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+            when {
+                s.loading -> Row(Modifier.fillMaxWidth().padding(24.dp), Arrangement.Center) {
+                    CircularProgressIndicator()
+                }
+                s.error != null -> Text("⚠️ ${s.error}", color = signalColor("strong_sell"),
+                    modifier = Modifier.padding(16.dp))
+                s.result != null -> Column(
+                    Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    ResultView(s.result, s.ticker, s.ohlc, ov[s.ticker]?.day)
+                    Accordion("📝 매매 기록 입력") { TradeInputSection(s.ticker) }
+                    Accordion("🗑️ 매매 기록 삭제 / 메모 편집") { TradeListSection(s.ticker) }
+                    Spacer(Modifier.height(4.dp))
+                }
+            }
+        }
+
+        // ── 하단 고정: 종목 선택 바 (가로 스크롤, 항상 표시) ──
+        if (tickers.isNotEmpty()) TickerBar(tickers, ov, s.ticker) { vm.select(it) }
+    }
+}
+
+/** 하단 고정 종목 선택 바 — 가로 스크롤, 항상 표시. */
+@Composable
+private fun TickerBar(
+    tickers: List<String>,
+    ov: Map<String, com.quant.dashboard.data.OverviewRepo.Row>,
+    selected: String, onSelect: (String) -> Unit,
+) {
+    Column {
+        Box(Modifier.fillMaxWidth().height(1.dp).background(com.quant.dashboard.ui.theme.DividerColor))
+        Row(
+            Modifier.fillMaxWidth().background(com.quant.dashboard.ui.theme.BgElevated)
+                .horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp, vertical = 7.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            tickers.forEach { tk -> TickerChipH(tk, ov[tk], tk == selected) { onSelect(tk) } }
         }
     }
 }
 
-/** 좌측 종목 칩 — 전체 M 색 배경, 상태 점(보유=금채움/이력=금링) + 티커 … 일간%. 선택=초록 테두리. */
+/** 가로 종목 칩 — 전체 M 색 배경, 상태 점 + 티커 + 일간%, 선택=초록 테두리. */
 @Composable
-private fun TickerPill(tk: String, row: com.quant.dashboard.data.OverviewRepo.Row?, selected: Boolean, onClick: () -> Unit) {
+private fun TickerChipH(tk: String, row: com.quant.dashboard.data.OverviewRepo.Row?, selected: Boolean, onClick: () -> Unit) {
     val bg = if (row != null) pctColor(row.mPct) else BgCard
     val dark = row != null && (row.mPct < 20 || row.mPct >= 80)
     val txt = if (dark) Color.White else Color.Black
     val day = row?.day
     val dayStr = day?.let { (if (it >= 0) "+" else "") + "%.1f".format(it) } ?: ""
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(7.dp)).background(bg)
-            .then(if (selected) Modifier.border(2.dp, Color(0xFF2EA078), RoundedCornerShape(7.dp)) else Modifier)
-            .clickable { onClick() }.padding(horizontal = 6.dp, vertical = 5.dp),
+        Modifier.clip(RoundedCornerShape(8.dp)).background(bg)
+            .then(if (selected) Modifier.border(2.dp, Color(0xFF2EA078), RoundedCornerShape(8.dp)) else Modifier)
+            .clickable { onClick() }.padding(horizontal = 9.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(3.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        // 상태 점: 보유=금색 채움 / 이력=금색 링 / 관심=없음
         StatusDot(when { row?.holding == true -> 2; row?.hasHistory == true -> 1; else -> 0 })
-        Text(Tickers.displayName(tk), color = txt, fontSize = 11.sp,
-            maxLines = 1, fontWeight = FontWeight.Bold, fontFamily = Mono,
-            modifier = Modifier.weight(1f))
+        Text(Tickers.displayName(tk), color = txt, fontSize = 12.sp, maxLines = 1,
+            fontWeight = FontWeight.Bold, fontFamily = Mono)
         if (dayStr.isNotEmpty()) {
             Text(dayStr, color = txt, fontSize = 10.sp, maxLines = 1, fontWeight = FontWeight.Bold, fontFamily = Mono)
         }
@@ -310,18 +325,7 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
             }
         }
     }
-    // ① 회귀 산점도 — 전체 분석기간(조회기간 미적용)
-    ChartCard("회귀 산점도", "SPY 대비", "β ${"%.2f".format(r.beta)}", Profit) {
-        RegressionScatter(r.spyNorm, r.tickerNorm, r.predicted,
-            r.bandUpper, r.bandLower, r.beta, markIdx = scatterIdx)
-    }
-
-    // ② Z·M 궤적 — 전체 분석기간(조회기간 미적용)
-    ChartCard("Z·M 궤적", "시간색 · ● 현재") {
-        ZmScatter(r.zPct, r.mPct, scatterIdx)
-    }
-
-    // ③ 가격 캔들
+    // 캔들 데이터 준비
     val candleByDay = remember(ohlc) { ohlc.associateBy { it.t / 86400L } }
     val wN = n - start
     val opens = DoubleArray(wN); val highs = DoubleArray(wN)
@@ -331,56 +335,71 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
         if (cd != null) { opens[i] = cd.open; highs[i] = cd.high; lows[i] = cd.low; closes[i] = cd.close }
         else { opens[i] = Double.NaN; highs[i] = Double.NaN; lows[i] = Double.NaN; closes[i] = Double.NaN }
     }
-    ChartCard("가격 · 일봉", value = Tickers.priceLabel(ticker, r.lastPrice)) {
-        if (closes.any { !it.isNaN() }) {
-            CandleChart(opens, highs, lows, closes,
-                segDollar(r.predicted), segDollar(r.bandUpper), segDollar(r.bandLower),
-                markers = priceMarks, arrows = arrows,
-                currency = Tickers.currencySymbol(ticker), topLabel = "",
-                dates = dates, dailyChgPct = dayPct ?: Double.NaN)
-        } else {
-            PriceChart(segDollar(r.tickerNorm), segDollar(r.predicted), segDollar(r.bandUpper), segDollar(r.bandLower),
-                markers = priceMarks, arrows = arrows, currency = Tickers.currencySymbol(ticker))
-        }
-    }
-
-    // ④ Z·M 오실레이터
-    ChartCard("Z ${"%.0f".format(r.lastZpct)} · M ${"%.0f".format(r.lastMpct)}", "Z 빨강 · M 노랑") {
-        ZmChart(seg(r.zPct), seg(r.mPct), zmMarks)
-    }
-
-    // ⑤ MACD
     val macdW = seg(r.macd); val sigW = seg(r.macdSignal)
     val macdLast = macdW.lastOrNull { !it.isNaN() } ?: 0.0
     val sigLast = sigW.lastOrNull { !it.isNaN() } ?: 0.0
-    ChartCard("MACD", "● MACD · ● Signal",
-        "${"%.2f".format(macdLast)} (${"%+.2f".format(macdLast - sigLast)})") {
-        MacdChart(macdW, sigW)
+    val rsiLast = r.rsi.lastOrNull { !it.isNaN() } ?: 50.0
+    val gh = 100.dp   // 그리드 차트 높이
+
+    // ── 1행: ① 회귀 산점도 · ② Z·M 궤적 ──
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        ChartCard(Modifier.weight(1f), "회귀 산점도", value = "β ${"%.2f".format(r.beta)}", valueColor = Profit) {
+            RegressionScatter(r.spyNorm, r.tickerNorm, r.predicted,
+                r.bandUpper, r.bandLower, r.beta, markIdx = scatterIdx, height = gh)
+        }
+        ChartCard(Modifier.weight(1f), "Z·M 궤적", sub = "현재 ★") {
+            ZmScatter(r.zPct, r.mPct, scatterIdx, height = gh)
+        }
     }
 
-    // ⑥ RSI
-    val rsiLast = r.rsi.lastOrNull { !it.isNaN() } ?: 50.0
-    ChartCard("RSI", value = "%.1f".format(rsiLast), valueColor = Teal) {
-        RsiChart(seg(r.rsi))
-        DateAxis(dates)
+    // ── 2행: ③ 가격 캔들 · ④ Z·M 오실레이터 ──
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        ChartCard(Modifier.weight(1f), "가격·일봉", value = Tickers.priceLabel(ticker, r.lastPrice)) {
+            if (closes.any { !it.isNaN() }) {
+                CandleChart(opens, highs, lows, closes,
+                    segDollar(r.predicted), segDollar(r.bandUpper), segDollar(r.bandLower),
+                    markers = priceMarks, arrows = arrows,
+                    currency = Tickers.currencySymbol(ticker), topLabel = "",
+                    dates = dates, dailyChgPct = dayPct ?: Double.NaN, height = gh)
+            } else {
+                PriceChart(segDollar(r.tickerNorm), segDollar(r.predicted), segDollar(r.bandUpper), segDollar(r.bandLower),
+                    markers = priceMarks, arrows = arrows, currency = Tickers.currencySymbol(ticker), height = gh)
+            }
+        }
+        ChartCard(Modifier.weight(1f), "Z·M", value = "Z${"%.0f".format(r.lastZpct)}·M${"%.0f".format(r.lastMpct)}") {
+            ZmChart(seg(r.zPct), seg(r.mPct), zmMarks, height = gh)
+        }
+    }
+
+    // ── 3행: ⑤ MACD · ⑥ RSI ──
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        ChartCard(Modifier.weight(1f), "MACD",
+            value = "${"%.2f".format(macdLast)}(${"%+.2f".format(macdLast - sigLast)})") {
+            MacdChart(macdW, sigW, height = gh)
+        }
+        ChartCard(Modifier.weight(1f), "RSI", value = "%.1f".format(rsiLast), valueColor = Teal) {
+            RsiChart(seg(r.rsi), height = gh)
+            DateAxis(dates)
+        }
     }
 }
 
-/** 차트 카드 — 헤더(제목/부제 + 우측 값) + 플롯. */
+/** 차트 카드 — 헤더(제목/부제 + 우측 값) + 플롯. 그리드 셀에서는 modifier=weight 전달. */
 @Composable
-private fun ChartCard(title: String, sub: String = "", value: String = "",
+private fun ChartCard(modifier: Modifier = Modifier, title: String, sub: String = "", value: String = "",
                       valueColor: Color = TextSecondary, content: @Composable () -> Unit) {
     Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(BgCard)
-            .border(1.dp, BorderColor, RoundedCornerShape(14.dp)).padding(10.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+        modifier.clip(RoundedCornerShape(12.dp)).background(BgCard)
+            .border(1.dp, BorderColor, RoundedCornerShape(12.dp)).padding(8.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(title, color = TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.Bold, fontFamily = Mono)
-            if (sub.isNotEmpty()) Text("  $sub", color = TextMuted, fontSize = 11.sp)
+            Text(title, color = TextPrimary, fontSize = 11.sp, fontWeight = FontWeight.Bold,
+                fontFamily = Mono, maxLines = 1)
+            if (sub.isNotEmpty()) Text(" $sub", color = TextMuted, fontSize = 9.sp, maxLines = 1)
             Spacer(Modifier.weight(1f))
-            if (value.isNotEmpty()) Text(value, color = valueColor, fontSize = 12.sp,
-                fontWeight = FontWeight.Bold, fontFamily = Mono)
+            if (value.isNotEmpty()) Text(value, color = valueColor, fontSize = 11.sp,
+                fontWeight = FontWeight.Bold, fontFamily = Mono, maxLines = 1)
         }
         content()
     }

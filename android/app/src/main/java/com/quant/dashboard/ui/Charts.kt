@@ -308,6 +308,7 @@ fun RegressionScatter(
     spyNorm: DoubleArray, tickerNorm: DoubleArray, predicted: DoubleArray,
     bandU: DoubleArray, bandL: DoubleArray, beta: Double,
     markIdx: List<Pair<Int, Boolean>> = emptyList(),
+    height: Dp = 120.dp,
     modifier: Modifier = Modifier,
 ) {
     val n = spyNorm.size
@@ -321,7 +322,7 @@ fun RegressionScatter(
     val lxLo = Math.log10(xLo * 0.98); val lxHi = Math.log10(xHi * 1.02)
     val lyLo = Math.log10(yLo * 0.88); val lyHi = Math.log10(yHi * 1.18)
     val order = (0 until n).sortedBy { spyNorm[it] }
-    Canvas(modifier = modifier.fillMaxWidth().height(120.dp)) {
+    Canvas(modifier = modifier.fillMaxWidth().height(height)) {
         fun sx(v: Double) = (size.width * (Math.log10(v) - lxLo) / (lxHi - lxLo)).toFloat()
         fun sy(v: Double) = (size.height * (1 - (Math.log10(v) - lyLo) / (lyHi - lyLo))).toFloat()
         // 패널 밖으로 삐져나가지 않게 클리핑 (가이드 곡선 overflow 버그 수정)
@@ -382,6 +383,7 @@ fun PriceChart(
     markers: List<Mark> = emptyList(),
     arrows: List<CycleArrow> = emptyList(),
     currency: String = "$",
+    height: Dp = 110.dp,
     modifier: Modifier = Modifier,
 ) {
     val n = priceDollar.size
@@ -393,7 +395,7 @@ fun PriceChart(
     val pad = (hi - lo) * 0.06
     lo -= pad; hi += pad
 
-    Canvas(modifier = modifier.fillMaxWidth().height(110.dp)) {
+    Canvas(modifier = modifier.fillMaxWidth().height(height)) {
         fun xAt(i: Int) = size.width * i / (n - 1)
         fun yAt(v: Double) = (size.height * (1 - (v - lo) / (hi - lo))).toFloat()
         clipRect(0f, 0f, size.width, size.height) {
@@ -414,6 +416,7 @@ fun CandleChart(
     topLabel: String = "",
     dates: LongArray = LongArray(0),
     dailyChgPct: Double = Double.NaN,
+    height: Dp = 110.dp,
     modifier: Modifier = Modifier,
 ) {
     val n = closes.size
@@ -436,7 +439,7 @@ fun CandleChart(
     val cur = closes.lastOrNull { !it.isNaN() } ?: return
     val df = SimpleDateFormat("yy.MM.dd", Locale.US)
     fun dlbl(i: Int) = if (i in dates.indices) df.format(Date(dates[i] * 1000L)) else ""
-    Canvas(modifier = modifier.fillMaxWidth().height(110.dp)) {
+    Canvas(modifier = modifier.fillMaxWidth().height(height)) {
         fun xAt(i: Int) = size.width * i / (n - 1)
         fun yAt(v: Double) = (size.height * (1 - (Math.log10(v) - ymin) / (ymax - ymin))).toFloat()
         clipRect(0f, 0f, size.width, size.height) {
@@ -471,10 +474,10 @@ fun CandleChart(
 /** Z(흰)·M(주황) 백분위 0~100, 임계선 20/40/60/80, Z>80 빨강 면적. */
 @Composable
 fun ZmChart(zPct: DoubleArray, mPct: DoubleArray, markers: List<Mark> = emptyList(),
-            topLabel: String = "", modifier: Modifier = Modifier) {
+            topLabel: String = "", height: Dp = 90.dp, modifier: Modifier = Modifier) {
     val n = zPct.size
     if (n < 2) return
-    Canvas(modifier = modifier.fillMaxWidth().height(90.dp)) {
+    Canvas(modifier = modifier.fillMaxWidth().height(height)) {
         fun xAt(i: Int) = size.width * i / (n - 1)
         fun yAt(v: Double) = (size.height * (1 - v / 100.0)).toFloat()
         // 위(>80) 빨강 / 아래(<20) 파랑 음영 밴드 (RSI 스타일)
@@ -502,11 +505,12 @@ fun ZmChart(zPct: DoubleArray, mPct: DoubleArray, markers: List<Mark> = emptyLis
 fun ZmScatter(
     zPct: DoubleArray, mPct: DoubleArray,
     tradeIdx: List<Pair<Int, Boolean>> = emptyList(),
+    height: Dp = 130.dp,
     modifier: Modifier = Modifier,
 ) {
     val n = zPct.size
     if (n < 2) return
-    Canvas(modifier = modifier.fillMaxWidth().height(130.dp)) {
+    Canvas(modifier = modifier.fillMaxWidth().height(height)) {
         val lo = -5.0; val hi = 105.0; val span = hi - lo
         fun px(v: Double) = (size.width * ((v - lo) / span)).toFloat()
         fun py(v: Double) = (size.height * (1 - (v - lo) / span)).toFloat()
@@ -532,10 +536,10 @@ fun ZmScatter(
 
 /** RSI 0~100, 70/50/30 임계선 + >70 빨강·<30 파랑 면적. */
 @Composable
-fun RsiChart(rsi: DoubleArray, topLabel: String = "", modifier: Modifier = Modifier) {
+fun RsiChart(rsi: DoubleArray, topLabel: String = "", height: Dp = 90.dp, modifier: Modifier = Modifier) {
     val n = rsi.size
     if (n < 2) return
-    Canvas(modifier = modifier.fillMaxWidth().height(90.dp)) {
+    Canvas(modifier = modifier.fillMaxWidth().height(height)) {
         fun xAt(i: Int) = size.width * i / (n - 1)
         fun yAt(v: Double) = (size.height * (1 - v / 100.0)).toFloat()
         // 과매수(>70) 빨강 / 과매도(<30) 파랑 음영
@@ -583,7 +587,7 @@ fun EquityChart(values: DoubleArray, unit: String = "$", modifier: Modifier = Mo
 
 /** MACD(보라) + Signal(흰) + 0선 + 교차 마커(▲빨강 상향 / ▼파랑 하향). */
 @Composable
-fun MacdChart(macd: DoubleArray, signal: DoubleArray, topLabel: String = "", modifier: Modifier = Modifier) {
+fun MacdChart(macd: DoubleArray, signal: DoubleArray, topLabel: String = "", height: Dp = 90.dp, modifier: Modifier = Modifier) {
     val n = macd.size
     if (n < 2) return
     var mx = 0.0
@@ -591,7 +595,7 @@ fun MacdChart(macd: DoubleArray, signal: DoubleArray, topLabel: String = "", mod
     for (v in signal) if (!v.isNaN() && kotlin.math.abs(v) > mx) mx = kotlin.math.abs(v)
     if (mx <= 0) mx = 1.0
     mx *= 1.15
-    Canvas(modifier = modifier.fillMaxWidth().height(90.dp)) {
+    Canvas(modifier = modifier.fillMaxWidth().height(height)) {
         fun xAt(i: Int) = size.width * i / (n - 1)
         fun yAt(v: Double) = (size.height * (1 - (v + mx) / (2 * mx))).toFloat()
         // 0선 — 흰색
