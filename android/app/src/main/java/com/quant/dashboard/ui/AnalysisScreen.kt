@@ -155,29 +155,28 @@ fun AnalysisScreen(vm: AnalysisViewModel = viewModel()) {
     }
 }
 
-/** 좌측 종목 칩 — M 히트맵 배경, 상태 점(보유=금채움/이력=금링) + 티커 … 일간%. */
+/** 좌측 종목 칩 — 전체 M 색 배경, 상태 점(보유=금채움/이력=금링) + 티커 … 일간%. 선택=초록 테두리. */
 @Composable
 private fun TickerPill(tk: String, row: com.quant.dashboard.data.OverviewRepo.Row?, selected: Boolean, onClick: () -> Unit) {
-    val bg = if (row != null) mHeat(row.mPct) else BgCard
+    val bg = if (row != null) pctColor(row.mPct) else BgCard
+    val dark = row != null && (row.mPct < 20 || row.mPct >= 80)
+    val txt = if (dark) Color.White else Color.Black
     val day = row?.day
     val dayStr = day?.let { (if (it >= 0) "+" else "") + "%.1f".format(it) } ?: ""
     Row(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(7.dp)).background(bg)
-            .then(if (selected) Modifier.border(1.5.dp, Profit, RoundedCornerShape(7.dp)) else Modifier)
+            .then(if (selected) Modifier.border(2.dp, Color(0xFF2EA078), RoundedCornerShape(7.dp)) else Modifier)
             .clickable { onClick() }.padding(horizontal = 6.dp, vertical = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(3.dp),
     ) {
-        // 좌측 컬러 액센트 (M: 저=빨강 / 고=파랑)
-        if (row != null) Box(Modifier.size(3.dp, 16.dp).clip(RoundedCornerShape(2.dp)).background(pctColor(row.mPct)))
         // 상태 점: 보유=금색 채움 / 이력=금색 링 / 관심=없음
         StatusDot(when { row?.holding == true -> 2; row?.hasHistory == true -> 1; else -> 0 })
-        Text(Tickers.displayName(tk), color = TextPrimary, fontSize = 11.sp,
-            maxLines = 1, fontWeight = FontWeight.SemiBold, fontFamily = Mono,
+        Text(Tickers.displayName(tk), color = txt, fontSize = 11.sp,
+            maxLines = 1, fontWeight = FontWeight.Bold, fontFamily = Mono,
             modifier = Modifier.weight(1f))
         if (dayStr.isNotEmpty()) {
-            Text(dayStr, color = if ((day ?: 0.0) >= 0) Profit else Loss,
-                fontSize = 10.sp, maxLines = 1, fontWeight = FontWeight.Bold, fontFamily = Mono)
+            Text(dayStr, color = txt, fontSize = 10.sp, maxLines = 1, fontWeight = FontWeight.Bold, fontFamily = Mono)
         }
     }
 }
