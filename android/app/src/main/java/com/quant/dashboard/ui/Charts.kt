@@ -484,6 +484,8 @@ fun ZmChart(zPct: DoubleArray, mPct: DoubleArray, markers: List<Mark> = emptyLis
         for (t in intArrayOf(20, 80)) {
             drawLine(Color(0x33FFFFFF), Offset(0f, yAt(t.toDouble())), Offset(size.width, yAt(t.toDouble())), 0.7f)
         }
+        // 50 중앙선 — 흰색
+        drawLine(Color(0xCCFFFFFF), Offset(0f, yAt(50.0)), Offset(size.width, yAt(50.0)), 0.9f)
         clipRect(0f, 0f, size.width, size.height) {
             poly(zPct, ::xAt, ::yAt, Color(0xFFEF6066), 2f)        // Z 빨강
             poly(mPct, ::xAt, ::yAt, Color(0xFFFFD24D), 1.7f)      // M 노랑
@@ -542,6 +544,8 @@ fun RsiChart(rsi: DoubleArray, topLabel: String = "", modifier: Modifier = Modif
         for (t in intArrayOf(30, 70)) {
             drawLine(Color(0x33FFFFFF), Offset(0f, yAt(t.toDouble())), Offset(size.width, yAt(t.toDouble())), 0.7f)
         }
+        // 50 중앙선 — 흰색
+        drawLine(Color(0xCCFFFFFF), Offset(0f, yAt(50.0)), Offset(size.width, yAt(50.0)), 0.9f)
         clipRect(0f, 0f, size.width, size.height) {
             poly(rsi, ::xAt, ::yAt, Color(0xFF37B6C4), 2f)   // 청록
         }
@@ -590,8 +594,8 @@ fun MacdChart(macd: DoubleArray, signal: DoubleArray, topLabel: String = "", mod
     Canvas(modifier = modifier.fillMaxWidth().height(90.dp)) {
         fun xAt(i: Int) = size.width * i / (n - 1)
         fun yAt(v: Double) = (size.height * (1 - (v + mx) / (2 * mx))).toFloat()
-        // 0선 — 옅은 회색
-        drawLine(Color(0x33FFFFFF), Offset(0f, yAt(0.0)), Offset(size.width, yAt(0.0)), 0.7f)
+        // 0선 — 흰색
+        drawLine(Color(0xCCFFFFFF), Offset(0f, yAt(0.0)), Offset(size.width, yAt(0.0)), 0.9f)
         clipRect(0f, 0f, size.width, size.height) {
             poly(macd, ::xAt, ::yAt, Color(0xFF9B8CFF), 2f)     // MACD 보라
             poly(signal, ::xAt, ::yAt, Color(0xFFC9C5BB), 1.3f) // Signal 회색
