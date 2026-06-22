@@ -145,7 +145,7 @@ private fun ResultBody(r: Portfolio.Result, rate: Double) {
                 Text("${h.qty}주", color = TextMuted, fontSize = 11.sp, fontFamily = Mono, modifier = Modifier.weight(1f))
                 Column(horizontalAlignment = Alignment.End) {
                     Text(wonAbs(h.eval, rate), color = TextPrimary, fontSize = 12.5.sp, fontFamily = Mono)
-                    Text("${if (h.retPct >= 0) "+" else ""}${"%.2f".format(h.retPct)}%",
+                    Text("${won(h.pnl, rate)} · ${if (h.retPct >= 0) "+" else ""}${"%.2f".format(h.retPct)}%",
                         color = pc(h.pnl), fontSize = 11.sp, fontWeight = FontWeight.SemiBold, fontFamily = Mono)
                 }
             }
