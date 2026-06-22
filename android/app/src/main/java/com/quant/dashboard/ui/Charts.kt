@@ -426,6 +426,16 @@ fun CandleChart(
     val lLo = Math.log10(lo); val lHi = Math.log10(hi)
     val lPad = (lHi - lLo) * 0.08 + 1e-6
     val ymin = lLo - lPad; val ymax = lHi + lPad
+    // 실제 최고/최저 캔들 위치 + 현재가
+    var hiI = -1; var loI = -1
+    var hiV = -Double.MAX_VALUE; var loV = Double.MAX_VALUE
+    for (i in 0 until n) {
+        if (!highs[i].isNaN() && highs[i] > hiV) { hiV = highs[i]; hiI = i }
+        if (!lows[i].isNaN() && lows[i] < loV) { loV = lows[i]; loI = i }
+    }
+    val cur = closes.lastOrNull { !it.isNaN() } ?: return
+    val df = SimpleDateFormat("yy.MM.dd", Locale.US)
+    fun dlbl(i: Int) = if (i in dates.indices) df.format(Date(dates[i] * 1000L)) else ""
     Canvas(modifier = modifier.fillMaxWidth().height(110.dp)) {
         fun xAt(i: Int) = size.width * i / (n - 1)
         fun yAt(v: Double) = (size.height * (1 - (Math.log10(v) - ymin) / (ymax - ymin))).toFloat()
@@ -443,6 +453,17 @@ fun CandleChart(
                 drawRect(col, topLeft = Offset(cx - w / 2, top), size = Size(w, maxOf(bot - top, 1f)))
             }
             for (m in markers) if (m.x in 0 until n) marker(xAt(m.x), yAt(m.y), m.buy)
+        }
+        // 최고/최저 수평 콜아웃 (날짜 + 현재가 대비 %)
+        if (hiI >= 0) {
+            val hp = (cur / hiV - 1) * 100
+            hCallout(xAt(hiI), yAt(hiV), "$currency${priceFmt(hiV)} ${dlbl(hiI)} ${"%.1f".format(hp)}%",
+                0xFFEF6066.toInt(), textRight = hiI < n / 2, plotW = size.width)
+        }
+        if (loI >= 0) {
+            val lp = (cur / loV - 1) * 100
+            hCallout(xAt(loI), yAt(loV), "$currency${priceFmt(loV)} ${dlbl(loI)} +${"%.1f".format(lp)}%",
+                0xFF5B9BF2.toInt(), textRight = loI < n / 2, plotW = size.width)
         }
     }
 }
