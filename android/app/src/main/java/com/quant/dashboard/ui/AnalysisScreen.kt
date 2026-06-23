@@ -19,6 +19,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -63,101 +65,79 @@ import com.quant.dashboard.ui.theme.pctColor
 import com.quant.dashboard.ui.theme.signalColor
 import java.time.LocalDate
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AnalysisScreen(vm: AnalysisViewModel = viewModel()) {
     val s = vm.state
-    var filter by remember { mutableStateOf("전체") }   // 전체 / ETF / 개별
+    var holdingsOnly by remember { mutableStateOf(false) }   // 보유 종목만 보기 토글
 
     LaunchedEffect(AppState.dataVersion) { vm.sync(AppState.dataVersion) }
 
     val ov = vm.overview.associateBy { it.ticker }
     val allTickers = if (vm.overview.isNotEmpty())
         Store.loadTickers().sortedBy { ov[it]?.mPct ?: 50.0 } else Store.loadTickers()
-    val tickers = allTickers.filter {
-        when (filter) {
-            "ETF" -> !Store.isIndividual(it)
-            "개별" -> Store.isIndividual(it)
-            else -> true
-        }
-    }
+    val tickers = if (holdingsOnly) allTickers.filter { ov[it]?.holding == true } else allTickers
 
     var diOpen by remember { mutableStateOf(false) }
     var diText by remember { mutableStateOf("") }
 
     Column(modifier = Modifier.fillMaxSize().background(BgApp)) {
-        // ── 상단 고정: 세그먼트 필터 + refresh ──
-        Column(Modifier.padding(horizontal = 8.dp).padding(top = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Row(Modifier.weight(1f).clip(RoundedCornerShape(9.dp)).background(SurfaceInput).padding(2.dp),
-                    horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                    listOf("전체", "ETF", "개별", "직접입력").forEach { f ->
-                        val on = if (f == "직접입력") diOpen else (!diOpen && filter == f)
-                        Box(
-                            Modifier.weight(1f).clip(RoundedCornerShape(7.dp))
-                                .background(if (on) SegmentOn else Color.Transparent)
-                                .clickable {
-                                    if (f == "직접입력") diOpen = !diOpen
-                                    else { filter = f; diOpen = false }
-                                }.padding(vertical = 6.dp),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text(f, color = if (on) TextPrimary else TextMuted, fontSize = 11.sp,
-                                maxLines = 1, fontWeight = if (on) FontWeight.Bold else FontWeight.Normal)
-                        }
-                    }
-                }
-                Box(
-                    Modifier.clip(RoundedCornerShape(8.dp)).background(SurfaceInput)
-                        .clickable { vm.refresh() }.padding(horizontal = 9.dp, vertical = 7.dp),
-                ) { Text("🔄", fontSize = 13.sp) }
-            }
-            if (diOpen) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically) {
-                    OutlinedTextField(diText, { diText = it },
-                        placeholder = { Text("NVDA · 005930", fontSize = 11.sp) },
-                        singleLine = true, modifier = Modifier.weight(1f))
-                    Button(onClick = {
-                        val t = diText.trim().uppercase()
-                        if (t.isNotEmpty()) { vm.select(t); diOpen = false; diText = "" }
-                    }) { Text("분석") }
-                }
+        // ── 상단 고정: 직접입력 (열렸을 때만) ──
+        if (diOpen) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(diText, { diText = it },
+                    placeholder = { Text("NVDA · 005930", fontSize = 11.sp) },
+                    singleLine = true, modifier = Modifier.weight(1f))
+                Button(onClick = {
+                    val t = diText.trim().uppercase()
+                    if (t.isNotEmpty()) { vm.select(t); diOpen = false; diText = "" }
+                }) { Text("분석") }
             }
         }
 
-        // ── 본문(스크롤): 그래프 2열 그리드 + 매매 아코디언 ──
+        // ── 본문: 당겨서 새로고침 + 그래프 2열 그리드 + 매매 아코디언 ──
         Box(Modifier.weight(1f).fillMaxWidth()) {
             when {
+                s.result != null -> PullToRefreshBox(
+                    isRefreshing = s.loading, onRefresh = { vm.refresh() },
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    Column(
+                        Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+                            .padding(horizontal = 8.dp, vertical = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        ResultView(s.result, s.ticker, s.ohlc, ov[s.ticker]?.day)
+                        Accordion("📝 매매 기록 입력") { TradeInputSection(s.ticker) }
+                        Accordion("🗑️ 매매 기록 삭제 / 메모 편집") { TradeListSection(s.ticker) }
+                        Spacer(Modifier.height(4.dp))
+                    }
+                }
                 s.loading -> Row(Modifier.fillMaxWidth().padding(24.dp), Arrangement.Center) {
                     CircularProgressIndicator()
                 }
                 s.error != null -> Text("⚠️ ${s.error}", color = signalColor("strong_sell"),
                     modifier = Modifier.padding(16.dp))
-                s.result != null -> Column(
-                    Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    ResultView(s.result, s.ticker, s.ohlc, ov[s.ticker]?.day)
-                    Accordion("📝 매매 기록 입력") { TradeInputSection(s.ticker) }
-                    Accordion("🗑️ 매매 기록 삭제 / 메모 편집") { TradeListSection(s.ticker) }
-                    Spacer(Modifier.height(4.dp))
-                }
             }
         }
 
-        // ── 하단 고정: 종목 선택 바 (가로 스크롤, 항상 표시) ──
-        if (tickers.isNotEmpty()) TickerBar(tickers, ov, s.ticker) { vm.select(it) }
+        // ── 하단 고정: 보유 토글 + 직접입력 + 종목 바 (가로 스크롤, 항상 표시) ──
+        TickerBar(tickers, ov, s.ticker, holdingsOnly, { holdingsOnly = !holdingsOnly },
+            diOpen, { diOpen = !diOpen }) { vm.select(it) }
     }
 }
 
-/** 하단 고정 종목 선택 바 — 가로 스크롤, 항상 표시. */
+/** 하단 고정 종목 선택 바 — 보유 토글 + 직접입력 + 가로 스크롤 종목 칩. */
 @Composable
 private fun TickerBar(
     tickers: List<String>,
     ov: Map<String, com.quant.dashboard.data.OverviewRepo.Row>,
-    selected: String, onSelect: (String) -> Unit,
+    selected: String,
+    holdingsOnly: Boolean, onToggleHold: () -> Unit,
+    diOpen: Boolean, onToggleDi: () -> Unit,
+    onSelect: (String) -> Unit,
 ) {
     Column {
         Box(Modifier.fillMaxWidth().height(1.dp).background(com.quant.dashboard.ui.theme.DividerColor))
@@ -167,8 +147,24 @@ private fun TickerBar(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            // 보유 토글 (가장 처음)
+            BarToggle("보유", holdingsOnly, Color(0xFF2EA078), onToggleHold)
+            // 직접입력 토글
+            BarToggle("＋직접", diOpen, SegmentOn, onToggleDi)
             tickers.forEach { tk -> TickerChipH(tk, ov[tk], tk == selected) { onSelect(tk) } }
         }
+    }
+}
+
+/** 바 토글 칩 (보유/직접). */
+@Composable
+private fun BarToggle(label: String, on: Boolean, onBg: Color, onClick: () -> Unit) {
+    Box(
+        Modifier.clip(RoundedCornerShape(8.dp)).background(if (on) onBg else SurfaceInput)
+            .clickable { onClick() }.padding(horizontal = 11.dp, vertical = 6.dp),
+    ) {
+        Text(label, color = if (on) Color.White else TextSecondary, fontSize = 12.sp,
+            fontWeight = FontWeight.Bold, maxLines = 1)
     }
 }
 
