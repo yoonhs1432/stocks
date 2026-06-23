@@ -70,29 +70,31 @@ fun CompareScreen(vm: CompareViewModel = viewModel()) {
             }
             s.error != null -> Text("⚠️ ${s.error}", color = Loss)
             else -> {
-                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(SurfaceInput)
-                    .padding(vertical = 5.dp, horizontal = 2.dp)) {
-                    HCell(vm, "종목", SortKey.NAME, 2.2f, TextAlign.Start)
-                    HCell(vm, "현재가", SortKey.PRICE, 2f)
-                    HCell(vm, "일", SortKey.DAY, 1.4f)
-                    HCell(vm, "주", SortKey.WEEK, 1.4f)
-                    HCell(vm, "Z", SortKey.Z, 1f)
-                    HCell(vm, "M▲", SortKey.M, 1f)
-                    HCell(vm, "전고", SortKey.FROM_HIGH, 1.6f)
-                }
-                vm.sorted().forEachIndexed { idx, r ->
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 2.dp, vertical = 3.dp)) {
-                        DotName((if (r.holding) 2 else if (r.hasHistory) 1 else 0), r.name, 2.2f)
-                        Cell(Tickers.priceLabel(r.ticker, r.price), 2f, TextPrimary)
-                        Cell(signed(r.day), 1.4f, pnColor(r.day))
-                        Cell(signed(r.week), 1.4f, pnColor(r.week))
-                        Cell("%.0f".format(r.zPct), 1f, zCellColor(r.zPct))
-                        Cell("%.0f".format(r.mPct), 1f, Gold, fw = FontWeight.Bold)
-                        Cell("%.1f%%".format(r.fromHigh), 1.6f,
-                            if (r.fromHigh >= -3) Profit else if (r.fromHigh >= -50) TableGray else Loss)
+                Column(Modifier.fillMaxWidth()) {
+                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(SurfaceInput)
+                        .padding(vertical = 5.dp, horizontal = 2.dp)) {
+                        HCell(vm, "종목", SortKey.NAME, 2.2f, TextAlign.Start)
+                        HCell(vm, "현재가", SortKey.PRICE, 2f)
+                        HCell(vm, "일", SortKey.DAY, 1.4f)
+                        HCell(vm, "주", SortKey.WEEK, 1.4f)
+                        HCell(vm, "Z", SortKey.Z, 1f)
+                        HCell(vm, "M▲", SortKey.M, 1f)
+                        HCell(vm, "전고", SortKey.FROM_HIGH, 1.6f)
                     }
-                    if (idx < vm.sorted().lastIndex)
-                        Box(Modifier.fillMaxWidth().height(1.dp).background(BorderColor))
+                    vm.sorted().forEachIndexed { idx, r ->
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 2.dp, vertical = 4.dp)) {
+                            DotName((if (r.holding) 2 else if (r.hasHistory) 1 else 0), r.name, 2.2f)
+                            Cell(Tickers.priceLabel(r.ticker, r.price), 2f, pnColor(r.day))
+                            Cell(signed(r.day), 1.4f, pnColor(r.day))
+                            Cell(signed(r.week), 1.4f, pnColor(r.week))
+                            Cell("%.0f".format(r.zPct), 1f, zCellColor(r.zPct))
+                            Cell("%.0f".format(r.mPct), 1f, Gold, fw = FontWeight.Bold)
+                            Cell("%.1f%%".format(r.fromHigh), 1.6f,
+                                if (r.fromHigh >= -3) Profit else if (r.fromHigh >= -50) TableGray else Loss)
+                        }
+                        if (idx < vm.sorted().lastIndex)
+                            Box(Modifier.fillMaxWidth().height(1.dp).background(BorderColor))
+                    }
                 }
                 Text("● 보유 / ○ 이력 · 헤더 탭=정렬 · 색: 매수 빨강·매도 파랑",
                     color = TextSecondary, fontSize = 11.sp)
@@ -144,7 +146,7 @@ private fun RowScope.HCell(vm: CompareViewModel, text: String, key: SortKey, wei
     val on = s.sortKey == key
     val mark = if (on) (if (s.sortDesc) " ▼" else " ▲") else ""
     Text(
-        text + mark, color = if (on) TextPrimary else TextSecondary, fontSize = 11.sp,
+        text + mark, color = if (on) TextPrimary else TextSecondary, fontSize = 12.5.sp,
         fontWeight = FontWeight.SemiBold, textAlign = align,
         modifier = Modifier.weight(weight).clickable { vm.setSort(key) },
     )
@@ -152,7 +154,7 @@ private fun RowScope.HCell(vm: CompareViewModel, text: String, key: SortKey, wei
 
 @Composable
 private fun RowScope.Cell(text: String, weight: Float, color: Color, align: TextAlign = TextAlign.End, fw: FontWeight = FontWeight.Normal) {
-    Text(text, color = color, fontSize = 11.5.sp, textAlign = align, fontWeight = fw,
+    Text(text, color = color, fontSize = 13.5.sp, textAlign = align, fontWeight = fw,
         fontFamily = Mono, modifier = Modifier.weight(weight))
 }
 
@@ -166,7 +168,7 @@ private fun RowScope.DotName(state: Int, name: String, weight: Float) {
                 .then(if (state == 2) Modifier.background(Gold)
                 else Modifier.border(1.3.dp, Gold, RoundedCornerShape(50))),
         )
-        Text(name, color = TextPrimary, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, fontFamily = Mono)
+        Text(name, color = TextPrimary, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, fontFamily = Mono)
     }
 }
 
