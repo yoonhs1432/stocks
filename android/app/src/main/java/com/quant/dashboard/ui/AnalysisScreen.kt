@@ -192,6 +192,16 @@ private fun TickerChipH(tk: String, row: com.quant.dashboard.data.OverviewRepo.R
     }
 }
 
+/** 헤더 우측 소형 지표 (라벨 + 값 + 선택적 등락). */
+@Composable
+private fun Mini(label: String, value: String, extra: String? = null, extraColor: Color = TextMuted) {
+    Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(label, color = TextMuted, fontSize = 9.sp)
+        Text(value, color = TextPrimary, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = Mono)
+        if (extra != null) Text(extra, color = extraColor, fontSize = 10.sp, fontFamily = Mono)
+    }
+}
+
 /** 상태 점 (0=없음 / 1=이력 링 / 2=보유 채움), 금색. */
 @Composable
 private fun StatusDot(state: Int) {
@@ -221,53 +231,30 @@ private fun Accordion(title: String, content: @Composable () -> Unit) {
 
 @Composable
 private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayPct: Double?) {
-    // ── 종목명 + σ·β·Z·M 인라인 (한 줄, 넘치면 가로 스크롤) ──
+    // ── 종목명 + σ·β + (우측) 현재가/평단/수량 — 한 줄, 넘치면 가로 스크롤 ──
+    val trades = remember(ticker) { Store.loadTrades()[ticker].orEmpty() }
+    val pos = remember(ticker) { Portfolio.position(trades) }
     Row(
         verticalAlignment = Alignment.Bottom,
         horizontalArrangement = Arrangement.spacedBy(7.dp),
         modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
     ) {
         Text(Tickers.displayName(ticker), color = Profit,
-            fontSize = 22.sp, fontWeight = FontWeight.Bold, fontFamily = Mono)
+            fontSize = 20.sp, fontWeight = FontWeight.Bold, fontFamily = Mono)
         dayPct?.let {
             Text("${if (it >= 0) "+" else ""}${"%.1f%%".format(it)}",
                 color = if (it > 0) Profit else if (it < 0) Loss else Neutral,
-                fontSize = 13.sp, fontWeight = FontWeight.Bold, fontFamily = Mono)
+                fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = Mono)
         }
-        Text("σ±%.0f%% · β %.1f".format(r.sigmaPct, r.beta), color = TextSecondary, fontSize = 11.sp, fontFamily = Mono)
-    }
-
-    // ── 정보 카드 (현재가/평균단가/보유) ──
-    val trades = remember(ticker) { Store.loadTrades()[ticker].orEmpty() }
-    val pos = remember(ticker) { Portfolio.position(trades) }
-    Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
-            .then(if (pos != null) Modifier.background(HoldingBg) else Modifier)
-            .border(1.5.dp, if (pos != null) HoldingBorder else BorderColor, RoundedCornerShape(10.dp))
-            .padding(10.dp),
-        horizontalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        Column {
-            Text("현재가", color = TextMuted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-            Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(Tickers.priceLabel(ticker, r.lastPrice), color = TextPrimary, fontSize = 17.sp, fontWeight = FontWeight.Bold, fontFamily = Mono)
-                // 보유 중이면 매수 평균단가 대비 손익률, 아니면 일간 등락률
-                val chgPct = if (pos != null && pos.avg > 0) (r.lastPrice / pos.avg - 1.0) * 100.0 else dayPct
-                chgPct?.let {
-                    Text("(${if (it >= 0) "+" else ""}${"%.1f%%".format(it)})",
-                        color = if (it > 0) Profit else if (it < 0) Loss else Neutral, fontSize = 11.sp, fontFamily = Mono)
-                }
-            }
-        }
+        Text("σ±%.0f%% · β %.1f".format(r.sigmaPct, r.beta), color = TextSecondary, fontSize = 10.sp, fontFamily = Mono)
+        // 우측: 현재가/평단/수량 (작게)
+        val chgPct = if (pos != null && pos.avg > 0) (r.lastPrice / pos.avg - 1.0) * 100.0 else null
+        Mini("현재가", Tickers.priceLabel(ticker, r.lastPrice),
+            extra = chgPct?.let { "${if (it >= 0) "+" else ""}${"%.1f%%".format(it)}" },
+            extraColor = chgPct?.let { if (it >= 0) Profit else Loss } ?: TextMuted)
         if (pos != null) {
-            Column {
-                Text("평균단가", color = TextMuted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                Text(Tickers.priceLabel(ticker, pos.avg), color = TextPrimary, fontSize = 17.sp, fontWeight = FontWeight.Bold, fontFamily = Mono)
-            }
-            Column {
-                Text("보유수량", color = TextMuted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                Text("${pos.qty}주", color = TextPrimary, fontSize = 17.sp, fontWeight = FontWeight.Bold, fontFamily = Mono)
-            }
+            Mini("평단", Tickers.priceLabel(ticker, pos.avg))
+            Mini("보유", "${pos.qty}주")
         }
     }
 
@@ -335,7 +322,7 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
     val macdLast = macdW.lastOrNull { !it.isNaN() } ?: 0.0
     val sigLast = sigW.lastOrNull { !it.isNaN() } ?: 0.0
     val rsiLast = r.rsi.lastOrNull { !it.isNaN() } ?: 50.0
-    val gh = 100.dp   // 그리드 차트 높이
+    val gh = 128.dp   // 그리드 차트 높이 (보유 박스 제거로 확보된 공간만큼 확대)
 
     // ── 1행: ① 회귀 산점도 · ② Z·M 궤적 ──
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
