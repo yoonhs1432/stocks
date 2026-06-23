@@ -18,18 +18,26 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.quant.dashboard.data.OverviewRepo
 import com.quant.dashboard.data.Tickers
 import com.quant.dashboard.ui.theme.BgApp
 import com.quant.dashboard.ui.theme.BorderColor
@@ -38,6 +46,11 @@ import com.quant.dashboard.ui.theme.Loss
 import com.quant.dashboard.ui.theme.Mono
 import com.quant.dashboard.ui.theme.Profit
 import com.quant.dashboard.ui.theme.SurfaceInput
+import com.quant.dashboard.ui.theme.TextMuted
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import kotlin.math.roundToInt
 import com.quant.dashboard.ui.theme.TextPrimary
 import com.quant.dashboard.ui.theme.TextSecondary
 import com.quant.dashboard.ui.theme.pctColor
@@ -99,18 +112,46 @@ fun CompareScreen(vm: CompareViewModel = viewModel()) {
                 Text("● 보유 / ○ 이력 · 헤더 탭=정렬 · 색: 매수 빨강·매도 파랑",
                     color = TextSecondary, fontSize = 11.sp)
 
-                // ── Z·M 사분면 (전 종목 현재 위치) ──
-                Text("🎯 종목별 Z·M 현재 위치", color = TextPrimary,
+                // ── Z·M 사분면 (주간 날짜 스크럽) ──
+                val weekDates = OverviewRepo.weekDates()
+                val wCount = weekDates.size
+                var weekIdx by remember(wCount) { mutableStateOf(wCount - 1) }
+                val idx = weekIdx.coerceIn(0, maxOf(wCount - 1, 0))
+                val df = remember { SimpleDateFormat("yy.MM.dd", Locale.US) }
+                val isLatest = wCount == 0 || idx == wCount - 1
+                val dateStr = if (wCount > 0) df.format(Date(weekDates[idx] * 1000L)) else ""
+                Text("🎯 종목별 Z·M 위치 — ${if (isLatest) "현재" else dateStr}", color = TextPrimary,
                     fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                // 임계선 10/50/90 (강매수 빨강 / 중립 회 / 강매도 파랑)
                 val gMid = Color(0x998B949E); val gBuy = Color(0x66DC2626); val gSell = Color(0x661D4ED8)
                 val zmLines = listOf(GridLine(50.0, gMid, 1.0f), GridLine(10.0, gBuy, 0.8f), GridLine(90.0, gSell, 0.8f))
                 ScatterChart(
-                    points = s.rows.map { ScatterPt(it.zPct, it.mPct, it.name, pctColor(it.mPct)) },
+                    points = s.rows.map { row ->
+                        val z = if (idx < row.zHist.size) row.zHist[idx] else row.zPct
+                        val m = if (idx < row.mHist.size) row.mHist[idx] else row.mPct
+                        ScatterPt(z, m, row.name, pctColor(if (m.isNaN()) 50.0 else m))
+                    },
                     xMin = -5.0, xMax = 105.0, yMin = -5.0, yMax = 105.0,
                     vLines = zmLines, hLines = zmLines,
                     xAxisLabel = "Z (가격 위치 0~100)", yAxisLabel = "M (모멘텀 0~100)", labelTopCenter = true, height = 360.dp,
                 )
+                // 주간 날짜 슬라이더 (스냅 + 햅틱)
+                if (wCount > 1) {
+                    val haptic = LocalHapticFeedback.current
+                    Slider(
+                        value = idx.toFloat(),
+                        onValueChange = { v ->
+                            val ni = v.roundToInt().coerceIn(0, wCount - 1)
+                            if (ni != weekIdx) { weekIdx = ni; haptic.performHapticFeedback(HapticFeedbackType.LongPress) }
+                        },
+                        valueRange = 0f..(wCount - 1).toFloat(),
+                        steps = (wCount - 2).coerceAtLeast(0),
+                    )
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text(df.format(Date(weekDates[0] * 1000L)), color = TextSecondary, fontSize = 10.sp)
+                        Text("← 1주 간격 (최근 6개월) →", color = TextMuted, fontSize = 10.sp)
+                        Text("현재", color = TextSecondary, fontSize = 10.sp)
+                    }
+                }
                 Text("X=Z(가격 위치), Y=M(모멘텀) · Q1↑↑=강세 / Q3↓↓=약세 · 임계선 10/50/90",
                     color = TextSecondary, fontSize = 11.sp)
 

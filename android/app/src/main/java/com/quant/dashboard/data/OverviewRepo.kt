@@ -19,7 +19,14 @@ object OverviewRepo {
         val beta: Double, val sigmaPct: Double,
         val holding: Boolean,      // 현재 보유 중 (★)
         val hasHistory: Boolean,   // 과거 매매 이력만 (☆)
+        val zHist: DoubleArray = DoubleArray(0),   // 주간 Z 시계열(최근 N주)
+        val mHist: DoubleArray = DoubleArray(0),   // 주간 M 시계열(최근 N주)
     )
+
+    const val WEEKS = 26          // 최근 약 6개월, 1주 간격
+    @Volatile private var weekDatesArr: LongArray = LongArray(0)
+    /** Z·M 주간 산점도 타임라인 (epoch sec, 오래된→최근). */
+    fun weekDates(): LongArray = weekDatesArr
 
     @Volatile private var cache: List<Row> = emptyList()
     @Volatile private var ts = 0L
@@ -37,6 +44,11 @@ object OverviewRepo {
         val spy = Store.sliceAsof(Yahoo.closes(Tickers.BASE, range, interval))
         if (spy.isEmpty()) return cache
         val trades = Store.loadTrades()
+        // 주간 타임라인 (최근 WEEKS주, 1주 간격) — 모든 종목 공유
+        val latest = spy.last().first
+        val step = 7L * 86400
+        val wd = LongArray(WEEKS) { latest - (WEEKS - 1 - it).toLong() * step }
+        weekDatesArr = wd
         val rows = coroutineScope {
             Store.loadTickers().map { tk ->
                 async(Dispatchers.IO) {
@@ -47,6 +59,14 @@ object OverviewRepo {
                     val prevW = if (m > 5) p[m - 6] else prevD
                     val high = p.max()
                     val held = Portfolio.currentHoldQty(trades[tk].orEmpty()) > 0
+                    // 주간 Z·M 샘플 (각 주 날짜 이하의 최근 값)
+                    val zh = DoubleArray(WEEKS) { Double.NaN }
+                    val mh = DoubleArray(WEEKS) { Double.NaN }
+                    for (w in 0 until WEEKS) {
+                        var idx = -1
+                        for (i in r.dates.indices) { if (r.dates[i] <= wd[w]) idx = i else break }
+                        if (idx >= 0) { zh[w] = r.zPct[idx]; mh[w] = r.mPct[idx] }
+                    }
                     Row(
                         ticker = tk, name = Tickers.displayName(tk), price = p[m - 1],
                         day = if (prevD > 0) (p[m - 1] / prevD - 1) * 100 else 0.0,
@@ -55,6 +75,7 @@ object OverviewRepo {
                         zPct = r.lastZpct, mPct = r.lastMpct, signal = r.signal,
                         beta = r.beta, sigmaPct = r.sigmaPct, holding = held,
                         hasHistory = trades[tk].orEmpty().isNotEmpty(),
+                        zHist = zh, mHist = mh,
                     )
                 }
             }.awaitAll().filterNotNull()
