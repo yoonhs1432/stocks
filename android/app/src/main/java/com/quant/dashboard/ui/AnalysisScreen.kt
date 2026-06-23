@@ -376,6 +376,7 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
         ChartCard(Modifier.weight(1f), "MACD",
             value = "${"%.2f".format(macdLast)}(${"%+.2f".format(macdLast - sigLast)})") {
             MacdChart(macdW, sigW, height = gh)
+            DateAxis(dates)
         }
         ChartCard(Modifier.weight(1f), "RSI", value = "%.1f".format(rsiLast), valueColor = Teal) {
             RsiChart(seg(r.rsi), height = gh)

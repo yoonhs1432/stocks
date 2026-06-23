@@ -598,6 +598,9 @@ fun MacdChart(macd: DoubleArray, signal: DoubleArray, topLabel: String = "", hei
     Canvas(modifier = modifier.fillMaxWidth().height(height)) {
         fun xAt(i: Int) = size.width * i / (n - 1)
         fun yAt(v: Double) = (size.height * (1 - (v + mx) / (2 * mx))).toFloat()
+        // 표시 범위 기준 상단 30% 빨강 / 하단 30% 파랑 음영 (RSI 스타일)
+        drawRect(Color(0x1AEF6066), topLeft = Offset(0f, 0f), size = Size(size.width, size.height * 0.3f))
+        drawRect(Color(0x1A5B9BF2), topLeft = Offset(0f, size.height * 0.7f), size = Size(size.width, size.height * 0.3f))
         // 0선 — 흰색
         drawLine(Color(0xCCFFFFFF), Offset(0f, yAt(0.0)), Offset(size.width, yAt(0.0)), 0.9f)
         clipRect(0f, 0f, size.width, size.height) {
