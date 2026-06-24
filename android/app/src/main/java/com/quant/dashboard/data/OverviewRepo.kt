@@ -23,9 +23,8 @@ object OverviewRepo {
         val mHist: DoubleArray = DoubleArray(0),   // 주간 M 시계열(최근 N주)
     )
 
-    const val WEEKS = 26          // 최근 약 6개월, 1주 간격
     @Volatile private var weekDatesArr: LongArray = LongArray(0)
-    /** Z·M 주간 산점도 타임라인 (epoch sec, 오래된→최근). */
+    /** Z·M 산점도 스크럽 타임라인 (epoch sec, 오래된→최근). 최근 6개월 거래일(일별). */
     fun weekDates(): LongArray = weekDatesArr
 
     @Volatile private var cache: List<Row> = emptyList()
@@ -44,10 +43,11 @@ object OverviewRepo {
         val spy = Store.sliceAsof(Yahoo.closes(Tickers.BASE, range, interval))
         if (spy.isEmpty()) return cache
         val trades = Store.loadTrades()
-        // 주간 타임라인 (최근 WEEKS주, 1주 간격) — 모든 종목 공유
+        // 스크럽 타임라인 — 최근 6개월 거래일(일별), 모든 종목 공유
         val latest = spy.last().first
-        val step = 7L * 86400
-        val wd = LongArray(WEEKS) { latest - (WEEKS - 1 - it).toLong() * step }
+        val cutoff = latest - 182L * 86400
+        val wd = spy.asSequence().map { it.first }.filter { it >= cutoff }.toList().toLongArray()
+        val WN = wd.size
         weekDatesArr = wd
         val rows = coroutineScope {
             Store.loadTickers().map { tk ->
@@ -59,10 +59,10 @@ object OverviewRepo {
                     val prevW = if (m > 5) p[m - 6] else prevD
                     val high = p.max()
                     val held = Portfolio.currentHoldQty(trades[tk].orEmpty()) > 0
-                    // 주간 Z·M 샘플 (각 주 날짜 이하의 최근 값)
-                    val zh = DoubleArray(WEEKS) { Double.NaN }
-                    val mh = DoubleArray(WEEKS) { Double.NaN }
-                    for (w in 0 until WEEKS) {
+                    // 거래일별 Z·M 샘플 (각 날짜 이하의 최근 값)
+                    val zh = DoubleArray(WN) { Double.NaN }
+                    val mh = DoubleArray(WN) { Double.NaN }
+                    for (w in 0 until WN) {
                         var idx = -1
                         for (i in r.dates.indices) { if (r.dates[i] <= wd[w]) idx = i else break }
                         if (idx >= 0) { zh[w] = r.zPct[idx]; mh[w] = r.mPct[idx] }

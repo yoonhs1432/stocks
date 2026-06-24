@@ -148,7 +148,7 @@ fun CompareScreen(vm: CompareViewModel = viewModel()) {
                     )
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         Text(df.format(Date(weekDates[0] * 1000L)), color = TextSecondary, fontSize = 10.sp)
-                        Text("← 1주 간격 (최근 6개월) →", color = TextMuted, fontSize = 10.sp)
+                        Text("← 일별 (최근 6개월) →", color = TextMuted, fontSize = 10.sp)
                         Text("현재", color = TextSecondary, fontSize = 10.sp)
                     }
                 }
