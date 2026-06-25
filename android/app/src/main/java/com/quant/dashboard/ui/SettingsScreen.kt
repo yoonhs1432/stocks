@@ -20,6 +20,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -54,6 +55,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
+import kotlin.math.roundToInt
 
 private val RANGES = listOf("6개월" to "6mo", "1년" to "1y", "2년" to "2y")
 
@@ -132,6 +134,15 @@ fun SettingsScreen() {
                     Seg(label, chartM == m) { chartM = m; Store.setChartMonths(m); AppState.bump() }
                 }
             }
+            // MACD·RSI 산점도 민감도 K (작을수록 가운데로 모임)
+            var macdK by remember { mutableStateOf(Store.macdK().toFloat()) }
+            Label("MACD·RSI 산점도 민감도  K=${"%.2f".format(macdK)}")
+            Slider(
+                value = macdK,
+                onValueChange = { macdK = (it * 20).roundToInt() / 20f },
+                onValueChangeFinished = { Store.setMacdK(macdK.toDouble()); AppState.bump() },
+                valueRange = 0.05f..1.0f, steps = 18,
+            )
             // 기준일 시뮬레이션
             var asofEnabled by remember { mutableStateOf(Store.asofDate() != null) }
             var asofText by remember { mutableStateOf(Store.asofDate() ?: LocalDate.now().toString()) }

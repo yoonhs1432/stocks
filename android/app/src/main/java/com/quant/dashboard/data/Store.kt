@@ -230,6 +230,10 @@ object Store {
     fun seedUsd(): Double = settings().optDouble("seed", 20_000.0)
     fun setSeedUsd(v: Double) { saveSettings(settings().put("seed", v)) }
 
+    /** MACD·RSI 산점도 X축 정규화 민감도 K (tanh). 기본 0.25. */
+    fun macdK(): Double = settings().optDouble("macd_k", 0.25)
+    fun setMacdK(v: Double) { saveSettings(settings().put("macd_k", v)) }
+
     /** Yahoo range 문자열: "6mo" / "1y" / "2y". 기본 2y. */
     fun lookbackRange(): String = settings().optString("range", "2y")
     fun setLookbackRange(r: String) { saveSettings(settings().put("range", r)) }
