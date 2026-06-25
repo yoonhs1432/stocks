@@ -318,10 +318,7 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
         if (cd != null) { opens[i] = cd.open; highs[i] = cd.high; lows[i] = cd.low; closes[i] = cd.close }
         else { opens[i] = Double.NaN; highs[i] = Double.NaN; lows[i] = Double.NaN; closes[i] = Double.NaN }
     }
-    // MACD를 가격 대비 %로 (MACD/가격×100) — 종목 가격대와 무관하게
-    val priceW = seg(r.price); val macdRaw = seg(r.macd); val sigRaw = seg(r.macdSignal)
-    val macdW = DoubleArray(priceW.size) { if (priceW[it] > 0 && !macdRaw[it].isNaN()) macdRaw[it] / priceW[it] * 100.0 else Double.NaN }
-    val sigW = DoubleArray(priceW.size) { if (priceW[it] > 0 && !sigRaw[it].isNaN()) sigRaw[it] / priceW[it] * 100.0 else Double.NaN }
+    val macdW = seg(r.macd); val sigW = seg(r.macdSignal)
     val macdLast = macdW.lastOrNull { !it.isNaN() } ?: 0.0
     val sigLast = sigW.lastOrNull { !it.isNaN() } ?: 0.0
     val rsiLast = r.rsi.lastOrNull { !it.isNaN() } ?: 50.0
@@ -359,7 +356,7 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
 
     // ── 3행: ⑤ MACD · ⑥ RSI ──
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        ChartCard(Modifier.weight(1f), "MACD/가격", sub = "%",
+        ChartCard(Modifier.weight(1f), "MACD",
             value = "${"%.2f".format(macdLast)}(${"%+.2f".format(macdLast - sigLast)})") {
             MacdChart(macdW, sigW, height = gh)
             DateAxis(dates)
