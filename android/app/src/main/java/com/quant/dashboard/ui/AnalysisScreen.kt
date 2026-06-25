@@ -366,6 +366,24 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
             DateAxis(dates)
         }
     }
+
+    // ── 4행: MACD-hist · RSI 산점도 (둘 다 절대 0~100) ──
+    // MACD-hist를 가격 대비 %로 환산 후 tanh로 0~100 고정 스케일화 (범위 무관)
+    val K = 1.5
+    val histNorm = DoubleArray(r.macd.size) { i ->
+        val mh = r.macd[i]; val sg = r.macdSignal[i]; val px = r.price[i]
+        if (mh.isNaN() || sg.isNaN() || px <= 0) Double.NaN
+        else 50.0 + 50.0 * Math.tanh(K * (mh - sg) / px * 100.0)
+    }
+    val histLast = histNorm.lastOrNull { !it.isNaN() } ?: 50.0
+    ChartCard(Modifier.fillMaxWidth(), "MACD-h · RSI", sub = "절대 0~100 · ★ 현재",
+        value = "H${"%.0f".format(histLast)} · R${"%.0f".format(rsiLast)}") {
+        ZmScatter(histNorm, r.rsi, scatterIdx, height = 150.dp)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text("X=MACD-hist(약세→강세)", color = TextMuted, fontSize = 9.sp)
+            Text("Y=RSI(과매도→과매수)", color = TextMuted, fontSize = 9.sp)
+        }
+    }
 }
 
 /** 차트 카드 — 헤더(제목/부제 + 우측 값) + 플롯. 그리드 셀에서는 modifier=weight 전달. */
