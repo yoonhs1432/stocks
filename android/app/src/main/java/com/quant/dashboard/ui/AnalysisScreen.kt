@@ -367,20 +367,20 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
         }
     }
 
-    // ── 4행: MACD-hist · RSI 산점도 (둘 다 절대 0~100) ──
-    // MACD-hist를 가격 대비 %로 환산 후 tanh로 0~100 고정 스케일화 (범위 무관)
-    val K = 1.5
-    val histNorm = DoubleArray(r.macd.size) { i ->
-        val mh = r.macd[i]; val sg = r.macdSignal[i]; val px = r.price[i]
-        if (mh.isNaN() || sg.isNaN() || px <= 0) Double.NaN
-        else 50.0 + 50.0 * Math.tanh(K * (mh - sg) / px * 100.0)
+    // ── 4행: MACD · RSI 산점도 (둘 다 절대 0~100) ──
+    // MACD를 가격 대비 %로 환산 후 tanh로 0~100 고정 스케일화 (범위 무관)
+    val K = 1.0
+    val macdNorm = DoubleArray(r.macd.size) { i ->
+        val mc = r.macd[i]; val px = r.price[i]
+        if (mc.isNaN() || px <= 0) Double.NaN
+        else 50.0 + 50.0 * Math.tanh(K * mc / px * 100.0)
     }
-    val histLast = histNorm.lastOrNull { !it.isNaN() } ?: 50.0
-    ChartCard(Modifier.fillMaxWidth(), "MACD-h · RSI", sub = "절대 0~100 · ★ 현재",
-        value = "H${"%.0f".format(histLast)} · R${"%.0f".format(rsiLast)}") {
-        ZmScatter(histNorm, r.rsi, scatterIdx, height = 150.dp)
+    val macdNormLast = macdNorm.lastOrNull { !it.isNaN() } ?: 50.0
+    ChartCard(Modifier.fillMaxWidth(), "MACD · RSI", sub = "절대 0~100 · ★ 현재",
+        value = "M${"%.0f".format(macdNormLast)} · R${"%.0f".format(rsiLast)}") {
+        ZmScatter(macdNorm, r.rsi, scatterIdx, height = 150.dp)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text("X=MACD-hist(약세→강세)", color = TextMuted, fontSize = 9.sp)
+            Text("X=MACD/가격(약세→강세)", color = TextMuted, fontSize = 9.sp)
             Text("Y=RSI(과매도→과매수)", color = TextMuted, fontSize = 9.sp)
         }
     }
