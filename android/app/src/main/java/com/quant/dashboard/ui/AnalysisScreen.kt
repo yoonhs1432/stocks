@@ -369,7 +369,7 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
 
     // ── 4행: MACD · RSI 산점도 (둘 다 절대 0~100) ──
     // MACD를 가격 대비 %로 환산 후 tanh로 0~100 고정 스케일화 (범위 무관)
-    val K = 1.0
+    val K = 0.25
     val macdNorm = DoubleArray(r.macd.size) { i ->
         val mc = r.macd[i]; val px = r.price[i]
         if (mc.isNaN() || px <= 0) Double.NaN
