@@ -49,6 +49,14 @@ class CompareViewModel : ViewModel() {
         }
     }
 
+    /** 자동(조용한) 새로고침 — 로딩 표시 없이 명단 갱신(5분 캐시 만료 시에만 실제 재요청). */
+    fun autoRefresh() {
+        viewModelScope.launch {
+            val rows = withContext(Dispatchers.IO) { OverviewRepo.load(false) }
+            if (rows.isNotEmpty()) state = state.copy(rows = rows, error = null)
+        }
+    }
+
     fun setSort(key: SortKey) {
         val desc = if (state.sortKey == key) !state.sortDesc else false
         state = state.copy(sortKey = key, sortDesc = desc)

@@ -69,6 +69,13 @@ private fun zCellColor(pct: Double) = when {
 fun CompareScreen(vm: CompareViewModel = viewModel(), onOpenAnalysis: (String) -> Unit = {}) {
     val s = vm.state
     LaunchedEffect(AppState.dataVersion) { vm.sync(AppState.dataVersion) }
+    // 자동 새로고침 — 화면 켜진 비교 탭 + 장중에만, 60초 (조용히, 명단은 5분 캐시)
+    LaunchedEffect(Unit) {
+        while (true) {
+            kotlinx.coroutines.delay(60_000)
+            if (marketOpenNow()) vm.autoRefresh()
+        }
+    }
 
     Column(
         modifier = Modifier.fillMaxSize().background(BgApp)

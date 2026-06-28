@@ -58,8 +58,14 @@ class AnalysisViewModel : ViewModel() {
         load(ticker)
     }
 
-    fun load(ticker: String = state.ticker) {
-        state = state.copy(loading = true, error = null)
+    /** 자동(조용한) 새로고침 — 로딩 인디케이터 없이 현재 종목 갱신. */
+    fun autoRefresh() {
+        load(quiet = true)
+        loadOverview(false)   // 5분 캐시: 만료 시에만 실제 재요청
+    }
+
+    fun load(ticker: String = state.ticker, quiet: Boolean = false) {
+        if (!quiet) state = state.copy(loading = true, error = null)
         viewModelScope.launch {
             val range = Store.lookbackRange()
             val interval = Store.candleInterval()
@@ -85,6 +91,8 @@ class AnalysisViewModel : ViewModel() {
             state = if (holder.isSuccess) {
                 val (r, candles) = holder.getOrNull()!!
                 state.copy(loading = false, result = r, ohlc = candles, error = null)
+            } else if (quiet) {
+                state   // 조용한 새로고침 실패는 기존 화면 유지
             } else {
                 state.copy(loading = false, error = holder.exceptionOrNull()?.message ?: "오류")
             }

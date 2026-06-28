@@ -85,6 +85,13 @@ fun AnalysisScreen(vm: AnalysisViewModel = viewModel()) {
     LaunchedEffect(AppState.pendingTicker) {
         AppState.pendingTicker?.let { vm.select(it); AppState.pendingTicker = null }
     }
+    // 자동 새로고침 — 화면 켜진 분석 탭 + 장중에만, 60초 (조용히)
+    LaunchedEffect(Unit) {
+        while (true) {
+            kotlinx.coroutines.delay(60_000)
+            if (marketOpenNow()) vm.autoRefresh()
+        }
+    }
 
     val ov = vm.overview.associateBy { it.ticker }
     val allTickers = if (vm.overview.isNotEmpty())

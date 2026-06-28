@@ -75,6 +75,15 @@ object AppState {
     fun bump() { dataVersion++ }
 }
 
+/** 미국 정규장(평일 09:30~16:00 ET) 대략 판정 — 자동 새로고침 게이트. */
+fun marketOpenNow(): Boolean {
+    val now = java.time.ZonedDateTime.now(java.time.ZoneId.of("America/New_York"))
+    val dow = now.dayOfWeek
+    if (dow == java.time.DayOfWeek.SATURDAY || dow == java.time.DayOfWeek.SUNDAY) return false
+    val t = now.toLocalTime()
+    return !t.isBefore(java.time.LocalTime.of(9, 30)) && !t.isAfter(java.time.LocalTime.of(16, 0))
+}
+
 @Composable
 fun AppScaffold() {
     var tab by remember { mutableStateOf(0) }
