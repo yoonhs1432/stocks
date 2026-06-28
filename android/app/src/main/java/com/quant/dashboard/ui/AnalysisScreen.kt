@@ -1,5 +1,6 @@
 package com.quant.dashboard.ui
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -9,6 +10,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -18,16 +20,20 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -38,6 +44,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.quant.dashboard.data.Candle
 import com.quant.dashboard.data.Store
@@ -54,6 +62,7 @@ import com.quant.dashboard.ui.theme.Loss
 import com.quant.dashboard.ui.theme.Mono
 import com.quant.dashboard.ui.theme.Neutral
 import com.quant.dashboard.ui.theme.Profit
+import com.quant.dashboard.ui.theme.ProfitBtn
 import com.quant.dashboard.ui.theme.SegmentOn
 import com.quant.dashboard.ui.theme.SurfaceInput
 import com.quant.dashboard.ui.theme.Teal
@@ -110,7 +119,6 @@ fun AnalysisScreen(vm: AnalysisViewModel = viewModel()) {
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         ResultView(s.result, s.ticker, s.ohlc, ov[s.ticker]?.day)
-                        Accordion("📝 매매 기록 입력") { TradeInputSection(s.ticker) }
                         Accordion("🗑️ 매매 기록 삭제 / 메모 편집") { TradeListSection(s.ticker) }
                         Spacer(Modifier.height(4.dp))
                     }
@@ -367,21 +375,71 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
         }
     }
 
-    // ── 4행: MACD · RSI 산점도 (둘 다 절대 0~100) ──
-    // MACD를 가격 대비 %로 환산 후 tanh로 0~100 고정 스케일화 (범위 무관)
-    val K = Store.macdK()
-    val macdNorm = DoubleArray(r.macd.size) { i ->
-        val mc = r.macd[i]; val px = r.price[i]
-        if (mc.isNaN() || px <= 0) Double.NaN
-        else 50.0 + 50.0 * Math.tanh(K * mc / px * 100.0)
+    // ── 신중 매매 (충동매매 방지: 모든 그래프 순차 확인 후 매매 기록) ──
+    val guides = listOf(
+        "① 회귀 산점도 — 회귀선 대비 고평가/저평가 위치를 확인했나요?",
+        "② Z·M 궤적 — 사분면(강세/약세) 위치를 확인했나요?",
+        "③ 가격 일봉 — 추세와 최근 흐름을 확인했나요?",
+        "④ Z·M 오실레이터 — 과열/과매도(80·20)를 확인했나요?",
+        "⑤ MACD — 모멘텀·교차를 확인했나요?",
+        "⑥ RSI — 과매수/과매도를 확인했나요?",
+    )
+    var reviewOpen by remember(ticker) { mutableStateOf(false) }
+    Button(onClick = { reviewOpen = true }, modifier = Modifier.fillMaxWidth(),
+        colors = ButtonDefaults.buttonColors(containerColor = ProfitBtn)) {
+        Text("🧭 신중 매매 (매수 · 매도)", fontWeight = FontWeight.Bold)
     }
-    val macdNormLast = macdNorm.lastOrNull { !it.isNaN() } ?: 50.0
-    ChartCard(Modifier.fillMaxWidth(), "MACD · RSI", sub = "절대 0~100 · ★ 현재",
-        value = "M${"%.0f".format(macdNormLast)} · R${"%.0f".format(rsiLast)}") {
-        ZmScatter(macdNorm, r.rsi, scatterIdx, height = 150.dp)
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text("X=MACD/가격(약세→강세)", color = TextMuted, fontSize = 9.sp)
-            Text("Y=RSI(과매도→과매수)", color = TextMuted, fontSize = 9.sp)
+    if (reviewOpen) {
+        val checked = remember { mutableStateListOf(false, false, false, false, false, false) }
+        var step by remember { mutableStateOf(0) }
+        Dialog(onDismissRequest = { reviewOpen = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false)) {
+            Surface(Modifier.fillMaxWidth(0.96f).fillMaxHeight(0.92f), color = BgApp,
+                shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, BorderColor)) {
+                Column(Modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text(if (step < guides.size) "신중 매매   ${step + 1} / ${guides.size}" else "매매 입력",
+                            color = TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                        Text("✕", color = TextSecondary, fontSize = 20.sp,
+                            modifier = Modifier.clickable { reviewOpen = false })
+                    }
+                    Text("${Tickers.displayName(ticker)}  ${Tickers.priceLabel(ticker, r.lastPrice)}",
+                        color = Profit, fontSize = 14.sp, fontWeight = FontWeight.Bold, fontFamily = Mono)
+                    if (step < guides.size) {
+                        Text(guides[step], color = TextSecondary, fontSize = 13.sp)
+                        Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                            Column(Modifier.fillMaxWidth()) {
+                                when (step) {
+                                    0 -> RegressionScatter(r.spyNorm, r.tickerNorm, r.predicted, r.bandUpper, r.bandLower, r.beta, markIdx = scatterIdx, height = 240.dp)
+                                    1 -> ZmScatter(r.zPct, r.mPct, scatterIdx, height = 240.dp)
+                                    2 -> if (closes.any { !it.isNaN() })
+                                        CandleChart(opens, highs, lows, closes, segDollar(r.predicted), segDollar(r.bandUpper), segDollar(r.bandLower), markers = priceMarks, arrows = arrows, currency = Tickers.currencySymbol(ticker), dates = dates, dailyChgPct = dayPct ?: Double.NaN, height = 240.dp)
+                                    else PriceChart(segDollar(r.tickerNorm), segDollar(r.predicted), segDollar(r.bandUpper), segDollar(r.bandLower), markers = priceMarks, arrows = arrows, currency = Tickers.currencySymbol(ticker), height = 240.dp)
+                                    3 -> ZmChart(seg(r.zPct), seg(r.mPct), zmMarks, height = 210.dp)
+                                    4 -> MacdChart(macdW, sigW, height = 210.dp)
+                                    else -> { RsiChart(seg(r.rsi), height = 210.dp); DateAxis(dates) }
+                                }
+                            }
+                        }
+                        Row(Modifier.fillMaxWidth().clickable { checked[step] = !checked[step] },
+                            verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(checked = checked[step], onCheckedChange = { checked[step] = it })
+                            Text("이 그래프를 충분히 확인했어요", color = TextPrimary, fontSize = 13.sp)
+                        }
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(onClick = { if (step > 0) step-- }, enabled = step > 0, modifier = Modifier.weight(1f)) { Text("← 이전") }
+                            Button(onClick = { step++ }, enabled = checked[step], modifier = Modifier.weight(1f)) {
+                                Text(if (step == guides.size - 1) "매매하기 →" else "다음 →")
+                            }
+                        }
+                    } else {
+                        Box(Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState())) {
+                            TradeInputSection(ticker, onSaved = { reviewOpen = false; AppState.bump() })
+                        }
+                        Button(onClick = { step = guides.size - 1 }, modifier = Modifier.fillMaxWidth()) { Text("← 그래프 다시 보기") }
+                    }
+                }
+            }
         }
     }
 }
@@ -408,7 +466,7 @@ private fun ChartCard(modifier: Modifier = Modifier, title: String, sub: String 
 }
 
 @Composable
-private fun TradeInputSection(ticker: String) {
+private fun TradeInputSection(ticker: String, onSaved: () -> Unit = {}) {
     var refresh by remember { mutableStateOf(0) }
     var type by remember { mutableStateOf("buy") }
     var qty by remember { mutableStateOf("") }
@@ -432,7 +490,7 @@ private fun TradeInputSection(ticker: String) {
             Button(onClick = {
                 val q = qty.toIntOrNull(); val p = price.toDoubleOrNull()
                 if (q == null || q <= 0 || p == null || p <= 0) err = "수량·단가를 올바르게 입력하세요"
-                else { Store.addTrade(ticker, Trade(date.trim(), type, q, p, memo.ifBlank { null })); qty = ""; price = ""; memo = ""; err = null; refresh++ }
+                else { Store.addTrade(ticker, Trade(date.trim(), type, q, p, memo.ifBlank { null })); qty = ""; price = ""; memo = ""; err = null; refresh++; onSaved() }
             }) { Text("저장") }
             err?.let { Text(it, color = Loss, fontSize = 12.sp) }
         }

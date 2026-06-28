@@ -134,15 +134,6 @@ fun SettingsScreen() {
                     Seg(label, chartM == m) { chartM = m; Store.setChartMonths(m); AppState.bump() }
                 }
             }
-            // MACD·RSI 산점도 민감도 K (작을수록 가운데로 모임)
-            var macdK by remember { mutableStateOf(Store.macdK().toFloat()) }
-            Label("MACD·RSI 산점도 민감도  K=${"%.2f".format(macdK)}")
-            Slider(
-                value = macdK,
-                onValueChange = { macdK = (it * 20).roundToInt() / 20f },
-                onValueChangeFinished = { Store.setMacdK(macdK.toDouble()); AppState.bump() },
-                valueRange = 0.05f..1.0f, steps = 18,
-            )
             // 기준일 시뮬레이션
             var asofEnabled by remember { mutableStateOf(Store.asofDate() != null) }
             var asofText by remember { mutableStateOf(Store.asofDate() ?: LocalDate.now().toString()) }
