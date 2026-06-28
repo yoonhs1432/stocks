@@ -49,7 +49,7 @@ import kotlin.math.sin
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-private val TAB_LABELS = listOf("분석", "비교", "포트폴리오", "설정")
+private val TAB_LABELS = listOf("비교", "분석", "포트폴리오", "설정")
 
 /**
  * 앱 전역 상태 — 기준일(As-of)·설정 변경 시 모든 탭이 자동으로 데이터를 다시 로드하도록
@@ -60,6 +60,9 @@ object AppState {
         private set
     var dataVersion by mutableStateOf(0)
         private set
+
+    /** 비교 탭에서 종목 클릭 시 분석 탭으로 넘길 종목(처리 후 null). */
+    var pendingTicker by mutableStateOf<String?>(null)
 
     /** 기준일 설정/해제 (null=해제) 후 전 탭 리로드 트리거. */
     fun applyAsof(d: String?) {
@@ -83,8 +86,8 @@ fun AppScaffold() {
             MarketHeader()
             Box(Modifier.fillMaxWidth().weight(1f)) {
                 when (tab) {
-                    0 -> AnalysisScreen()
-                    1 -> CompareScreen()
+                    0 -> CompareScreen(onOpenAnalysis = { AppState.pendingTicker = it; tab = 1 })
+                    1 -> AnalysisScreen()
                     2 -> PortfolioScreen()
                     else -> SettingsScreen()
                 }
@@ -118,24 +121,24 @@ private fun TabBar(current: Int, onSelect: (Int) -> Unit) {
     }
 }
 
-/** 단색 라인 탭 아이콘 (0=막대 / 1=산점 / 2=서류가방 / 3=톱니). */
+/** 단색 라인 탭 아이콘 (0=산점(비교) / 1=막대(분석) / 2=서류가방 / 3=톱니). */
 @Composable
 private fun TabIcon(index: Int, color: Color) {
     Canvas(Modifier.size(22.dp)) {
         val w = size.width; val h = size.height
         when (index) {
-            0 -> {  // 막대 차트
+            0 -> {  // 산점도 점 (비교)
+                val r = w * 0.08f
+                for ((px, py) in listOf(0.3f to 0.36f, 0.62f to 0.5f, 0.42f to 0.7f, 0.74f to 0.3f)) {
+                    drawCircle(color, r, Offset(w * px, h * py))
+                }
+            }
+            1 -> {  // 막대 차트 (분석)
                 val bw = w * 0.17f; val bottom = h * 0.84f
                 val cols = listOf(0.24f to 0.42f, 0.5f to 0.62f, 0.76f to 0.84f)
                 for ((cx, hh) in cols) {
                     val top = bottom - h * hh
                     drawRect(color, topLeft = Offset(w * cx - bw / 2, top), size = Size(bw, bottom - top))
-                }
-            }
-            1 -> {  // 산점도 점
-                val r = w * 0.08f
-                for ((px, py) in listOf(0.3f to 0.36f, 0.62f to 0.5f, 0.42f to 0.7f, 0.74f to 0.3f)) {
-                    drawCircle(color, r, Offset(w * px, h * py))
                 }
             }
             2 -> {  // 서류가방

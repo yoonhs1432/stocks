@@ -18,8 +18,8 @@ data class CompareState(
     val loading: Boolean = false,
     val error: String? = null,
     val rows: List<CompareRow> = emptyList(),
-    val sortKey: SortKey = SortKey.M,
-    val sortDesc: Boolean = false,
+    val sortKey: SortKey = SortKey.DAY,
+    val sortDesc: Boolean = true,
 )
 
 class CompareViewModel : ViewModel() {

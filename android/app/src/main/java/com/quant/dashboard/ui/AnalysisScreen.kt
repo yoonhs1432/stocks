@@ -81,6 +81,10 @@ fun AnalysisScreen(vm: AnalysisViewModel = viewModel()) {
     var holdingsOnly by remember { mutableStateOf(false) }   // 보유 종목만 보기 토글
 
     LaunchedEffect(AppState.dataVersion) { vm.sync(AppState.dataVersion) }
+    // 비교 탭에서 넘어온 종목 선택
+    LaunchedEffect(AppState.pendingTicker) {
+        AppState.pendingTicker?.let { vm.select(it); AppState.pendingTicker = null }
+    }
 
     val ov = vm.overview.associateBy { it.ticker }
     val allTickers = if (vm.overview.isNotEmpty())
