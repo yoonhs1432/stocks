@@ -96,7 +96,7 @@ fun AppScaffold() {
             Box(Modifier.fillMaxWidth().weight(1f)) {
                 when (tab) {
                     0 -> CompareScreen(onOpenAnalysis = { AppState.pendingTicker = it; tab = 1 })
-                    1 -> AnalysisScreen()
+                    1 -> AnalysisScreen(onBack = { tab = 0 })
                     2 -> PortfolioScreen()
                     else -> SettingsScreen()
                 }

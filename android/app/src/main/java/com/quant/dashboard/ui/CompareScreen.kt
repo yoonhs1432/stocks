@@ -191,7 +191,7 @@ private fun RowScope.HCell(vm: CompareViewModel, text: String, key: SortKey, wei
     val on = s.sortKey == key
     val mark = if (on) (if (s.sortDesc) " ▼" else " ▲") else ""
     Text(
-        text + mark, color = if (on) TextPrimary else TextSecondary, fontSize = 13.5.sp,
+        text + mark, color = if (on) TextPrimary else TextSecondary, fontSize = 14.5.sp,
         fontWeight = FontWeight.SemiBold, textAlign = align,
         modifier = Modifier.weight(weight).clickable { vm.setSort(key) },
     )
@@ -199,7 +199,7 @@ private fun RowScope.HCell(vm: CompareViewModel, text: String, key: SortKey, wei
 
 @Composable
 private fun RowScope.Cell(text: String, weight: Float, color: Color, align: TextAlign = TextAlign.End, fw: FontWeight = FontWeight.Normal) {
-    Text(text, color = color, fontSize = 15.5.sp, textAlign = align, fontWeight = fw,
+    Text(text, color = color, fontSize = 17.sp, textAlign = align, fontWeight = fw,
         fontFamily = Mono, modifier = Modifier.weight(weight))
 }
 
@@ -213,7 +213,7 @@ private fun RowScope.DotName(state: Int, name: String, weight: Float) {
                 .then(if (state == 2) Modifier.background(Gold)
                 else Modifier.border(1.3.dp, Gold, RoundedCornerShape(50))),
         )
-        Text(name, color = TextPrimary, fontSize = 15.5.sp, fontWeight = FontWeight.SemiBold, fontFamily = Mono)
+        Text(name, color = TextPrimary, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, fontFamily = Mono)
     }
 }
 

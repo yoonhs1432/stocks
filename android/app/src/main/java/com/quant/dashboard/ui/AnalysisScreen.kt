@@ -1,5 +1,6 @@
 package com.quant.dashboard.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -76,7 +77,7 @@ import java.time.LocalDate
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AnalysisScreen(vm: AnalysisViewModel = viewModel()) {
+fun AnalysisScreen(vm: AnalysisViewModel = viewModel(), onBack: () -> Unit = {}) {
     val s = vm.state
     var holdingsOnly by remember { mutableStateOf(false) }   // 보유 종목만 보기 토글
 
@@ -101,7 +102,18 @@ fun AnalysisScreen(vm: AnalysisViewModel = viewModel()) {
     var diOpen by remember { mutableStateOf(false) }
     var diText by remember { mutableStateOf("") }
 
+    // 기기 뒤로가기 → 비교 탭으로
+    BackHandler { onBack() }
+
     Column(modifier = Modifier.fillMaxSize().background(BgApp)) {
+        // ── 상단 고정: 뒤로가기(비교로) ──
+        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier.clip(RoundedCornerShape(8.dp)).background(SurfaceInput)
+                    .clickable { onBack() }.padding(horizontal = 12.dp, vertical = 7.dp),
+            ) { Text("← 비교", color = TextSecondary, fontSize = 13.sp, fontWeight = FontWeight.Bold) }
+        }
         // ── 상단 고정: 직접입력 (열렸을 때만) ──
         if (diOpen) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
@@ -341,7 +353,7 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
     val macdLast = macdW.lastOrNull { !it.isNaN() } ?: 0.0
     val sigLast = sigW.lastOrNull { !it.isNaN() } ?: 0.0
     val rsiLast = r.rsi.lastOrNull { !it.isNaN() } ?: 50.0
-    val gh = 128.dp   // 그리드 차트 높이 (보유 박스 제거로 확보된 공간만큼 확대)
+    val gh = 106.dp   // 그리드 차트 높이
 
     // ── 1행: ① 회귀 산점도 · ② Z·M 궤적 ──
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
