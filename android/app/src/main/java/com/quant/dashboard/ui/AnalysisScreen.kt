@@ -145,7 +145,6 @@ fun AnalysisScreen(vm: AnalysisViewModel = viewModel(), onBack: () -> Unit = {})
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         ResultView(s.result, s.ticker, s.ohlc, ov[s.ticker]?.day)
-                        Accordion("🗑️ 매매 기록 삭제 / 메모 편집") { TradeListSection(s.ticker) }
                         Spacer(Modifier.height(4.dp))
                     }
                 }
@@ -408,9 +407,38 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
         "⑥ RSI — 과매수/과매도를 확인했나요?",
     )
     var reviewOpen by remember(ticker) { mutableStateOf(false) }
-    Button(onClick = { reviewOpen = true }, modifier = Modifier.fillMaxWidth(),
-        colors = ButtonDefaults.buttonColors(containerColor = ProfitBtn)) {
-        Text("🧭 신중 매매 (매수 · 매도)", fontWeight = FontWeight.Bold)
+    var editOpen by remember(ticker) { mutableStateOf(false) }
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Button(onClick = { reviewOpen = true }, modifier = Modifier.weight(1f),
+            colors = ButtonDefaults.buttonColors(containerColor = ProfitBtn)) {
+            Text("신중 매매", fontWeight = FontWeight.Bold)
+        }
+        Button(onClick = { editOpen = true }, modifier = Modifier.weight(1f),
+            colors = ButtonDefaults.buttonColors(containerColor = SegmentOn)) {
+            Text("매매기록 편집", fontWeight = FontWeight.Bold, color = TextPrimary)
+        }
+    }
+    // 매매기록 편집 — 새 창(다이얼로그)
+    if (editOpen) {
+        Dialog(onDismissRequest = { editOpen = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false)) {
+            Surface(Modifier.fillMaxWidth(0.96f).fillMaxHeight(0.85f), color = BgApp,
+                shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, BorderColor)) {
+                Column(Modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text("매매기록 편집", color = TextPrimary, fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                        Text("✕", color = TextSecondary, fontSize = 20.sp,
+                            modifier = Modifier.clickable { editOpen = false })
+                    }
+                    Text("${Tickers.displayName(ticker)}  ${Tickers.priceLabel(ticker, r.lastPrice)}",
+                        color = Profit, fontSize = 14.sp, fontWeight = FontWeight.Bold, fontFamily = Mono)
+                    Box(Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState())) {
+                        TradeListSection(ticker)
+                    }
+                }
+            }
+        }
     }
     if (reviewOpen) {
         val checked = remember { mutableStateListOf(false, false, false, false, false, false) }

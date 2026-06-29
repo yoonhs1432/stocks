@@ -18,8 +18,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -65,6 +67,7 @@ private fun zCellColor(pct: Double) = when {
     pct >= 80 -> Loss; pct <= 20 -> Profit; else -> TableGray
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CompareScreen(vm: CompareViewModel = viewModel(), onOpenAnalysis: (String) -> Unit = {}) {
     val s = vm.state
@@ -77,19 +80,18 @@ fun CompareScreen(vm: CompareViewModel = viewModel(), onOpenAnalysis: (String) -
         }
     }
 
-    Column(
-        modifier = Modifier.fillMaxSize().background(BgApp)
-            .verticalScroll(rememberScrollState()).padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Text("종목 비교", color = TextPrimary, fontSize = 19.sp, fontWeight = FontWeight.Bold)
-
-        when {
-            s.loading -> Row(Modifier.fillMaxWidth().padding(24.dp), Arrangement.Center) {
-                CircularProgressIndicator()
-            }
-            s.error != null -> Text("⚠️ ${s.error}", color = Loss)
-            else -> {
+    Column(modifier = Modifier.fillMaxSize().background(BgApp)) {
+        PullToRefreshBox(isRefreshing = s.loading, onRefresh = { vm.load(force = true) },
+            modifier = Modifier.fillMaxSize()) {
+            Column(
+                modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text("종목 비교", color = TextPrimary, fontSize = 19.sp, fontWeight = FontWeight.Bold)
+                when {
+                    s.rows.isEmpty() && s.error != null -> Text("⚠️ ${s.error}", color = Loss)
+                    s.rows.isEmpty() -> Text("불러오는 중…", color = TextSecondary, modifier = Modifier.padding(24.dp))
+                    else -> {
                 Column(Modifier.fillMaxWidth()) {
                     Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(SurfaceInput)
                         .padding(vertical = 6.dp, horizontal = 2.dp)) {
@@ -180,6 +182,8 @@ fun CompareScreen(vm: CompareViewModel = viewModel(), onOpenAnalysis: (String) -
                 )
                 Text("X=β·SPY · Y=σ%(로그) · 색=모멘텀 · 점선=중앙값",
                     color = TextSecondary, fontSize = 11.sp)
+                    }
+                }
             }
         }
     }
