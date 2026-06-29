@@ -79,7 +79,6 @@ import java.time.LocalDate
 @Composable
 fun AnalysisScreen(vm: AnalysisViewModel = viewModel(), onBack: () -> Unit = {}) {
     val s = vm.state
-    var holdingsOnly by remember { mutableStateOf(false) }   // 보유 종목만 보기 토글
 
     LaunchedEffect(AppState.dataVersion) { vm.sync(AppState.dataVersion) }
     // 비교 탭에서 넘어온 종목 선택
@@ -95,9 +94,6 @@ fun AnalysisScreen(vm: AnalysisViewModel = viewModel(), onBack: () -> Unit = {})
     }
 
     val ov = vm.overview.associateBy { it.ticker }
-    val allTickers = if (vm.overview.isNotEmpty())
-        Store.loadTickers().sortedBy { ov[it]?.mPct ?: 50.0 } else Store.loadTickers()
-    val tickers = if (holdingsOnly) allTickers.filter { ov[it]?.holding == true } else allTickers
 
     var diOpen by remember { mutableStateOf(false) }
     var diText by remember { mutableStateOf("") }
@@ -106,13 +102,20 @@ fun AnalysisScreen(vm: AnalysisViewModel = viewModel(), onBack: () -> Unit = {})
     BackHandler { onBack() }
 
     Column(modifier = Modifier.fillMaxSize().background(BgApp)) {
-        // ── 상단 고정: 뒤로가기(비교로) ──
+        // ── 상단 고정: 뒤로가기(비교로) + 직접입력 토글 ──
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically) {
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             Box(
                 Modifier.clip(RoundedCornerShape(8.dp)).background(SurfaceInput)
                     .clickable { onBack() }.padding(horizontal = 12.dp, vertical = 7.dp),
             ) { Text("← 비교", color = TextSecondary, fontSize = 13.sp, fontWeight = FontWeight.Bold) }
+            Spacer(Modifier.weight(1f))
+            Box(
+                Modifier.clip(RoundedCornerShape(8.dp))
+                    .background(if (diOpen) SegmentOn else SurfaceInput)
+                    .clickable { diOpen = !diOpen }.padding(horizontal = 12.dp, vertical = 7.dp),
+            ) { Text("⌨ 직접", color = if (diOpen) TextPrimary else TextSecondary, fontSize = 13.sp, fontWeight = FontWeight.Bold) }
         }
         // ── 상단 고정: 직접입력 (열렸을 때만) ──
         if (diOpen) {
@@ -154,9 +157,6 @@ fun AnalysisScreen(vm: AnalysisViewModel = viewModel(), onBack: () -> Unit = {})
             }
         }
 
-        // ── 하단 고정: 보유 토글 + 직접입력 + 종목 바 (가로 스크롤, 항상 표시) ──
-        TickerBar(tickers, ov, s.ticker, holdingsOnly, { holdingsOnly = !holdingsOnly },
-            diOpen, { diOpen = !diOpen }) { vm.select(it) }
     }
 }
 
