@@ -112,6 +112,9 @@ private fun turbo(t: Float): Color {
     return lerp(stops[i], stops[i + 1], seg - i)
 }
 
+// 우측 끝 여백(px) — 마지막 캔들/마커/화살표가 오른쪽 테두리에 잘리지 않도록 확보
+private const val EDGE_PAD = 16f
+
 private val DASH = PathEffect.dashPathEffect(floatArrayOf(8f, 8f))
 
 /** 점선. */
@@ -396,7 +399,7 @@ fun PriceChart(
     lo -= pad; hi += pad
 
     Canvas(modifier = modifier.fillMaxWidth().height(height)) {
-        fun xAt(i: Int) = size.width * i / (n - 1)
+        fun xAt(i: Int) = (size.width - EDGE_PAD) * i / (n - 1)
         fun yAt(v: Double) = (size.height * (1 - (v - lo) / (hi - lo))).toFloat()
         clipRect(0f, 0f, size.width, size.height) {
             poly(priceDollar, ::xAt, ::yAt, Color(0xFFE6EDF3), 2.5f)
@@ -440,7 +443,7 @@ fun CandleChart(
     val df = SimpleDateFormat("yy.MM.dd", Locale.US)
     fun dlbl(i: Int) = if (i in dates.indices) df.format(Date(dates[i] * 1000L)) else ""
     Canvas(modifier = modifier.fillMaxWidth().height(height)) {
-        fun xAt(i: Int) = size.width * i / (n - 1)
+        fun xAt(i: Int) = (size.width - EDGE_PAD) * i / (n - 1)
         fun yAt(v: Double) = (size.height * (1 - (Math.log10(v) - ymin) / (ymax - ymin))).toFloat()
         clipRect(0f, 0f, size.width, size.height) {
             poly(closes, ::xAt, ::yAt, Color(0x66E6EDF3), 1.0f)   // 흰 종가선
@@ -478,7 +481,7 @@ fun ZmChart(zPct: DoubleArray, mPct: DoubleArray, markers: List<Mark> = emptyLis
     val n = zPct.size
     if (n < 2) return
     Canvas(modifier = modifier.fillMaxWidth().height(height)) {
-        fun xAt(i: Int) = size.width * i / (n - 1)
+        fun xAt(i: Int) = (size.width - EDGE_PAD) * i / (n - 1)
         fun yAt(v: Double) = (size.height * (1 - v / 100.0)).toFloat()
         // 위(>80) 빨강 / 아래(<20) 파랑 음영 밴드 (RSI 스타일)
         drawRect(Color(0x1AEF6066), topLeft = Offset(0f, yAt(100.0)), size = Size(size.width, yAt(80.0) - yAt(100.0)))
@@ -540,7 +543,7 @@ fun RsiChart(rsi: DoubleArray, topLabel: String = "", height: Dp = 90.dp, modifi
     val n = rsi.size
     if (n < 2) return
     Canvas(modifier = modifier.fillMaxWidth().height(height)) {
-        fun xAt(i: Int) = size.width * i / (n - 1)
+        fun xAt(i: Int) = (size.width - EDGE_PAD) * i / (n - 1)
         fun yAt(v: Double) = (size.height * (1 - v / 100.0)).toFloat()
         // 과매수(>70) 빨강 / 과매도(<30) 파랑 음영
         drawRect(Color(0x1AEF6066), topLeft = Offset(0f, yAt(100.0)), size = Size(size.width, yAt(70.0) - yAt(100.0)))
@@ -596,7 +599,7 @@ fun MacdChart(macd: DoubleArray, signal: DoubleArray, topLabel: String = "", hei
     if (mx <= 0) mx = 1.0
     mx *= 1.15
     Canvas(modifier = modifier.fillMaxWidth().height(height)) {
-        fun xAt(i: Int) = size.width * i / (n - 1)
+        fun xAt(i: Int) = (size.width - EDGE_PAD) * i / (n - 1)
         fun yAt(v: Double) = (size.height * (1 - (v + mx) / (2 * mx))).toFloat()
         // 표시 범위 기준 상단 30% 빨강 / 하단 30% 파랑 음영 (RSI 스타일)
         drawRect(Color(0x1AEF6066), topLeft = Offset(0f, 0f), size = Size(size.width, size.height * 0.3f))
