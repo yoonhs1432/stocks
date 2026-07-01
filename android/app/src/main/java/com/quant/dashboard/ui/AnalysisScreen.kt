@@ -354,20 +354,41 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
     val rsiLast = r.rsi.lastOrNull { !it.isNaN() } ?: 50.0
     val gh = 106.dp   // 그리드 차트 높이
 
+    // 확대 다이얼로그로 넘길 선택 차트 인덱스(-1=닫힘). 그리드/확대에서 동일 렌더 재사용.
+    var zoom by remember(ticker) { mutableStateOf(-1) }
+    // 인덱스→차트 렌더 (h=차트 높이). 0회귀 1Z·M궤적 2일봉 3Z·M 4MACD 5RSI
+    val renderChart: @Composable (Int, androidx.compose.ui.unit.Dp) -> Unit = { idx, h ->
+        when (idx) {
+            0 -> RegressionScatter(r.spyNorm, r.tickerNorm, r.predicted, r.bandUpper, r.bandLower, r.beta, markIdx = scatterIdx, height = h)
+            1 -> ZmScatter(r.zPct, r.mPct, scatterIdx, height = h)
+            2 -> {
+                if (closes.any { !it.isNaN() })
+                    CandleChart(opens, highs, lows, closes, segDollar(r.predicted), segDollar(r.bandUpper), segDollar(r.bandLower),
+                        markers = priceMarks, arrows = arrows, currency = Tickers.currencySymbol(ticker), dates = dates, dailyChgPct = dayPct ?: Double.NaN, height = h)
+                else PriceChart(segDollar(r.tickerNorm), segDollar(r.predicted), segDollar(r.bandUpper), segDollar(r.bandLower),
+                    markers = priceMarks, arrows = arrows, currency = Tickers.currencySymbol(ticker), height = h)
+                DateAxis(dates)
+            }
+            3 -> { ZmChart(seg(r.zPct), seg(r.mPct), zmMarks, height = h); DateAxis(dates) }
+            4 -> { MacdChart(macdW, sigW, height = h); DateAxis(dates) }
+            else -> { RsiChart(seg(r.rsi), height = h); DateAxis(dates) }
+        }
+    }
+
     // ── 1행: ① 회귀 산점도 · ② Z·M 궤적 ──
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        ChartCard(Modifier.weight(1f), "회귀 산점도", value = "β ${"%.2f".format(r.beta)}", valueColor = Profit) {
+        ChartCard(Modifier.weight(1f), "회귀 산점도", value = "β ${"%.2f".format(r.beta)}", valueColor = Profit, onClick = { zoom = 0 }) {
             RegressionScatter(r.spyNorm, r.tickerNorm, r.predicted,
                 r.bandUpper, r.bandLower, r.beta, markIdx = scatterIdx, height = gh)
         }
-        ChartCard(Modifier.weight(1f), "Z·M 궤적", sub = "현재 ★") {
+        ChartCard(Modifier.weight(1f), "Z·M 궤적", sub = "현재 ★", onClick = { zoom = 1 }) {
             ZmScatter(r.zPct, r.mPct, scatterIdx, height = gh)
         }
     }
 
     // ── 2행: ③ 가격 캔들 · ④ Z·M 오실레이터 ──
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        ChartCard(Modifier.weight(1f), "가격·일봉", value = Tickers.priceLabel(ticker, r.lastPrice)) {
+        ChartCard(Modifier.weight(1f), "가격·일봉", value = Tickers.priceLabel(ticker, r.lastPrice), onClick = { zoom = 2 }) {
             if (closes.any { !it.isNaN() }) {
                 CandleChart(opens, highs, lows, closes,
                     segDollar(r.predicted), segDollar(r.bandUpper), segDollar(r.bandLower),
@@ -379,7 +400,7 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
                     markers = priceMarks, arrows = arrows, currency = Tickers.currencySymbol(ticker), height = gh)
             }
         }
-        ChartCard(Modifier.weight(1f), "Z·M", value = "Z${"%.0f".format(r.lastZpct)}·M${"%.0f".format(r.lastMpct)}") {
+        ChartCard(Modifier.weight(1f), "Z·M", value = "Z${"%.0f".format(r.lastZpct)}·M${"%.0f".format(r.lastMpct)}", onClick = { zoom = 3 }) {
             ZmChart(seg(r.zPct), seg(r.mPct), zmMarks, height = gh)
         }
     }
@@ -387,13 +408,39 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
     // ── 3행: ⑤ MACD · ⑥ RSI ──
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         ChartCard(Modifier.weight(1f), "MACD",
-            value = "${"%.2f".format(macdLast)}(${"%+.2f".format(macdLast - sigLast)})") {
+            value = "${"%.2f".format(macdLast)}(${"%+.2f".format(macdLast - sigLast)})", onClick = { zoom = 4 }) {
             MacdChart(macdW, sigW, height = gh)
             DateAxis(dates)
         }
-        ChartCard(Modifier.weight(1f), "RSI", value = "%.1f".format(rsiLast), valueColor = Teal) {
+        ChartCard(Modifier.weight(1f), "RSI", value = "%.1f".format(rsiLast), valueColor = Teal, onClick = { zoom = 5 }) {
             RsiChart(seg(r.rsi), height = gh)
             DateAxis(dates)
+        }
+    }
+
+    // ── 차트 확대 다이얼로그 (그리드에서 탭한 차트를 전체화면 크게) ──
+    if (zoom >= 0) {
+        val titles = listOf("회귀 산점도", "Z·M 궤적", "가격·일봉", "Z·M 오실레이터", "MACD", "RSI")
+        Dialog(onDismissRequest = { zoom = -1 },
+            properties = DialogProperties(usePlatformDefaultWidth = false)) {
+            Surface(Modifier.fillMaxWidth(0.98f).fillMaxHeight(0.9f), color = BgApp,
+                shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, BorderColor)) {
+                Column(Modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text(titles[zoom], color = TextPrimary, fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                        Text("✕", color = TextSecondary, fontSize = 22.sp,
+                            modifier = Modifier.clickable { zoom = -1 })
+                    }
+                    Text("${Tickers.displayName(ticker)}  ${Tickers.priceLabel(ticker, r.lastPrice)}",
+                        color = Profit, fontSize = 14.sp, fontWeight = FontWeight.Bold, fontFamily = Mono)
+                    Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                        Column(Modifier.fillMaxWidth()) {
+                            renderChart(zoom, if (zoom <= 1) 420.dp else 340.dp)
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -495,13 +542,17 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
     }
 }
 
-/** 차트 카드 — 헤더(제목/부제 + 우측 값) + 플롯. 그리드 셀에서는 modifier=weight 전달. */
+/** 차트 카드 — 헤더(제목/부제 + 우측 값) + 플롯. 그리드 셀에서는 modifier=weight 전달.
+ *  onClick 지정 시 카드 전체 탭 → 확대 다이얼로그. (탭 힌트로 우측에 ⤢ 표시) */
 @Composable
 private fun ChartCard(modifier: Modifier = Modifier, title: String, sub: String = "", value: String = "",
-                      valueColor: Color = TextSecondary, content: @Composable () -> Unit) {
+                      valueColor: Color = TextSecondary, onClick: (() -> Unit)? = null,
+                      content: @Composable () -> Unit) {
     Column(
         modifier.clip(RoundedCornerShape(12.dp)).background(BgCard)
-            .border(1.dp, BorderColor, RoundedCornerShape(12.dp)).padding(8.dp),
+            .border(1.dp, BorderColor, RoundedCornerShape(12.dp))
+            .then(if (onClick != null) Modifier.clickable { onClick() } else Modifier)
+            .padding(8.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -511,6 +562,7 @@ private fun ChartCard(modifier: Modifier = Modifier, title: String, sub: String 
             Spacer(Modifier.weight(1f))
             if (value.isNotEmpty()) Text(value, color = valueColor, fontSize = 11.sp,
                 fontWeight = FontWeight.Bold, fontFamily = Mono, maxLines = 1)
+            if (onClick != null) Text(" ⤢", color = TextMuted, fontSize = 11.sp)
         }
         content()
     }
