@@ -20,6 +20,7 @@ data class CompareState(
     val rows: List<CompareRow> = emptyList(),
     val sortKey: SortKey = SortKey.DAY,
     val sortDesc: Boolean = true,
+    val holdingsOnly: Boolean = false,
 )
 
 class CompareViewModel : ViewModel() {
@@ -57,22 +58,32 @@ class CompareViewModel : ViewModel() {
         }
     }
 
+    /** 보유종목만 보기 토글 (탭 전환에도 유지되도록 VM에 저장). */
+    fun toggleHoldings() {
+        state = state.copy(holdingsOnly = !state.holdingsOnly)
+    }
+
     fun setSort(key: SortKey) {
         val desc = if (state.sortKey == key) !state.sortDesc else false
         state = state.copy(sortKey = key, sortDesc = desc)
     }
 
+    /** 보유 필터 적용된 표시 대상 행. */
+    fun visibleRows(): List<CompareRow> =
+        if (state.holdingsOnly) state.rows.filter { it.holding } else state.rows
+
     fun sorted(): List<CompareRow> {
+        val src = visibleRows()
         val base = when (state.sortKey) {
-            SortKey.NAME -> state.rows.sortedBy { it.name }
-            SortKey.PRICE -> state.rows.sortedBy { it.price }
-            SortKey.DAY -> state.rows.sortedBy { it.day }
-            SortKey.WEEK -> state.rows.sortedBy { it.week }
-            SortKey.FROM_HIGH -> state.rows.sortedBy { it.fromHigh }
-            SortKey.Z -> state.rows.sortedBy { it.zPct }
-            SortKey.M -> state.rows.sortedBy { it.mPct }
-            SortKey.BETA -> state.rows.sortedBy { it.beta }
-            SortKey.SIGMA -> state.rows.sortedBy { it.sigmaPct }
+            SortKey.NAME -> src.sortedBy { it.name }
+            SortKey.PRICE -> src.sortedBy { it.price }
+            SortKey.DAY -> src.sortedBy { it.day }
+            SortKey.WEEK -> src.sortedBy { it.week }
+            SortKey.FROM_HIGH -> src.sortedBy { it.fromHigh }
+            SortKey.Z -> src.sortedBy { it.zPct }
+            SortKey.M -> src.sortedBy { it.mPct }
+            SortKey.BETA -> src.sortedBy { it.beta }
+            SortKey.SIGMA -> src.sortedBy { it.sigmaPct }
         }
         return if (state.sortDesc) base.reversed() else base
     }

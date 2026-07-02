@@ -19,7 +19,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -74,34 +76,33 @@ private fun won(usd: Double, rate: Double) =
     (if (usd >= 0) "+" else "-") + "%,.0f원".format(kotlin.math.abs(usd * rate))
 private fun wonAbs(usd: Double, rate: Double) = "%,.0f원".format(usd * rate)
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PortfolioScreen(vm: PortfolioViewModel = viewModel()) {
     val s = vm.state
     LaunchedEffect(AppState.dataVersion) { vm.sync(AppState.dataVersion) }
 
-    Column(
-        modifier = Modifier.fillMaxSize().background(BgApp)
-            .verticalScroll(rememberScrollState()).padding(14.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            Text("포트폴리오", color = TextPrimary, fontSize = 19.sp, fontWeight = FontWeight.Bold,
-                modifier = Modifier.weight(1f))
-            Box(
-                Modifier.clip(RoundedCornerShape(8.dp)).background(SurfaceInput)
-                    .clickable { vm.load() }.padding(horizontal = 10.dp, vertical = 6.dp),
-            ) { Text("🔄", fontSize = 13.sp) }
-        }
+    Column(modifier = Modifier.fillMaxSize().background(BgApp)) {
+        // 당겨서 새로고침 → 전체 탭 새로고침 (dataVersion bump로 모든 탭이 재로드)
+        PullToRefreshBox(isRefreshing = s.loading, onRefresh = { AppState.bump() },
+            modifier = Modifier.fillMaxSize()) {
+            Column(
+                modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text("포트폴리오", color = TextPrimary, fontSize = 19.sp, fontWeight = FontWeight.Bold)
 
-        when {
-            s.loading -> Row(Modifier.fillMaxWidth().padding(24.dp), Arrangement.Center) {
-                CircularProgressIndicator()
+                when {
+                    s.result != null -> ResultBody(s.result, s.rate)
+                    s.loading -> Row(Modifier.fillMaxWidth().padding(24.dp), Arrangement.Center) {
+                        CircularProgressIndicator()
+                    }
+                    s.empty -> Text(
+                        "매매 기록이 없습니다.\n분석 탭에서 종목을 보고 ‘매매 기록’으로 입력하세요.",
+                        color = TextSecondary, fontSize = 14.sp,
+                    )
+                }
             }
-            s.empty -> Text(
-                "매매 기록이 없습니다.\n분석 탭에서 종목을 보고 ‘매매 기록’으로 입력하세요.",
-                color = TextSecondary, fontSize = 14.sp,
-            )
-            s.result != null -> ResultBody(s.result, s.rate)
         }
     }
 }

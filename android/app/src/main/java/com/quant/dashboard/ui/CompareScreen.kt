@@ -81,13 +81,27 @@ fun CompareScreen(vm: CompareViewModel = viewModel(), onOpenAnalysis: (String) -
     }
 
     Column(modifier = Modifier.fillMaxSize().background(BgApp)) {
-        PullToRefreshBox(isRefreshing = s.loading, onRefresh = { vm.load(force = true) },
+        // 당겨서 새로고침 → 전체 탭 새로고침 (dataVersion bump로 모든 탭이 재로드)
+        PullToRefreshBox(isRefreshing = s.loading, onRefresh = { AppState.bump() },
             modifier = Modifier.fillMaxSize()) {
             Column(
                 modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Text("종목 비교", color = TextPrimary, fontSize = 19.sp, fontWeight = FontWeight.Bold)
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("종목 비교", color = TextPrimary, fontSize = 19.sp, fontWeight = FontWeight.Bold,
+                        modifier = Modifier.weight(1f))
+                    // 보유종목만 보기 토글
+                    Box(
+                        Modifier.clip(RoundedCornerShape(8.dp))
+                            .background(if (s.holdingsOnly) Gold else SurfaceInput)
+                            .clickable { vm.toggleHoldings() }
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                    ) {
+                        Text("● 보유", color = if (s.holdingsOnly) Color(0xFF0C0E11) else TextSecondary,
+                            fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
                 when {
                     s.rows.isEmpty() && s.error != null -> Text("⚠️ ${s.error}", color = Loss)
                     s.rows.isEmpty() -> Text("불러오는 중…", color = TextSecondary, modifier = Modifier.padding(24.dp))
@@ -102,6 +116,9 @@ fun CompareScreen(vm: CompareViewModel = viewModel(), onOpenAnalysis: (String) -
                         HCell(vm, "M", SortKey.M, 1f)
                     }
                     val rows = vm.sorted()
+                    if (rows.isEmpty())
+                        Text("보유 종목이 없습니다", color = TextSecondary, fontSize = 13.sp,
+                            modifier = Modifier.padding(12.dp))
                     rows.forEachIndexed { idx, r ->
                         Row(Modifier.fillMaxWidth().clickable { onOpenAnalysis(r.ticker) }
                             .padding(horizontal = 2.dp, vertical = 6.dp)) {
@@ -131,7 +148,7 @@ fun CompareScreen(vm: CompareViewModel = viewModel(), onOpenAnalysis: (String) -
                 val gMid = Color(0x998B949E); val gBuy = Color(0x66DC2626); val gSell = Color(0x661D4ED8)
                 val zmLines = listOf(GridLine(50.0, gMid, 1.0f), GridLine(10.0, gBuy, 0.8f), GridLine(90.0, gSell, 0.8f))
                 ScatterChart(
-                    points = s.rows.map { row ->
+                    points = vm.visibleRows().map { row ->
                         val z = if (idx < row.zHist.size) row.zHist[idx] else row.zPct
                         val m = if (idx < row.mHist.size) row.mHist[idx] else row.mPct
                         ScatterPt(z, m, row.name, pctColor(if (m.isNaN()) 50.0 else m))
@@ -164,7 +181,7 @@ fun CompareScreen(vm: CompareViewModel = viewModel(), onOpenAnalysis: (String) -
                 // ── σ·β 산점도 (변동성·시장민감도) ──
                 Text("📊 변동성(σ) · 시장민감도(β)", color = TextPrimary,
                     fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                val finite = s.rows.filter { it.beta.isFinite() && it.sigmaPct.isFinite() && it.sigmaPct > 0 }
+                val finite = vm.visibleRows().filter { it.beta.isFinite() && it.sigmaPct.isFinite() && it.sigmaPct > 0 }
                 val betas = finite.map { it.beta }
                 val sigmas = finite.map { it.sigmaPct }
                 val medB = if (betas.isNotEmpty()) betas.sorted()[betas.size / 2] else 0.0

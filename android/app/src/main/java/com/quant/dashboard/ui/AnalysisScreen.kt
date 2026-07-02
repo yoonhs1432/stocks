@@ -135,8 +135,9 @@ fun AnalysisScreen(vm: AnalysisViewModel = viewModel(), onBack: () -> Unit = {})
         // ── 본문: 당겨서 새로고침 + 그래프 2열 그리드 + 매매 아코디언 ──
         Box(Modifier.weight(1f).fillMaxWidth()) {
             when {
+                // 당겨서 새로고침 → 전체 탭 새로고침 (dataVersion bump로 모든 탭이 재로드)
                 s.result != null -> PullToRefreshBox(
-                    isRefreshing = s.loading, onRefresh = { vm.refresh() },
+                    isRefreshing = s.loading, onRefresh = { AppState.bump() },
                     modifier = Modifier.fillMaxSize(),
                 ) {
                     Column(
