@@ -435,7 +435,9 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
                     }
                     Text("${Tickers.displayName(ticker)}  ${Tickers.priceLabel(ticker, r.lastPrice)}",
                         color = Profit, fontSize = 14.sp, fontWeight = FontWeight.Bold, fontFamily = Mono)
-                    Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                    // 차트를 다시 탭하면 축소(닫기)
+                    Box(Modifier.fillMaxWidth().weight(1f).clickable { zoom = -1 },
+                        contentAlignment = Alignment.Center) {
                         Column(Modifier.fillMaxWidth()) {
                             renderChart(zoom, if (zoom <= 1) 420.dp else 340.dp)
                         }
