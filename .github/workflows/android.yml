@@ -1,0 +1,51 @@
+name: Android Build
+
+# 수동 빌드 전용 — 요청 시에만 실행해 디버그 APK를 'android-latest' 릴리스에 게시.
+# (자동 push 트리거 제거: Actions 사용량/저장 용량 절약)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install SDK packages
+        run: yes | sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Build debug APK
+        working-directory: android
+        run: gradle assembleDebug --no-daemon --stacktrace
+
+      # (아티팩트 업로드 제거 — Actions 저장 용량 절약. APK는 아래 릴리스로만 게시)
+
+      - name: Publish to rolling release
+        if: github.ref == 'refs/heads/claude/android-native'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: android-latest
+          name: "Android 최신 빌드 (debug)"
+          prerelease: true
+          files: android/app/build/outputs/apk/debug/*.apk
+          body: |
+            갤럭시에서 이 APK를 받아 설치하세요 (출처 불명 앱 설치 허용 필요).
+            매 push 마다 자동 갱신되는 디버그 빌드입니다.
