@@ -18,7 +18,18 @@
   - `autoRefresh()`는 `state.loading`이면 skip, 조용한 실패 시 `loading=false`로 해제
 - ⚠️ `refresh()` 삭제됨 — 전체 새로고침은 `AppState.bump()` → `sync(changed)` 경로로 일원화
 
-### 2. 확대 차트 축 확대/이동 + 현재값 십자선 (Charts.kt)
+### 2. 확대 차트 축 확대/이동 + 현재값 십자선 + 축 눈금 (Charts.kt)
+
+> ⚠️ **좌표계 규칙**: 제스처와 차트는 **반드시 같은 기준 폭(plotW = 캔버스폭 − AXIS_W)** 을 써야 함.
+> 한쪽이 캔버스 폭을 쓰면 배율이 커질수록 확대 중심이 어긋나 그림이 조금씩 밀린다(실제 발생한 버그).
+> `chartGestures`의 `axisPx`(=13sp×3.6)와 각 차트의 `AXIS_W`는 같은 값이어야 함 — 한쪽만 바꾸지 말 것.
+>
+> 손가락 수가 바뀌는 프레임(2번째 손가락 얹기/떼기)은 무게중심이 순간이동하므로
+> `jumped` 플래그로 이동 처리에서 제외 (안 하면 핀치 시작 순간 확 밀림).
+>
+> **시계열 4종(가격·일봉/Z·M/MACD/RSI)은 x축 전용**(`xOnly=true`), y는 `visibleRange`로 보이는
+> 구간에 자동 맞춤. Z·M/RSI는 `view.sx > 1f`일 때만 자동맞춤 — 원본 배율에서는 0~100 고정
+> (20/40/60/80 임계선 의미 유지). 산점도 2종만 x·y 양축 확대.
 - **`ChartView(sx, nx, sy, ny)`**: x·y 배율과 정규화 이동량. `n`을 `[-(s-1), 0]`으로 클램프해
   콘텐츠가 항상 화면을 채움. 최대 12배(`MAX_ZOOM`)
 - **`Modifier.chartGestures(view, onChange, onTap)`**: 두 손가락 **가로** 벌리기=X축,
