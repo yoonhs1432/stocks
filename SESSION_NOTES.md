@@ -1,7 +1,45 @@
 # SESSION_NOTES — 최근 작업 핸드오프
 
 > 새 세션 시작 시 이 파일을 읽으면 직전 세션의 맥락을 이어받을 수 있음.
-> 마지막 업데이트: 2026-06-19 (Android 포팅 기능 패리티 세션, 브랜치 claude/android-native)
+> 마지막 업데이트: 2026-08-07 (Android 차트 확대/이동 · 종목 전환 버그 수정, 브랜치 claude/fix-needed-tm9ina)
+
+## 2026-08-07 Android UX 수정 세션
+
+> 선행: `claude/android-native`(87커밋)를 **PR #3으로 main에 병합**. 이제 main이 Android 앱까지 포함.
+> `app.py`는 변경 없음(Android 브랜치가 손댄 기존 파일은 SESSION_NOTES/.gitignore뿐).
+
+### 1. 종목 전환 시 이전 종목이 남던 버그 (AnalysisViewModel/AnalysisScreen)
+- 원인: `LaunchedEffect(dataVersion)`의 `sync()`와 `LaunchedEffect(pendingTicker)`의 `select()`가
+  **각각 load()를 걸어 두 네트워크 요청이 경쟁** → 늦게 끝난 이전 종목 응답이 새 상태를 덮어씀
+- 해결:
+  - 두 효과를 하나로 합침 → `vm.sync(version, pending)` 단일 진입점
+  - `loadJob?.cancel()` + `reqSeq` 시퀀스 가드로 오래된 응답 폐기
+  - `select()`에서 종목이 바뀌면 `result`/`ohlc`를 즉시 비움 (로딩 중 이전 차트 노출 차단)
+  - `autoRefresh()`는 `state.loading`이면 skip, 조용한 실패 시 `loading=false`로 해제
+- ⚠️ `refresh()` 삭제됨 — 전체 새로고침은 `AppState.bump()` → `sync(changed)` 경로로 일원화
+
+### 2. 확대 차트 축 확대/이동 + 현재값 십자선 (Charts.kt)
+- **`ChartView(sx, nx, sy, ny)`**: x·y 배율과 정규화 이동량. `n`을 `[-(s-1), 0]`으로 클램프해
+  콘텐츠가 항상 화면을 채움. 최대 12배(`MAX_ZOOM`)
+- **`Modifier.chartGestures(view, onChange, onTap)`**: 두 손가락 **가로** 벌리기=X축,
+  **세로** 벌리기=Y축 (각 축 독립 — Compose 기본 `detectTransformGestures`는 단일 zoom이라 미사용).
+  확대 상태에서 한 손가락 드래그=이동. 이동 없이 떼면 `onTap`(기존 재탭 닫기 동작 유지)
+- 6개 차트 전부 `view`/`showCross` 파라미터 추가. 좌표는 `view.x(base, size.width)` 경유
+- 현재값 표시: 시계열은 `currentCross`(시점 세로선 + 계열별 가로선/값 태그),
+  산점도는 기존 `crosshair`(그동안 죽어 있던 함수 부활) + ★ 유지
+- `DateAxis(dates, view)`: 확대 시 **보이는 인덱스 구간**의 날짜로 갱신, 3배 이상이면 yy/MM/dd
+- 확대 다이얼로그 헤더에 배율(`⟲ 2.0×1.0`) 겸 원본 복귀 버튼
+
+### 3. 포트폴리오 → 분석 이동
+- 평가금액 카드의 보유 종목 행 탭 → `onOpenAnalysis(h.ticker)` → 분석 탭 (비교 탭과 동일 경로)
+- `AppState.pendingTicker`를 비교/포트폴리오 공용으로 사용
+
+### 주의
+- 차트 좌표 함수를 새로 만들 때는 반드시 `view.x()/view.y()`를 거칠 것 (안 그러면 확대 시 어긋남)
+- `.github/workflows/android.yml`의 릴리스 게시 조건이 아직
+  `github.ref == 'refs/heads/claude/android-native'` — main 병합 후엔 main에서 APK가 안 올라감
+
+---
 
 ## 2026-06-19 Android 포팅 패리티 세션 (app.py 정답지 → Kotlin 전수 대조)
 
