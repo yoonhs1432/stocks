@@ -365,21 +365,21 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
     val renderChart: @Composable (Int, androidx.compose.ui.unit.Dp, Modifier) -> Unit = { idx, h, m ->
         when (idx) {
             0 -> RegressionScatter(r.spyNorm, r.tickerNorm, r.predicted, r.bandUpper, r.bandLower, r.beta,
-                markIdx = scatterIdx, height = h, view = view, showCross = true, modifier = m)
-            1 -> ZmScatter(r.zPct, r.mPct, scatterIdx, height = h, view = view, showCross = true, modifier = m)
+                markIdx = scatterIdx, height = h, view = view, zoomed = true, modifier = m)
+            1 -> ZmScatter(r.zPct, r.mPct, scatterIdx, height = h, view = view, zoomed = true, modifier = m)
             2 -> {
                 if (closes.any { !it.isNaN() })
                     CandleChart(opens, highs, lows, closes, segDollar(r.predicted), segDollar(r.bandUpper), segDollar(r.bandLower),
                         markers = priceMarks, arrows = arrows, currency = Tickers.currencySymbol(ticker), dates = dates,
-                        dailyChgPct = dayPct ?: Double.NaN, height = h, view = view, showCross = true, modifier = m)
+                        dailyChgPct = dayPct ?: Double.NaN, height = h, view = view, zoomed = true, modifier = m)
                 else PriceChart(segDollar(r.tickerNorm), segDollar(r.predicted), segDollar(r.bandUpper), segDollar(r.bandLower),
                     markers = priceMarks, arrows = arrows, currency = Tickers.currencySymbol(ticker),
-                    height = h, view = view, showCross = true, modifier = m)
-                DateAxis(dates, view)
+                    height = h, view = view, zoomed = true, modifier = m)
+                DateAxis(dates, view, zoomed = true)
             }
-            3 -> { ZmChart(seg(r.zPct), seg(r.mPct), zmMarks, height = h, view = view, showCross = true, modifier = m); DateAxis(dates, view) }
-            4 -> { MacdChart(macdW, sigW, height = h, view = view, showCross = true, modifier = m); DateAxis(dates, view) }
-            else -> { RsiChart(seg(r.rsi), height = h, view = view, showCross = true, modifier = m); DateAxis(dates, view) }
+            3 -> { ZmChart(seg(r.zPct), seg(r.mPct), zmMarks, height = h, view = view, zoomed = true, modifier = m); DateAxis(dates, view, zoomed = true) }
+            4 -> { MacdChart(macdW, sigW, height = h, view = view, zoomed = true, modifier = m); DateAxis(dates, view, zoomed = true) }
+            else -> { RsiChart(seg(r.rsi), height = h, view = view, zoomed = true, modifier = m); DateAxis(dates, view, zoomed = true) }
         }
     }
 
@@ -440,12 +440,14 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
                             fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
                         // 확대·이동 상태일 때만 원본 배율 복귀 버튼
                         if (!view.isIdentity) {
+                            val zoomLabel = if (zoom <= 1) "${"%.1f".format(view.sx)}×${"%.1f".format(view.sy)}"
+                            else "${"%.1f".format(view.sx)}×"
                             Box(
                                 Modifier.clip(RoundedCornerShape(8.dp)).background(SurfaceInput)
                                     .clickable { view = ChartView() }
                                     .padding(horizontal = 10.dp, vertical = 5.dp),
                             ) {
-                                Text("⟲ ${"%.1f".format(view.sx)}×${"%.1f".format(view.sy)}",
+                                Text("⟲ $zoomLabel",
                                     color = TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = Mono)
                             }
                         }
@@ -454,14 +456,17 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
                     }
                     Text("${Tickers.displayName(ticker)}  ${Tickers.priceLabel(ticker, r.lastPrice)}",
                         color = Profit, fontSize = 14.sp, fontWeight = FontWeight.Bold, fontFamily = Mono)
-                    // 두 손가락 가로/세로 핀치 = x·y축 확대, 확대 상태에서 끌면 이동, 그냥 탭하면 축소(닫기)
+                    // 시계열 차트(②~⑤)는 x축만 확대 — y는 보이는 구간에 자동으로 맞춰짐
+                    val xOnly = zoom >= 2
                     Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
                         Column(Modifier.fillMaxWidth()) {
                             renderChart(zoom, if (zoom <= 1) 420.dp else 340.dp,
-                                Modifier.chartGestures(view, { view = it }, onTap = { zoom = -1 }))
+                                Modifier.chartGestures(view, { view = it }, onTap = { zoom = -1 }, xOnly = xOnly))
                         }
                     }
-                    Text("두 손가락 가로/세로로 벌리면 X·Y축 확대 · 확대 후 끌어서 이동 · 탭하면 닫기",
+                    Text(
+                        if (xOnly) "두 손가락 가로로 벌리면 기간 확대 (Y축은 자동) · 끌어서 이동 · 탭하면 닫기"
+                        else "두 손가락 가로/세로로 벌리면 X·Y축 확대 · 확대 후 끌어서 이동 · 탭하면 닫기",
                         color = TextMuted, fontSize = 10.sp)
                 }
             }
