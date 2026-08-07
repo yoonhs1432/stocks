@@ -78,7 +78,7 @@ private fun wonAbs(usd: Double, rate: Double) = "%,.0f원".format(usd * rate)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PortfolioScreen(vm: PortfolioViewModel = viewModel()) {
+fun PortfolioScreen(vm: PortfolioViewModel = viewModel(), onOpenAnalysis: (String) -> Unit = {}) {
     val s = vm.state
     LaunchedEffect(AppState.dataVersion) { vm.sync(AppState.dataVersion) }
 
@@ -93,7 +93,7 @@ fun PortfolioScreen(vm: PortfolioViewModel = viewModel()) {
                 Text("포트폴리오", color = TextPrimary, fontSize = 19.sp, fontWeight = FontWeight.Bold)
 
                 when {
-                    s.result != null -> ResultBody(s.result, s.rate)
+                    s.result != null -> ResultBody(s.result, s.rate, onOpenAnalysis)
                     s.loading -> Row(Modifier.fillMaxWidth().padding(24.dp), Arrangement.Center) {
                         CircularProgressIndicator()
                     }
@@ -108,7 +108,7 @@ fun PortfolioScreen(vm: PortfolioViewModel = viewModel()) {
 }
 
 @Composable
-private fun ResultBody(r: Portfolio.Result, rate: Double) {
+private fun ResultBody(r: Portfolio.Result, rate: Double, onOpenAnalysis: (String) -> Unit = {}) {
     // ── 평가금액 히어로 카드 (그라데이션) ──
     val evalSum = r.holdings.sumOf { it.eval }
     val pnlSum = r.holdings.sumOf { it.pnl }
@@ -136,9 +136,18 @@ private fun ResultBody(r: Portfolio.Result, rate: Double) {
             Text("색 = 종목별 비중", color = TextMuted, fontSize = 10.sp, modifier = Modifier.padding(top = 4.dp))
         }
 
-        // 보유 목록
+        // 보유 목록 — 행을 누르면 해당 종목 분석 탭으로 이동
+        if (r.holdings.isNotEmpty()) {
+            Text("종목을 누르면 분석 탭으로 이동", color = TextMuted, fontSize = 10.sp,
+                modifier = Modifier.padding(top = 6.dp))
+        }
         r.holdings.forEachIndexed { i, h ->
-            Row(Modifier.fillMaxWidth().padding(top = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
+                    .clickable { onOpenAnalysis(h.ticker) }
+                    .padding(top = 7.dp, bottom = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Box(Modifier.size(8.dp).clip(RoundedCornerShape(50)).background(ident(i)))
                 Spacer(Modifier.size(7.dp))
                 Text(h.name, color = TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, fontFamily = Mono)
@@ -149,6 +158,7 @@ private fun ResultBody(r: Portfolio.Result, rate: Double) {
                     Text("${won(h.pnl, rate)} · ${if (h.retPct >= 0) "+" else ""}${"%.2f".format(h.retPct)}%",
                         color = pc(h.pnl), fontSize = 11.sp, fontWeight = FontWeight.SemiBold, fontFamily = Mono)
                 }
+                Text(" ›", color = TextMuted, fontSize = 15.sp)
             }
         }
     }
