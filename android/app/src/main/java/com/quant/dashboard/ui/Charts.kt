@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
@@ -82,11 +83,23 @@ data class ChartView(
         ny = (ny + dy).coerceIn(-(sy - 1f), 0f),
     )
 
-    /** 현재 보이는 x 구간(데이터 0~1 비율) — 날짜축 라벨 계산용. */
+    /** 현재 보이는 x 구간(데이터 0~1 비율) — 날짜축 라벨·y 자동맞춤 계산용. */
     fun visibleX(): Pair<Float, Float> =
         ((-nx) / sx).coerceIn(0f, 1f) to ((1f - nx) / sx).coerceIn(0f, 1f)
 
+    /** 현재 보이는 y 구간(플롯 0~1 비율, 0=위) — 축 눈금 계산용. */
+    fun visibleY(): Pair<Float, Float> =
+        ((-ny) / sy).coerceIn(0f, 1f) to ((1f - ny) / sy).coerceIn(0f, 1f)
+
     companion object { const val MAX_ZOOM = 12f }
+}
+
+/** 현재 뷰에서 화면에 보이는 데이터 인덱스 구간 [i0, i1]. */
+private fun visibleRange(n: Int, view: ChartView): Pair<Int, Int> {
+    val (u0, u1) = view.visibleX()
+    val i0 = Math.floor((n - 1) * u0.toDouble()).toInt().coerceIn(0, n - 1)
+    val i1 = Math.ceil((n - 1) * u1.toDouble()).toInt().coerceIn(i0, n - 1)
+    return i0 to i1
 }
 
 // 핀치 인식 최소 손가락 간격(px) — 너무 붙으면 배율이 튄다
@@ -95,49 +108,63 @@ private const val MIN_SPAN = 24f
 /**
  * 차트 확대/이동 제스처 — 두 손가락을 **가로로** 벌리면 x축, **세로로** 벌리면 y축이 따로 확대되고,
  * 확대된 상태에서 한 손가락으로 끌면 이동. 움직임 없이 떼면 onTap(확대 닫기).
+ * xOnly=true면 x축만 (y는 차트가 보이는 구간에 자동으로 맞춤).
  */
 @Composable
 fun Modifier.chartGestures(
     view: ChartView,
     onChange: (ChartView) -> Unit,
     onTap: () -> Unit = {},
+    xOnly: Boolean = false,
 ): Modifier {
     val cur = rememberUpdatedState(view)
     val change = rememberUpdatedState(onChange)
     val tap = rememberUpdatedState(onTap)
-    return this.pointerInput(Unit) {
+    return this.pointerInput(xOnly) {
         val slop = viewConfiguration.touchSlop
+        // 차트가 우측 축 라벨용으로 비워 두는 폭. 제스처 좌표를 차트와 같은 '플롯 폭' 기준으로
+        // 맞춰야 확대 중심이 어긋나지 않는다 (다르면 배율이 커질수록 그림이 밀린다)
+        val axisPx = 13.sp.toPx() * 3.6f
         awaitEachGesture {
             val first = awaitFirstDown(requireUnconsumed = false)
             var travel = 0f
             var prevSpanX = -1f
             var prevSpanY = -1f
             var prevC = first.position
+            var prevCount = 1
+            // 제스처 동안은 로컬 값을 기준으로 누적 — 리컴포지션 지연으로 갱신을 놓치지 않게
+            var live = cur.value
             while (true) {
                 val ptrs = awaitPointerEvent().changes.filter { it.pressed }
                 if (ptrs.isEmpty()) break
-                val w = size.width.toFloat().coerceAtLeast(1f)
+                val w = (size.width.toFloat() - axisPx).coerceAtLeast(1f)   // = 차트의 plotW
                 val h = size.height.toFloat().coerceAtLeast(1f)
                 val c = Offset(
                     ptrs.map { it.position.x }.average().toFloat(),
                     ptrs.map { it.position.y }.average().toFloat(),
                 )
-                var v = cur.value
+                // 손가락 수가 바뀌는 프레임은 무게중심이 순간이동한다 —
+                // 이걸 이동으로 처리하면 두 번째 손가락을 얹는 순간 그래프가 확 밀린다
+                val jumped = ptrs.size != prevCount
+                var v = live
                 if (ptrs.size >= 2) {
                     val spanX = abs(ptrs[0].position.x - ptrs[1].position.x)
                     val spanY = abs(ptrs[0].position.y - ptrs[1].position.y)
                     if (prevSpanX > MIN_SPAN && spanX > MIN_SPAN) v = v.zoomX(spanX / prevSpanX, c.x / w)
-                    if (prevSpanY > MIN_SPAN && spanY > MIN_SPAN) v = v.zoomY(spanY / prevSpanY, c.y / h)
+                    if (!xOnly && prevSpanY > MIN_SPAN && spanY > MIN_SPAN) v = v.zoomY(spanY / prevSpanY, c.y / h)
                     prevSpanX = spanX; prevSpanY = spanY
                     travel = slop * 2f   // 핀치는 탭으로 보지 않음
                 } else {
                     prevSpanX = -1f; prevSpanY = -1f
-                    travel += abs(c.x - prevC.x) + abs(c.y - prevC.y)
+                    if (!jumped) travel += abs(c.x - prevC.x) + abs(c.y - prevC.y)
                 }
                 // 원본 배율에서는 이동할 여지가 없으므로 탭 판정을 방해하지 않게 건너뜀
-                if (!v.isIdentity) v = v.pan((c.x - prevC.x) / w, (c.y - prevC.y) / h)
+                if (!jumped && !v.isIdentity) {
+                    v = v.pan((c.x - prevC.x) / w, if (xOnly) 0f else (c.y - prevC.y) / h)
+                }
                 prevC = c
-                if (v != cur.value) { change.value(v); ptrs.forEach { it.consume() } }
+                prevCount = ptrs.size
+                if (v != live) { live = v; change.value(v); ptrs.forEach { it.consume() } }
             }
             if (travel <= slop) tap.value()
         }
@@ -175,15 +202,20 @@ private fun DrawScope.arrow(x1: Float, y1: Float, x2: Float, y2: Float, profit: 
     drawLine(col, Offset(x2, y2), Offset(x2 + len * cos(a2), y2 + len * sin(a2)), 2.5f)
 }
 
-private fun DoubleArray.minNaN(): Double {
+/** [from, to] 구간의 최솟값 (NaN 무시). 기본은 전체 구간. */
+private fun DoubleArray.minNaN(from: Int = 0, to: Int = size - 1): Double {
     var m = Double.POSITIVE_INFINITY
-    for (v in this) if (!v.isNaN() && v < m) m = v
+    for (i in from.coerceAtLeast(0)..to.coerceAtMost(size - 1)) {
+        val v = this[i]; if (!v.isNaN() && v < m) m = v
+    }
     return if (m.isInfinite()) 0.0 else m
 }
 
-private fun DoubleArray.maxNaN(): Double {
+private fun DoubleArray.maxNaN(from: Int = 0, to: Int = size - 1): Double {
     var m = Double.NEGATIVE_INFINITY
-    for (v in this) if (!v.isNaN() && v > m) m = v
+    for (i in from.coerceAtLeast(0)..to.coerceAtMost(size - 1)) {
+        val v = this[i]; if (!v.isNaN() && v > m) m = v
+    }
     return if (m.isInfinite()) 1.0 else m
 }
 
@@ -294,12 +326,26 @@ private fun DrawScope.pennant(plotRight: Float, y: Float, lines: List<String>, b
     for (ln in lines) { drawContext.canvas.nativeCanvas.drawText(ln, cx, ty, tp); ty += fs * 1.12f }
 }
 
-/** 우측 축 — 가로 그리드 + 우측정렬 값 라벨. */
+/** 확대 뷰에서 우측 y축 라벨용으로 비워 두는 폭. */
+private val DrawScope.AXIS_W: Float get() = AX_SIZE * 3.6f
+
+/** 우측 y축 — 가로 그리드 + 우측정렬 값 라벨 (화면 밖 눈금은 생략). */
 private fun DrawScope.rightAxis(ticks: List<Double>, yAt: (Double) -> Float, plotRight: Float, fmt: (Double) -> String) {
     for (t in ticks) {
         val yy = yAt(t)
+        if (yy < AX_SIZE * 0.5f || yy > size.height - AX_SIZE * 0.3f) continue
         drawLine(Color(0x2EADBAC7), Offset(0f, yy), Offset(plotRight, yy), 0.8f)
-        label(fmt(t), size.width - 4f, yy + AX_SIZE * 0.34f, AX_COLOR, AX_SIZE, Paint.Align.RIGHT)
+        label(fmt(t), size.width - 3f, yy + AX_SIZE * 0.34f, AX_COLOR, AX_SIZE, Paint.Align.RIGHT)
+    }
+}
+
+/** 하단 x축 — 세로 그리드 + 가운데정렬 값 라벨 (산점도용. 시계열은 DateAxis 사용). */
+private fun DrawScope.bottomAxis(ticks: List<Double>, xAt: (Double) -> Float, plotRight: Float, fmt: (Double) -> String) {
+    for (t in ticks) {
+        val xx = xAt(t)
+        if (xx < AX_SIZE || xx > plotRight - AX_SIZE * 0.5f) continue
+        drawLine(Color(0x2EADBAC7), Offset(xx, 0f), Offset(xx, size.height - AX_SIZE * 1.2f), 0.8f)
+        label(fmt(t), xx, size.height - 3f, AX_COLOR, AX_SIZE, Paint.Align.CENTER)
     }
 }
 
@@ -435,7 +481,7 @@ fun RegressionScatter(
     markIdx: List<Pair<Int, Boolean>> = emptyList(),
     height: Dp = 120.dp,
     view: ChartView = ChartView(),
-    showCross: Boolean = false,
+    zoomed: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val n = spyNorm.size
@@ -450,10 +496,11 @@ fun RegressionScatter(
     val lyLo = Math.log10(yLo * 0.88); val lyHi = Math.log10(yHi * 1.18)
     val order = (0 until n).sortedBy { spyNorm[it] }
     Canvas(modifier = modifier.fillMaxWidth().height(height)) {
-        fun sx(v: Double) = view.x((size.width * (Math.log10(v) - lxLo) / (lxHi - lxLo)).toFloat(), size.width)
+        val plotW = size.width - (if (zoomed) AXIS_W else 0f)
+        fun sx(v: Double) = view.x((plotW * (Math.log10(v) - lxLo) / (lxHi - lxLo)).toFloat(), plotW)
         fun sy(v: Double) = view.y((size.height * (1 - (Math.log10(v) - lyLo) / (lyHi - lyLo))).toFloat(), size.height)
         // 패널 밖으로 삐져나가지 않게 클리핑 (가이드 곡선 overflow 버그 수정)
-        clipRect(0f, 0f, size.width, size.height) {
+        clipRect(0f, 0f, plotW, size.height) {
             // 가이드 곡선 (y = c·x^guideN)
             var ecLo = Double.MAX_VALUE; var ecHi = -Double.MAX_VALUE
             for (i in 0 until n) if (spyNorm[i] > 0) {
@@ -494,11 +541,21 @@ fun RegressionScatter(
             val li = n - 1
             if (spyNorm[li] > 0 && tickerNorm[li] > 0) {
                 val cx = sx(spyNorm[li]); val cy = sy(tickerNorm[li])
-                if (showCross) {
+                if (zoomed) {
                     crosshair(cx, cy, "SPY ${"%.2f".format(spyNorm[li])}", "%.2f".format(tickerNorm[li]))
                 }
                 starMarker(cx, cy)
             }
+        }
+        // 축 눈금 — 보이는 구간(로그축)을 값으로 되돌려 계산
+        if (zoomed) {
+            val (ux0, ux1) = view.visibleX()
+            val (uy0, uy1) = view.visibleY()
+            fun xv(u: Float) = Math.pow(10.0, lxLo + (lxHi - lxLo) * u)
+            fun yv(u: Float) = Math.pow(10.0, lyLo + (lyHi - lyLo) * (1 - u))
+            rightAxis(niceTicks(yv(uy1), yv(uy0), 4), ::sy, plotW) { "%.2f".format(it) }
+            bottomAxis(niceTicks(xv(ux0), xv(ux1), 4), ::sx, plotW) { "%.2f".format(it) }
+            label("SPY →", 4f, size.height - 3f, 0x88FFFFFF.toInt(), AX_SIZE * 0.85f)
         }
     }
 }
@@ -516,26 +573,29 @@ fun PriceChart(
     currency: String = "$",
     height: Dp = 110.dp,
     view: ChartView = ChartView(),
-    showCross: Boolean = false,
+    zoomed: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val n = priceDollar.size
     if (n < 2) return
-    // y범위는 종목 가격에만 맞춤 (밴드 제거)
-    var lo = priceDollar.minNaN()
-    var hi = priceDollar.maxNaN()
+    // x축만 확대/이동하고 y범위는 화면에 보이는 구간에 자동으로 맞춤
+    val (i0, i1) = visibleRange(n, view)
+    var lo = priceDollar.minNaN(i0, i1)
+    var hi = priceDollar.maxNaN(i0, i1)
     if (hi <= lo) return
     val pad = (hi - lo) * 0.06
     lo -= pad; hi += pad
 
     Canvas(modifier = modifier.fillMaxWidth().height(height)) {
-        fun xAt(i: Int) = view.x((size.width - EDGE_PAD) * i / (n - 1), size.width)
-        fun yAt(v: Double) = view.y((size.height * (1 - (v - lo) / (hi - lo))).toFloat(), size.height)
-        clipRect(0f, 0f, size.width, size.height) {
+        val plotW = size.width - (if (zoomed) AXIS_W else EDGE_PAD)
+        fun xAt(i: Int) = view.x(plotW * i / (n - 1), plotW)
+        fun yAt(v: Double) = (size.height * (1 - (v - lo) / (hi - lo))).toFloat()
+        if (zoomed) rightAxis(niceTicks(lo, hi), ::yAt, plotW) { "$currency${priceFmt(it)}" }
+        clipRect(0f, 0f, plotW, size.height) {
             poly(priceDollar, ::xAt, ::yAt, Color(0xFFE6EDF3), 2.5f)
             for (m in markers) if (m.x in 0 until n) marker(xAt(m.x), yAt(m.y), m.buy)
         }
-        if (showCross) {
+        if (zoomed) {
             val ci = priceDollar.indices.lastOrNull { !priceDollar[it].isNaN() } ?: -1
             if (ci >= 0) {
                 currentCross(xAt(ci),
@@ -558,23 +618,24 @@ fun CandleChart(
     dailyChgPct: Double = Double.NaN,
     height: Dp = 110.dp,
     view: ChartView = ChartView(),
-    showCross: Boolean = false,
+    zoomed: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val n = closes.size
     if (n < 2) return
-    // y범위는 종목 가격(고/저)에만 맞춤
-    val lo = lows.minNaN()
-    val hi = highs.maxNaN()
+    // x축만 확대/이동하고 y범위(고/저)는 화면에 보이는 구간에 자동으로 맞춤
+    val (i0, i1) = visibleRange(n, view)
+    val lo = lows.minNaN(i0, i1)
+    val hi = highs.maxNaN(i0, i1)
     if (hi <= lo || lo <= 0) return
     // 로그 y축 — 비율 변화가 균일하게 보이도록 (log10 공간 패딩)
     val lLo = Math.log10(lo); val lHi = Math.log10(hi)
     val lPad = (lHi - lLo) * 0.08 + 1e-6
     val ymin = lLo - lPad; val ymax = lHi + lPad
-    // 실제 최고/최저 캔들 위치 + 현재가
+    // 최고/최저 캔들 위치도 보이는 구간 기준 + 현재가
     var hiI = -1; var loI = -1
     var hiV = -Double.MAX_VALUE; var loV = Double.MAX_VALUE
-    for (i in 0 until n) {
+    for (i in i0..i1) {
         if (!highs[i].isNaN() && highs[i] > hiV) { hiV = highs[i]; hiI = i }
         if (!lows[i].isNaN() && lows[i] < loV) { loV = lows[i]; loI = i }
     }
@@ -582,11 +643,13 @@ fun CandleChart(
     val df = SimpleDateFormat("yy.MM.dd", Locale.US)
     fun dlbl(i: Int) = if (i in dates.indices) df.format(Date(dates[i] * 1000L)) else ""
     Canvas(modifier = modifier.fillMaxWidth().height(height)) {
-        fun xAt(i: Int) = view.x((size.width - EDGE_PAD) * i / (n - 1), size.width)
-        fun yAt(v: Double) = view.y((size.height * (1 - (Math.log10(v) - ymin) / (ymax - ymin))).toFloat(), size.height)
-        clipRect(0f, 0f, size.width, size.height) {
+        val plotW = size.width - (if (zoomed) AXIS_W else EDGE_PAD)
+        fun xAt(i: Int) = view.x(plotW * i / (n - 1), plotW)
+        fun yAt(v: Double) = (size.height * (1 - (Math.log10(v) - ymin) / (ymax - ymin))).toFloat()
+        if (zoomed) rightAxis(niceTicks(lo, hi), ::yAt, plotW) { "$currency${priceFmt(it)}" }
+        clipRect(0f, 0f, plotW, size.height) {
             poly(closes, ::xAt, ::yAt, Color(0x66E6EDF3), 1.0f)   // 흰 종가선
-            val w = (size.width / n * 0.6f * view.sx).coerceAtLeast(1.5f)
+            val w = (plotW / (i1 - i0 + 1) * 0.6f).coerceAtLeast(1.5f)
             for (i in 0 until n) {
                 if (opens[i].isNaN() || highs[i].isNaN() || lows[i].isNaN() || closes[i].isNaN()) continue
                 val up = closes[i] >= opens[i]
@@ -603,15 +666,15 @@ fun CandleChart(
         if (hiI >= 0) {
             val hp = (cur / hiV - 1) * 100
             hCallout(xAt(hiI), yAt(hiV), "$currency${priceFmt(hiV)} ${dlbl(hiI)} ${"%.1f".format(hp)}%",
-                0xFFEF6066.toInt(), textRight = hiI < n / 2, plotW = size.width)
+                0xFFEF6066.toInt(), textRight = xAt(hiI) < plotW / 2, plotW = plotW)
         }
         if (loI >= 0) {
             val lp = (cur / loV - 1) * 100
             hCallout(xAt(loI), yAt(loV), "$currency${priceFmt(loV)} ${dlbl(loI)} +${"%.1f".format(lp)}%",
-                0xFF5B9BF2.toInt(), textRight = loI < n / 2, plotW = size.width)
+                0xFF5B9BF2.toInt(), textRight = xAt(loI) < plotW / 2, plotW = plotW)
         }
         // 현재값 십자선 (확대 시)
-        if (showCross) {
+        if (zoomed) {
             val ci = closes.indices.lastOrNull { !closes[it].isNaN() } ?: -1
             if (ci >= 0) {
                 currentCross(xAt(ci), listOf(Triple(yAt(cur), MAGENTA, "$currency${priceFmt(cur)}")), dlbl(ci))
@@ -624,13 +687,23 @@ fun CandleChart(
 @Composable
 fun ZmChart(zPct: DoubleArray, mPct: DoubleArray, markers: List<Mark> = emptyList(),
             topLabel: String = "", height: Dp = 90.dp,
-            view: ChartView = ChartView(), showCross: Boolean = false,
+            view: ChartView = ChartView(), zoomed: Boolean = false,
             modifier: Modifier = Modifier) {
     val n = zPct.size
     if (n < 2) return
+    // x축만 확대/이동. 확대했을 때만 y를 보이는 구간에 맞춤 (원본 배율은 고정 0~100 유지)
+    val (i0, i1) = visibleRange(n, view)
+    var lo = 0.0; var hi = 100.0
+    if (view.sx > 1f) {
+        lo = minOf(zPct.minNaN(i0, i1), mPct.minNaN(i0, i1))
+        hi = maxOf(zPct.maxNaN(i0, i1), mPct.maxNaN(i0, i1))
+        val pad = ((hi - lo) * 0.08).coerceAtLeast(1.0)
+        lo -= pad; hi += pad
+    }
     Canvas(modifier = modifier.fillMaxWidth().height(height)) {
-        fun xAt(i: Int) = view.x((size.width - EDGE_PAD) * i / (n - 1), size.width)
-        fun yAt(v: Double) = view.y((size.height * (1 - v / 100.0)).toFloat(), size.height)
+        val plotW = size.width - (if (zoomed) AXIS_W else EDGE_PAD)
+        fun xAt(i: Int) = view.x(plotW * i / (n - 1), plotW)
+        fun yAt(v: Double) = (size.height * (1 - (v - lo) / (hi - lo))).toFloat()
         // 위(>80) 빨강 / 아래(<20) 파랑 음영 밴드 (RSI 스타일)
         drawRect(Color(0x1AEF6066), topLeft = Offset(0f, yAt(100.0)), size = Size(size.width, yAt(80.0) - yAt(100.0)))
         drawRect(Color(0x1A5B9BF2), topLeft = Offset(0f, yAt(20.0)), size = Size(size.width, yAt(0.0) - yAt(20.0)))
@@ -640,12 +713,13 @@ fun ZmChart(zPct: DoubleArray, mPct: DoubleArray, markers: List<Mark> = emptyLis
         }
         // 50 중앙선 — 흰색
         drawLine(Color(0xCCFFFFFF), Offset(0f, yAt(50.0)), Offset(size.width, yAt(50.0)), 0.9f)
-        clipRect(0f, 0f, size.width, size.height) {
+        if (zoomed) rightAxis(niceTicks(lo, hi), ::yAt, plotW) { "%.0f".format(it) }
+        clipRect(0f, 0f, plotW, size.height) {
             poly(zPct, ::xAt, ::yAt, Color(0xFFEF6066), 2f)        // Z 빨강
             poly(mPct, ::xAt, ::yAt, Color(0xFFFFD24D), 1.7f)      // M 노랑
             for (m in markers) if (m.x in 0 until n) marker(xAt(m.x), yAt(m.y), m.buy)
         }
-        if (showCross) {
+        if (zoomed) {
             val zi = zPct.indices.lastOrNull { !zPct[it].isNaN() } ?: -1
             val mi = mPct.indices.lastOrNull { !mPct[it].isNaN() } ?: -1
             val lines = ArrayList<Triple<Float, Color, String>>()
@@ -666,14 +740,15 @@ fun ZmScatter(
     tradeIdx: List<Pair<Int, Boolean>> = emptyList(),
     height: Dp = 130.dp,
     view: ChartView = ChartView(),
-    showCross: Boolean = false,
+    zoomed: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val n = zPct.size
     if (n < 2) return
     Canvas(modifier = modifier.fillMaxWidth().height(height)) {
         val lo = -5.0; val hi = 105.0; val span = hi - lo
-        fun px(v: Double) = view.x((size.width * ((v - lo) / span)).toFloat(), size.width)
+        val plotW = size.width - (if (zoomed) AXIS_W else 0f)
+        fun px(v: Double) = view.x((plotW * ((v - lo) / span)).toFloat(), plotW)
         fun py(v: Double) = view.y((size.height * (1 - (v - lo) / span)).toFloat(), size.height)
         // 중앙 십자선(50) — 옅게
         drawLine(Color(0x26FFFFFF), Offset(px(50.0), 0f), Offset(px(50.0), size.height), 0.8f)
@@ -691,10 +766,18 @@ fun ZmScatter(
         val li = n - 1
         if (!zPct[li].isNaN() && !mPct[li].isNaN()) {
             val cx = px(zPct[li]); val cy = py(mPct[li])
-            if (showCross) {
+            if (zoomed) {
                 crosshair(cx, cy, "Z ${"%.0f".format(zPct[li])}", "M ${"%.0f".format(mPct[li])}")
             }
             starMarker(cx, cy)
+        }
+        // 축 눈금 — 보이는 구간의 Z(가로)·M(세로) 값
+        if (zoomed) {
+            val (ux0, ux1) = view.visibleX()
+            val (uy0, uy1) = view.visibleY()
+            rightAxis(niceTicks(lo + span * (1 - uy1), lo + span * (1 - uy0), 4), ::py, plotW) { "%.0f".format(it) }
+            bottomAxis(niceTicks(lo + span * ux0, lo + span * ux1, 4), ::px, plotW) { "%.0f".format(it) }
+            label("Z →", 4f, size.height - 3f, 0x88FFFFFF.toInt(), AX_SIZE * 0.85f)
         }
     }
 }
@@ -702,13 +785,22 @@ fun ZmScatter(
 /** RSI 0~100, 70/50/30 임계선 + >70 빨강·<30 파랑 면적. */
 @Composable
 fun RsiChart(rsi: DoubleArray, topLabel: String = "", height: Dp = 90.dp,
-             view: ChartView = ChartView(), showCross: Boolean = false,
+             view: ChartView = ChartView(), zoomed: Boolean = false,
              modifier: Modifier = Modifier) {
     val n = rsi.size
     if (n < 2) return
+    // x축만 확대/이동. 확대했을 때만 y를 보이는 구간에 맞춤 (원본 배율은 고정 0~100 유지)
+    val (i0, i1) = visibleRange(n, view)
+    var lo = 0.0; var hi = 100.0
+    if (view.sx > 1f) {
+        lo = rsi.minNaN(i0, i1); hi = rsi.maxNaN(i0, i1)
+        val pad = ((hi - lo) * 0.08).coerceAtLeast(1.0)
+        lo -= pad; hi += pad
+    }
     Canvas(modifier = modifier.fillMaxWidth().height(height)) {
-        fun xAt(i: Int) = view.x((size.width - EDGE_PAD) * i / (n - 1), size.width)
-        fun yAt(v: Double) = view.y((size.height * (1 - v / 100.0)).toFloat(), size.height)
+        val plotW = size.width - (if (zoomed) AXIS_W else EDGE_PAD)
+        fun xAt(i: Int) = view.x(plotW * i / (n - 1), plotW)
+        fun yAt(v: Double) = (size.height * (1 - (v - lo) / (hi - lo))).toFloat()
         // 과매수(>70) 빨강 / 과매도(<30) 파랑 음영
         drawRect(Color(0x1AEF6066), topLeft = Offset(0f, yAt(100.0)), size = Size(size.width, yAt(70.0) - yAt(100.0)))
         drawRect(Color(0x1A5B9BF2), topLeft = Offset(0f, yAt(30.0)), size = Size(size.width, yAt(0.0) - yAt(30.0)))
@@ -717,10 +809,11 @@ fun RsiChart(rsi: DoubleArray, topLabel: String = "", height: Dp = 90.dp,
         }
         // 50 중앙선 — 흰색
         drawLine(Color(0xCCFFFFFF), Offset(0f, yAt(50.0)), Offset(size.width, yAt(50.0)), 0.9f)
-        clipRect(0f, 0f, size.width, size.height) {
+        if (zoomed) rightAxis(niceTicks(lo, hi), ::yAt, plotW) { "%.0f".format(it) }
+        clipRect(0f, 0f, plotW, size.height) {
             poly(rsi, ::xAt, ::yAt, Color(0xFF37B6C4), 2f)   // 청록
         }
-        if (showCross) {
+        if (zoomed) {
             val ci = rsi.indices.lastOrNull { !rsi[it].isNaN() } ?: -1
             if (ci >= 0) {
                 currentCross(xAt(ci), listOf(Triple(yAt(rsi[ci]), Color(0xFF37B6C4), "%.1f".format(rsi[ci]))))
@@ -761,28 +854,34 @@ fun EquityChart(values: DoubleArray, unit: String = "$", modifier: Modifier = Mo
 /** MACD(보라) + Signal(흰) + 0선 + 교차 마커(▲빨강 상향 / ▼파랑 하향). */
 @Composable
 fun MacdChart(macd: DoubleArray, signal: DoubleArray, topLabel: String = "", height: Dp = 90.dp,
-              view: ChartView = ChartView(), showCross: Boolean = false,
+              view: ChartView = ChartView(), zoomed: Boolean = false,
               modifier: Modifier = Modifier) {
     val n = macd.size
     if (n < 2) return
+    // x축만 확대/이동. y는 보이는 구간의 최대 진폭에 맞춤 (0선이 가운데 오도록 대칭 유지)
+    val (i0, i1) = visibleRange(n, view)
     var mx = 0.0
-    for (v in macd) if (!v.isNaN() && kotlin.math.abs(v) > mx) mx = kotlin.math.abs(v)
-    for (v in signal) if (!v.isNaN() && kotlin.math.abs(v) > mx) mx = kotlin.math.abs(v)
+    for (i in i0..i1) {
+        if (!macd[i].isNaN() && abs(macd[i]) > mx) mx = abs(macd[i])
+        if (!signal[i].isNaN() && abs(signal[i]) > mx) mx = abs(signal[i])
+    }
     if (mx <= 0) mx = 1.0
     mx *= 1.15
     Canvas(modifier = modifier.fillMaxWidth().height(height)) {
-        fun xAt(i: Int) = view.x((size.width - EDGE_PAD) * i / (n - 1), size.width)
-        fun yAt(v: Double) = view.y((size.height * (1 - (v + mx) / (2 * mx))).toFloat(), size.height)
+        val plotW = size.width - (if (zoomed) AXIS_W else EDGE_PAD)
+        fun xAt(i: Int) = view.x(plotW * i / (n - 1), plotW)
+        fun yAt(v: Double) = (size.height * (1 - (v + mx) / (2 * mx))).toFloat()
         // 표시 범위 기준 상단 30% 빨강 / 하단 30% 파랑 음영 (RSI 스타일)
         drawRect(Color(0x1AEF6066), topLeft = Offset(0f, 0f), size = Size(size.width, size.height * 0.3f))
         drawRect(Color(0x1A5B9BF2), topLeft = Offset(0f, size.height * 0.7f), size = Size(size.width, size.height * 0.3f))
         // 0선 — 흰색
         drawLine(Color(0xCCFFFFFF), Offset(0f, yAt(0.0)), Offset(size.width, yAt(0.0)), 0.9f)
-        clipRect(0f, 0f, size.width, size.height) {
+        if (zoomed) rightAxis(niceTicks(-mx, mx), ::yAt, plotW) { "%.2f".format(it) }
+        clipRect(0f, 0f, plotW, size.height) {
             poly(macd, ::xAt, ::yAt, Color(0xFF9B8CFF), 2f)     // MACD 보라
             poly(signal, ::xAt, ::yAt, Color(0xFFC9C5BB), 1.3f) // Signal 회색
         }
-        if (showCross) {
+        if (zoomed) {
             val mi = macd.indices.lastOrNull { !macd[it].isNaN() } ?: -1
             val si = signal.indices.lastOrNull { !signal[it].isNaN() } ?: -1
             val lines = ArrayList<Triple<Float, Color, String>>()
@@ -890,21 +989,36 @@ fun ScatterChart(
 }
 
 
-/** 차트 하단 공통 X축 날짜 라벨 (start · mid · end). view 확대 시 보이는 구간만 표시. */
+/**
+ * 차트 하단 공통 X축 날짜 라벨. view 확대 시 실제로 보이는 인덱스 구간만 표시하고,
+ * zoomed=true면 우측 y축 라벨 폭(AXIS_W)을 비워 눈금이 플롯과 어긋나지 않게 한다.
+ */
 @Composable
-fun DateAxis(datesEpochSec: LongArray, view: ChartView = ChartView(), modifier: Modifier = Modifier) {
+fun DateAxis(
+    datesEpochSec: LongArray,
+    view: ChartView = ChartView(),
+    zoomed: Boolean = false,
+    modifier: Modifier = Modifier,
+) {
     val n = datesEpochSec.size
     if (n < 2) return
-    // x축 확대·이동 시에는 화면에 실제로 보이는 인덱스 구간의 날짜를 쓴다
     val (u0, u1) = view.visibleX()
     val i0 = ((n - 1) * u0).roundToInt().coerceIn(0, n - 1)
     val i1 = ((n - 1) * u1).roundToInt().coerceIn(i0, n - 1)
     // 확대 배율이 크면 yy/MM만으로는 구분이 안 되므로 일자까지
     val fmt = SimpleDateFormat(if (view.sx >= 3f) "yy/MM/dd" else "yy/MM", Locale.US)
     fun d(i: Int) = fmt.format(Date(datesEpochSec[i] * 1000L))
-    Row(modifier = modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-        androidx.compose.material3.Text(d(i0), color = TextSecondary, fontSize = 10.sp, fontWeight = FontWeight.Normal)
-        androidx.compose.material3.Text(d((i0 + i1) / 2), color = TextSecondary, fontSize = 10.sp)
-        androidx.compose.material3.Text(d(i1), color = TextSecondary, fontSize = 10.sp)
+    val ticks = if (zoomed) 5 else 3
+    Row(
+        modifier = modifier.fillMaxWidth().padding(end = if (zoomed) 47.dp else 0.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        for (k in 0 until ticks) {
+            val i = i0 + ((i1 - i0) * k / (ticks - 1f)).roundToInt()
+            androidx.compose.material3.Text(
+                d(i.coerceIn(i0, i1)), color = TextSecondary, fontSize = 10.sp,
+                fontWeight = FontWeight.Normal,
+            )
+        }
     }
 }
