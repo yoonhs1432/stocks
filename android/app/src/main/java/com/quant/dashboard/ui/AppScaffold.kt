@@ -61,7 +61,7 @@ object AppState {
     var dataVersion by mutableStateOf(0)
         private set
 
-    /** 비교 탭에서 종목 클릭 시 분석 탭으로 넘길 종목(처리 후 null). */
+    /** 비교·포트폴리오 탭에서 종목 클릭 시 분석 탭으로 넘길 종목(처리 후 null). */
     var pendingTicker by mutableStateOf<String?>(null)
 
     /** 기준일 설정/해제 (null=해제) 후 전 탭 리로드 트리거. */
@@ -94,10 +94,11 @@ fun AppScaffold() {
         Column(Modifier.fillMaxSize().padding(pad)) {
             MarketHeader()
             Box(Modifier.fillMaxWidth().weight(1f)) {
+                val openAnalysis: (String) -> Unit = { AppState.pendingTicker = it; tab = 1 }
                 when (tab) {
-                    0 -> CompareScreen(onOpenAnalysis = { AppState.pendingTicker = it; tab = 1 })
+                    0 -> CompareScreen(onOpenAnalysis = openAnalysis)
                     1 -> AnalysisScreen(onBack = { tab = 0 })
-                    2 -> PortfolioScreen()
+                    2 -> PortfolioScreen(onOpenAnalysis = openAnalysis)
                     else -> SettingsScreen()
                 }
             }

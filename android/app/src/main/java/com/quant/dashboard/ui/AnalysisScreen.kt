@@ -80,10 +80,12 @@ import java.time.LocalDate
 fun AnalysisScreen(vm: AnalysisViewModel = viewModel(), onBack: () -> Unit = {}) {
     val s = vm.state
 
-    LaunchedEffect(AppState.dataVersion) { vm.sync(AppState.dataVersion) }
-    // 비교 탭에서 넘어온 종목 선택
-    LaunchedEffect(AppState.pendingTicker) {
-        AppState.pendingTicker?.let { vm.select(it); AppState.pendingTicker = null }
+    // 설정/기준일 변경과 다른 탭에서 넘어온 종목을 한 효과에서 처리 —
+    // 따로 두면 두 로드가 경쟁해 이전 종목 결과가 늦게 도착해 화면에 남는 경우가 있었음
+    LaunchedEffect(AppState.dataVersion, AppState.pendingTicker) {
+        val pending = AppState.pendingTicker
+        if (pending != null) AppState.pendingTicker = null
+        vm.sync(AppState.dataVersion, pending)
     }
     // 자동 새로고침 — 화면 켜진 분석 탭 + 장중에만, 60초 (조용히)
     LaunchedEffect(Unit) {
@@ -357,22 +359,27 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
 
     // 확대 다이얼로그로 넘길 선택 차트 인덱스(-1=닫힘). 그리드/확대에서 동일 렌더 재사용.
     var zoom by remember(ticker) { mutableStateOf(-1) }
-    // 인덱스→차트 렌더 (h=차트 높이). 0회귀 1Z·M궤적 2일봉 3Z·M 4MACD 5RSI
-    val renderChart: @Composable (Int, androidx.compose.ui.unit.Dp) -> Unit = { idx, h ->
+    // 확대 다이얼로그의 축 확대/이동 상태 — 차트를 바꾸면 원본 배율로 리셋
+    var view by remember(ticker, zoom) { mutableStateOf(ChartView()) }
+    // 인덱스→확대 차트 렌더 (h=차트 높이, m=제스처 modifier). 0회귀 1Z·M궤적 2일봉 3Z·M 4MACD 5RSI
+    val renderChart: @Composable (Int, androidx.compose.ui.unit.Dp, Modifier) -> Unit = { idx, h, m ->
         when (idx) {
-            0 -> RegressionScatter(r.spyNorm, r.tickerNorm, r.predicted, r.bandUpper, r.bandLower, r.beta, markIdx = scatterIdx, height = h)
-            1 -> ZmScatter(r.zPct, r.mPct, scatterIdx, height = h)
+            0 -> RegressionScatter(r.spyNorm, r.tickerNorm, r.predicted, r.bandUpper, r.bandLower, r.beta,
+                markIdx = scatterIdx, height = h, view = view, showCross = true, modifier = m)
+            1 -> ZmScatter(r.zPct, r.mPct, scatterIdx, height = h, view = view, showCross = true, modifier = m)
             2 -> {
                 if (closes.any { !it.isNaN() })
                     CandleChart(opens, highs, lows, closes, segDollar(r.predicted), segDollar(r.bandUpper), segDollar(r.bandLower),
-                        markers = priceMarks, arrows = arrows, currency = Tickers.currencySymbol(ticker), dates = dates, dailyChgPct = dayPct ?: Double.NaN, height = h)
+                        markers = priceMarks, arrows = arrows, currency = Tickers.currencySymbol(ticker), dates = dates,
+                        dailyChgPct = dayPct ?: Double.NaN, height = h, view = view, showCross = true, modifier = m)
                 else PriceChart(segDollar(r.tickerNorm), segDollar(r.predicted), segDollar(r.bandUpper), segDollar(r.bandLower),
-                    markers = priceMarks, arrows = arrows, currency = Tickers.currencySymbol(ticker), height = h)
-                DateAxis(dates)
+                    markers = priceMarks, arrows = arrows, currency = Tickers.currencySymbol(ticker),
+                    height = h, view = view, showCross = true, modifier = m)
+                DateAxis(dates, view)
             }
-            3 -> { ZmChart(seg(r.zPct), seg(r.mPct), zmMarks, height = h); DateAxis(dates) }
-            4 -> { MacdChart(macdW, sigW, height = h); DateAxis(dates) }
-            else -> { RsiChart(seg(r.rsi), height = h); DateAxis(dates) }
+            3 -> { ZmChart(seg(r.zPct), seg(r.mPct), zmMarks, height = h, view = view, showCross = true, modifier = m); DateAxis(dates, view) }
+            4 -> { MacdChart(macdW, sigW, height = h, view = view, showCross = true, modifier = m); DateAxis(dates, view) }
+            else -> { RsiChart(seg(r.rsi), height = h, view = view, showCross = true, modifier = m); DateAxis(dates, view) }
         }
     }
 
@@ -427,21 +434,35 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
             Surface(Modifier.fillMaxWidth(0.98f).fillMaxHeight(0.9f), color = BgApp,
                 shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, BorderColor)) {
                 Column(Modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(titles[zoom], color = TextPrimary, fontSize = 16.sp,
                             fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                        // 확대·이동 상태일 때만 원본 배율 복귀 버튼
+                        if (!view.isIdentity) {
+                            Box(
+                                Modifier.clip(RoundedCornerShape(8.dp)).background(SurfaceInput)
+                                    .clickable { view = ChartView() }
+                                    .padding(horizontal = 10.dp, vertical = 5.dp),
+                            ) {
+                                Text("⟲ ${"%.1f".format(view.sx)}×${"%.1f".format(view.sy)}",
+                                    color = TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = Mono)
+                            }
+                        }
                         Text("✕", color = TextSecondary, fontSize = 22.sp,
                             modifier = Modifier.clickable { zoom = -1 })
                     }
                     Text("${Tickers.displayName(ticker)}  ${Tickers.priceLabel(ticker, r.lastPrice)}",
                         color = Profit, fontSize = 14.sp, fontWeight = FontWeight.Bold, fontFamily = Mono)
-                    // 차트를 다시 탭하면 축소(닫기)
-                    Box(Modifier.fillMaxWidth().weight(1f).clickable { zoom = -1 },
-                        contentAlignment = Alignment.Center) {
+                    // 두 손가락 가로/세로 핀치 = x·y축 확대, 확대 상태에서 끌면 이동, 그냥 탭하면 축소(닫기)
+                    Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
                         Column(Modifier.fillMaxWidth()) {
-                            renderChart(zoom, if (zoom <= 1) 420.dp else 340.dp)
+                            renderChart(zoom, if (zoom <= 1) 420.dp else 340.dp,
+                                Modifier.chartGestures(view, { view = it }, onTap = { zoom = -1 }))
                         }
                     }
+                    Text("두 손가락 가로/세로로 벌리면 X·Y축 확대 · 확대 후 끌어서 이동 · 탭하면 닫기",
+                        color = TextMuted, fontSize = 10.sp)
                 }
             }
         }
