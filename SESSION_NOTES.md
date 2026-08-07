@@ -36,8 +36,8 @@
 
 ### 주의
 - 차트 좌표 함수를 새로 만들 때는 반드시 `view.x()/view.y()`를 거칠 것 (안 그러면 확대 시 어긋남)
-- `.github/workflows/android.yml`의 릴리스 게시 조건이 아직
-  `github.ref == 'refs/heads/claude/android-native'` — main 병합 후엔 main에서 APK가 안 올라감
+- `.github/workflows/android.yml` 릴리스 게시 조건을 `refs/heads/main`으로 변경
+  (android-native 병합에 맞춤). APK는 **main에서 수동 실행**해야 `android-latest` 릴리스에 올라감
 
 ---
 
