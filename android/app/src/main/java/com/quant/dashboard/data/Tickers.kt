@@ -10,6 +10,17 @@ object Tickers {
         "BNKU", "BTC-USD", "ETH-USD", "GLD",
     )
 
+    /**
+     * 미국 시가총액 상위 30개 (비교 탭 "미장 TOP30" 목록).
+     * 온디바이스라 시총 랭킹을 받아올 데이터 소스가 없어 정적 목록으로 둔다 —
+     * 순위가 바뀌면 이 목록만 갱신하면 됨. (기준: 2026년 상반기)
+     */
+    val US_TOP30 = listOf(
+        "NVDA", "MSFT", "AAPL", "GOOGL", "AMZN", "META", "AVGO", "TSLA", "BRK-B", "LLY",
+        "JPM", "WMT", "V", "XOM", "ORCL", "MA", "UNH", "COST", "JNJ", "HD",
+        "PG", "NFLX", "ABBV", "BAC", "AMD", "CRM", "KO", "CVX", "TMUS", "WFC",
+    )
+
     private val DISPLAY = mapOf(
         "BTC-USD" to "BTC", "ETH-USD" to "ETH", "005930" to "삼전", "000660" to "하닉",
     )

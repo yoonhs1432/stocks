@@ -27,21 +27,36 @@ object OverviewRepo {
     /** Z·M 산점도 스크럽 타임라인 (epoch sec, 오래된→최근). 최근 6개월 거래일(일별). */
     fun weekDates(): LongArray = weekDatesArr
 
-    @Volatile private var cache: List<Row> = emptyList()
-    @Volatile private var ts = 0L
-    @Volatile private var key = ""   // range|interval|asof — 설정 변경 시 캐시 무효화
+    /** 목록별 캐시 슬롯 (워치리스트 / 미장 TOP30). range·interval·asof가 바뀌면 무효화. */
+    private class Slot {
+        @Volatile var rows: List<Row> = emptyList()
+        @Volatile var ts = 0L
+        @Volatile var key = ""
+    }
+    private val watchSlot = Slot()
+    private val topSlot = Slot()
 
-    fun cached(): List<Row> = cache
+    fun cached(): List<Row> = watchSlot.rows
 
-    /** force=false면 5분 캐시 재사용. IO 디스패처에서 호출 권장. */
-    suspend fun load(force: Boolean = false): List<Row> {
+    /** 미장 TOP30 캐시 — 이미 받아둔 게 있으면 재요청 없이 조회(분석 탭 일간등락 표시용). */
+    fun cachedTop(): List<Row> = topSlot.rows
+
+    /** 사용자 워치리스트. force=false면 5분 캐시 재사용. IO 디스패처에서 호출 권장. */
+    suspend fun load(force: Boolean = false): List<Row> =
+        loadInto(watchSlot, Store.loadTickers(), force)
+
+    /** 미국 시총 상위 30개. 비교 탭에서 해당 목록을 열 때만 호출(요청 30건). */
+    suspend fun loadTop(force: Boolean = false): List<Row> =
+        loadInto(topSlot, Tickers.US_TOP30, force)
+
+    private suspend fun loadInto(slot: Slot, tickers: List<String>, force: Boolean): List<Row> {
         val now = System.currentTimeMillis()
         val range = Store.lookbackRange()
         val interval = Store.candleInterval()
         val curKey = "$range|$interval|${Store.asofDate() ?: ""}"
-        if (!force && cache.isNotEmpty() && key == curKey && now - ts < 300_000) return cache
+        if (!force && slot.rows.isNotEmpty() && slot.key == curKey && now - slot.ts < 300_000) return slot.rows
         val spy = Store.sliceAsof(Yahoo.closes(Tickers.BASE, range, interval))
-        if (spy.isEmpty()) return cache
+        if (spy.isEmpty()) return slot.rows
         val trades = Store.loadTrades()
         // 스크럽 타임라인 — 최근 6개월 거래일(일별), 모든 종목 공유
         val latest = spy.last().first
@@ -50,7 +65,7 @@ object OverviewRepo {
         val WN = wd.size
         weekDatesArr = wd
         val rows = coroutineScope {
-            Store.loadTickers().map { tk ->
+            tickers.map { tk ->
                 async(Dispatchers.IO) {
                     val r = Quant.analyze(spy, Store.sliceAsof(Yahoo.closes(tk, range, interval))) ?: return@async null
                     val p = r.price; val m = p.size
@@ -80,7 +95,7 @@ object OverviewRepo {
                 }
             }.awaitAll().filterNotNull()
         }
-        if (rows.isNotEmpty()) { cache = rows; ts = now; key = curKey }
+        if (rows.isNotEmpty()) { slot.rows = rows; slot.ts = now; slot.key = curKey }
         return rows
     }
 }

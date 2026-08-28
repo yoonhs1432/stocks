@@ -48,6 +48,7 @@ import com.quant.dashboard.ui.theme.Loss
 import com.quant.dashboard.ui.theme.Mono
 import com.quant.dashboard.ui.theme.Profit
 import com.quant.dashboard.ui.theme.SurfaceInput
+import com.quant.dashboard.ui.theme.Teal
 import com.quant.dashboard.ui.theme.TextMuted
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -82,15 +83,28 @@ fun CompareScreen(vm: CompareViewModel = viewModel(), onOpenAnalysis: (String) -
 
     Column(modifier = Modifier.fillMaxSize().background(BgApp)) {
         // 당겨서 새로고침 → 전체 탭 새로고침 (dataVersion bump로 모든 탭이 재로드)
-        PullToRefreshBox(isRefreshing = s.loading, onRefresh = { AppState.bump() },
+        PullToRefreshBox(isRefreshing = s.loading || s.topLoading, onRefresh = { AppState.bump() },
             modifier = Modifier.fillMaxSize()) {
             Column(
                 modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text("종목 비교", color = TextPrimary, fontSize = 19.sp, fontWeight = FontWeight.Bold,
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(if (s.showTop) "미장 TOP 30" else "종목 비교",
+                        color = TextPrimary, fontSize = 19.sp, fontWeight = FontWeight.Bold,
                         modifier = Modifier.weight(1f))
+                    // 워치리스트 ↔ 미국 시총 상위 30개 전환
+                    Box(
+                        Modifier.clip(RoundedCornerShape(8.dp))
+                            .background(if (s.showTop) Teal else SurfaceInput)
+                            .clickable { vm.toggleTop() }
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                    ) {
+                        Text(if (s.showTop) "내 목록" else "TOP 30",
+                            color = if (s.showTop) Color(0xFF0C0E11) else TextSecondary,
+                            fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    }
                     // 보유종목만 보기 토글
                     Box(
                         Modifier.clip(RoundedCornerShape(8.dp))
@@ -102,9 +116,13 @@ fun CompareScreen(vm: CompareViewModel = viewModel(), onOpenAnalysis: (String) -
                             fontSize = 13.sp, fontWeight = FontWeight.Bold)
                     }
                 }
+                val active = vm.activeRows()
+                val err = if (s.showTop) s.topError else s.error
                 when {
-                    s.rows.isEmpty() && s.error != null -> Text("⚠️ ${s.error}", color = Loss)
-                    s.rows.isEmpty() -> Text("불러오는 중…", color = TextSecondary, modifier = Modifier.padding(24.dp))
+                    active.isEmpty() && err != null -> Text("⚠️ $err", color = Loss)
+                    active.isEmpty() -> Text(
+                        if (s.showTop) "미장 TOP 30 불러오는 중… (30종목)" else "불러오는 중…",
+                        color = TextSecondary, modifier = Modifier.padding(24.dp))
                     else -> {
                 Column(Modifier.fillMaxWidth()) {
                     Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(SurfaceInput)
@@ -122,7 +140,8 @@ fun CompareScreen(vm: CompareViewModel = viewModel(), onOpenAnalysis: (String) -
                     rows.forEachIndexed { idx, r ->
                         Row(Modifier.fillMaxWidth().clickable { onOpenAnalysis(r.ticker) }
                             .padding(horizontal = 2.dp, vertical = 6.dp)) {
-                            DotName((if (r.holding) 2 else if (r.hasHistory) 1 else 0), r.name, 2.4f)
+                            DotName((if (r.holding) 2 else if (r.hasHistory) 1 else 0), r.name, 2.4f,
+                                rank = if (s.showTop) vm.rankOf(r.ticker) + 1 else null)
                             Cell(Tickers.priceLabel(r.ticker, r.price), 2f, pnColor(r.day))
                             Cell(signed(r.day), 1.4f, pnColor(r.day))
                             Cell("%.0f".format(r.zPct), 1f, pctColor(r.zPct), fw = FontWeight.Bold)
@@ -132,7 +151,9 @@ fun CompareScreen(vm: CompareViewModel = viewModel(), onOpenAnalysis: (String) -
                             Box(Modifier.fillMaxWidth().height(1.dp).background(BorderColor))
                     }
                 }
-                Text("● 보유 / ○ 이력 · 행 탭=분석 이동 · 헤더 탭=정렬 · Z·M 낮음 빨강·높음 파랑",
+                Text(
+                    if (s.showTop) "미국 시총 상위 30개 (숫자=시총 순위) · 행 탭=분석 이동 · 헤더 탭=정렬"
+                    else "● 보유 / ○ 이력 · 행 탭=분석 이동 · 헤더 탭=정렬 · Z·M 낮음 빨강·높음 파랑",
                     color = TextSecondary, fontSize = 11.sp)
 
                 // ── Z·M 사분면 (주간 날짜 스크럽) ──
@@ -226,9 +247,11 @@ private fun RowScope.Cell(text: String, weight: Float, color: Color, align: Text
 
 /** 종목 셀 — 상태 점(보유=금채움/이력=금링) + 티커(모노). */
 @Composable
-private fun RowScope.DotName(state: Int, name: String, weight: Float) {
+private fun RowScope.DotName(state: Int, name: String, weight: Float, rank: Int? = null) {
     Row(Modifier.weight(weight), verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        // 시총 순위 (미장 TOP30에서만) — 정렬을 바꿔도 원래 순위를 알 수 있게
+        if (rank != null) Text("$rank", color = TextMuted, fontSize = 11.sp, fontFamily = Mono)
         if (state == 0) Spacer(Modifier.size(6.dp)) else Box(
             Modifier.size(6.dp).clip(RoundedCornerShape(50))
                 .then(if (state == 2) Modifier.background(Gold)
