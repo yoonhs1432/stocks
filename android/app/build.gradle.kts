@@ -62,5 +62,8 @@ dependencies {
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.material3:material3")
 
+    // 증권사 API 자격증명 암호화 저장 (EncryptedSharedPreferences)
+    implementation("androidx.security:security-crypto:1.0.0")
+
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 }

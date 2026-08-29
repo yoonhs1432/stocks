@@ -39,6 +39,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.quant.dashboard.data.Gist
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import com.quant.dashboard.data.BrokerCreds
 import com.quant.dashboard.data.Store
 import com.quant.dashboard.ui.theme.BgApp
 import com.quant.dashboard.ui.theme.BgCard
@@ -220,6 +222,53 @@ fun SettingsScreen() {
                 ) { Text(if (busy) "불러오는 중…" else "Gist에서 불러오기") }
                 Text("데스크톱과 같은 Gist 사용. 불러오면 로컬 데이터를 덮어씁니다.",
                     color = TextMuted, fontSize = 11.sp)
+            }
+        }
+
+        // ══════════ 증권사 연동 (토스증권 Open API) — 조회 전용 ══════════
+        SectionHeader("증권사 연동 (토스증권)")
+        SettingsCard {
+            var bkOpen by remember { mutableStateOf(false) }
+            var bkKey by remember { mutableStateOf(BrokerCreds.appKey()) }
+            var bkSecret by remember { mutableStateOf(BrokerCreds.appSecret()) }
+            var bkAcct by remember { mutableStateOf(BrokerCreds.accountNo()) }
+            var bkMsg by remember { mutableStateOf<String?>(null) }
+            var bkVer by remember { mutableStateOf(0) }
+            val configured = bkVer.let { BrokerCreds.isConfigured() }
+            val status = when {
+                !BrokerCreds.available() -> "사용 불가 (기기 보안 저장소 오류)"
+                configured -> "연동됨 · ${BrokerCreds.maskedKey()}"
+                else -> "미설정"
+            }
+            Text("${if (bkOpen) "▲" else "▼"}  $status", color = TextSecondary, fontSize = 12.sp,
+                modifier = Modifier.fillMaxWidth().clickable { bkOpen = !bkOpen })
+            if (bkOpen) {
+                if (!BrokerCreds.available()) {
+                    Text("이 기기에서 암호화 저장소를 열지 못했습니다. 자격증명을 평문으로 저장하지 않기 위해 연동을 비활성화합니다.",
+                        color = Loss, fontSize = 11.sp)
+                } else {
+                    OutlinedTextField(bkKey, { bkKey = it }, label = { Text("App Key") },
+                        singleLine = true, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(bkSecret, { bkSecret = it }, label = { Text("App Secret") },
+                        singleLine = true, visualTransformation = PasswordVisualTransformation(),
+                        modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(bkAcct, { bkAcct = it }, label = { Text("계좌번호") },
+                        singleLine = true, modifier = Modifier.fillMaxWidth())
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        Button(onClick = {
+                            BrokerCreds.save(bkKey, bkSecret, bkAcct)
+                            bkVer++; bkMsg = "저장했습니다 (이 기기에만 암호화 보관)"
+                        }, modifier = Modifier.weight(1f)) { Text("저장") }
+                        Button(onClick = {
+                            BrokerCreds.clear(); bkKey = ""; bkSecret = ""; bkAcct = ""
+                            bkVer++; bkMsg = "삭제했습니다"
+                        }, modifier = Modifier.weight(1f)) { Text("삭제") }
+                    }
+                    bkMsg?.let { Text(it, color = TextSecondary, fontSize = 11.sp) }
+                    Text("🔒 자격증명은 이 기기에만 암호화 저장되며 Gist·서버로 전송되지 않습니다.\n" +
+                        "조회 전용으로만 사용합니다 (주문 기능 없음).",
+                        color = TextMuted, fontSize = 11.sp)
+                }
             }
         }
 
