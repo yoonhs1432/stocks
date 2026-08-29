@@ -39,9 +39,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.quant.dashboard.data.Gist
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import com.quant.dashboard.data.BrokerCreds
 import com.quant.dashboard.data.TossApi
+import com.quant.dashboard.data.NetInfo
 import com.quant.dashboard.data.TossSync
 import com.quant.dashboard.data.Store
 import com.quant.dashboard.ui.theme.BgApp
@@ -274,7 +277,12 @@ fun SettingsScreen() {
                                                 "✓ 연결됨 · 계좌 ${BrokerCreds.maskedAccount()}"
                                             }
                                         } catch (e: Exception) {
-                                            "실패: ${e.message}"
+                                            val base = "실패: ${e.message}"
+                                            // 허용 IP 문제면 지금 IP를 같이 알려줘야 바로 등록할 수 있다
+                                            if (e is com.quant.dashboard.data.TossException && e.code == "access_denied") {
+                                                val ip = NetInfo.publicIp()
+                                                if (ip != null) "$base\n현재 공인 IP: $ip" else base
+                                            } else base
                                         }
                                     }
                                     bkMsg = msg; bkBusy = false; bkVer++
@@ -291,6 +299,33 @@ fun SettingsScreen() {
                             modifier = Modifier.weight(1f),
                         ) { Text("삭제") }
                     }
+                    val clipboard = LocalClipboardManager.current
+                    var myIp by remember { mutableStateOf<String?>(null) }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()) {
+                        Button(
+                            enabled = !bkBusy,
+                            onClick = {
+                                bkScope.launch {
+                                    myIp = "확인 중…"
+                                    val ip = withContext(Dispatchers.IO) { NetInfo.publicIp() }
+                                    myIp = ip ?: "확인 실패"
+                                }
+                            },
+                        ) { Text("현재 IP 확인") }
+                        myIp?.let { ip ->
+                            Text(ip, color = TextPrimary, fontSize = 12.sp, fontFamily = Mono,
+                                modifier = Modifier.weight(1f).clickable {
+                                    clipboard.setText(AnnotatedString(ip))
+                                })
+                        }
+                    }
+                    if (myIp != null && myIp != "확인 중…" && myIp != "확인 실패") {
+                        Text("탭하면 복사됩니다. 이 값을 WTS 허용 IP 목록에 등록하세요.",
+                            color = TextMuted, fontSize = 10.sp)
+                    }
+
                     bkMsg?.let {
                         Text(it, color = if (it.startsWith("실패")) Loss else TextSecondary, fontSize = 11.sp)
                     }
