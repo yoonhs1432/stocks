@@ -399,6 +399,94 @@ object TossApi {
         }
     }
 
+    // ── 랭킹 (비교 탭 미장 TOP 목록) ──
+
+    /** `GET /api/v1/rankings` 항목. changeRate 는 basePrice 가 0이면 null. */
+    data class RankItem(
+        val rank: Int,
+        val symbol: String,
+        val lastPrice: Double,
+        val basePrice: Double,
+        val changeRate: Double?,   // 소수비율 (0.0125 = 1.25%)
+    )
+
+    /**
+     * 주식 랭킹 (상위 100위까지). 집계 데이터가 없는 조합은 에러가 아니라 **빈 배열**로 온다.
+     *
+     * - `type`: MARKET_TRADING_AMOUNT · MARKET_TRADING_VOLUME · TOP_GAINERS · TOP_LOSERS ·
+     *   TOSS_SECURITIES_TRADING_AMOUNT · TOSS_SECURITIES_TRADING_VOLUME
+     * - `TOP_GAINERS` / `TOP_LOSERS` 는 `duration=realtime` 미지원 (400 unsupported-ranking-duration)
+     * - 시세 조회에 실패한 종목은 빠지므로 응답 수 < count 일 수 있다.
+     */
+    fun rankings(
+        type: String,
+        marketCountry: String = "US",
+        duration: String = "1d",
+        count: Int = 30,
+        excludeInvestmentCaution: Boolean = true,
+    ): List<RankItem> {
+        val q = listOf(
+            "type" to type,
+            "marketCountry" to marketCountry,
+            "duration" to duration,
+            "count" to count.coerceIn(1, 100).toString(),
+            "excludeInvestmentCaution" to excludeInvestmentCaution.toString(),
+        )
+        val r = resultObject(get("/api/v1/rankings", q))
+        val arr = r.optJSONArray("rankings") ?: JSONArray()
+        val out = ArrayList<RankItem>(arr.length())
+        for (i in 0 until arr.length()) {
+            val o = arr.optJSONObject(i) ?: continue
+            val sym = o.optString("symbol")
+            if (sym.isBlank()) continue
+            val p = o.optJSONObject("price")
+            out.add(
+                RankItem(
+                    rank = o.optInt("rank", i + 1),
+                    symbol = sym,
+                    lastPrice = p?.dec("lastPrice", Double.NaN) ?: Double.NaN,
+                    basePrice = p?.dec("basePrice", Double.NaN) ?: Double.NaN,
+                    changeRate = p?.dec("changeRate", Double.NaN)?.takeIf { !it.isNaN() },
+                )
+            )
+        }
+        return out
+    }
+
+    // ── 종목 유니버스 (이름 검색) ──
+
+    /** `GET /api/v1/stocks/all` 항목. 미국 종목도 `name` 은 한글로 온다 (AAPL → "애플"). */
+    data class ListedStock(
+        val symbol: String,
+        val name: String,
+        val securityType: String,
+        val isCommonShare: Boolean,
+    )
+
+    /**
+     * 마켓별 전체 종목 (토스에서 거래 가능한 것만, 페이지네이션 없음).
+     * 마켓당 수천 건이라 **하루 1회 받아 캐시**하는 용도다 (`Universe`).
+     * market: KOSPI · KOSDAQ · NYSE · NASDAQ · AMEX · KR_ETC · US_ETC
+     */
+    fun listStocks(market: String, status: String = "ACTIVE"): List<ListedStock> {
+        val arr = resultArray(get("/api/v1/stocks/all", listOf("market" to market, "status" to status)))
+        val out = ArrayList<ListedStock>(arr.length())
+        for (i in 0 until arr.length()) {
+            val o = arr.optJSONObject(i) ?: continue
+            val sym = o.optString("symbol")
+            if (sym.isBlank()) continue
+            out.add(
+                ListedStock(
+                    symbol = sym,
+                    name = o.optString("name"),
+                    securityType = o.optString("securityType"),
+                    isCommonShare = o.optBoolean("isCommonShare", true),
+                )
+            )
+        }
+        return out
+    }
+
     // ── 장 운영 시간 ──
 
     /** 거래 세션 1구간 (epoch 초). */

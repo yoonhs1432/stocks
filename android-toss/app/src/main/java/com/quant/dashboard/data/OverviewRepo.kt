@@ -6,6 +6,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.withContext
 
 /**
  * 전 종목 요약(현재가·등락·Z·M·β·σ·신호·보유)을 한 번 받아 공유 캐시.
@@ -46,15 +47,23 @@ object OverviewRepo {
     suspend fun load(force: Boolean = false): List<Row> =
         loadInto(watchSlot, Store.loadTickers(), force)
 
-    /** 미국 시총 상위 30개. 비교 탭에서 해당 목록을 열 때만 호출(요청 30건). */
-    suspend fun loadTop(force: Boolean = false): List<Row> =
-        loadInto(topSlot, Tickers.US_TOP30, force)
+    /**
+     * 미장 TOP 목록. 비교 탭에서 해당 목록을 열 때만 호출(요청 30건).
+     * 종목 선정은 토스 랭킹 API(`Rankings`)가 하고, 미연동·실패 시 하드코딩 목록으로 폴백한다.
+     */
+    suspend fun loadTop(force: Boolean = false): List<Row> {
+        val symbols = withContext(Dispatchers.IO) { Rankings.symbols(force) }
+        // 랭킹 기준이 바뀌면 종목 자체가 달라지므로 캐시 키에 포함시킨다
+        return loadInto(topSlot, symbols, force, keyExtra = Rankings.cacheKey())
+    }
 
-    private suspend fun loadInto(slot: Slot, tickers: List<String>, force: Boolean): List<Row> {
+    private suspend fun loadInto(
+        slot: Slot, tickers: List<String>, force: Boolean, keyExtra: String = "",
+    ): List<Row> {
         val now = System.currentTimeMillis()
         val range = Store.lookbackRange()
         val interval = Store.candleInterval()
-        val curKey = "$range|$interval|${Store.asofDate() ?: ""}"
+        val curKey = "$range|$interval|${Store.asofDate() ?: ""}|$keyExtra"
         if (!force && slot.rows.isNotEmpty() && slot.key == curKey && now - slot.ts < 300_000) return slot.rows
         val spy = Store.sliceAsof(Quotes.closes(Tickers.BASE, range, interval))
         if (spy.isEmpty()) return slot.rows

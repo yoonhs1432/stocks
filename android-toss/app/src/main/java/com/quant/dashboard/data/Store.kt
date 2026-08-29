@@ -275,6 +275,16 @@ object Store {
     fun tickSeconds(): Int = settings().optInt("tick_seconds", 0)
     fun setTickSeconds(v: Int) { saveSettings(settings().put("tick_seconds", v)) }
 
+    /**
+     * 비교 탭 미장 TOP 목록의 랭킹 기준 (`GET /api/v1/rankings`).
+     * 토스에 시가총액 랭킹이 없어 거래대금 상위(1일)를 기본값으로 둔다.
+     */
+    fun rankType(): String = settings().optString("rank_type", "MARKET_TRADING_AMOUNT")
+    fun setRankType(v: String) { saveSettings(settings().put("rank_type", v)) }
+
+    fun rankDuration(): String = settings().optString("rank_duration", "1d")
+    fun setRankDuration(v: String) { saveSettings(settings().put("rank_duration", v)) }
+
     /** 시세를 토스 API로 받을지 (기본 꺼짐 — 레이트리밋·종목 커버리지 확인 전까지 Yahoo 유지). */
     fun tossQuotes(): Boolean = settings().optBoolean("toss_quotes", false)
     fun setTossQuotes(v: Boolean) { saveSettings(settings().put("toss_quotes", v)) }

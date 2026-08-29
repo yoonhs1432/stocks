@@ -27,6 +27,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -49,6 +50,7 @@ import com.quant.dashboard.data.NetInfo
 import com.quant.dashboard.data.TossSync
 import com.quant.dashboard.data.Store
 import com.quant.dashboard.data.Tickers
+import com.quant.dashboard.data.Universe
 import com.quant.dashboard.ui.theme.BgApp
 import com.quant.dashboard.ui.theme.BgCard
 import com.quant.dashboard.ui.theme.BorderColor
@@ -494,15 +496,78 @@ fun SettingsScreen() {
 
         // ══════════ 종목 관리 ══════════
         SectionHeader("종목 관리")
+
+        // 토스 종목 유니버스(미국 3개 거래소) — 이름으로 티커를 찾기 위한 캐시. 하루 1회 갱신.
+        val uniScope = rememberCoroutineScope()
+        var uniCount by remember { mutableStateOf(0) }
+        var uniBusy by remember { mutableStateOf(false) }
+        LaunchedEffect(Unit) {
+            // 파일 캐시 로드(수천 건 파싱)도 IO 로 — 메인 스레드에서 하면 화면이 끊긴다
+            val linked = BrokerCreds.isLinked()
+            if (linked) uniBusy = true
+            uniCount = withContext(Dispatchers.IO) { if (linked) Universe.ensure() else Universe.count() }
+            uniBusy = false
+        }
+
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedTextField(input, { input = it }, placeholder = { Text("티커 (NVDA·005930)") },
+            OutlinedTextField(input, { input = it },
+                placeholder = { Text(if (uniCount > 0) "티커 또는 이름 (NVDA·애플)" else "티커 (NVDA·005930)") },
                 singleLine = true, modifier = Modifier.weight(1f))
             Button(onClick = {
                 if (input.isNotBlank()) { Store.addTicker(input); tickers = Store.loadTickers().toList(); input = ""; AppState.bump() }
             }) { Text("추가") }
         }
+
+        // 이름 검색 결과 — 탭하면 바로 추가 (토스 연동 시에만 동작)
+        val found = remember(input, uniCount) {
+            if (input.length >= 1 && uniCount > 0) Universe.search(input) else emptyList()
+        }
+        found.forEach { it2 ->
+            val already = it2.symbol in tickers
+            Row(
+                Modifier.fillMaxWidth().padding(vertical = 1.dp)
+                    .clip(RoundedCornerShape(6.dp)).background(SurfaceInput)
+                    .clickable(enabled = !already) {
+                        Store.addTicker(it2.symbol); tickers = Store.loadTickers().toList()
+                        input = ""; AppState.bump()
+                    }
+                    .padding(horizontal = 10.dp, vertical = 7.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(it2.symbol, color = if (already) TextMuted else TextPrimary,
+                    fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                Text(it2.name, color = TextSecondary, fontSize = 12.sp, modifier = Modifier.weight(1f))
+                Text(if (already) "추가됨" else "${it2.market} · ${it2.type}", color = TextMuted, fontSize = 10.sp)
+            }
+        }
+
         Text("최소 ${Store.MIN_TICKERS}개 · 한국=6자리(.KS/.KQ 자동) · 개별/ETF·이름 셀에서 편집",
             color = TextMuted, fontSize = 11.sp, modifier = Modifier.padding(vertical = 2.dp))
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                when {
+                    uniBusy -> "종목 목록 받는 중…"
+                    uniCount > 0 -> "🔎 이름 검색 가능 — 미국 ${"%,d".format(uniCount)}종목 (${Universe.cachedDate().ifEmpty { "부분" }})"
+                    BrokerCreds.isLinked() -> "종목 목록을 아직 받지 못했습니다"
+                    else -> "토스 연동 시 이름으로 종목을 찾을 수 있습니다"
+                },
+                color = TextMuted, fontSize = 11.sp, modifier = Modifier.weight(1f),
+            )
+            if (BrokerCreds.isLinked()) {
+                Box(
+                    Modifier.clip(RoundedCornerShape(6.dp)).background(SurfaceInput)
+                        .clickable(enabled = !uniBusy) {
+                            uniScope.launch {
+                                uniBusy = true
+                                uniCount = withContext(Dispatchers.IO) { Universe.ensure(force = true) }
+                                uniBusy = false
+                            }
+                        }
+                        .padding(horizontal = 10.dp, vertical = 5.dp),
+                ) { Text("목록 갱신", color = TextSecondary, fontSize = 11.sp) }
+            }
+        }
 
         indivVer.let {
             tickers.chunked(2).forEach { pair ->
