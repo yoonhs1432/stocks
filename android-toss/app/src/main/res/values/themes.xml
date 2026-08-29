@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Compose가 실제 테마를 담당. 플랫폼 다크 베이스만 사용해 외부 테마 의존 회피. -->
+    <style name="Theme.QuantDashboard" parent="android:Theme.Material.NoActionBar" />
+</resources>

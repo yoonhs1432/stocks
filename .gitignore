@@ -7,3 +7,9 @@ android/build/
 android/app/build/
 android/local.properties
 *.apk
+
+# android-toss (복사본) 빌드 산출물
+android-toss/.gradle/
+android-toss/build/
+android-toss/app/build/
+android-toss/local.properties
