@@ -62,6 +62,80 @@
 
 ---
 
+## 토스 API 미사용 엔드포인트 — 추가 기능 후보 (2026-08-29 정리)
+
+> OpenAPI v1.2.14 전수 검토. **구현 완료**: prices · candles · holdings · orders(CLOSED) ·
+> accounts · buying-power · exchange-rate · market-calendar · stocks · trades(진단용).
+> 아래는 아직 안 쓰는 것 중 이 앱에 값이 있는 순서.
+
+### A. 바로 이득 (권장)
+
+**A1. 미장 TOP 30 → 실제 랭킹으로 교체** — `GET /api/v1/rankings`
+현재 `Tickers.US_TOP30` 은 하드코딩 정적 목록(내 학습 시점 기준이라 부정확 가능).
+API 로 바꾸면 정확할 뿐 아니라 축이 늘어난다.
+- `type`: 거래대금/거래량 상위, **급상승·급하락**(TOP_GAINERS/LOSERS),
+  **토스증권 체결 기준** 상위(= 토스 유저가 실제로 사고파는 종목)
+- `duration`: realtime · 1d · 1w · 1mo · 3mo · 6mo · 1y — 기간별 급등락 발굴
+- `marketCountry`: KR · US 각각. 상위 100위, 현재가·기준가·등락률·거래량·거래대금 포함
+- 주의: TOP_GAINERS/LOSERS 는 `realtime` 미지원
+
+**A2. 종목 이름 검색 (유니버스 캐시)** — `GET /api/v1/stocks/all`
+지금은 티커를 정확히 알아야 종목을 추가할 수 있다. 한국 종목은 6자리 코드를 외워야 함.
+마켓별 전체 목록(KOSPI/KOSDAQ/NYSE/NASDAQ/AMEX)을 하루 1회 받아 캐시하면
+"삼성전자" → 005930 검색이 된다. 마켓당 수천 건, gzip 약 30KB 라 부담 적음.
+
+**A3. 매수 유의사항 배지** — `GET /api/v1/stocks/{symbol}/warnings`
+정리매매 · 단기과열 · 투자경고 · 투자위험 · **VI 발동**(정적/동적) · 신주인수권.
+앱에 이미 "신중 매매"(그래프 순차 확인) 흐름이 있으므로 **거기에 붙이는 게 자연스럽다.**
+분석 탭 종목 헤더 배지로도 좋음. VI 는 거래소 이벤트 후 수 초 내 반영.
+
+### B. 분석 축 확장 (국내 종목 한정)
+
+> ⚠️ B1~B4 는 **KR 종목만** 지원. 다른 시장은 400 `unsupported-market`.
+> 워치리스트가 미국 ETF 위주면 삼전 정도에만 적용되어 가치가 제한적이다.
+
+**B1. 투자자별 매매동향** — `/stocks/{symbol}/investor-trading`
+개인·외국인·기관(7분류 세부)·기타법인의 일별 순매수 + 외국인 보유율 + CFD 잔고.
+Z(가격 위치)·M(모멘텀)이 못 보는 **"누가 사고 있나"** 축. 예: 외국인·기관 연속 순매수 + Z 낮음.
+당일은 잠정치(개인·기관세부·기타법인 null), 확정은 당일 저녁.
+
+**B2. 공매도 동향** — `/stocks/{symbol}/short-selling`
+공매도 거래량·거래대금과 **전체 대비 비중**. 비중 급증은 경고 신호로 쓸 수 있다. 확정치는 당일 저녁.
+
+**B3. 신용거래 동향** — `/stocks/{symbol}/credit-trades`
+신용융자·대주의 신규/상환/잔고와 잔고비율·공여율. 신용잔고 급증 = 반대매매 리스크. T+1 반영.
+
+**B4. 프로그램매매 / 대차거래** — `/stocks/{symbol}/program-trades`, `/securities-lending`
+차익·비차익 순매수 / 대차 잔고. B1~B3 보다 우선순위 낮음.
+
+### C. 화면 보강
+
+**C1. 헤더 배지를 토스로** — `GET /api/v1/market-indicators/prices`
+KOSPI · KOSDAQ · 한국 국채(2·3·5·10·20·30년) 지원. 지금 Yahoo 로 받는 KOSPI 대체 가능하고,
+**금리 곡선 역전(10Y−2Y) 경고 배지**를 만들 수 있다 — 이전 세션 "미적용 아이디어"에 있던 항목.
+⚠️ VIX 와 **미국** 10년물은 토스에 없다 → 그 둘은 Yahoo 유지 필요.
+지수·국채 일봉은 `/market-indicators/{symbol}/candles`.
+
+**C2. 미체결 주문 표시** — `GET /api/v1/orders?status=OPEN`
+지금 걸어둔 주문을 포트폴리오 탭에 "대기 중 N건"으로. 조회 전용 원칙에 어긋나지 않음.
+
+**C3. 실제 수수료율** — `GET /api/v1/commissions`
+시장별 수수료율. 매매 입력 시 예상 비용 표시 정도. (사이클 통계를 제거해 활용처는 줄었음)
+
+**C4. KRX 투자자별 매매대금** — `/market-indicators/{symbol}/investor-trading` (KOSPI·KOSDAQ)
+개별 종목이 아니라 **시장 전체** 수급. 일/주/월/연 집계.
+
+### D. 이 앱엔 안 맞음 (기록만)
+
+- **호가창** `/orderbook` — 스윙·포지션 트레이딩엔 의미 적음(데이트레이딩용)
+- **상/하한가** `/price-limits` — 국내 한정, 정보량 적음
+- **판매가능수량** `/sellable-quantity` — 주문을 안 하므로 불필요
+- **웹소켓 실시간** `wss://openapi-ws.tossinvest.com/ws/v1` — 3초 폴링(`/prices` 200종목 1요청)으로 충분.
+  분석이 전부 일봉 기준이라 틱 단위가 필요 없다. AsyncAPI 스펙 문서 별도 필요.
+- **주문·정정·취소·조건주문** — 의도적 미구현 (조회 전용 원칙)
+
+---
+
 ## 2026-06-19 Android 포팅 패리티 세션 (app.py 정답지 → Kotlin 전수 대조)
 
 > `app.py`를 정답지로 삼아 분석수식/차트/화면기능 3영역 전수 감사 후 누락 일괄 구현. CI(android.yml) 빌드 그린 확인.
