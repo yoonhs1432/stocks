@@ -267,6 +267,14 @@ object Store {
     fun tossMode(): Boolean = settings().optBoolean("toss_mode", false)
     fun setTossMode(v: Boolean) { saveSettings(settings().put("toss_mode", v)) }
 
+    /**
+     * 실시간 시세 갱신 주기(초). 0 = 끔. 장이 열려 있을 때만 동작한다.
+     * `/prices` 는 전 종목을 요청 1번으로 받으므로 짧은 주기도 감당되지만,
+     * 너무 짧으면 레이트리밋(MARKET_DATA)과 배터리에 부담이 된다.
+     */
+    fun tickSeconds(): Int = settings().optInt("tick_seconds", 0)
+    fun setTickSeconds(v: Int) { saveSettings(settings().put("tick_seconds", v)) }
+
     /** 시세를 토스 API로 받을지 (기본 꺼짐 — 레이트리밋·종목 커버리지 확인 전까지 Yahoo 유지). */
     fun tossQuotes(): Boolean = settings().optBoolean("toss_quotes", false)
     fun setTossQuotes(v: Boolean) { saveSettings(settings().put("toss_quotes", v)) }

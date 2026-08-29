@@ -44,6 +44,7 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import com.quant.dashboard.data.BrokerCreds
 import com.quant.dashboard.data.TossApi
+import com.quant.dashboard.data.MarketHours
 import com.quant.dashboard.data.NetInfo
 import com.quant.dashboard.data.TossSync
 import com.quant.dashboard.data.Store
@@ -396,6 +397,64 @@ fun SettingsScreen() {
                                     Text(sym, color = TextPrimary, fontSize = 11.sp, fontFamily = Mono)
                                     Text(desc, color = TextMuted, fontSize = 11.sp)
                                 }
+                            }
+                        }
+
+                        // ── 실시간 시세 ──
+                        Box(Modifier.fillMaxWidth().height(1.dp).background(BorderColor))
+                        var tick by remember { mutableStateOf(Store.tickSeconds()) }
+                        Label("실시간 시세 갱신 주기")
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            listOf("끔" to 0, "3초" to 3, "5초" to 5, "10초" to 10, "30초" to 30).forEach { (lab, v) ->
+                                Seg(lab, tick == v) { tick = v; Store.setTickSeconds(v); AppState.bump() }
+                            }
+                        }
+                        Text("장이 열려 있을 때만 동작합니다. 전 종목 현재가를 요청 1번으로 받아오므로 " +
+                            "주기를 짧게 해도 호출 수는 늘지 않지만, 배터리와 레이트리밋에는 영향이 있습니다.\n" +
+                            "한도(429)에 걸리면 30초 쉬었다 자동 재개합니다.",
+                            color = TextMuted, fontSize = 11.sp)
+
+                        // ── 시간외 데이터 진단 ──
+                        Box(Modifier.fillMaxWidth().height(1.dp).background(BorderColor))
+                        Label("시세 진단 (프리·애프터 확인용)")
+                        Text("`/prices` 와 `/trades` 응답의 시각을 그대로 보여줍니다. 프리마켓 시간대(저녁)에 눌러 " +
+                            "그 시각이 찍히면 시간외 데이터가 오는 것이고, 전일 마감 시각이면 오지 않는 것입니다.",
+                            color = TextMuted, fontSize = 11.sp)
+                        var diag by remember { mutableStateOf<List<String>?>(null) }
+                        var diagBusy by remember { mutableStateOf(false) }
+                        Button(
+                            enabled = !diagBusy,
+                            onClick = {
+                                diagBusy = true
+                                bkScope.launch {
+                                    val lines = withContext(Dispatchers.IO) {
+                                        try {
+                                            val syms = (Store.loadTickers().take(3) + Tickers.BASE).distinct()
+                                            val out = ArrayList<String>()
+                                            MarketHours.ensure(force = true)
+                                            out.add("개장: ${MarketHours.label() ?: "닫힘"}")
+                                            out.add("기기 시각: ${java.time.OffsetDateTime.now()}")
+                                            TossApi.pricesRaw(syms).forEach {
+                                                out.add("prices ${it.symbol} = ${it.price} @ ${it.timestamp}")
+                                            }
+                                            syms.forEach { sym ->
+                                                val t = runCatching { TossApi.lastTradeTime(sym) }.getOrNull()
+                                                out.add("trades $sym 최근체결 @ ${t ?: "(없음)"}")
+                                            }
+                                            out
+                                        } catch (e: Exception) {
+                                            listOf("실패: ${e.message}")
+                                        }
+                                    }
+                                    diag = lines; diagBusy = false
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text(if (diagBusy) "확인 중…" else "시세 진단") }
+                        diag?.let { lines ->
+                            lines.forEach {
+                                Text(it, color = if (it.startsWith("실패")) Loss else TextSecondary,
+                                    fontSize = 10.sp, fontFamily = Mono)
                             }
                         }
 

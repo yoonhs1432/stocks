@@ -399,6 +399,64 @@ object TossApi {
         }
     }
 
+    // ── 장 운영 시간 ──
+
+    /** 거래 세션 1구간 (epoch 초). */
+    data class Session(val market: String, val name: String, val start: Long, val end: Long)
+
+    private fun sessionOf(market: String, name: String, o: JSONObject?): Session? {
+        if (o == null) return null
+        val a = epochSec(o.optString("startTime")) ?: return null
+        val b = epochSec(o.optString("endTime")) ?: return null
+        return Session(market, name, a, b)
+    }
+
+    /**
+     * `GET /api/v1/market-calendar/{KR|US}` — 전일·당일·익일 3영업일의 세션 시간.
+     *
+     * 미국 정규장은 22:30(KST) 시작해 **다음 날 05:00 에 끝나므로**, 새벽에는 "당일"이 아니라
+     * 전 영업일의 세션이 열려 있다. 그래서 3일치를 모두 펼쳐 반환한다.
+     */
+    fun marketSessions(country: String): List<Session> {
+        val r = resultObject(get("/api/v1/market-calendar/$country"))
+        val out = ArrayList<Session>()
+        for (dayKey in listOf("previousBusinessDay", "today", "nextBusinessDay")) {
+            val d = r.optJSONObject(dayKey) ?: continue
+            if (country == "KR") {
+                val g = d.optJSONObject("integrated") ?: continue
+                sessionOf("KR", "프리마켓", g.optJSONObject("preMarket"))?.let { out.add(it) }
+                sessionOf("KR", "정규장", g.optJSONObject("regularMarket"))?.let { out.add(it) }
+                sessionOf("KR", "애프터마켓", g.optJSONObject("afterMarket"))?.let { out.add(it) }
+            } else {
+                sessionOf("US", "데이마켓", d.optJSONObject("dayMarket"))?.let { out.add(it) }
+                sessionOf("US", "프리마켓", d.optJSONObject("preMarket"))?.let { out.add(it) }
+                sessionOf("US", "정규장", d.optJSONObject("regularMarket"))?.let { out.add(it) }
+                sessionOf("US", "애프터마켓", d.optJSONObject("afterMarket"))?.let { out.add(it) }
+            }
+        }
+        return out
+    }
+
+    /** 진단용 — `/prices` 응답의 심볼·가격·타임스탬프 원문. */
+    data class PriceStamp(val symbol: String, val price: String, val timestamp: String)
+
+    fun pricesRaw(symbols: List<String>): List<PriceStamp> {
+        if (symbols.isEmpty()) return emptyList()
+        val arr = resultArray(get("/api/v1/prices", listOf("symbols" to symbols.joinToString(","))))
+        return (0 until arr.length()).mapNotNull { i ->
+            val o = arr.optJSONObject(i) ?: return@mapNotNull null
+            PriceStamp(o.optString("symbol"), o.optString("lastPrice"),
+                if (o.isNull("timestamp")) "(없음)" else o.optString("timestamp"))
+        }
+    }
+
+    /** 진단용 — `/trades` 최근 체결의 시각. 시간외 체결이 흐르는지 확인용. */
+    fun lastTradeTime(symbol: String): String? {
+        val arr = resultArray(get("/api/v1/trades", listOf("symbol" to symbol, "count" to "1")))
+        val o = arr.optJSONObject(0) ?: return null
+        return o.optString("timestamp").ifBlank { null }
+    }
+
     // ── 예수금 (매수 가능 금액) ──
 
     /**

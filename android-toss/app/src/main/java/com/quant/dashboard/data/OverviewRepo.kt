@@ -14,6 +14,7 @@ import kotlinx.coroutines.coroutineScope
 object OverviewRepo {
     data class Row(
         val ticker: String, val name: String, val price: Double,
+        val prevClose: Double,     // 전일 종가 — 실시간 현재가로 등락률을 다시 계산할 때 사용
         val day: Double, val week: Double, val fromHigh: Double,
         val zPct: Double, val mPct: Double, val signal: String,
         val beta: Double, val sigmaPct: Double,
@@ -89,6 +90,7 @@ object OverviewRepo {
                     }
                     Row(
                         ticker = tk, name = Tickers.displayName(tk), price = p[m - 1],
+                        prevClose = prevD,
                         day = if (prevD > 0) (p[m - 1] / prevD - 1) * 100 else 0.0,
                         week = if (prevW > 0) (p[m - 1] / prevW - 1) * 100 else 0.0,
                         fromHigh = if (high > 0) (p[m - 1] / high - 1) * 100 else 0.0,

@@ -41,6 +41,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import com.quant.dashboard.data.BrokerCreds
+import com.quant.dashboard.data.LivePrices
 import com.quant.dashboard.data.Snapshots
 import com.quant.dashboard.data.TossSync
 import com.quant.dashboard.data.Store
@@ -186,6 +187,10 @@ private fun TossBody(onOpenAnalysis: (String) -> Unit) {
         }
         a.holdings.items.forEachIndexed { i, h ->
             val cur = if (h.currency == "KRW") "₩" else "$"
+            // 실시간 틱이 있으면 평가금액·손익률을 현재가로 다시 계산
+            val lp = LivePrices.price(h.symbol)
+            val evalAmt = if (lp != null) lp * h.quantity else h.evalAmount
+            val rate2 = if (lp != null && h.avgPrice > 0) lp / h.avgPrice - 1.0 else h.pnlRate
             Row(
                 Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
                     .clickable { onOpenAnalysis(h.symbol) }
@@ -200,10 +205,10 @@ private fun TossBody(onOpenAnalysis: (String) -> Unit) {
                 Text(qtyLabel(h.quantity), color = TextMuted, fontSize = 11.sp,
                     fontFamily = Mono, modifier = Modifier.weight(1f))
                 Column(horizontalAlignment = Alignment.End) {
-                    Text("$cur${"%,.2f".format(h.evalAmount)}", color = TextPrimary,
+                    Text("$cur${"%,.2f".format(evalAmt)}", color = TextPrimary,
                         fontSize = 12.5.sp, fontFamily = Mono)
-                    Text("평단 $cur${"%,.2f".format(h.avgPrice)} · ${if (h.pnlRate >= 0) "+" else ""}${"%.2f".format(h.pnlRate * 100)}%",
-                        color = pc(h.pnlAmount), fontSize = 11.sp,
+                    Text("평단 $cur${"%,.2f".format(h.avgPrice)} · ${if (rate2 >= 0) "+" else ""}${"%.2f".format(rate2 * 100)}%",
+                        color = pc(rate2), fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold, fontFamily = Mono)
                 }
                 Text(" ›", color = TextMuted, fontSize = 15.sp)

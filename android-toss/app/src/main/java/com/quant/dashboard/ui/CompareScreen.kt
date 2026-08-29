@@ -77,7 +77,7 @@ fun CompareScreen(vm: CompareViewModel = viewModel(), onOpenAnalysis: (String) -
     LaunchedEffect(Unit) {
         while (true) {
             kotlinx.coroutines.delay(60_000)
-            if (marketOpenNow()) vm.autoRefresh()
+            if (MarketHours.anyOpen()) vm.autoRefresh()
         }
     }
 
@@ -142,8 +142,12 @@ fun CompareScreen(vm: CompareViewModel = viewModel(), onOpenAnalysis: (String) -
                             .padding(horizontal = 2.dp, vertical = 6.dp)) {
                             DotName((if (r.holding) 2 else if (r.hasHistory) 1 else 0), r.name, 2.4f,
                                 rank = if (s.showTop) vm.rankOf(r.ticker) + 1 else null)
-                            Cell(Tickers.priceLabel(r.ticker, r.price), 2f, pnColor(r.day))
-                            Cell(signed(r.day), 1.4f, pnColor(r.day))
+                            // 실시간 틱이 있으면 현재가·등락률을 그 값으로 (없으면 일봉 종가 기준)
+                            val live = LivePrices.price(r.ticker)
+                            val px = live ?: r.price
+                            val day = if (live != null && r.prevClose > 0) (live / r.prevClose - 1) * 100 else r.day
+                            Cell(Tickers.priceLabel(r.ticker, px), 2f, pnColor(day))
+                            Cell(signed(day), 1.4f, pnColor(day))
                             Cell("%.0f".format(r.zPct), 1f, pctColor(r.zPct), fw = FontWeight.Bold)
                             Cell("%.0f".format(r.mPct), 1f, pctColor(r.mPct), fw = FontWeight.Bold)
                         }

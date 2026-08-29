@@ -49,6 +49,8 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.quant.dashboard.data.Candle
+import com.quant.dashboard.data.LivePrices
+import com.quant.dashboard.data.MarketHours
 import com.quant.dashboard.data.Store
 import com.quant.dashboard.data.Tickers
 import com.quant.dashboard.data.Trade
@@ -91,7 +93,7 @@ fun AnalysisScreen(vm: AnalysisViewModel = viewModel(), onBack: () -> Unit = {})
     LaunchedEffect(Unit) {
         while (true) {
             kotlinx.coroutines.delay(60_000)
-            if (marketOpenNow()) vm.autoRefresh()
+            if (MarketHours.anyOpen()) vm.autoRefresh()
         }
     }
 
@@ -281,8 +283,9 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
         }
         Text("σ±%.0f%% · β %.1f".format(r.sigmaPct, r.beta), color = TextSecondary, fontSize = 10.sp, fontFamily = Mono)
         // 우측: 현재가/평단/수량 (작게)
-        val chgPct = if (pos != null && pos.avg > 0) (r.lastPrice / pos.avg - 1.0) * 100.0 else null
-        Mini("현재가", Tickers.priceLabel(ticker, r.lastPrice),
+        val livePx = LivePrices.price(ticker) ?: r.lastPrice
+        val chgPct = if (pos != null && pos.avg > 0) (livePx / pos.avg - 1.0) * 100.0 else null
+        Mini("현재가", Tickers.priceLabel(ticker, livePx),
             extra = chgPct?.let { "${if (it >= 0) "+" else ""}${"%.1f%%".format(it)}" },
             extraColor = chgPct?.let { if (it >= 0) Profit else Loss } ?: TextMuted)
         if (pos != null) {
