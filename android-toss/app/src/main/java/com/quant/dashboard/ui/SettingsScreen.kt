@@ -47,6 +47,7 @@ import com.quant.dashboard.data.TossApi
 import com.quant.dashboard.data.NetInfo
 import com.quant.dashboard.data.TossSync
 import com.quant.dashboard.data.Store
+import com.quant.dashboard.data.Tickers
 import com.quant.dashboard.ui.theme.BgApp
 import com.quant.dashboard.ui.theme.BgCard
 import com.quant.dashboard.ui.theme.BorderColor
@@ -351,6 +352,54 @@ fun SettingsScreen() {
                             modifier = Modifier.fillMaxWidth(),
                         ) { Text("체결내역 가져오기") }
 
+                        // ── 종목 커버리지 (이관·시세 전환 판단용) ──
+                        Box(Modifier.fillMaxWidth().height(1.dp).background(BorderColor))
+                        Label("종목 커버리지 확인")
+                        Text("워치리스트 + 회귀 기준(SPY)이 토스에서 취급되는지 한 번에 확인합니다. " +
+                            "여기 없는 종목은 토스에서 사고팔 수 없고, 시세도 Yahoo로 받게 됩니다.",
+                            color = TextMuted, fontSize = 11.sp)
+                        var cov by remember { mutableStateOf<List<Triple<String, Boolean, String>>?>(null) }
+                        var covBusy by remember { mutableStateOf(false) }
+                        Button(
+                            enabled = !covBusy,
+                            onClick = {
+                                covBusy = true
+                                bkScope.launch {
+                                    val rows = withContext(Dispatchers.IO) {
+                                        val syms = (Store.loadTickers() + Tickers.BASE).distinct()
+                                        try {
+                                            val found = TossApi.stocks(syms)
+                                            syms.map { sym ->
+                                                val i = found[sym]
+                                                if (i == null) Triple(sym, false, "토스에 없음 → Yahoo")
+                                                else Triple(sym, i.status == "ACTIVE",
+                                                    "${i.name} · ${i.market} · ${i.securityType}" +
+                                                        if (i.status != "ACTIVE") " · ${i.status}" else "")
+                                            }
+                                        } catch (e: Exception) {
+                                            listOf(Triple("오류", false, e.message ?: ""))
+                                        }
+                                    }
+                                    cov = rows; covBusy = false
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text(if (covBusy) "확인 중…" else "종목 커버리지 확인") }
+                        cov?.let { rows ->
+                            val ok = rows.count { it.second }
+                            Text("토스 취급 $ok / ${rows.size}", color = TextSecondary,
+                                fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            rows.forEach { (sym, okOne, desc) ->
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Text(if (okOne) "✓" else "✗", color = if (okOne) Profit else Loss,
+                                        fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    Text(sym, color = TextPrimary, fontSize = 11.sp, fontFamily = Mono)
+                                    Text(desc, color = TextMuted, fontSize = 11.sp)
+                                }
+                            }
+                        }
+
+                        Box(Modifier.fillMaxWidth().height(1.dp).background(BorderColor))
                         var tossQ by remember { mutableStateOf(Store.tossQuotes()) }
                         Label("시세 소스")
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {

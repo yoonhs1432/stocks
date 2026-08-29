@@ -344,6 +344,61 @@ object TossApi {
     private fun epochSec(iso: String): Long? =
         runCatching { java.time.OffsetDateTime.parse(iso).toEpochSecond() }.getOrNull()
 
+    // ── 종목 기본 정보 (커버리지 확인) ──
+
+    data class StockInfo(
+        val symbol: String,
+        val name: String,
+        val market: String,        // KOSPI | KOSDAQ | NYSE | NASDAQ | AMEX | KR_ETC | US_ETC
+        val securityType: String,  // STOCK | ETF | ETN | FOREIGN_ETF …
+        val status: String,        // SCHEDULED | ACTIVE | DELISTED
+        val currency: String,
+    )
+
+    /**
+     * `GET /api/v1/stocks?symbols=…` — 토스가 취급하는 종목의 기본 정보 (요청당 최대 200).
+     * **결과에 없는 심볼 = 토스에서 조회·거래되지 않는 종목**이므로 커버리지 확인에 쓴다.
+     *
+     * 알 수 없는 심볼이 섞이면 배치 전체가 404 로 실패할 수 있어, 실패 시 한 종목씩 다시 물어
+     * 어떤 것이 빠지는지 가려낸다.
+     */
+    fun stocks(symbols: List<String>): Map<String, StockInfo> {
+        if (symbols.isEmpty()) return emptyMap()
+        val out = LinkedHashMap<String, StockInfo>()
+        for (chunk in symbols.chunked(200)) {
+            try {
+                parseStocks(get("/api/v1/stocks", listOf("symbols" to chunk.joinToString(",")))) { out[it.symbol] = it }
+            } catch (e: Exception) {
+                // 배치 실패 → 개별 조회로 가려내기
+                for (sym in chunk) {
+                    try {
+                        parseStocks(get("/api/v1/stocks", listOf("symbols" to sym))) { out[it.symbol] = it }
+                    } catch (e2: Exception) {
+                        // 이 심볼은 토스에 없음 — 결과에서 빠진 채로 둔다
+                    }
+                }
+            }
+        }
+        return out
+    }
+
+    private inline fun parseStocks(text: String, add: (StockInfo) -> Unit) {
+        val arr = resultArray(text)
+        for (i in 0 until arr.length()) {
+            val o = arr.optJSONObject(i) ?: continue
+            add(
+                StockInfo(
+                    symbol = o.optString("symbol"),
+                    name = o.optString("name"),
+                    market = o.optString("market"),
+                    securityType = o.optString("securityType"),
+                    status = o.optString("status"),
+                    currency = o.optString("currency"),
+                )
+            )
+        }
+    }
+
     // ── 환율 ──
 
     /** `GET /api/v1/exchange-rate` — USD→KRW. 1분 주기 갱신되는 참고용 표시 환율. */
