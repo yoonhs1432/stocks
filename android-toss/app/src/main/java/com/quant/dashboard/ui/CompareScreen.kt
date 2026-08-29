@@ -40,6 +40,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.quant.dashboard.data.LivePrices
+import com.quant.dashboard.data.MarketHours
 import com.quant.dashboard.data.OverviewRepo
 import com.quant.dashboard.data.Rankings
 import com.quant.dashboard.data.Tickers
