@@ -49,6 +49,8 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.quant.dashboard.data.Candle
+import com.quant.dashboard.data.LivePrices
+import com.quant.dashboard.data.MarketHours
 import com.quant.dashboard.data.Store
 import com.quant.dashboard.data.Tickers
 import com.quant.dashboard.data.Trade
@@ -91,7 +93,7 @@ fun AnalysisScreen(vm: AnalysisViewModel = viewModel(), onBack: () -> Unit = {})
     LaunchedEffect(Unit) {
         while (true) {
             kotlinx.coroutines.delay(60_000)
-            if (marketOpenNow()) vm.autoRefresh()
+            if (MarketHours.anyOpen()) vm.autoRefresh()
         }
     }
 
@@ -265,7 +267,7 @@ private fun Accordion(title: String, content: @Composable () -> Unit) {
 @Composable
 private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayPct: Double?) {
     // ── 종목명 + σ·β + (우측) 현재가/평단/수량 — 한 줄, 넘치면 가로 스크롤 ──
-    val trades = remember(ticker) { Store.loadTrades()[ticker].orEmpty() }
+    val trades = remember(ticker) { Store.visibleTrades()[ticker].orEmpty() }
     val pos = remember(ticker) { Portfolio.position(trades) }
     Row(
         verticalAlignment = Alignment.Bottom,
@@ -281,8 +283,9 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
         }
         Text("σ±%.0f%% · β %.1f".format(r.sigmaPct, r.beta), color = TextSecondary, fontSize = 10.sp, fontFamily = Mono)
         // 우측: 현재가/평단/수량 (작게)
-        val chgPct = if (pos != null && pos.avg > 0) (r.lastPrice / pos.avg - 1.0) * 100.0 else null
-        Mini("현재가", Tickers.priceLabel(ticker, r.lastPrice),
+        val livePx = LivePrices.price(ticker) ?: r.lastPrice
+        val chgPct = if (pos != null && pos.avg > 0) (livePx / pos.avg - 1.0) * 100.0 else null
+        Mini("현재가", Tickers.priceLabel(ticker, livePx),
             extra = chgPct?.let { "${if (it >= 0) "+" else ""}${"%.1f%%".format(it)}" },
             extraColor = chgPct?.let { if (it >= 0) Profit else Loss } ?: TextMuted)
         if (pos != null) {
@@ -318,29 +321,6 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
             if (!mv.isNaN()) zmMarks.add(Mark(wi, mv, buy))
         }
     }
-    val arrows = ArrayList<CycleArrow>()
-    run {
-        val sorted = trades.filter { it.qty > 0 && it.price > 0 }.sortedBy { it.date }
-        var holdQty = 0; var buyQty = 0; var buyCost = 0.0; var sellQty = 0; var sellProceeds = 0.0
-        var firstBuyFull = -1; var lastSellFull = -1
-        for (t in sorted) {
-            val sec = try { LocalDate.parse(t.date).toEpochDay() * 86400 } catch (e: Exception) { continue }
-            var full = -1
-            for (i in r.dates.indices) { if (r.dates[i] <= sec) full = i else break }
-            if (t.type == "buy") {
-                if (holdQty == 0) { buyQty = 0; buyCost = 0.0; sellQty = 0; sellProceeds = 0.0; firstBuyFull = full }
-                holdQty += t.qty; buyQty += t.qty; buyCost += t.qty * t.price
-            } else if (t.type == "sell" && holdQty > 0) {
-                sellQty += t.qty; sellProceeds += t.qty * t.price; lastSellFull = full
-                holdQty = maxOf(holdQty - t.qty, 0)
-                if (holdQty == 0 && buyQty > 0 && sellQty > 0) {
-                    val avgBuy = buyCost / buyQty; val avgSell = sellProceeds / sellQty
-                    val x1 = firstBuyFull - start; val x2 = lastSellFull - start
-                    if (x1 >= 0 && x2 >= 0) arrows.add(CycleArrow(x1, avgBuy, x2, avgSell, avgSell >= avgBuy))
-                }
-            }
-        }
-    }
     // 캔들 데이터 준비
     val candleByDay = remember(ohlc) { ohlc.associateBy { it.t / 86400L } }
     val wN = n - start
@@ -370,10 +350,10 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
             2 -> {
                 if (closes.any { !it.isNaN() })
                     CandleChart(opens, highs, lows, closes, segDollar(r.predicted), segDollar(r.bandUpper), segDollar(r.bandLower),
-                        markers = priceMarks, arrows = arrows, currency = Tickers.currencySymbol(ticker), dates = dates,
+                        markers = priceMarks, currency = Tickers.currencySymbol(ticker), dates = dates,
                         dailyChgPct = dayPct ?: Double.NaN, height = h, view = view, zoomed = true, modifier = m)
                 else PriceChart(segDollar(r.tickerNorm), segDollar(r.predicted), segDollar(r.bandUpper), segDollar(r.bandLower),
-                    markers = priceMarks, arrows = arrows, currency = Tickers.currencySymbol(ticker),
+                    markers = priceMarks, currency = Tickers.currencySymbol(ticker),
                     height = h, view = view, zoomed = true, modifier = m)
                 DateAxis(dates, view, zoomed = true)
             }
@@ -400,12 +380,12 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
             if (closes.any { !it.isNaN() }) {
                 CandleChart(opens, highs, lows, closes,
                     segDollar(r.predicted), segDollar(r.bandUpper), segDollar(r.bandLower),
-                    markers = priceMarks, arrows = arrows,
+                    markers = priceMarks,
                     currency = Tickers.currencySymbol(ticker), topLabel = "",
                     dates = dates, dailyChgPct = dayPct ?: Double.NaN, height = gh)
             } else {
                 PriceChart(segDollar(r.tickerNorm), segDollar(r.predicted), segDollar(r.bandUpper), segDollar(r.bandLower),
-                    markers = priceMarks, arrows = arrows, currency = Tickers.currencySymbol(ticker), height = gh)
+                    markers = priceMarks, currency = Tickers.currencySymbol(ticker), height = gh)
             }
         }
         ChartCard(Modifier.weight(1f), "Z·M", value = "Z${"%.0f".format(r.lastZpct)}·M${"%.0f".format(r.lastMpct)}", onClick = { zoom = 3 }) {
@@ -540,8 +520,8 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
                                     0 -> RegressionScatter(r.spyNorm, r.tickerNorm, r.predicted, r.bandUpper, r.bandLower, r.beta, markIdx = scatterIdx, height = 240.dp)
                                     1 -> ZmScatter(r.zPct, r.mPct, scatterIdx, height = 240.dp)
                                     2 -> if (closes.any { !it.isNaN() })
-                                        CandleChart(opens, highs, lows, closes, segDollar(r.predicted), segDollar(r.bandUpper), segDollar(r.bandLower), markers = priceMarks, arrows = arrows, currency = Tickers.currencySymbol(ticker), dates = dates, dailyChgPct = dayPct ?: Double.NaN, height = 240.dp)
-                                    else PriceChart(segDollar(r.tickerNorm), segDollar(r.predicted), segDollar(r.bandUpper), segDollar(r.bandLower), markers = priceMarks, arrows = arrows, currency = Tickers.currencySymbol(ticker), height = 240.dp)
+                                        CandleChart(opens, highs, lows, closes, segDollar(r.predicted), segDollar(r.bandUpper), segDollar(r.bandLower), markers = priceMarks, currency = Tickers.currencySymbol(ticker), dates = dates, dailyChgPct = dayPct ?: Double.NaN, height = 240.dp)
+                                    else PriceChart(segDollar(r.tickerNorm), segDollar(r.predicted), segDollar(r.bandUpper), segDollar(r.bandLower), markers = priceMarks, currency = Tickers.currencySymbol(ticker), height = 240.dp)
                                     3 -> ZmChart(seg(r.zPct), seg(r.mPct), zmMarks, height = 210.dp)
                                     4 -> MacdChart(macdW, sigW, height = 210.dp)
                                     else -> { RsiChart(seg(r.rsi), height = 210.dp); DateAxis(dates) }
@@ -632,7 +612,7 @@ private fun TradeInputSection(ticker: String, onSaved: () -> Unit = {}) {
 @Composable
 private fun TradeListSection(ticker: String) {
     var refresh by remember { mutableStateOf(0) }
-    val trades = remember(ticker, refresh) { Store.loadTrades()[ticker].orEmpty() }
+    val trades = remember(ticker, refresh) { Store.visibleTrades()[ticker].orEmpty() }
     var editIdx by remember { mutableStateOf(-1) }
     var editMemo by remember { mutableStateOf("") }
     if (trades.isEmpty()) { Text("기록 없음", color = TextSecondary, fontSize = 12.sp); return }

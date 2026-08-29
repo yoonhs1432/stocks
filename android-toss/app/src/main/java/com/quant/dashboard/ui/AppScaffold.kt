@@ -32,7 +32,12 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.quant.dashboard.data.BrokerCreds
+import com.quant.dashboard.data.LivePrices
+import com.quant.dashboard.data.MarketHours
 import com.quant.dashboard.data.MarketRepo
+import com.quant.dashboard.data.Tickers
+import com.quant.dashboard.data.TossSync
 import com.quant.dashboard.data.Store
 import com.quant.dashboard.ui.theme.BgApp
 import com.quant.dashboard.ui.theme.BgElevated
@@ -75,18 +80,31 @@ object AppState {
     fun bump() { dataVersion++ }
 }
 
-/** 미국 정규장(평일 09:30~16:00 ET) 대략 판정 — 자동 새로고침 게이트. */
-fun marketOpenNow(): Boolean {
-    val now = java.time.ZonedDateTime.now(java.time.ZoneId.of("America/New_York"))
-    val dow = now.dayOfWeek
-    if (dow == java.time.DayOfWeek.SATURDAY || dow == java.time.DayOfWeek.SUNDAY) return false
-    val t = now.toLocalTime()
-    return !t.isBefore(java.time.LocalTime.of(9, 30)) && !t.isAfter(java.time.LocalTime.of(16, 0))
-}
-
 @Composable
 fun AppScaffold() {
     var tab by remember { mutableStateOf(0) }
+
+    // ── 실시간 시세 틱 ──
+    // 장이 열려 있을 때만, 설정한 주기로 `/prices` 를 한 번 호출해 전 종목 현재가를 갱신한다.
+    // 일봉·분석은 무거워서 기존 5분 캐시 그대로 두고, 화면의 현재가·등락률만 이 값으로 덮어쓴다.
+    LaunchedEffect(AppState.dataVersion) {
+        while (true) {
+            val sec = Store.tickSeconds()
+            if (sec <= 0 || !BrokerCreds.isLinked()) {
+                LivePrices.clear()
+                kotlinx.coroutines.delay(30_000)
+                continue
+            }
+            withContext(Dispatchers.IO) {
+                MarketHours.ensure()
+                if (MarketHours.anyOpen()) {
+                    val held = TossSync.cachedAccount()?.holdings?.items?.map { it.symbol } ?: emptyList()
+                    LivePrices.tick((Store.loadTickers() + Tickers.BASE + held).distinct())
+                }
+            }
+            kotlinx.coroutines.delay(sec * 1000L)
+        }
+    }
     Scaffold(
         containerColor = BgApp,
         bottomBar = { TabBar(tab) { tab = it } },
@@ -201,12 +219,22 @@ private fun MarketHeader() {
                 Text("📅 $d ✕", color = Color(0xFF0C0E11), fontSize = 10.sp, fontWeight = FontWeight.Bold)
             }
         }
+        MarketHours.label()?.let { Chip("● $it", tickAgo(), Color(0xFF2EA078)) }
         i.spy?.let { Chip("SPY", "${if (it >= 0) "+" else ""}${"%.1f".format(it)}%", pctColorOf(it)) }
         i.nasdaq?.let { Chip("NASDAQ", "${if (it >= 0) "+" else ""}${"%.1f".format(it)}%", pctColorOf(it)) }
         i.kospi?.let { Chip("KOSPI", "${if (it >= 0) "+" else ""}${"%.1f".format(it)}%", pctColorOf(it)) }
         i.us10y?.let { Chip("10Y", "${"%.2f".format(it)}%", Gold) }
         i.usdkrw?.let { Chip("₩", "%,.0f".format(it), TextSecondary) }
     }
+}
+
+/** 마지막 시세 갱신 경과 (예: "3초 전"). 아직 없으면 "대기". */
+@Composable
+private fun tickAgo(): String {
+    val t = LivePrices.updatedAt
+    if (t == 0L) return "대기"
+    val sec = ((System.currentTimeMillis() - t) / 1000).coerceAtLeast(0)
+    return if (sec < 60) "${sec}초 전" else "${sec / 60}분 전"
 }
 
 /** 시장 지표 칩 — 라벨 + 모노 값, 컬러 틴트 배경. */

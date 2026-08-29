@@ -344,6 +344,220 @@ object TossApi {
     private fun epochSec(iso: String): Long? =
         runCatching { java.time.OffsetDateTime.parse(iso).toEpochSecond() }.getOrNull()
 
+    // ── 종목 기본 정보 (커버리지 확인) ──
+
+    data class StockInfo(
+        val symbol: String,
+        val name: String,
+        val market: String,        // KOSPI | KOSDAQ | NYSE | NASDAQ | AMEX | KR_ETC | US_ETC
+        val securityType: String,  // STOCK | ETF | ETN | FOREIGN_ETF …
+        val status: String,        // SCHEDULED | ACTIVE | DELISTED
+        val currency: String,
+    )
+
+    /**
+     * `GET /api/v1/stocks?symbols=…` — 토스가 취급하는 종목의 기본 정보 (요청당 최대 200).
+     * **결과에 없는 심볼 = 토스에서 조회·거래되지 않는 종목**이므로 커버리지 확인에 쓴다.
+     *
+     * 알 수 없는 심볼이 섞이면 배치 전체가 404 로 실패할 수 있어, 실패 시 한 종목씩 다시 물어
+     * 어떤 것이 빠지는지 가려낸다.
+     */
+    fun stocks(symbols: List<String>): Map<String, StockInfo> {
+        if (symbols.isEmpty()) return emptyMap()
+        val out = LinkedHashMap<String, StockInfo>()
+        for (chunk in symbols.chunked(200)) {
+            try {
+                parseStocks(get("/api/v1/stocks", listOf("symbols" to chunk.joinToString(",")))) { out[it.symbol] = it }
+            } catch (e: Exception) {
+                // 배치 실패 → 개별 조회로 가려내기
+                for (sym in chunk) {
+                    try {
+                        parseStocks(get("/api/v1/stocks", listOf("symbols" to sym))) { out[it.symbol] = it }
+                    } catch (e2: Exception) {
+                        // 이 심볼은 토스에 없음 — 결과에서 빠진 채로 둔다
+                    }
+                }
+            }
+        }
+        return out
+    }
+
+    private inline fun parseStocks(text: String, add: (StockInfo) -> Unit) {
+        val arr = resultArray(text)
+        for (i in 0 until arr.length()) {
+            val o = arr.optJSONObject(i) ?: continue
+            add(
+                StockInfo(
+                    symbol = o.optString("symbol"),
+                    name = o.optString("name"),
+                    market = o.optString("market"),
+                    securityType = o.optString("securityType"),
+                    status = o.optString("status"),
+                    currency = o.optString("currency"),
+                )
+            )
+        }
+    }
+
+    // ── 랭킹 (비교 탭 미장 TOP 목록) ──
+
+    /** `GET /api/v1/rankings` 항목. changeRate 는 basePrice 가 0이면 null. */
+    data class RankItem(
+        val rank: Int,
+        val symbol: String,
+        val lastPrice: Double,
+        val basePrice: Double,
+        val changeRate: Double?,   // 소수비율 (0.0125 = 1.25%)
+    )
+
+    /**
+     * 주식 랭킹 (상위 100위까지). 집계 데이터가 없는 조합은 에러가 아니라 **빈 배열**로 온다.
+     *
+     * - `type`: MARKET_TRADING_AMOUNT · MARKET_TRADING_VOLUME · TOP_GAINERS · TOP_LOSERS ·
+     *   TOSS_SECURITIES_TRADING_AMOUNT · TOSS_SECURITIES_TRADING_VOLUME
+     * - `TOP_GAINERS` / `TOP_LOSERS` 는 `duration=realtime` 미지원 (400 unsupported-ranking-duration)
+     * - 시세 조회에 실패한 종목은 빠지므로 응답 수 < count 일 수 있다.
+     */
+    fun rankings(
+        type: String,
+        marketCountry: String = "US",
+        duration: String = "1d",
+        count: Int = 30,
+        excludeInvestmentCaution: Boolean = true,
+    ): List<RankItem> {
+        val q = listOf(
+            "type" to type,
+            "marketCountry" to marketCountry,
+            "duration" to duration,
+            "count" to count.coerceIn(1, 100).toString(),
+            "excludeInvestmentCaution" to excludeInvestmentCaution.toString(),
+        )
+        val r = resultObject(get("/api/v1/rankings", q))
+        val arr = r.optJSONArray("rankings") ?: JSONArray()
+        val out = ArrayList<RankItem>(arr.length())
+        for (i in 0 until arr.length()) {
+            val o = arr.optJSONObject(i) ?: continue
+            val sym = o.optString("symbol")
+            if (sym.isBlank()) continue
+            val p = o.optJSONObject("price")
+            out.add(
+                RankItem(
+                    rank = o.optInt("rank", i + 1),
+                    symbol = sym,
+                    lastPrice = p?.dec("lastPrice", Double.NaN) ?: Double.NaN,
+                    basePrice = p?.dec("basePrice", Double.NaN) ?: Double.NaN,
+                    changeRate = p?.dec("changeRate", Double.NaN)?.takeIf { !it.isNaN() },
+                )
+            )
+        }
+        return out
+    }
+
+    // ── 종목 유니버스 (이름 검색) ──
+
+    /** `GET /api/v1/stocks/all` 항목. 미국 종목도 `name` 은 한글로 온다 (AAPL → "애플"). */
+    data class ListedStock(
+        val symbol: String,
+        val name: String,
+        val securityType: String,
+        val isCommonShare: Boolean,
+    )
+
+    /**
+     * 마켓별 전체 종목 (토스에서 거래 가능한 것만, 페이지네이션 없음).
+     * 마켓당 수천 건이라 **하루 1회 받아 캐시**하는 용도다 (`Universe`).
+     * market: KOSPI · KOSDAQ · NYSE · NASDAQ · AMEX · KR_ETC · US_ETC
+     */
+    fun listStocks(market: String, status: String = "ACTIVE"): List<ListedStock> {
+        val arr = resultArray(get("/api/v1/stocks/all", listOf("market" to market, "status" to status)))
+        val out = ArrayList<ListedStock>(arr.length())
+        for (i in 0 until arr.length()) {
+            val o = arr.optJSONObject(i) ?: continue
+            val sym = o.optString("symbol")
+            if (sym.isBlank()) continue
+            out.add(
+                ListedStock(
+                    symbol = sym,
+                    name = o.optString("name"),
+                    securityType = o.optString("securityType"),
+                    isCommonShare = o.optBoolean("isCommonShare", true),
+                )
+            )
+        }
+        return out
+    }
+
+    // ── 장 운영 시간 ──
+
+    /** 거래 세션 1구간 (epoch 초). */
+    data class Session(val market: String, val name: String, val start: Long, val end: Long)
+
+    private fun sessionOf(market: String, name: String, o: JSONObject?): Session? {
+        if (o == null) return null
+        val a = epochSec(o.optString("startTime")) ?: return null
+        val b = epochSec(o.optString("endTime")) ?: return null
+        return Session(market, name, a, b)
+    }
+
+    /**
+     * `GET /api/v1/market-calendar/{KR|US}` — 전일·당일·익일 3영업일의 세션 시간.
+     *
+     * 미국 정규장은 22:30(KST) 시작해 **다음 날 05:00 에 끝나므로**, 새벽에는 "당일"이 아니라
+     * 전 영업일의 세션이 열려 있다. 그래서 3일치를 모두 펼쳐 반환한다.
+     */
+    fun marketSessions(country: String): List<Session> {
+        val r = resultObject(get("/api/v1/market-calendar/$country"))
+        val out = ArrayList<Session>()
+        for (dayKey in listOf("previousBusinessDay", "today", "nextBusinessDay")) {
+            val d = r.optJSONObject(dayKey) ?: continue
+            if (country == "KR") {
+                val g = d.optJSONObject("integrated") ?: continue
+                sessionOf("KR", "프리마켓", g.optJSONObject("preMarket"))?.let { out.add(it) }
+                sessionOf("KR", "정규장", g.optJSONObject("regularMarket"))?.let { out.add(it) }
+                sessionOf("KR", "애프터마켓", g.optJSONObject("afterMarket"))?.let { out.add(it) }
+            } else {
+                sessionOf("US", "데이마켓", d.optJSONObject("dayMarket"))?.let { out.add(it) }
+                sessionOf("US", "프리마켓", d.optJSONObject("preMarket"))?.let { out.add(it) }
+                sessionOf("US", "정규장", d.optJSONObject("regularMarket"))?.let { out.add(it) }
+                sessionOf("US", "애프터마켓", d.optJSONObject("afterMarket"))?.let { out.add(it) }
+            }
+        }
+        return out
+    }
+
+    /** 진단용 — `/prices` 응답의 심볼·가격·타임스탬프 원문. */
+    data class PriceStamp(val symbol: String, val price: String, val timestamp: String)
+
+    fun pricesRaw(symbols: List<String>): List<PriceStamp> {
+        if (symbols.isEmpty()) return emptyList()
+        val arr = resultArray(get("/api/v1/prices", listOf("symbols" to symbols.joinToString(","))))
+        return (0 until arr.length()).mapNotNull { i ->
+            val o = arr.optJSONObject(i) ?: return@mapNotNull null
+            PriceStamp(o.optString("symbol"), o.optString("lastPrice"),
+                if (o.isNull("timestamp")) "(없음)" else o.optString("timestamp"))
+        }
+    }
+
+    /** 진단용 — `/trades` 최근 체결의 시각. 시간외 체결이 흐르는지 확인용. */
+    fun lastTradeTime(symbol: String): String? {
+        val arr = resultArray(get("/api/v1/trades", listOf("symbol" to symbol, "count" to "1")))
+        val o = arr.optJSONObject(0) ?: return null
+        return o.optString("timestamp").ifBlank { null }
+    }
+
+    // ── 예수금 (매수 가능 금액) ──
+
+    /**
+     * `GET /api/v1/buying-power` — 통화별 현금 기반 매수 가능 금액(미수 미발생 기준).
+     *
+     * ⚠️ 엄밀한 "예수금"이 아니라 **매수 가능 금액**이다. 미결제 대금 등이 반영되면
+     *    실제 예수금과 다를 수 있다. 토스가 주는 유일한 현금 지표라 총자산 계산에 이 값을 쓴다.
+     */
+    fun buyingPower(accountSeq: Long, currency: String): Double {
+        val r = resultObject(get("/api/v1/buying-power", listOf("currency" to currency), accountSeq))
+        return r.dec("cashBuyingPower", 0.0)
+    }
+
     // ── 환율 ──
 
     /** `GET /api/v1/exchange-rate` — USD→KRW. 1분 주기 갱신되는 참고용 표시 환율. */

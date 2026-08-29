@@ -6,13 +6,15 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.quant.dashboard.data.OverviewRepo
+import com.quant.dashboard.data.Rankings
+import com.quant.dashboard.data.Store
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 typealias CompareRow = OverviewRepo.Row
 
-/** RANK = 목록 원래 순서(미장 TOP30에서는 시총 순위). */
+/** RANK = 목록 원래 순서(미장 TOP에서는 랭킹 순위). */
 enum class SortKey { M, Z, DAY, WEEK, FROM_HIGH, PRICE, NAME, BETA, SIGMA, RANK }
 
 data class CompareState(
@@ -22,15 +24,21 @@ data class CompareState(
     val sortKey: SortKey = SortKey.DAY,
     val sortDesc: Boolean = true,
     val holdingsOnly: Boolean = false,
-    // ── 미장 TOP30 목록 (버튼으로 전환, 열 때만 로드) ──
+    // ── 미장 TOP 목록 (버튼으로 전환, 열 때만 로드) ──
     val showTop: Boolean = false,
     val topRows: List<CompareRow> = emptyList(),
     val topLoading: Boolean = false,
     val topError: String? = null,
+    // 랭킹 기준 (토스 /rankings). 미연동이면 하드코딩 목록으로 폴백되고 그 사유가 rankNote 에 담긴다.
+    val rankType: String = "MARKET_TRADING_AMOUNT",
+    val rankDuration: String = "1d",
+    val rankNote: String? = null,
 )
 
 class CompareViewModel : ViewModel() {
-    var state by mutableStateOf(CompareState())
+    var state by mutableStateOf(
+        CompareState(rankType = Store.rankType(), rankDuration = Store.rankDuration())
+    )
         private set
 
     private var loadedVersion = -1
@@ -47,14 +55,32 @@ class CompareViewModel : ViewModel() {
         }
     }
 
-    /** 워치리스트 ↔ 미장 TOP30 전환. TOP30은 처음 열 때만 실제로 받아온다(요청 30건). */
+    /** 랭킹 기준 변경 — 종목 자체가 바뀌므로 강제 재로드. */
+    fun setRankType(t: String) {
+        if (t == state.rankType) return
+        Store.setRankType(t)
+        // 급상승·급하락은 realtime 을 지원하지 않으므로 1일로 보정
+        var d = state.rankDuration
+        if (t.startsWith("TOP_") && d == "realtime") { d = "1d"; Store.setRankDuration(d) }
+        state = state.copy(rankType = t, rankDuration = d, topRows = emptyList())
+        loadTop(force = true)
+    }
+
+    fun setRankDuration(d: String) {
+        if (d == state.rankDuration) return
+        Store.setRankDuration(d)
+        state = state.copy(rankDuration = d, topRows = emptyList())
+        loadTop(force = true)
+    }
+
+    /** 워치리스트 ↔ 미장 TOP 전환. TOP은 처음 열 때만 실제로 받아온다(요청 30건). */
     fun toggleTop() {
         val on = !state.showTop
         state = state.copy(
             showTop = on,
-            // TOP30에서 보유 필터가 켜져 있으면 거의 빈 목록이 되므로 해제
+            // TOP에서 보유 필터가 켜져 있으면 거의 빈 목록이 되므로 해제
             holdingsOnly = if (on) false else state.holdingsOnly,
-            // 기본 정렬: TOP30은 시총 순, 워치리스트는 일간 등락
+            // 기본 정렬: TOP은 랭킹 순, 워치리스트는 일간 등락
             sortKey = if (on) SortKey.RANK else SortKey.DAY,
             sortDesc = !on,
         )
@@ -65,8 +91,9 @@ class CompareViewModel : ViewModel() {
         state = state.copy(topLoading = true, topError = null)
         viewModelScope.launch {
             val rows = withContext(Dispatchers.IO) { OverviewRepo.loadTop(force) }
-            state = if (rows.isEmpty()) state.copy(topLoading = false, topError = "시세를 가져오지 못했습니다")
-            else state.copy(topLoading = false, topRows = rows, topError = null)
+            val note = Rankings.fallbackReason
+            state = if (rows.isEmpty()) state.copy(topLoading = false, topError = "시세를 가져오지 못했습니다", rankNote = note)
+            else state.copy(topLoading = false, topRows = rows, topError = null, rankNote = note)
         }
     }
 

@@ -30,6 +30,9 @@ object Store {
 
     private fun f(name: String) = File(dir, name)
 
+    /** 다른 data 클래스가 filesDir 에 파일을 두기 위한 접근자 (init 전이면 null). */
+    fun fileIn(name: String): File? = if (dir == null) null else File(dir, name)
+
     // ── 매매 기록 ──
     fun loadTrades(): LinkedHashMap<String, MutableList<Trade>> {
         val out = LinkedHashMap<String, MutableList<Trade>>()
@@ -79,6 +82,21 @@ object Store {
             obj.put(k, arr)
         }
         try { f("trades.json").writeText(obj.toString(2)) } catch (e: Exception) {}
+    }
+
+    /**
+     * 화면에 표시할 매매기록. 토스 모드에서는 이관 전 수기 기록(srcId 없음)을 숨긴다.
+     * 파일에서 지우지는 않으므로 토스 모드를 끄면 그대로 돌아온다.
+     */
+    fun visibleTrades(): LinkedHashMap<String, MutableList<Trade>> {
+        val all = loadTrades()
+        if (!tossMode()) return all
+        val out = LinkedHashMap<String, MutableList<Trade>>()
+        for ((k, v) in all) {
+            val kept = v.filter { it.srcId != null }
+            if (kept.isNotEmpty()) out[k] = kept.toMutableList()
+        }
+        return out
     }
 
     fun addTrade(ticker: String, t: Trade) {
@@ -241,6 +259,31 @@ object Store {
     /** Yahoo range 문자열: "6mo" / "1y" / "2y". 기본 2y. */
     fun lookbackRange(): String = settings().optString("range", "2y")
     fun setLookbackRange(r: String) { saveSettings(settings().put("range", r)) }
+
+    /**
+     * 토스 기반 모드 — 포트폴리오·총자산을 토스 계좌 실측으로 표시하고,
+     * 이관 전 수기 매매기록(srcId 없는 기록)은 화면에서 숨긴다. 기록 파일은 지우지 않는다.
+     */
+    fun tossMode(): Boolean = settings().optBoolean("toss_mode", false)
+    fun setTossMode(v: Boolean) { saveSettings(settings().put("toss_mode", v)) }
+
+    /**
+     * 실시간 시세 갱신 주기(초). 0 = 끔. 장이 열려 있을 때만 동작한다.
+     * `/prices` 는 전 종목을 요청 1번으로 받으므로 짧은 주기도 감당되지만,
+     * 너무 짧으면 레이트리밋(MARKET_DATA)과 배터리에 부담이 된다.
+     */
+    fun tickSeconds(): Int = settings().optInt("tick_seconds", 0)
+    fun setTickSeconds(v: Int) { saveSettings(settings().put("tick_seconds", v)) }
+
+    /**
+     * 비교 탭 미장 TOP 목록의 랭킹 기준 (`GET /api/v1/rankings`).
+     * 토스에 시가총액 랭킹이 없어 거래대금 상위(1일)를 기본값으로 둔다.
+     */
+    fun rankType(): String = settings().optString("rank_type", "MARKET_TRADING_AMOUNT")
+    fun setRankType(v: String) { saveSettings(settings().put("rank_type", v)) }
+
+    fun rankDuration(): String = settings().optString("rank_duration", "1d")
+    fun setRankDuration(v: String) { saveSettings(settings().put("rank_duration", v)) }
 
     /** 시세를 토스 API로 받을지 (기본 꺼짐 — 레이트리밋·종목 커버리지 확인 전까지 Yahoo 유지). */
     fun tossQuotes(): Boolean = settings().optBoolean("toss_quotes", false)

@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -39,7 +40,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.quant.dashboard.data.LivePrices
+import com.quant.dashboard.data.MarketHours
 import com.quant.dashboard.data.OverviewRepo
+import com.quant.dashboard.data.Rankings
 import com.quant.dashboard.data.Tickers
 import com.quant.dashboard.ui.theme.BgApp
 import com.quant.dashboard.ui.theme.BorderColor
@@ -77,7 +81,7 @@ fun CompareScreen(vm: CompareViewModel = viewModel(), onOpenAnalysis: (String) -
     LaunchedEffect(Unit) {
         while (true) {
             kotlinx.coroutines.delay(60_000)
-            if (marketOpenNow()) vm.autoRefresh()
+            if (MarketHours.anyOpen()) vm.autoRefresh()
         }
     }
 
@@ -91,7 +95,7 @@ fun CompareScreen(vm: CompareViewModel = viewModel(), onOpenAnalysis: (String) -
             ) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(if (s.showTop) "미장 TOP 30" else "종목 비교",
+                    Text(if (s.showTop) Rankings.titleOf(s.rankType, s.rankDuration, s.rankNote != null) else "종목 비교",
                         color = TextPrimary, fontSize = 19.sp, fontWeight = FontWeight.Bold,
                         modifier = Modifier.weight(1f))
                     // 워치리스트 ↔ 미국 시총 상위 30개 전환
@@ -116,12 +120,28 @@ fun CompareScreen(vm: CompareViewModel = viewModel(), onOpenAnalysis: (String) -
                             fontSize = 13.sp, fontWeight = FontWeight.Bold)
                     }
                 }
+                // ── 랭킹 기준 선택 (미장 TOP 목록에서만) ──
+                if (s.showTop) {
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Rankings.TYPES.forEach { (id, label) ->
+                            RankChip(label, s.rankType == id) { vm.setRankType(id) }
+                        }
+                    }
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Rankings.durationsFor(s.rankType).forEach { (id, label) ->
+                            RankChip(label, s.rankDuration == id, small = true) { vm.setRankDuration(id) }
+                        }
+                    }
+                    s.rankNote?.let { Text("⚠️ $it", color = Gold, fontSize = 11.sp) }
+                }
                 val active = vm.activeRows()
                 val err = if (s.showTop) s.topError else s.error
                 when {
                     active.isEmpty() && err != null -> Text("⚠️ $err", color = Loss)
                     active.isEmpty() -> Text(
-                        if (s.showTop) "미장 TOP 30 불러오는 중… (30종목)" else "불러오는 중…",
+                        if (s.showTop) "미장 TOP ${Rankings.COUNT} 불러오는 중… (${Rankings.COUNT}종목)" else "불러오는 중…",
                         color = TextSecondary, modifier = Modifier.padding(24.dp))
                     else -> {
                 Column(Modifier.fillMaxWidth()) {
@@ -142,8 +162,12 @@ fun CompareScreen(vm: CompareViewModel = viewModel(), onOpenAnalysis: (String) -
                             .padding(horizontal = 2.dp, vertical = 6.dp)) {
                             DotName((if (r.holding) 2 else if (r.hasHistory) 1 else 0), r.name, 2.4f,
                                 rank = if (s.showTop) vm.rankOf(r.ticker) + 1 else null)
-                            Cell(Tickers.priceLabel(r.ticker, r.price), 2f, pnColor(r.day))
-                            Cell(signed(r.day), 1.4f, pnColor(r.day))
+                            // 실시간 틱이 있으면 현재가·등락률을 그 값으로 (없으면 일봉 종가 기준)
+                            val live = LivePrices.price(r.ticker)
+                            val px = live ?: r.price
+                            val day = if (live != null && r.prevClose > 0) (live / r.prevClose - 1) * 100 else r.day
+                            Cell(Tickers.priceLabel(r.ticker, px), 2f, pnColor(day))
+                            Cell(signed(day), 1.4f, pnColor(day))
                             Cell("%.0f".format(r.zPct), 1f, pctColor(r.zPct), fw = FontWeight.Bold)
                             Cell("%.0f".format(r.mPct), 1f, pctColor(r.mPct), fw = FontWeight.Bold)
                         }
@@ -152,7 +176,7 @@ fun CompareScreen(vm: CompareViewModel = viewModel(), onOpenAnalysis: (String) -
                     }
                 }
                 Text(
-                    if (s.showTop) "미국 시총 상위 30개 (숫자=시총 순위) · 행 탭=분석 이동 · 헤더 탭=정렬"
+                    if (s.showTop) "숫자=랭킹 순위 · 행 탭=분석 이동 · 헤더 탭=정렬 (토스는 시총 랭킹을 주지 않아 거래대금 기준이 기본)"
                     else "● 보유 / ○ 이력 · 행 탭=분석 이동 · 헤더 탭=정렬 · Z·M 낮음 빨강·높음 파랑",
                     color = TextSecondary, fontSize = 11.sp)
 
@@ -250,7 +274,7 @@ private fun RowScope.Cell(text: String, weight: Float, color: Color, align: Text
 private fun RowScope.DotName(state: Int, name: String, weight: Float, rank: Int? = null) {
     Row(Modifier.weight(weight), verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        // 시총 순위 (미장 TOP30에서만) — 정렬을 바꿔도 원래 순위를 알 수 있게
+        // 랭킹 순위 (미장 TOP에서만) — 정렬을 바꿔도 원래 순위를 알 수 있게
         if (rank != null) Text("$rank", color = TextMuted, fontSize = 11.sp, fontFamily = Mono)
         if (state == 0) Spacer(Modifier.size(6.dp)) else Box(
             Modifier.size(6.dp).clip(RoundedCornerShape(50))
@@ -262,3 +286,18 @@ private fun RowScope.DotName(state: Int, name: String, weight: Float, rank: Int?
 }
 
 private fun signed(v: Double) = (if (v >= 0) "+" else "") + "%.1f%%".format(v)
+
+/** 랭킹 기준 선택 칩. */
+@Composable
+private fun RankChip(text: String, on: Boolean, small: Boolean = false, onClick: () -> Unit) {
+    Box(
+        Modifier.clip(RoundedCornerShape(8.dp))
+            .background(if (on) Teal else SurfaceInput)
+            .clickable(onClick = onClick)
+            .padding(horizontal = if (small) 9.dp else 11.dp, vertical = 5.dp),
+    ) {
+        Text(text, color = if (on) Color(0xFF0C0E11) else TextSecondary,
+            fontSize = if (small) 11.sp else 12.sp,
+            fontWeight = if (on) FontWeight.Bold else FontWeight.Normal)
+    }
+}

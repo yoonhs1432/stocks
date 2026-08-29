@@ -41,6 +41,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import com.quant.dashboard.data.BrokerCreds
+import com.quant.dashboard.data.LivePrices
+import com.quant.dashboard.data.Snapshots
 import com.quant.dashboard.data.TossSync
 import com.quant.dashboard.data.Store
 import com.quant.dashboard.data.Tickers
@@ -94,9 +96,12 @@ fun PortfolioScreen(vm: PortfolioViewModel = viewModel(), onOpenAnalysis: (Strin
                 modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(14.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Text("포트폴리오", color = TextPrimary, fontSize = 19.sp, fontWeight = FontWeight.Bold)
+                Text(if (Store.tossMode() && BrokerCreds.isLinked()) "포트폴리오 (토스)" else "포트폴리오",
+                    color = TextPrimary, fontSize = 19.sp, fontWeight = FontWeight.Bold)
 
+                val toss = Store.tossMode() && BrokerCreds.isLinked()
                 when {
+                    toss -> TossBody(onOpenAnalysis)
                     s.result != null -> ResultBody(s.result, s.rate, onOpenAnalysis)
                     s.loading -> Row(Modifier.fillMaxWidth().padding(24.dp), Arrangement.Center) {
                         CircularProgressIndicator()
@@ -112,67 +117,140 @@ fun PortfolioScreen(vm: PortfolioViewModel = viewModel(), onOpenAnalysis: (Strin
 }
 
 /**
- * 토스 계좌 실측 카드 — 로컬 매매기록으로 계산한 값과 별개로 **증권사가 알려준 실제 잔고**를 보여준다.
- * 둘이 어긋나면(수수료·세금·이관·분할 등) 여기서 바로 확인할 수 있다.
+ * 토스 기반 포트폴리오 본문 — 증권사 실측 잔고가 진실이다.
+ *
+ * 매매기록으로 역산하지 않고 `/holdings` + `/buying-power` 를 그대로 쓴다.
+ * 자산추이는 토스에 과거 잔고 API 가 없어, 앱이 열릴 때 남긴 일별 스냅샷으로 그린다
+ * (= 전환 시점부터 쌓이며, 앱을 안 연 날은 비어 있다).
  */
 @Composable
-private fun TossAccountCard(onOpenAnalysis: (String) -> Unit) {
-    if (!BrokerCreds.isLinked()) return
-    var h by remember { mutableStateOf(TossSync.cachedHoldings()) }
+private fun TossBody(onOpenAnalysis: (String) -> Unit) {
+    var acct by remember { mutableStateOf(TossSync.cachedAccount()) }
+    var err by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(AppState.dataVersion) {
-        val fresh = withContext(Dispatchers.IO) { TossSync.holdings() }
-        if (fresh != null) h = fresh
+        val fresh = withContext(Dispatchers.IO) {
+            try { TossSync.account() } catch (e: Exception) { err = e.message; null }
+        }
+        if (fresh != null) { acct = fresh; err = null }
     }
-    val snap = h ?: return
+    val a = acct
+    if (a == null) {
+        Text(err?.let { "⚠️ $it" } ?: "계좌 정보를 불러오는 중…",
+            color = if (err != null) Loss else TextSecondary, fontSize = 13.sp)
+        return
+    }
 
+    // ── 총자산 히어로 (평가금액 + 예수금) ──
     Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(BgCard).padding(14.dp),
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
+            .background(Brush.linearGradient(listOf(Color(0xFF1C2330), BgCard)))
+            .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(3.dp),
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("실제 계좌 (토스)", color = TextSecondary, fontSize = 11.sp,
+            Text("총자산 (토스)", color = TextSecondary, fontSize = 11.sp,
                 fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
             Text(BrokerCreds.maskedAccount(), color = TextMuted, fontSize = 10.sp, fontFamily = Mono)
         }
-        // 통화별 합계 — 환산 없이 그대로 (토스도 통화별로만 합산해 준다)
-        Text("₩${"%,.0f".format(snap.krwEval)}" + if (snap.usdEval != 0.0) "  ·  $${"%,.2f".format(snap.usdEval)}" else "",
-            color = TextPrimary, fontSize = 20.sp, fontWeight = FontWeight.Bold, fontFamily = Mono)
-        val plColor = pc(snap.krwPnl + snap.usdPnl)
-        Text("손익 ₩${"%,.0f".format(snap.krwPnl)}" +
-            (if (snap.usdPnl != 0.0) "  ·  $${"%,.2f".format(snap.usdPnl)}" else "") +
-            "  ·  ${if (snap.pnlRate >= 0) "+" else ""}${"%.2f".format(snap.pnlRate * 100)}%",
-            color = plColor, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, fontFamily = Mono)
+        Text("%,.0f원".format(a.totalKrw()), color = TextPrimary, fontSize = 32.sp,
+            fontWeight = FontWeight.Bold, fontFamily = Mono)
+        Text("평가손익 ${won(a.pnlKrw(), 1.0)}", color = pc(a.pnlKrw()),
+            fontSize = 13.sp, fontWeight = FontWeight.SemiBold, fontFamily = Mono)
 
-        snap.items.forEach { it2 ->
+        Spacer(Modifier.height(8.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            StatChip("평가금액", "%,.0f원".format(a.krwEval + a.usdEval * a.rate))
+            StatChip("예수금", "%,.0f원".format(a.krwCash + a.usdCash * a.rate))
+            StatChip("환율", "%,.1f".format(a.rate))
+        }
+        if (a.usdEval != 0.0 || a.usdCash != 0.0) {
+            Text("달러 자산 $${"%,.2f".format(a.usdEval)} + 예수금 $${"%,.2f".format(a.usdCash)} (환율 환산 포함)",
+                color = TextMuted, fontSize = 10.sp, modifier = Modifier.padding(top = 4.dp))
+        }
+
+        // 보유 비중 100% 스택바
+        val evalSum = a.holdings.items.sumOf { if (it.currency == "USD") it.evalAmount * a.rate else it.evalAmount }
+        if (evalSum > 0 && a.holdings.items.isNotEmpty()) {
+            Spacer(Modifier.height(10.dp))
+            Row(Modifier.fillMaxWidth().height(10.dp).clip(RoundedCornerShape(5.dp))) {
+                a.holdings.items.forEachIndexed { i, h ->
+                    val w = (if (h.currency == "USD") h.evalAmount * a.rate else h.evalAmount) / evalSum
+                    Box(Modifier.weight(w.toFloat().coerceAtLeast(0.001f)).fillMaxHeight().background(ident(i)))
+                }
+            }
+        }
+
+        // 보유 목록 — 행 탭 시 분석 이동
+        if (a.holdings.items.isNotEmpty()) {
+            Text("종목을 누르면 분석 탭으로 이동", color = TextMuted, fontSize = 10.sp,
+                modifier = Modifier.padding(top = 6.dp))
+        }
+        a.holdings.items.forEachIndexed { i, h ->
+            val cur = if (h.currency == "KRW") "₩" else "$"
+            // 실시간 틱이 있으면 평가금액·손익률을 현재가로 다시 계산
+            val lp = LivePrices.price(h.symbol)
+            val evalAmt = if (lp != null) lp * h.quantity else h.evalAmount
+            val rate2 = if (lp != null && h.avgPrice > 0) lp / h.avgPrice - 1.0 else h.pnlRate
             Row(
                 Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
-                    .clickable { onOpenAnalysis(it2.symbol) }
+                    .clickable { onOpenAnalysis(h.symbol) }
                     .padding(top = 7.dp, bottom = 2.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(it2.name, color = TextPrimary, fontSize = 12.5.sp,
+                Box(Modifier.size(8.dp).clip(RoundedCornerShape(50)).background(ident(i)))
+                Spacer(Modifier.size(7.dp))
+                Text(h.name, color = TextPrimary, fontSize = 13.sp,
                     fontWeight = FontWeight.SemiBold, fontFamily = Mono)
                 Spacer(Modifier.size(6.dp))
-                Text("${"%,.4f".format(it2.quantity).trimEnd('0').trimEnd('.')}주",
-                    color = TextMuted, fontSize = 11.sp, fontFamily = Mono, modifier = Modifier.weight(1f))
+                Text(qtyLabel(h.quantity), color = TextMuted, fontSize = 11.sp,
+                    fontFamily = Mono, modifier = Modifier.weight(1f))
                 Column(horizontalAlignment = Alignment.End) {
-                    val cur = if (it2.currency == "KRW") "₩" else "$"
-                    Text("$cur${"%,.2f".format(it2.evalAmount)}", color = TextPrimary, fontSize = 12.sp, fontFamily = Mono)
-                    Text("평단 $cur${"%,.2f".format(it2.avgPrice)} · ${if (it2.pnlRate >= 0) "+" else ""}${"%.2f".format(it2.pnlRate * 100)}%",
-                        color = pc(it2.pnlAmount), fontSize = 10.5.sp, fontFamily = Mono)
+                    Text("$cur${"%,.2f".format(evalAmt)}", color = TextPrimary,
+                        fontSize = 12.5.sp, fontFamily = Mono)
+                    Text("평단 $cur${"%,.2f".format(h.avgPrice)} · ${if (rate2 >= 0) "+" else ""}${"%.2f".format(rate2 * 100)}%",
+                        color = pc(rate2), fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold, fontFamily = Mono)
                 }
                 Text(" ›", color = TextMuted, fontSize = 15.sp)
             }
         }
-        Text("증권사가 알려준 실제 잔고입니다. 아래 카드는 매매기록으로 계산한 값이라 수수료·세금·이관 등으로 다를 수 있습니다.",
-            color = TextMuted, fontSize = 10.sp, modifier = Modifier.padding(top = 6.dp))
     }
+
+    // ── 자산 추이 (스냅샷) ──
+    val snaps = remember(AppState.dataVersion) { Snapshots.totals() }
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(BgCard).padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        Text("자산 추이 (총자산)", color = TextSecondary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+        if (snaps.size < 2) {
+            Text("기록이 ${snaps.size}일치뿐입니다. 앱을 열 때마다 하루 1회 잔고를 저장하므로\n" +
+                "며칠 지나면 그래프가 그려집니다.", color = TextMuted, fontSize = 11.sp)
+        } else {
+            EquityChart(snaps.map { it.second / 10000.0 }.toDoubleArray(), unit = "만원")
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(snaps.first().first, color = TextSecondary, fontSize = 10.sp)
+                Text("${snaps.size}일 기록", color = TextMuted, fontSize = 10.sp)
+                Text(snaps.last().first, color = TextSecondary, fontSize = 10.sp)
+            }
+            Snapshots.drawdown()?.let { dd ->
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.padding(top = 4.dp)) {
+                    StatChip("고점대비", "${"%.1f".format(dd.current)}%")
+                    StatChip("MDD", "${"%.1f".format(dd.max)}%" + (dd.maxDate?.let { " ($it)" } ?: ""))
+                }
+            }
+        }
+    }
+
+    TradeJournal()
 }
+
+/** 수량 표시 — 소수점 보유(미국 소수점 매매)는 필요한 자리까지만. */
+private fun qtyLabel(q: Double): String =
+    if (q == Math.floor(q)) "%,.0f주".format(q)
+    else "%,.4f".format(q).trimEnd('0').trimEnd('.') + "주"
 
 @Composable
 private fun ResultBody(r: Portfolio.Result, rate: Double, onOpenAnalysis: (String) -> Unit = {}) {
-    TossAccountCard(onOpenAnalysis)
-
     // ── 평가금액 히어로 카드 (그라데이션) ──
     val evalSum = r.holdings.sumOf { it.eval }
     val pnlSum = r.holdings.sumOf { it.pnl }
@@ -330,7 +408,7 @@ private fun DivergingBar(name: String, amount: Double, frac: Float, amountText: 
 private fun TradeJournal() {
     data class Entry(val date: String, val name: String, val type: String, val qty: Int, val price: Double, val memo: String?)
     val entries = remember {
-        Store.loadTrades().flatMap { (tk, list) ->
+        Store.visibleTrades().flatMap { (tk, list) ->
             list.map { Entry(it.date, Tickers.displayName(tk), it.type, it.qty, it.price, it.memo) }
         }.sortedByDescending { it.date }
     }

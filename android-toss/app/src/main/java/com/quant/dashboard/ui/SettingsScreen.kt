@@ -27,6 +27,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -44,9 +45,12 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import com.quant.dashboard.data.BrokerCreds
 import com.quant.dashboard.data.TossApi
+import com.quant.dashboard.data.MarketHours
 import com.quant.dashboard.data.NetInfo
 import com.quant.dashboard.data.TossSync
 import com.quant.dashboard.data.Store
+import com.quant.dashboard.data.Tickers
+import com.quant.dashboard.data.Universe
 import com.quant.dashboard.ui.theme.BgApp
 import com.quant.dashboard.ui.theme.BgCard
 import com.quant.dashboard.ui.theme.BorderColor
@@ -351,6 +355,126 @@ fun SettingsScreen() {
                             modifier = Modifier.fillMaxWidth(),
                         ) { Text("체결내역 가져오기") }
 
+                        // ── 종목 커버리지 (이관·시세 전환 판단용) ──
+                        Box(Modifier.fillMaxWidth().height(1.dp).background(BorderColor))
+                        Label("종목 커버리지 확인")
+                        Text("워치리스트 + 회귀 기준(SPY)이 토스에서 취급되는지 한 번에 확인합니다. " +
+                            "여기 없는 종목은 토스에서 사고팔 수 없고, 시세도 Yahoo로 받게 됩니다.",
+                            color = TextMuted, fontSize = 11.sp)
+                        var cov by remember { mutableStateOf<List<Triple<String, Boolean, String>>?>(null) }
+                        var covBusy by remember { mutableStateOf(false) }
+                        Button(
+                            enabled = !covBusy,
+                            onClick = {
+                                covBusy = true
+                                bkScope.launch {
+                                    val rows = withContext(Dispatchers.IO) {
+                                        val syms = (Store.loadTickers() + Tickers.BASE).distinct()
+                                        try {
+                                            val found = TossApi.stocks(syms)
+                                            syms.map { sym ->
+                                                val i = found[sym]
+                                                if (i == null) Triple(sym, false, "토스에 없음 → Yahoo")
+                                                else Triple(sym, i.status == "ACTIVE",
+                                                    "${i.name} · ${i.market} · ${i.securityType}" +
+                                                        if (i.status != "ACTIVE") " · ${i.status}" else "")
+                                            }
+                                        } catch (e: Exception) {
+                                            listOf(Triple("오류", false, e.message ?: ""))
+                                        }
+                                    }
+                                    cov = rows; covBusy = false
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text(if (covBusy) "확인 중…" else "종목 커버리지 확인") }
+                        cov?.let { rows ->
+                            val ok = rows.count { it.second }
+                            Text("토스 취급 $ok / ${rows.size}", color = TextSecondary,
+                                fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            rows.forEach { (sym, okOne, desc) ->
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Text(if (okOne) "✓" else "✗", color = if (okOne) Profit else Loss,
+                                        fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    Text(sym, color = TextPrimary, fontSize = 11.sp, fontFamily = Mono)
+                                    Text(desc, color = TextMuted, fontSize = 11.sp)
+                                }
+                            }
+                        }
+
+                        // ── 실시간 시세 ──
+                        Box(Modifier.fillMaxWidth().height(1.dp).background(BorderColor))
+                        var tick by remember { mutableStateOf(Store.tickSeconds()) }
+                        Label("실시간 시세 갱신 주기")
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            listOf("끔" to 0, "3초" to 3, "5초" to 5, "10초" to 10, "30초" to 30).forEach { (lab, v) ->
+                                Seg(lab, tick == v) { tick = v; Store.setTickSeconds(v); AppState.bump() }
+                            }
+                        }
+                        Text("장이 열려 있을 때만 동작합니다. 전 종목 현재가를 요청 1번으로 받아오므로 " +
+                            "주기를 짧게 해도 호출 수는 늘지 않지만, 배터리와 레이트리밋에는 영향이 있습니다.\n" +
+                            "한도(429)에 걸리면 30초 쉬었다 자동 재개합니다.",
+                            color = TextMuted, fontSize = 11.sp)
+
+                        // ── 시간외 데이터 진단 ──
+                        Box(Modifier.fillMaxWidth().height(1.dp).background(BorderColor))
+                        Label("시세 진단 (프리·애프터 확인용)")
+                        Text("`/prices` 와 `/trades` 응답의 시각을 그대로 보여줍니다. 프리마켓 시간대(저녁)에 눌러 " +
+                            "그 시각이 찍히면 시간외 데이터가 오는 것이고, 전일 마감 시각이면 오지 않는 것입니다.",
+                            color = TextMuted, fontSize = 11.sp)
+                        var diag by remember { mutableStateOf<List<String>?>(null) }
+                        var diagBusy by remember { mutableStateOf(false) }
+                        Button(
+                            enabled = !diagBusy,
+                            onClick = {
+                                diagBusy = true
+                                bkScope.launch {
+                                    val lines = withContext(Dispatchers.IO) {
+                                        try {
+                                            val syms = (Store.loadTickers().take(3) + Tickers.BASE).distinct()
+                                            val out = ArrayList<String>()
+                                            MarketHours.ensure(force = true)
+                                            out.add("개장: ${MarketHours.label() ?: "닫힘"}")
+                                            out.add("기기 시각: ${java.time.OffsetDateTime.now()}")
+                                            TossApi.pricesRaw(syms).forEach {
+                                                out.add("prices ${it.symbol} = ${it.price} @ ${it.timestamp}")
+                                            }
+                                            syms.forEach { sym ->
+                                                val t = runCatching { TossApi.lastTradeTime(sym) }.getOrNull()
+                                                out.add("trades $sym 최근체결 @ ${t ?: "(없음)"}")
+                                            }
+                                            out
+                                        } catch (e: Exception) {
+                                            listOf("실패: ${e.message}")
+                                        }
+                                    }
+                                    diag = lines; diagBusy = false
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text(if (diagBusy) "확인 중…" else "시세 진단") }
+                        diag?.let { lines ->
+                            lines.forEach {
+                                Text(it, color = if (it.startsWith("실패")) Loss else TextSecondary,
+                                    fontSize = 10.sp, fontFamily = Mono)
+                            }
+                        }
+
+                        // ── 토스 기반 모드 ──
+                        Box(Modifier.fillMaxWidth().height(1.dp).background(BorderColor))
+                        var tossM by remember { mutableStateOf(Store.tossMode()) }
+                        Label("포트폴리오 기준")
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Seg("매매기록", !tossM) { tossM = false; Store.setTossMode(false); AppState.bump() }
+                            Seg("토스 계좌", tossM) { tossM = true; Store.setTossMode(true); AppState.bump() }
+                        }
+                        Text("토스 계좌: 보유·평단·예수금·총자산을 증권사 실측으로 표시하고, " +
+                            "이관 전 수기 매매기록은 화면에서 숨깁니다(파일은 지우지 않으므로 되돌릴 수 있음).\n" +
+                            "자산추이는 토스에 과거 잔고 API가 없어 앱을 열 때마다 하루 1회 저장한 스냅샷으로 그립니다 — " +
+                            "전환 시점부터 쌓입니다.",
+                            color = TextMuted, fontSize = 11.sp)
+
+                        Box(Modifier.fillMaxWidth().height(1.dp).background(BorderColor))
                         var tossQ by remember { mutableStateOf(Store.tossQuotes()) }
                         Label("시세 소스")
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -372,15 +496,78 @@ fun SettingsScreen() {
 
         // ══════════ 종목 관리 ══════════
         SectionHeader("종목 관리")
+
+        // 토스 종목 유니버스(미국 3개 거래소) — 이름으로 티커를 찾기 위한 캐시. 하루 1회 갱신.
+        val uniScope = rememberCoroutineScope()
+        var uniCount by remember { mutableStateOf(0) }
+        var uniBusy by remember { mutableStateOf(false) }
+        LaunchedEffect(Unit) {
+            // 파일 캐시 로드(수천 건 파싱)도 IO 로 — 메인 스레드에서 하면 화면이 끊긴다
+            val linked = BrokerCreds.isLinked()
+            if (linked) uniBusy = true
+            uniCount = withContext(Dispatchers.IO) { if (linked) Universe.ensure() else Universe.count() }
+            uniBusy = false
+        }
+
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedTextField(input, { input = it }, placeholder = { Text("티커 (NVDA·005930)") },
+            OutlinedTextField(input, { input = it },
+                placeholder = { Text(if (uniCount > 0) "티커 또는 이름 (NVDA·애플)" else "티커 (NVDA·005930)") },
                 singleLine = true, modifier = Modifier.weight(1f))
             Button(onClick = {
                 if (input.isNotBlank()) { Store.addTicker(input); tickers = Store.loadTickers().toList(); input = ""; AppState.bump() }
             }) { Text("추가") }
         }
+
+        // 이름 검색 결과 — 탭하면 바로 추가 (토스 연동 시에만 동작)
+        val found = remember(input, uniCount) {
+            if (input.length >= 1 && uniCount > 0) Universe.search(input) else emptyList()
+        }
+        found.forEach { it2 ->
+            val already = it2.symbol in tickers
+            Row(
+                Modifier.fillMaxWidth().padding(vertical = 1.dp)
+                    .clip(RoundedCornerShape(6.dp)).background(SurfaceInput)
+                    .clickable(enabled = !already) {
+                        Store.addTicker(it2.symbol); tickers = Store.loadTickers().toList()
+                        input = ""; AppState.bump()
+                    }
+                    .padding(horizontal = 10.dp, vertical = 7.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(it2.symbol, color = if (already) TextMuted else TextPrimary,
+                    fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                Text(it2.name, color = TextSecondary, fontSize = 12.sp, modifier = Modifier.weight(1f))
+                Text(if (already) "추가됨" else "${it2.market} · ${it2.type}", color = TextMuted, fontSize = 10.sp)
+            }
+        }
+
         Text("최소 ${Store.MIN_TICKERS}개 · 한국=6자리(.KS/.KQ 자동) · 개별/ETF·이름 셀에서 편집",
             color = TextMuted, fontSize = 11.sp, modifier = Modifier.padding(vertical = 2.dp))
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                when {
+                    uniBusy -> "종목 목록 받는 중…"
+                    uniCount > 0 -> "🔎 이름 검색 가능 — 미국 ${"%,d".format(uniCount)}종목 (${Universe.cachedDate().ifEmpty { "부분" }})"
+                    BrokerCreds.isLinked() -> "종목 목록을 아직 받지 못했습니다"
+                    else -> "토스 연동 시 이름으로 종목을 찾을 수 있습니다"
+                },
+                color = TextMuted, fontSize = 11.sp, modifier = Modifier.weight(1f),
+            )
+            if (BrokerCreds.isLinked()) {
+                Box(
+                    Modifier.clip(RoundedCornerShape(6.dp)).background(SurfaceInput)
+                        .clickable(enabled = !uniBusy) {
+                            uniScope.launch {
+                                uniBusy = true
+                                uniCount = withContext(Dispatchers.IO) { Universe.ensure(force = true) }
+                                uniBusy = false
+                            }
+                        }
+                        .padding(horizontal = 10.dp, vertical = 5.dp),
+                ) { Text("목록 갱신", color = TextSecondary, fontSize = 11.sp) }
+            }
+        }
 
         indivVer.let {
             tickers.chunked(2).forEach { pair ->

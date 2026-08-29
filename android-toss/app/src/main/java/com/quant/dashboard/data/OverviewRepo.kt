@@ -6,6 +6,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.withContext
 
 /**
  * 전 종목 요약(현재가·등락·Z·M·β·σ·신호·보유)을 한 번 받아 공유 캐시.
@@ -14,6 +15,7 @@ import kotlinx.coroutines.coroutineScope
 object OverviewRepo {
     data class Row(
         val ticker: String, val name: String, val price: Double,
+        val prevClose: Double,     // 전일 종가 — 실시간 현재가로 등락률을 다시 계산할 때 사용
         val day: Double, val week: Double, val fromHigh: Double,
         val zPct: Double, val mPct: Double, val signal: String,
         val beta: Double, val sigmaPct: Double,
@@ -45,19 +47,32 @@ object OverviewRepo {
     suspend fun load(force: Boolean = false): List<Row> =
         loadInto(watchSlot, Store.loadTickers(), force)
 
-    /** 미국 시총 상위 30개. 비교 탭에서 해당 목록을 열 때만 호출(요청 30건). */
-    suspend fun loadTop(force: Boolean = false): List<Row> =
-        loadInto(topSlot, Tickers.US_TOP30, force)
+    /**
+     * 미장 TOP 목록. 비교 탭에서 해당 목록을 열 때만 호출(요청 30건).
+     * 종목 선정은 토스 랭킹 API(`Rankings`)가 하고, 미연동·실패 시 하드코딩 목록으로 폴백한다.
+     */
+    suspend fun loadTop(force: Boolean = false): List<Row> {
+        val symbols = withContext(Dispatchers.IO) { Rankings.symbols(force) }
+        // 랭킹 기준이 바뀌면 종목 자체가 달라지므로 캐시 키에 포함시킨다
+        return loadInto(topSlot, symbols, force, keyExtra = Rankings.cacheKey())
+    }
 
-    private suspend fun loadInto(slot: Slot, tickers: List<String>, force: Boolean): List<Row> {
+    private suspend fun loadInto(
+        slot: Slot, tickers: List<String>, force: Boolean, keyExtra: String = "",
+    ): List<Row> {
         val now = System.currentTimeMillis()
         val range = Store.lookbackRange()
         val interval = Store.candleInterval()
-        val curKey = "$range|$interval|${Store.asofDate() ?: ""}"
+        val curKey = "$range|$interval|${Store.asofDate() ?: ""}|$keyExtra"
         if (!force && slot.rows.isNotEmpty() && slot.key == curKey && now - slot.ts < 300_000) return slot.rows
         val spy = Store.sliceAsof(Quotes.closes(Tickers.BASE, range, interval))
         if (spy.isEmpty()) return slot.rows
-        val trades = Store.loadTrades()
+        val trades = Store.visibleTrades()
+        // 토스 모드에서는 ★(보유)를 매매기록 계산이 아니라 실제 계좌 잔고로 판정한다
+        val tossHeld: Set<String>? =
+            if (Store.tossMode()) TossSync.cachedAccount()?.holdings?.items
+                ?.filter { it.quantity > 0 }?.map { it.symbol }?.toSet()
+            else null
         // 스크럽 타임라인 — 최근 6개월 거래일(일별), 모든 종목 공유
         val latest = spy.last().first
         val cutoff = latest - 182L * 86400
@@ -73,7 +88,7 @@ object OverviewRepo {
                     val prevD = p[m - 2]
                     val prevW = if (m > 5) p[m - 6] else prevD
                     val high = p.max()
-                    val held = Portfolio.currentHoldQty(trades[tk].orEmpty()) > 0
+                    val held = tossHeld?.contains(tk) ?: (Portfolio.currentHoldQty(trades[tk].orEmpty()) > 0)
                     // 거래일별 Z·M 샘플 (각 날짜 이하의 최근 값)
                     val zh = DoubleArray(WN) { Double.NaN }
                     val mh = DoubleArray(WN) { Double.NaN }
@@ -84,6 +99,7 @@ object OverviewRepo {
                     }
                     Row(
                         ticker = tk, name = Tickers.displayName(tk), price = p[m - 1],
+                        prevClose = prevD,
                         day = if (prevD > 0) (p[m - 1] / prevD - 1) * 100 else 0.0,
                         week = if (prevW > 0) (p[m - 1] / prevW - 1) * 100 else 0.0,
                         fromHigh = if (high > 0) (p[m - 1] / high - 1) * 100 else 0.0,

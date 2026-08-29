@@ -35,7 +35,6 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlin.math.abs
-import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.roundToInt
 import kotlin.math.sin
@@ -44,9 +43,6 @@ import kotlin.math.sin
 
 /** 차트 위 매매 마커 (x=윈도우 내 인덱스, y=해당 차트 y척도 값, buy 여부). */
 data class Mark(val x: Int, val y: Double, val buy: Boolean)
-
-/** 완료 사이클 평균매수→평균매도 화살표 (x=윈도우 인덱스, y=가격, profit=수익여부). */
-data class CycleArrow(val x1: Int, val y1: Double, val x2: Int, val y2: Double, val profit: Boolean)
 
 /**
  * 확대 다이얼로그용 뷰 변환 — x축·y축 배율을 따로 관리(가로 핀치=x, 세로 핀치=y).
@@ -190,19 +186,6 @@ private fun DrawScope.marker(cx: Float, cy: Float, buy: Boolean, r: Float = 13.5
     drawContext.canvas.nativeCanvas.drawText(if (buy) "↑" else "↓", cx, cy + r * 0.85f, p)
 }
 
-/** 사이클 화살표 (app.py 평균매수→평균매도 주석 화살표). 수익=녹색/손실=빨강. */
-private fun DrawScope.arrow(x1: Float, y1: Float, x2: Float, y2: Float, profit: Boolean) {
-    val col = if (profit) Color(0xFF16A34A) else Color(0xFFDC2626)
-    drawLine(col, Offset(x1, y1), Offset(x2, y2), 2.5f)
-    val ang = atan2(y2 - y1, x2 - x1)
-    val len = 16f
-    val a1 = ang + 2.618f   // 150°
-    val a2 = ang - 2.618f
-    drawLine(col, Offset(x2, y2), Offset(x2 + len * cos(a1), y2 + len * sin(a1)), 2.5f)
-    drawLine(col, Offset(x2, y2), Offset(x2 + len * cos(a2), y2 + len * sin(a2)), 2.5f)
-}
-
-/** [from, to] 구간의 최솟값 (NaN 무시). 기본은 전체 구간. */
 private fun DoubleArray.minNaN(from: Int = 0, to: Int = size - 1): Double {
     var m = Double.POSITIVE_INFINITY
     for (i in from.coerceAtLeast(0)..to.coerceAtMost(size - 1)) {
@@ -569,7 +552,6 @@ fun PriceChart(
     bandUpper: DoubleArray,
     bandLower: DoubleArray,
     markers: List<Mark> = emptyList(),
-    arrows: List<CycleArrow> = emptyList(),
     currency: String = "$",
     height: Dp = 110.dp,
     view: ChartView = ChartView(),
@@ -611,7 +593,6 @@ fun CandleChart(
     opens: DoubleArray, highs: DoubleArray, lows: DoubleArray, closes: DoubleArray,
     predicted: DoubleArray, bandUpper: DoubleArray, bandLower: DoubleArray,
     markers: List<Mark> = emptyList(),
-    arrows: List<CycleArrow> = emptyList(),
     currency: String = "$",
     topLabel: String = "",
     dates: LongArray = LongArray(0),
