@@ -41,8 +41,6 @@ import androidx.compose.ui.unit.sp
 import com.quant.dashboard.data.Gist
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import com.quant.dashboard.data.BrokerCreds
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import com.quant.dashboard.data.BrokerCreds
 import com.quant.dashboard.data.TossApi
 import com.quant.dashboard.data.Store
 import com.quant.dashboard.ui.theme.BgApp
@@ -228,53 +226,6 @@ fun SettingsScreen() {
             }
         }
 
-        // ══════════ 증권사 연동 (토스증권 Open API) — 조회 전용 ══════════
-        SectionHeader("증권사 연동 (토스증권)")
-        SettingsCard {
-            var bkOpen by remember { mutableStateOf(false) }
-            var bkKey by remember { mutableStateOf(BrokerCreds.appKey()) }
-            var bkSecret by remember { mutableStateOf(BrokerCreds.appSecret()) }
-            var bkAcct by remember { mutableStateOf(BrokerCreds.accountNo()) }
-            var bkMsg by remember { mutableStateOf<String?>(null) }
-            var bkVer by remember { mutableStateOf(0) }
-            val configured = bkVer.let { BrokerCreds.isConfigured() }
-            val status = when {
-                !BrokerCreds.available() -> "사용 불가 (기기 보안 저장소 오류)"
-                configured -> "연동됨 · ${BrokerCreds.maskedKey()}"
-                else -> "미설정"
-            }
-            Text("${if (bkOpen) "▲" else "▼"}  $status", color = TextSecondary, fontSize = 12.sp,
-                modifier = Modifier.fillMaxWidth().clickable { bkOpen = !bkOpen })
-            if (bkOpen) {
-                if (!BrokerCreds.available()) {
-                    Text("이 기기에서 암호화 저장소를 열지 못했습니다. 자격증명을 평문으로 저장하지 않기 위해 연동을 비활성화합니다.",
-                        color = Loss, fontSize = 11.sp)
-                } else {
-                    OutlinedTextField(bkKey, { bkKey = it }, label = { Text("App Key") },
-                        singleLine = true, modifier = Modifier.fillMaxWidth())
-                    OutlinedTextField(bkSecret, { bkSecret = it }, label = { Text("App Secret") },
-                        singleLine = true, visualTransformation = PasswordVisualTransformation(),
-                        modifier = Modifier.fillMaxWidth())
-                    OutlinedTextField(bkAcct, { bkAcct = it }, label = { Text("계좌번호") },
-                        singleLine = true, modifier = Modifier.fillMaxWidth())
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                        Button(onClick = {
-                            BrokerCreds.save(bkKey, bkSecret, bkAcct)
-                            bkVer++; bkMsg = "저장했습니다 (이 기기에만 암호화 보관)"
-                        }, modifier = Modifier.weight(1f)) { Text("저장") }
-                        Button(onClick = {
-                            BrokerCreds.clear(); bkKey = ""; bkSecret = ""; bkAcct = ""
-                            bkVer++; bkMsg = "삭제했습니다"
-                        }, modifier = Modifier.weight(1f)) { Text("삭제") }
-                    }
-                    bkMsg?.let { Text(it, color = TextSecondary, fontSize = 11.sp) }
-                    Text("🔒 자격증명은 이 기기에만 암호화 저장되며 Gist·서버로 전송되지 않습니다.\n" +
-                        "조회 전용으로만 사용합니다 (주문 기능 없음).",
-                        color = TextMuted, fontSize = 11.sp)
-                }
-            }
-        }
-
         // ══════════ 토스증권 연동 (조회 전용) ══════════
         SectionHeader("토스증권 연동 (조회 전용)")
         SettingsCard {
@@ -345,7 +296,7 @@ fun SettingsScreen() {
                     Text("🔒 자격증명은 이 기기에만 암호화 저장되며 Gist·서버로 전송되지 않습니다.\n" +
                         "조회 전용입니다 — 주문·정정·취소 기능은 구현되어 있지 않습니다.\n" +
                         "⚠️ 토스 API는 허용 IP 목록 밖에서는 차단됩니다. 휴대폰 IP는 자주 바뀌므로\n" +
-                        "토스증권 WTS → 설정 → Open API → 허용 IP 관리에서 현재 IP를 등록해야 합니다.",
+                        "토스증권 WTS(tossinvest.com) → 설정 → Open API → 허용 IP 관리에서 현재 IP를 등록해야 합니다.",
                         color = TextMuted, fontSize = 11.sp)
                 }
             }
