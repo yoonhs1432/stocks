@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 시안 B: 상승 라인 차트 + 반투명 면적 채움 + 포인트 점 + 화살표 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- 면적 채움 (라인 아래, 반투명 빨강) -->
+    <path android:fillColor="#40E84D5E"
+        android:pathData="M22,76 L35,62 L48,67 L61,47 L74,41 L85,30 L85,86 L22,86 Z" />
+    <!-- 상승 라인 -->
+    <path android:strokeColor="#FFFF5C6B" android:strokeWidth="4.2"
+        android:strokeLineCap="round" android:strokeLineJoin="round"
+        android:pathData="M22,76 L35,62 L48,67 L61,47 L74,41 L85,30" />
+    <!-- 라인 끝 화살표 -->
+    <path android:fillColor="#FFFF5C6B"
+        android:pathData="M91,24 L80,27 L86,34 Z" />
+    <!-- 포인트 점 (밝은 핑크) -->
+    <path android:fillColor="#FFFFE0E3"
+        android:pathData="M19.4,76 a2.6,2.6 0 1,0 5.2,0 a2.6,2.6 0 1,0 -5.2,0 z
+                          M32.4,62 a2.6,2.6 0 1,0 5.2,0 a2.6,2.6 0 1,0 -5.2,0 z
+                          M45.4,67 a2.6,2.6 0 1,0 5.2,0 a2.6,2.6 0 1,0 -5.2,0 z
+                          M58.4,47 a2.6,2.6 0 1,0 5.2,0 a2.6,2.6 0 1,0 -5.2,0 z
+                          M71.4,41 a2.6,2.6 0 1,0 5.2,0 a2.6,2.6 0 1,0 -5.2,0 z
+                          M82.4,30 a2.6,2.6 0 1,0 5.2,0 a2.6,2.6 0 1,0 -5.2,0 z" />
+</vector>

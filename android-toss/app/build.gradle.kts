@@ -9,7 +9,8 @@ android {
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.quant.dashboard"
+        // 기존 앱과 나란히 설치되도록 applicationId만 분리 (namespace는 동일하게 유지)
+        applicationId = "com.quant.dashboard.toss"
         minSdk = 26
         targetSdk = 34
         versionCode = 1
@@ -61,6 +62,9 @@ dependencies {
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.material3:material3")
+
+    // 토스증권 API 자격증명 암호화 저장 (EncryptedSharedPreferences)
+    implementation("androidx.security:security-crypto:1.0.0")
 
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 }

@@ -36,6 +36,16 @@ jobs:
         working-directory: android
         run: gradle assembleDebug --no-daemon --stacktrace
 
+      # 토스증권 연동판 — android/ 를 복사해 만든 별도 앱 (applicationId 가 달라 나란히 설치 가능)
+      - name: Build debug APK (toss)
+        working-directory: android-toss
+        run: gradle assembleDebug --no-daemon --stacktrace
+
+      - name: Rename APKs
+        run: |
+          cp android/app/build/outputs/apk/debug/app-debug.apk app-debug.apk
+          cp android-toss/app/build/outputs/apk/debug/app-debug.apk quant-toss-debug.apk
+
       # (아티팩트 업로드 제거 — Actions 저장 용량 절약. APK는 아래 릴리스로만 게시)
 
       - name: Publish to rolling release
@@ -46,7 +56,11 @@ jobs:
           tag_name: android-latest
           name: "Android 최신 빌드 (debug)"
           prerelease: true
-          files: android/app/build/outputs/apk/debug/*.apk
+          files: |
+            app-debug.apk
+            quant-toss-debug.apk
           body: |
             갤럭시에서 이 APK를 받아 설치하세요 (출처 불명 앱 설치 허용 필요).
-            매 push 마다 자동 갱신되는 디버그 빌드입니다.
+
+            - `app-debug.apk` — 기존 앱 (퀀트 대시보드)
+            - `quant-toss-debug.apk` — 토스증권 연동판 (별도 앱으로 나란히 설치됨)
