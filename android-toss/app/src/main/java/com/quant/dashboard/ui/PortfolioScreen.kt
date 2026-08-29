@@ -38,6 +38,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import com.quant.dashboard.data.BrokerCreds
+import com.quant.dashboard.data.TossSync
 import com.quant.dashboard.data.Store
 import com.quant.dashboard.data.Tickers
 import com.quant.dashboard.quant.Portfolio
@@ -107,8 +111,68 @@ fun PortfolioScreen(vm: PortfolioViewModel = viewModel(), onOpenAnalysis: (Strin
     }
 }
 
+/**
+ * 토스 계좌 실측 카드 — 로컬 매매기록으로 계산한 값과 별개로 **증권사가 알려준 실제 잔고**를 보여준다.
+ * 둘이 어긋나면(수수료·세금·이관·분할 등) 여기서 바로 확인할 수 있다.
+ */
+@Composable
+private fun TossAccountCard(onOpenAnalysis: (String) -> Unit) {
+    if (!BrokerCreds.isLinked()) return
+    var h by remember { mutableStateOf(TossSync.cachedHoldings()) }
+    LaunchedEffect(AppState.dataVersion) {
+        val fresh = withContext(Dispatchers.IO) { TossSync.holdings() }
+        if (fresh != null) h = fresh
+    }
+    val snap = h ?: return
+
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(BgCard).padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("실제 계좌 (토스)", color = TextSecondary, fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+            Text(BrokerCreds.maskedAccount(), color = TextMuted, fontSize = 10.sp, fontFamily = Mono)
+        }
+        // 통화별 합계 — 환산 없이 그대로 (토스도 통화별로만 합산해 준다)
+        Text("₩${"%,.0f".format(snap.krwEval)}" + if (snap.usdEval != 0.0) "  ·  $${"%,.2f".format(snap.usdEval)}" else "",
+            color = TextPrimary, fontSize = 20.sp, fontWeight = FontWeight.Bold, fontFamily = Mono)
+        val plColor = pc(snap.krwPnl + snap.usdPnl)
+        Text("손익 ₩${"%,.0f".format(snap.krwPnl)}" +
+            (if (snap.usdPnl != 0.0) "  ·  $${"%,.2f".format(snap.usdPnl)}" else "") +
+            "  ·  ${if (snap.pnlRate >= 0) "+" else ""}${"%.2f".format(snap.pnlRate * 100)}%",
+            color = plColor, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, fontFamily = Mono)
+
+        snap.items.forEach { it2 ->
+            Row(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
+                    .clickable { onOpenAnalysis(it2.symbol) }
+                    .padding(top = 7.dp, bottom = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(it2.name, color = TextPrimary, fontSize = 12.5.sp,
+                    fontWeight = FontWeight.SemiBold, fontFamily = Mono)
+                Spacer(Modifier.size(6.dp))
+                Text("${"%,.4f".format(it2.quantity).trimEnd('0').trimEnd('.')}주",
+                    color = TextMuted, fontSize = 11.sp, fontFamily = Mono, modifier = Modifier.weight(1f))
+                Column(horizontalAlignment = Alignment.End) {
+                    val cur = if (it2.currency == "KRW") "₩" else "$"
+                    Text("$cur${"%,.2f".format(it2.evalAmount)}", color = TextPrimary, fontSize = 12.sp, fontFamily = Mono)
+                    Text("평단 $cur${"%,.2f".format(it2.avgPrice)} · ${if (it2.pnlRate >= 0) "+" else ""}${"%.2f".format(it2.pnlRate * 100)}%",
+                        color = pc(it2.pnlAmount), fontSize = 10.5.sp, fontFamily = Mono)
+                }
+                Text(" ›", color = TextMuted, fontSize = 15.sp)
+            }
+        }
+        Text("증권사가 알려준 실제 잔고입니다. 아래 카드는 매매기록으로 계산한 값이라 수수료·세금·이관 등으로 다를 수 있습니다.",
+            color = TextMuted, fontSize = 10.sp, modifier = Modifier.padding(top = 6.dp))
+    }
+}
+
 @Composable
 private fun ResultBody(r: Portfolio.Result, rate: Double, onOpenAnalysis: (String) -> Unit = {}) {
+    TossAccountCard(onOpenAnalysis)
+
     // ── 평가금액 히어로 카드 (그라데이션) ──
     val evalSum = r.holdings.sumOf { it.eval }
     val pnlSum = r.holdings.sumOf { it.pnl }

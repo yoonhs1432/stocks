@@ -9,7 +9,7 @@ import com.quant.dashboard.data.Candle
 import com.quant.dashboard.data.OverviewRepo
 import com.quant.dashboard.data.Store
 import com.quant.dashboard.data.Tickers
-import com.quant.dashboard.data.Yahoo
+import com.quant.dashboard.data.Quotes
 import com.quant.dashboard.quant.Quant
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -88,9 +88,9 @@ class AnalysisViewModel : ViewModel() {
             val interval = Store.candleInterval()
             val holder = withContext(Dispatchers.IO) {
                 try {
-                    if (spyCache.isEmpty()) spyCache = Yahoo.closes(Tickers.BASE, range, interval)
+                    if (spyCache.isEmpty()) spyCache = Quotes.closes(Tickers.BASE, range, interval)
                     val spy = Store.sliceAsof(spyCache)
-                    val candles = Store.sliceAsofCandles(Yahoo.ohlc(ticker, range, interval))
+                    val candles = Store.sliceAsofCandles(Quotes.ohlc(ticker, range, interval))
                     val tk = candles.map { Pair(it.t, it.close) }
                     when {
                         spy.isEmpty() -> Result.failure(Exception("SPY 시세를 가져오지 못했습니다"))

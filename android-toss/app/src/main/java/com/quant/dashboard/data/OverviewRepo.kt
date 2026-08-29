@@ -55,7 +55,7 @@ object OverviewRepo {
         val interval = Store.candleInterval()
         val curKey = "$range|$interval|${Store.asofDate() ?: ""}"
         if (!force && slot.rows.isNotEmpty() && slot.key == curKey && now - slot.ts < 300_000) return slot.rows
-        val spy = Store.sliceAsof(Yahoo.closes(Tickers.BASE, range, interval))
+        val spy = Store.sliceAsof(Quotes.closes(Tickers.BASE, range, interval))
         if (spy.isEmpty()) return slot.rows
         val trades = Store.loadTrades()
         // 스크럽 타임라인 — 최근 6개월 거래일(일별), 모든 종목 공유
@@ -67,7 +67,7 @@ object OverviewRepo {
         val rows = coroutineScope {
             tickers.map { tk ->
                 async(Dispatchers.IO) {
-                    val r = Quant.analyze(spy, Store.sliceAsof(Yahoo.closes(tk, range, interval))) ?: return@async null
+                    val r = Quant.analyze(spy, Store.sliceAsof(Quotes.closes(tk, range, interval))) ?: return@async null
                     val p = r.price; val m = p.size
                     if (m < 2) return@async null
                     val prevD = p[m - 2]

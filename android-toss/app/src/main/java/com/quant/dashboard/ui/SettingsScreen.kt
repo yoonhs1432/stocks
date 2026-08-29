@@ -42,6 +42,7 @@ import com.quant.dashboard.data.Gist
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import com.quant.dashboard.data.BrokerCreds
 import com.quant.dashboard.data.TossApi
+import com.quant.dashboard.data.TossSync
 import com.quant.dashboard.data.Store
 import com.quant.dashboard.ui.theme.BgApp
 import com.quant.dashboard.ui.theme.BgCard
@@ -292,6 +293,38 @@ fun SettingsScreen() {
                     }
                     bkMsg?.let {
                         Text(it, color = if (it.startsWith("실패")) Loss else TextSecondary, fontSize = 11.sp)
+                    }
+
+                    // ── 연결된 뒤에만: 체결내역 가져오기 · 시세 소스 ──
+                    if (linked) {
+                        Box(Modifier.fillMaxWidth().height(1.dp).background(BorderColor))
+                        Label("체결내역 가져오기")
+                        Text("토스 계좌의 체결분을 매매기록으로 합칩니다. 이미 가져온 건과 손으로 입력해 둔 같은 거래는 건너뜁니다.",
+                            color = TextMuted, fontSize = 11.sp)
+                        Button(
+                            enabled = !bkBusy,
+                            onClick = {
+                                bkBusy = true; bkMsg = "체결내역 가져오는 중…"
+                                bkScope.launch {
+                                    val msg = withContext(Dispatchers.IO) {
+                                        try { TossSync.importFills().summary() }
+                                        catch (e: Exception) { "실패: ${e.message}" }
+                                    }
+                                    bkMsg = msg; bkBusy = false; AppState.bump()
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text("체결내역 가져오기") }
+
+                        var tossQ by remember { mutableStateOf(Store.tossQuotes()) }
+                        Label("시세 소스")
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Seg("Yahoo", !tossQ) { tossQ = false; Store.setTossQuotes(false); AppState.bump() }
+                            Seg("토스", tossQ) { tossQ = true; Store.setTossQuotes(true); AppState.bump() }
+                        }
+                        Text("토스 시세는 일봉 200개/요청이라 2년치면 종목당 3회 호출이 필요합니다.\n" +
+                            "조회되지 않는 종목과 코인(BTC·ETH)은 자동으로 Yahoo로 넘어갑니다.",
+                            color = TextMuted, fontSize = 11.sp)
                     }
                     Text("🔒 자격증명은 이 기기에만 암호화 저장되며 Gist·서버로 전송되지 않습니다.\n" +
                         "조회 전용입니다 — 주문·정정·취소 기능은 구현되어 있지 않습니다.\n" +

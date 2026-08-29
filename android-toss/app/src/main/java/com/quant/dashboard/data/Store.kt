@@ -13,6 +13,8 @@ data class Trade(
     val qty: Int,
     val price: Double,
     val memo: String? = null,
+    /** 토스 체결 자동 가져오기 출처 (orderId). 중복 가져오기 방지용. 수동 입력은 null. */
+    val srcId: String? = null,
 )
 
 /**
@@ -50,6 +52,7 @@ object Store {
                             qty = t.optDouble("qty", 0.0).toInt(),
                             price = t.optDouble("price", 0.0),
                             memo = if (t.has("memo") && !t.isNull("memo")) t.optString("memo").ifBlank { null } else null,
+                            srcId = if (t.has("src_id") && !t.isNull("src_id")) t.optString("src_id").ifBlank { null } else null,
                         )
                     )
                 }
@@ -70,6 +73,7 @@ object Store {
                 o.put("date", t.date); o.put("type", t.type)
                 o.put("qty", t.qty); o.put("price", t.price)
                 if (!t.memo.isNullOrBlank()) o.put("memo", t.memo)
+                if (!t.srcId.isNullOrBlank()) o.put("src_id", t.srcId)
                 arr.put(o)
             }
             obj.put(k, arr)
@@ -237,6 +241,10 @@ object Store {
     /** Yahoo range 문자열: "6mo" / "1y" / "2y". 기본 2y. */
     fun lookbackRange(): String = settings().optString("range", "2y")
     fun setLookbackRange(r: String) { saveSettings(settings().put("range", r)) }
+
+    /** 시세를 토스 API로 받을지 (기본 꺼짐 — 레이트리밋·종목 커버리지 확인 전까지 Yahoo 유지). */
+    fun tossQuotes(): Boolean = settings().optBoolean("toss_quotes", false)
+    fun setTossQuotes(v: Boolean) { saveSettings(settings().put("toss_quotes", v)) }
 
     // ── Gist 연동 ──
     fun gistToken(): String = settings().optString("gist_token", "")
