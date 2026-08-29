@@ -399,6 +399,20 @@ fun SettingsScreen() {
                             }
                         }
 
+                        // ── 토스 기반 모드 ──
+                        Box(Modifier.fillMaxWidth().height(1.dp).background(BorderColor))
+                        var tossM by remember { mutableStateOf(Store.tossMode()) }
+                        Label("포트폴리오 기준")
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Seg("매매기록", !tossM) { tossM = false; Store.setTossMode(false); AppState.bump() }
+                            Seg("토스 계좌", tossM) { tossM = true; Store.setTossMode(true); AppState.bump() }
+                        }
+                        Text("토스 계좌: 보유·평단·예수금·총자산을 증권사 실측으로 표시하고, " +
+                            "이관 전 수기 매매기록은 화면에서 숨깁니다(파일은 지우지 않으므로 되돌릴 수 있음).\n" +
+                            "자산추이는 토스에 과거 잔고 API가 없어 앱을 열 때마다 하루 1회 저장한 스냅샷으로 그립니다 — " +
+                            "전환 시점부터 쌓입니다.",
+                            color = TextMuted, fontSize = 11.sp)
+
                         Box(Modifier.fillMaxWidth().height(1.dp).background(BorderColor))
                         var tossQ by remember { mutableStateOf(Store.tossQuotes()) }
                         Label("시세 소스")

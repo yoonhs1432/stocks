@@ -399,6 +399,19 @@ object TossApi {
         }
     }
 
+    // ── 예수금 (매수 가능 금액) ──
+
+    /**
+     * `GET /api/v1/buying-power` — 통화별 현금 기반 매수 가능 금액(미수 미발생 기준).
+     *
+     * ⚠️ 엄밀한 "예수금"이 아니라 **매수 가능 금액**이다. 미결제 대금 등이 반영되면
+     *    실제 예수금과 다를 수 있다. 토스가 주는 유일한 현금 지표라 총자산 계산에 이 값을 쓴다.
+     */
+    fun buyingPower(accountSeq: Long, currency: String): Double {
+        val r = resultObject(get("/api/v1/buying-power", listOf("currency" to currency), accountSeq))
+        return r.dec("cashBuyingPower", 0.0)
+    }
+
     // ── 환율 ──
 
     /** `GET /api/v1/exchange-rate` — USD→KRW. 1분 주기 갱신되는 참고용 표시 환율. */

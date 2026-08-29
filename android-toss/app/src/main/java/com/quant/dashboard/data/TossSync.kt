@@ -111,4 +111,52 @@ object TossSync {
     }
 
     fun clear() { holdingsCache = null; holdingsAt = 0L }
+
+    // ── 토스 기반 계좌 전체 (평가금액 + 예수금 = 총자산) ──
+
+    /** 계좌 한 장 요약. 금액은 통화별 원본, `totalKrw` 만 환율로 환산. */
+    data class Account(
+        val holdings: TossApi.Holdings,
+        val krwCash: Double,
+        val usdCash: Double,
+        val rate: Double,
+    ) {
+        val krwEval: Double get() = holdings.krwEval
+        val usdEval: Double get() = holdings.usdEval
+        /** 원화 환산 총자산 = 평가금액 + 매수가능금액. */
+        fun totalKrw(): Double = krwEval + krwCash + (usdEval + usdCash) * rate
+        /** 평가손익 합계(원화 환산). */
+        fun pnlKrw(): Double = holdings.krwPnl + holdings.usdPnl * rate
+    }
+
+    @Volatile private var accountCache: Account? = null
+    @Volatile private var accountAt = 0L
+
+    fun cachedAccount(): Account? = accountCache
+
+    /**
+     * 보유 + 예수금 + 환율을 한 번에. force=false면 5분 캐시.
+     * 성공하면 오늘 자 잔고 스냅샷을 남긴다(자산추이용, 하루 1회 덮어쓰기).
+     */
+    fun account(force: Boolean = false): Account? {
+        val seq = BrokerCreds.accountSeq()
+        if (seq < 0) return null
+        val now = System.currentTimeMillis()
+        val c = accountCache
+        if (!force && c != null && now - accountAt < 300_000) return c
+        return try {
+            val h = TossApi.holdings(seq)
+            // 예수금·환율은 실패해도 보유 현황은 보여준다
+            val krw = runCatching { TossApi.buyingPower(seq, "KRW") }.getOrDefault(0.0)
+            val usd = runCatching { TossApi.buyingPower(seq, "USD") }.getOrDefault(0.0)
+            val rate = runCatching { TossApi.usdKrw() }.getOrNull()?.takeIf { it > 0 && !it.isNaN() } ?: 1400.0
+            val a = Account(h, krw, usd, rate)
+            accountCache = a; accountAt = now
+            holdingsCache = h; holdingsAt = now
+            Snapshots.recordToday(a.krwEval, a.usdEval, krw, usd, rate)
+            a
+        } catch (e: Exception) {
+            c   // 실패 시 이전 스냅샷 유지
+        }
+    }
 }
