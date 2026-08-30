@@ -158,6 +158,26 @@ object Store {
         if (u !in l) { l.add(u); saveTickers(l) }
     }
 
+    /**
+     * 여러 종목을 한 번에 추가 — 콤마·줄바꿈·공백·세미콜론 아무거나 구분자로 받는다
+     * (토스 앱 관심종목을 옮겨 붙여넣는 용도).
+     * 반환: (추가된 수, 이미 있어서 건너뛴 수).
+     */
+    fun addTickers(text: String): Pair<Int, Int> {
+        val tokens = text.split(',', '\n', '\r', '\t', ' ', ';')
+            .map { it.trim().uppercase() }
+            .filter { it.isNotEmpty() }
+        if (tokens.isEmpty()) return 0 to 0
+        val l = loadTickers()
+        val have = l.map { it.uppercase() }.toMutableSet()
+        var added = 0; var dup = 0
+        for (t in tokens) {
+            if (have.add(t)) { l.add(t); added++ } else dup++
+        }
+        if (added > 0) saveTickers(l)
+        return added to dup
+    }
+
     fun removeTicker(t: String) {
         val l = loadTickers()
         if (l.size > MIN_TICKERS) { l.remove(t); saveTickers(l) }

@@ -509,18 +509,42 @@ fun SettingsScreen() {
             uniBusy = false
         }
 
+        // 여러 개를 한 번에 붙여넣을 수 있게 여러 줄 입력 (토스 앱 관심종목 옮겨오기)
+        var addMsg by remember { mutableStateOf<String?>(null) }
+        // 구분자가 있으면 일괄 추가. 공백은 "NVDA AAPL" 같은 티커 나열일 때만 구분자로 보고,
+        // 한글이 섞여 있으면(예: "버크셔 해서웨이") 이름 검색어이므로 쪼개지 않는다.
+        val bulk = remember(input) {
+            val t = input.trim()
+            t.any { it == ',' || it == '\n' || it == ';' } ||
+                (t.any { it == ' ' } && t.none { it.code > 127 })
+        }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedTextField(input, { input = it },
-                placeholder = { Text(if (uniCount > 0) "티커 또는 이름 (NVDA·애플)" else "티커 (NVDA·005930)") },
-                singleLine = true, modifier = Modifier.weight(1f))
+                placeholder = { Text(if (uniCount > 0) "티커 또는 이름 (NVDA·애플)" else "티커 (NVDA, AAPL, PLTR)") },
+                singleLine = false, maxLines = 4, modifier = Modifier.weight(1f))
             Button(onClick = {
-                if (input.isNotBlank()) { Store.addTicker(input); tickers = Store.loadTickers().toList(); input = ""; AppState.bump() }
-            }) { Text("추가") }
+                if (input.isNotBlank()) {
+                    // 단건은 예전처럼 통째로 추가 — 이름 검색어가 공백으로 쪼개지지 않게
+                    val (added, dup) =
+                        if (bulk) Store.addTickers(input) else Store.addTickers(input.trim().replace(" ", ""))
+                    tickers = Store.loadTickers().toList()
+                    addMsg = when {
+                        added == 0 && dup > 0 -> "이미 목록에 있습니다 ($dup개)"
+                        added == 0 -> null
+                        dup > 0 -> "$added개 추가 · $dup개는 이미 있어 건너뜀"
+                        added > 1 -> "$added개 추가"
+                        else -> null
+                    }
+                    input = ""; AppState.bump()
+                }
+            }) { Text(if (bulk) "모두 추가" else "추가") }
         }
+        addMsg?.let { Text(it, color = TextSecondary, fontSize = 11.sp) }
 
         // 이름 검색 결과 — 탭하면 바로 추가 (토스 연동 시에만 동작)
-        val found = remember(input, uniCount) {
-            if (input.length >= 1 && uniCount > 0) Universe.search(input) else emptyList()
+        // 구분자가 섞인 붙여넣기는 검색이 아니라 일괄 추가로 처리하므로 후보를 띄우지 않는다
+        val found = remember(input, uniCount, bulk) {
+            if (!bulk && input.length >= 1 && uniCount > 0) Universe.search(input) else emptyList()
         }
         found.forEach { it2 ->
             val already = it2.symbol in tickers
@@ -542,7 +566,8 @@ fun SettingsScreen() {
             }
         }
 
-        Text("최소 ${Store.MIN_TICKERS}개 · 한국=6자리(.KS/.KQ 자동) · 개별/ETF·이름 셀에서 편집",
+        Text("최소 ${Store.MIN_TICKERS}개 · 한국=6자리(.KS/.KQ 자동) · 개별/ETF·이름 셀에서 편집\n" +
+            "여러 개를 콤마·줄바꿈으로 구분해 한 번에 붙여넣을 수 있습니다",
             color = TextMuted, fontSize = 11.sp, modifier = Modifier.padding(vertical = 2.dp))
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(
