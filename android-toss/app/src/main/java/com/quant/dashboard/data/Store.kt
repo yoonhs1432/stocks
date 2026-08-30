@@ -222,17 +222,16 @@ object Store {
     fun candleInterval(): String = settings().optString("interval", "1d")
     fun setCandleInterval(v: String) { saveSettings(settings().put("interval", v)) }
 
-    /** 차트 조회기간(개월): 1/2/4/12. app.py 차트 조회기간 미러. 기본 2개월. */
-    fun chartMonths(): Int = settings().optInt("chart_months", 2)
-    fun setChartMonths(v: Int) { saveSettings(settings().put("chart_months", v)) }
+    /** 차트 조회기간(개월) — 1개월 단위, 최대 MAX_MONTHS. 기본 2개월. */
+    fun chartMonths(): Int = settings().optInt("chart_months", 2).coerceIn(1, MAX_MONTHS)
+    fun setChartMonths(v: Int) { saveSettings(settings().put("chart_months", v.coerceIn(1, MAX_MONTHS))) }
 
-    /** 포트폴리오 자산추이 기본 단위: 일/주/월. 기본 주. */
-    fun equityUnit(): String = settings().optString("equity_unit", "주")
-    fun setEquityUnit(v: String) { saveSettings(settings().put("equity_unit", v)) }
-
-    /** 포트폴리오 자산추이 x축 기간(개월). 기본 2개월. */
-    fun equityMonths(): Int = settings().optInt("equity_months", 2)
-    fun setEquityMonths(v: Int) { saveSettings(settings().put("equity_months", v)) }
+    /**
+     * 포트폴리오 자산추이 x축 기간(개월) — 1개월 단위, 최대 MAX_MONTHS.
+     * 예전 "전체"(600) 설정이 남아 있으면 상한으로 맞춘다.
+     */
+    fun equityMonths(): Int = settings().optInt("equity_months", 2).coerceIn(1, MAX_MONTHS)
+    fun setEquityMonths(v: Int) { saveSettings(settings().put("equity_months", v.coerceIn(1, MAX_MONTHS))) }
 
     // ── 기준일(As-of) 시뮬레이션 ──
     /** 설정된 기준일 (ISO yyyy-MM-dd). 미설정/공백이면 null. */
@@ -276,9 +275,31 @@ object Store {
     fun macdK(): Double = settings().optDouble("macd_k", 0.25)
     fun setMacdK(v: Double) { saveSettings(settings().put("macd_k", v)) }
 
-    /** Yahoo range 문자열: "6mo" / "1y" / "2y". 기본 2y. */
-    fun lookbackRange(): String = settings().optString("range", "2y")
-    fun setLookbackRange(r: String) { saveSettings(settings().put("range", r)) }
+    /** 모든 기간 설정의 상한(개월). 슬라이더 최대치이자 시세 조회 상한. */
+    const val MAX_MONTHS = 24
+
+    /**
+     * 분석 조회기간(개월) — 1개월 단위. 예전에는 6mo/1y/2y 세 단계였고,
+     * 그 설정이 남아 있으면 개월 수로 한 번 이관한다.
+     */
+    fun lookbackMonths(): Int {
+        val o = settings()
+        if (o.has("range_months")) return o.optInt("range_months", MAX_MONTHS).coerceIn(1, MAX_MONTHS)
+        return when (o.optString("range", "2y")) { "6mo" -> 6; "1y" -> 12; else -> MAX_MONTHS }
+    }
+    fun setLookbackMonths(m: Int) { saveSettings(settings().put("range_months", m.coerceIn(1, MAX_MONTHS))) }
+
+    /**
+     * 요청 개월 수를 덮는 가장 작은 Yahoo range 토큰.
+     * Yahoo 는 1개월 단위 구간을 받지 않으므로 넉넉히 받아 `Quotes` 가 정확히 잘라낸다.
+     */
+    fun rangeToken(months: Int): String = when {
+        months <= 3 -> "3mo"
+        months <= 6 -> "6mo"
+        months <= 12 -> "1y"
+        else -> "2y"
+    }
+
 
     /**
      * 토스 기반 모드 — 포트폴리오·총자산을 토스 계좌 실측으로 표시하고,

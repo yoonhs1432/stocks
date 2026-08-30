@@ -20,23 +20,38 @@ object Quotes {
     private fun useToss(symbol: String): Boolean =
         Store.tossQuotes() && BrokerCreds.isLinked() && !tossUnsupported(symbol)
 
-    /** 분석 기간(range 토큰)에 맞는 대략적인 거래일 수 — 토스는 봉 수로 요청한다. */
-    private fun barCount(range: String): Int = when (range) {
-        "6mo" -> 130
-        "1y" -> 260
-        else -> 520   // 2y
+    /** 토스는 봉 수로 요청한다 — 개월당 약 22 거래일 + 경계 여유. */
+    private fun barCount(months: Int): Int = (months * 22 + 15).coerceAtLeast(40)
+
+    /**
+     * 요청 개월보다 오래된 봉을 잘라낸다.
+     * Yahoo range 토큰(3mo/6mo/1y/2y)은 1개월 단위가 아니라 넉넉히 받아 여기서 정확히 맞춘다.
+     * 자른 결과가 2봉 미만이면(상장 직후 등) 자르지 않은 원본을 돌려준다.
+     */
+    private fun trimMonths(list: List<Candle>, months: Int): List<Candle> {
+        if (list.size < 2) return list
+        val cut = list.last().t - months.toLong() * 2_629_746L   // 1개월 = 30.44일
+        val out = list.filter { it.t >= cut }
+        return if (out.size >= 2) out else list
     }
 
     /** OHLC 봉. 실패 시 Yahoo 로 폴백하며, 그래도 실패하면 빈 리스트. */
-    fun ohlc(symbol: String, range: String = "2y", interval: String = "1d"): List<Candle> {
+    fun ohlc(
+        symbol: String,
+        months: Int = Store.lookbackMonths(),
+        interval: String = "1d",
+    ): List<Candle> {
         // 주봉 등 일봉이 아닌 요청은 토스가 지원하지 않으므로(1m/1d 뿐) Yahoo 사용
         if (interval == "1d" && useToss(symbol)) {
-            val out = try { TossApi.dailyOhlc(symbol, barCount(range)) } catch (e: Exception) { emptyList() }
-            if (out.size >= 2) return out
+            val out = try { TossApi.dailyOhlc(symbol, barCount(months)) } catch (e: Exception) { emptyList() }
+            if (out.size >= 2) return trimMonths(out, months)
         }
-        return Yahoo.ohlc(symbol, range, interval)
+        return trimMonths(Yahoo.ohlc(symbol, Store.rangeToken(months), interval), months)
     }
 
-    fun closes(symbol: String, range: String = "2y", interval: String = "1d"): List<Pair<Long, Double>> =
-        ohlc(symbol, range, interval).map { Pair(it.t, it.close) }
+    fun closes(
+        symbol: String,
+        months: Int = Store.lookbackMonths(),
+        interval: String = "1d",
+    ): List<Pair<Long, Double>> = ohlc(symbol, months, interval).map { Pair(it.t, it.close) }
 }

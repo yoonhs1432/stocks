@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.quant.dashboard.data.Quotes
 import com.quant.dashboard.data.Store
 import com.quant.dashboard.data.Tickers
 import com.quant.dashboard.data.Yahoo
@@ -43,10 +44,11 @@ class PortfolioViewModel : ViewModel() {
                 val trades = Store.loadTrades()
                 if (trades.isEmpty()) return@withContext null
                 val tickers = trades.keys.toList()
-                val range = Store.lookbackRange()
+                val months = Store.lookbackMonths()
                 val interval = Store.candleInterval()
+                // 시세 소스 라우팅(토스↔Yahoo)을 타도록 Quotes 경유 — 예전엔 Yahoo 직접 호출이었다
                 val series = tickers.map { tk ->
-                    async { tk to Store.sliceAsof(Yahoo.closes(tk, range, interval)) }
+                    async { tk to Store.sliceAsof(Quotes.closes(tk, months, interval)) }
                 }.awaitAll().toMap()
                 val hist = series.filterValues { it.isNotEmpty() }
                 val lastClose = hist.mapValues { (_, v) -> v.last().second }

@@ -38,6 +38,16 @@ import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.roundToInt
 import kotlin.math.sin
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Column
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import com.quant.dashboard.ui.theme.Mono
+import com.quant.dashboard.ui.theme.TextPrimary
+import kotlin.math.max
 
 /** 의존성 없는 Compose Canvas 차트. 가격($)·Z·M·RSI를 세로 스택으로. */
 
@@ -112,10 +122,12 @@ fun Modifier.chartGestures(
     onChange: (ChartView) -> Unit,
     onTap: () -> Unit = {},
     xOnly: Boolean = false,
+    onTapAt: (Float) -> Unit = {},
 ): Modifier {
     val cur = rememberUpdatedState(view)
     val change = rememberUpdatedState(onChange)
     val tap = rememberUpdatedState(onTap)
+    val tapAt = rememberUpdatedState(onTapAt)
     return this.pointerInput(xOnly) {
         val slop = viewConfiguration.touchSlop
         // 차트가 우측 축 라벨용으로 비워 두는 폭. 제스처 좌표를 차트와 같은 '플롯 폭' 기준으로
@@ -162,7 +174,12 @@ fun Modifier.chartGestures(
                 prevCount = ptrs.size
                 if (v != live) { live = v; change.value(v); ptrs.forEach { it.consume() } }
             }
-            if (travel <= slop) tap.value()
+            if (travel <= slop) {
+                tap.value()
+                // 확대·이동을 되돌려 콘텐츠 좌표(0~1)로 환산 — 어느 시점을 눌렀는지 알려준다
+                val w = (size.width.toFloat() - axisPx).coerceAtLeast(1f)
+                tapAt.value(((first.position.x - live.nx * w) / live.sx / w).coerceIn(0f, 1f))
+            }
         }
     }
 }
@@ -805,31 +822,121 @@ fun RsiChart(rsi: DoubleArray, topLabel: String = "", height: Dp = 90.dp,
 
 /** 자산추이(누적손익) 라인 + 색 마커 + 0 기준 점선. unit 접미사(예: 만원). */
 @Composable
-fun EquityChart(values: DoubleArray, unit: String = "$", modifier: Modifier = Modifier) {
+fun EquityChart(
+    values: DoubleArray,
+    unit: String = "$",
+    labels: List<String> = emptyList(),   // 각 점의 날짜 라벨 (탭했을 때 표시)
+    baseZero: Boolean = false,            // 누적손익처럼 0이 기준선인 계열
+    height: Dp = 190.dp,
+    modifier: Modifier = Modifier,
+) {
     val n = values.size
     if (n < 2) return
-    var lo = values.minNaN(); var hi = values.maxNaN()
-    if (lo > 0) lo = 0.0
-    if (hi < 0) hi = 0.0
-    if (hi <= lo) hi = lo + 1.0
+    // 배율/이동과 선택 지점 — 데이터 길이가 바뀌면 초기화
+    var view by remember(n) { mutableStateOf(ChartView()) }
+    var sel by remember(n) { mutableStateOf(-1) }
+
+    val (i0, i1) = visibleRange(n, view)
+    // y는 항상 **보이는 구간**에 맞춘다. 총자산처럼 0에서 멀리 떨어진 계열을 0부터 그리면
+    // 선이 위쪽에 눌려 붙어 변화를 읽을 수 없다 (baseZero=true인 누적손익만 0을 포함).
+    var lo = values.minNaN(i0, i1)
+    var hi = values.maxNaN(i0, i1)
+    if (lo.isNaN() || hi.isNaN()) return
+    if (baseZero) { if (lo > 0) lo = 0.0; if (hi < 0) hi = 0.0 }
+    if (hi - lo < 1e-9) { val e = max(abs(hi) * 0.02, 1.0); lo -= e; hi += e }
     val pad = (hi - lo) * 0.08
     lo -= pad; hi += pad
-    Canvas(modifier = modifier.fillMaxWidth().height(160.dp)) {
-        fun xAt(i: Int) = size.width * i / (n - 1)
-        fun yAt(v: Double) = (size.height * (1 - (v - lo) / (hi - lo))).toFloat()
-        // 영역 채움 (라인 아래 → 하단, 빨강 그라데이션)
-        var first = -1; var last = -1
-        for (i in 0 until n) { if (!values[i].isNaN()) { if (first < 0) first = i; last = i } }
-        if (first in 0 until last) {
-            val area = Path(); area.moveTo(xAt(first), size.height)
-            for (i in first..last) if (!values[i].isNaN()) area.lineTo(xAt(i), yAt(values[i]))
-            area.lineTo(xAt(last), size.height); area.close()
-            drawPath(area, Brush.verticalGradient(
-                listOf(Color(0x4DEF6066), Color(0x00EF6066)),
-                startY = yAt(hi - pad), endY = size.height))
+
+    val curIdx = (n - 1 downTo 0).firstOrNull { !values[it].isNaN() } ?: return
+    val selIdx = if (sel in 0 until n && !values[sel].isNaN()) sel else -1
+    val shown = if (selIdx >= 0) selIdx else curIdx
+    val base = (i0..i1).firstOrNull { !values[it].isNaN() } ?: curIdx
+    // 선택 중이면 "현재 대비", 아니면 "표시 구간 시작 대비"
+    val refIdx = if (selIdx >= 0) curIdx else base
+    val diff = values[shown] - values[refIdx]
+    val diffPct = if (values[refIdx] != 0.0) diff / abs(values[refIdx]) * 100 else Double.NaN
+
+    Column(modifier.fillMaxWidth()) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
+            Column(Modifier.weight(1f)) {
+                androidx.compose.material3.Text(
+                    if (selIdx >= 0) labels.getOrNull(selIdx) ?: "선택 시점" else "현재",
+                    color = TextSecondary, fontSize = 10.sp,
+                )
+                androidx.compose.material3.Text(
+                    amountText(values[shown], unit), color = TextPrimary,
+                    fontSize = 21.sp, fontWeight = FontWeight.Bold, fontFamily = Mono,
+                )
+            }
+            Column(horizontalAlignment = Alignment.End) {
+                androidx.compose.material3.Text(
+                    if (selIdx >= 0) "현재 대비" else "표시 구간",
+                    color = TextSecondary, fontSize = 10.sp,
+                )
+                val col = if (diff >= 0) Profit else Loss   // 한국식: 상승 빨강 / 하락 파랑
+                androidx.compose.material3.Text(
+                    (if (diff >= 0) "+" else "") + amountText(diff, unit) +
+                        (if (diffPct.isNaN()) "" else "  (${if (diff >= 0) "+" else ""}${"%.1f".format(diffPct)}%)"),
+                    color = col, fontSize = 13.sp, fontWeight = FontWeight.Bold, fontFamily = Mono,
+                )
+            }
+            if (!view.isIdentity || selIdx >= 0) {
+                androidx.compose.material3.Text(
+                    "  ⟲", color = TextSecondary, fontSize = 17.sp,
+                    modifier = Modifier.padding(start = 2.dp)
+                        .clickable { view = ChartView(); sel = -1 },
+                )
+            }
         }
-        poly(values, ::xAt, ::yAt, Color(0xFFEF6066), 2.4f)
+        Canvas(
+            modifier = Modifier.fillMaxWidth().height(height)
+                .chartGestures(view, { view = it }, xOnly = true,
+                    onTapAt = { u -> sel = (u * (n - 1)).roundToInt().coerceIn(0, n - 1) }),
+        ) {
+            val plotW = size.width - AXIS_W
+            fun xAt(i: Int) = view.x(plotW * i / (n - 1), plotW)
+            fun yAt(v: Double) = (size.height * (1 - (v - lo) / (hi - lo))).toFloat()
+
+            // 눈금 + 값 라벨 — 금액을 눈으로 바로 읽을 수 있게 항상 표시
+            rightAxis(niceTicks(lo, hi), ::yAt, plotW) { amountText(it, unit) }
+
+            clipRect(0f, 0f, plotW, size.height) {
+                var first = -1; var last = -1
+                for (i in 0 until n) { if (!values[i].isNaN()) { if (first < 0) first = i; last = i } }
+                if (first in 0 until last) {
+                    val area = Path(); area.moveTo(xAt(first), size.height)
+                    for (i in first..last) if (!values[i].isNaN()) area.lineTo(xAt(i), yAt(values[i]))
+                    area.lineTo(xAt(last), size.height); area.close()
+                    drawPath(area, Brush.verticalGradient(
+                        listOf(Color(0x4DEF6066), Color(0x00EF6066)), startY = 0f, endY = size.height))
+                }
+                poly(values, ::xAt, ::yAt, Color(0xFFEF6066), 2.4f)
+            }
+            // 현재 금액 가로 기준선 — 선택 지점과 한눈에 비교되도록 항상 그린다
+            val yCur = yAt(values[curIdx])
+            dline(Color(0x99EF6066), 0f, yCur, plotW, yCur, 1.2f)
+            drawCircle(Color(0xFFEF6066), 5.5f, Offset(xAt(curIdx).coerceIn(0f, plotW), yCur))
+            if (selIdx >= 0) {
+                val cx = xAt(selIdx).coerceIn(0f, plotW)
+                val cy = yAt(values[selIdx])
+                dotline(MAGENTA, cx, 0f, cx, size.height, 1.2f)
+                dotline(MAGENTA, 0f, cy, plotW, cy, 1.2f)
+                currentMarker(cx, cy, 12f)
+                miniTag(2f, cy, amountText(values[selIdx], unit), MAGENTA, Paint.Align.LEFT)
+            }
+        }
     }
+}
+
+/** 금액 표기 — 자릿수에 따라 소수 자리 자동. unit이 "$"면 앞에, 아니면 뒤에 붙인다. */
+private fun amountText(v: Double, unit: String): String {
+    val a = abs(v)
+    val s = when {
+        a >= 1000 -> "%,.0f".format(v)
+        a >= 100 -> "%,.1f".format(v)
+        else -> "%,.2f".format(v)
+    }
+    return if (unit == "$") "$$s" else "$s$unit"
 }
 
 /** MACD(보라) + Signal(흰) + 0선 + 교차 마커(▲빨강 상향 / ▼파랑 하향). */

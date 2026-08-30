@@ -64,19 +64,15 @@ import com.quant.dashboard.ui.theme.WeightPalette
 private fun pc(v: Double) = if (v > 0) Profit else if (v < 0) Loss else Neutral
 private fun ident(i: Int) = WeightPalette[i % WeightPalette.size]
 
-/** 자산추이 누적손익을 일/주/월 단위로 리샘플 (각 버킷의 마지막 값). equity는 시간 오름차순. */
-private fun resampleEquity(equity: List<Pair<Long, Double>>, unit: String): List<Double> {
-    if (unit == "일") return equity.map { it.second }
-    val buckets = LinkedHashMap<Long, Double>()
-    for ((sec, v) in equity) {
-        val day = sec / 86400L
-        val key = if (unit == "주") day / 7 else {
-            val d = java.time.Instant.ofEpochSecond(sec).atZone(java.time.ZoneOffset.UTC).toLocalDate()
-            d.year * 12L + d.monthValue
-        }
-        buckets[key] = v
-    }
-    return buckets.values.toList()
+/**
+ * 자산추이 x축 라벨 (epoch 초 → yy.MM.dd).
+ *
+ * 예전에는 일/주/월 리샘플 토글이 있었는데, 같은 기간을 성기게 그릴 뿐이라 없앴다 —
+ * 기간은 "자산추이 기간" 설정으로 조절하고 그래프는 항상 일 단위로 그린다.
+ */
+private fun equityLabels(equity: List<Pair<Long, Double>>): List<String> {
+    val f = java.text.SimpleDateFormat("yy.MM.dd", java.util.Locale.US)
+    return equity.map { f.format(java.util.Date(it.first * 1000L)) }
 }
 private fun won(usd: Double, rate: Double) =
     (if (usd >= 0) "+" else "-") + "%,.0f원".format(kotlin.math.abs(usd * rate))
@@ -220,12 +216,16 @@ private fun TossBody(onOpenAnalysis: (String) -> Unit) {
     val snaps = remember(AppState.dataVersion) { Snapshots.totals() }
     Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(BgCard).padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(3.dp)) {
-        Text("자산 추이 (총자산)", color = TextSecondary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+        Text("자산 추이 (총자산) · 핀치=확대 · 탭=그 시점 금액",
+            color = TextSecondary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
         if (snaps.size < 2) {
             Text("기록이 ${snaps.size}일치뿐입니다. 앱을 열 때마다 하루 1회 잔고를 저장하므로\n" +
                 "며칠 지나면 그래프가 그려집니다.", color = TextMuted, fontSize = 11.sp)
         } else {
-            EquityChart(snaps.map { it.second / 10000.0 }.toDoubleArray(), unit = "만원")
+            EquityChart(
+                snaps.map { it.second / 10000.0 }.toDoubleArray(),
+                unit = "만원", labels = snaps.map { it.first },
+            )
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text(snaps.first().first, color = TextSecondary, fontSize = 10.sp)
                 Text("${snaps.size}일 기록", color = TextMuted, fontSize = 10.sp)
@@ -338,29 +338,16 @@ private fun ResultBody(r: Portfolio.Result, rate: Double, onOpenAnalysis: (Strin
 
     // ── 자산 추이 ──
     if (r.equity.size >= 2) {
-        var unit by remember { mutableStateOf(Store.equityUnit()) }
         val months = Store.equityMonths()
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            Text("자산 추이 (누적손익) · ${months}개월", color = TextSecondary, fontSize = 12.sp,
-                modifier = Modifier.weight(1f))
-            Row(Modifier.clip(RoundedCornerShape(8.dp)).background(SurfaceInput).padding(2.dp),
-                horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                listOf("일", "주", "월").forEach { u ->
-                    val on = unit == u
-                    Box(Modifier.clip(RoundedCornerShape(6.dp))
-                        .background(if (on) SegmentOn else Color.Transparent)
-                        .clickable { unit = u }.padding(horizontal = 10.dp, vertical = 4.dp)) {
-                        Text(u, color = if (on) TextPrimary else TextMuted, fontSize = 12.sp,
-                            fontWeight = if (on) FontWeight.Bold else FontWeight.Normal)
-                    }
-                }
-            }
-        }
+        Text("자산 추이 (누적손익) · ${months}개월 · 핀치=확대 · 탭=그 시점 금액",
+            color = TextSecondary, fontSize = 12.sp)
         val cut = r.equity.last().first - months.toLong() * 30 * 86400
         val windowed = r.equity.filter { it.first >= cut }
         val src = if (windowed.size >= 2) windowed else r.equity
-        val series = resampleEquity(src, unit).map { it * rate / 10000.0 }.toDoubleArray()
-        EquityChart(series, unit = "만원")
+        EquityChart(
+            src.map { it.second * rate / 10000.0 }.toDoubleArray(),
+            unit = "만원", labels = equityLabels(src), baseZero = true,
+        )
     }
 
     TradeJournal()

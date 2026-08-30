@@ -68,7 +68,32 @@ import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import kotlin.math.roundToInt
 
-private val RANGES = listOf("6개월" to "6mo", "1년" to "1y", "2년" to "2y")
+/**
+ * 기간 설정 공통 슬라이더 — 1개월 단위, 최대 Store.MAX_MONTHS(2년).
+ * 12개월 이상은 "N년 M개월"로 읽기 쉽게 표기한다.
+ */
+@Composable
+private fun MonthSlider(label: String, months: Int, onChange: (Int) -> Unit, hint: String? = null) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Label(label)
+        Spacer(Modifier.weight(1f))
+        Text(monthsLabel(months), color = TextPrimary, fontSize = 12.sp,
+            fontWeight = FontWeight.Bold, fontFamily = Mono)
+    }
+    Slider(
+        value = months.toFloat(),
+        onValueChange = { onChange(it.roundToInt().coerceIn(1, Store.MAX_MONTHS)) },
+        valueRange = 1f..Store.MAX_MONTHS.toFloat(),
+        steps = Store.MAX_MONTHS - 2,   // 1~24 사이 눈금 = 1개월 간격
+    )
+    hint?.let { Text(it, color = TextMuted, fontSize = 11.sp) }
+}
+
+private fun monthsLabel(m: Int): String = when {
+    m < 12 -> "${m}개월"
+    m % 12 == 0 -> "${m / 12}년"
+    else -> "${m / 12}년 ${m % 12}개월"
+}
 
 @Composable
 private fun SectionHeader(title: String) {
@@ -106,7 +131,7 @@ fun SettingsScreen() {
     var tickers by remember { mutableStateOf(Store.loadTickers().toList()) }
     var input by remember { mutableStateOf("") }
     var seed by remember { mutableStateOf(Store.seedUsd().toInt().toString()) }
-    var range by remember { mutableStateOf(Store.lookbackRange()) }
+    var rangeM by remember { mutableStateOf(Store.lookbackMonths()) }
     var interval by remember { mutableStateOf(Store.candleInterval()) }
     val nameEdits = remember { mutableStateMapOf<String, String>().apply { putAll(Store.nameOverrides()) } }
     var indivVer by remember { mutableStateOf(0) }
@@ -126,12 +151,13 @@ fun SettingsScreen() {
                 OutlinedTextField(seed, { seed = it }, singleLine = true, modifier = Modifier.weight(1f))
                 Button(onClick = { seed.toDoubleOrNull()?.let { if (it > 0) { Store.setSeedUsd(it); AppState.bump() } } }) { Text("저장") }
             }
-            Label("분석 기간 (조회)")
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                RANGES.forEach { (label, r) ->
-                    Seg(label, range == r) { range = r; Store.setLookbackRange(r); AppState.bump() }
-                }
-            }
+            MonthSlider(
+                "분석 기간 (조회)", rangeM,
+                { rangeM = it; Store.setLookbackMonths(it); AppState.bump() },
+                hint = if (rangeM < 3)
+                    "⚠️ 회귀·MACD·RSI는 최소 30 거래일이 필요합니다 — 3개월 미만은 분석이 실패할 수 있습니다"
+                else null,
+            )
             Label("봉 기준")
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 listOf("일봉" to "1d", "주봉" to "1wk").forEach { (label, iv) ->
@@ -139,12 +165,7 @@ fun SettingsScreen() {
                 }
             }
             var chartM by remember { mutableStateOf(Store.chartMonths()) }
-            Label("차트 조회기간")
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                listOf("1개월" to 1, "2개월" to 2, "4개월" to 4, "1년" to 12).forEach { (label, m) ->
-                    Seg(label, chartM == m) { chartM = m; Store.setChartMonths(m); AppState.bump() }
-                }
-            }
+            MonthSlider("차트 표시기간", chartM) { chartM = it; Store.setChartMonths(it); AppState.bump() }
             // 기준일 시뮬레이션
             var asofEnabled by remember { mutableStateOf(Store.asofDate() != null) }
             var asofText by remember { mutableStateOf(Store.asofDate() ?: LocalDate.now().toString()) }
@@ -168,20 +189,12 @@ fun SettingsScreen() {
         // ══════════ 포트폴리오 ══════════
         SectionHeader("포트폴리오")
         SettingsCard {
-            var eqUnit by remember { mutableStateOf(Store.equityUnit()) }
-            Label("자산추이 기본 단위")
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                listOf("일", "주", "월").forEach { u ->
-                    Seg(u, eqUnit == u) { eqUnit = u; Store.setEquityUnit(u); AppState.bump() }
-                }
-            }
             var eqM by remember { mutableStateOf(Store.equityMonths()) }
-            Label("자산추이 기간")
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                listOf("1개월" to 1, "3개월" to 3, "6개월" to 6, "전체" to 600).forEach { (label, m) ->
-                    Seg(label, eqM == m) { eqM = m; Store.setEquityMonths(m); AppState.bump() }
-                }
-            }
+            MonthSlider(
+                "자산추이 기간", eqM, { eqM = it; Store.setEquityMonths(it); AppState.bump() },
+                hint = "그래프는 항상 일 단위로 그립니다 — 주/월로 묶으면 같은 기간이 성기게 보일 뿐이라 없앴습니다.\n" +
+                    "차트에서 핀치로 확대하고, 아무 지점이나 누르면 그 시점의 금액이 표시됩니다.",
+            )
         }
 
         // ══════════ 데이터 (Gist) — 접힘 ══════════
@@ -529,10 +542,10 @@ fun SettingsScreen() {
                         if (bulk) Store.addTickers(input) else Store.addTickers(input.trim().replace(" ", ""))
                     tickers = Store.loadTickers().toList()
                     addMsg = when {
-                        added == 0 && dup > 0 -> "이미 목록에 있습니다 ($dup개)"
+                        added == 0 && dup > 0 -> "이미 목록에 있습니다 (${dup}개)"
                         added == 0 -> null
-                        dup > 0 -> "$added개 추가 · $dup개는 이미 있어 건너뜀"
-                        added > 1 -> "$added개 추가"
+                        dup > 0 -> "${added}개 추가 · ${dup}개는 이미 있어 건너뜀"
+                        added > 1 -> "${added}개 추가"
                         else -> null
                     }
                     input = ""; AppState.bump()

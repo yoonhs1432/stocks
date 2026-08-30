@@ -61,11 +61,11 @@ object OverviewRepo {
         slot: Slot, tickers: List<String>, force: Boolean, keyExtra: String = "",
     ): List<Row> {
         val now = System.currentTimeMillis()
-        val range = Store.lookbackRange()
+        val months = Store.lookbackMonths()
         val interval = Store.candleInterval()
-        val curKey = "$range|$interval|${Store.asofDate() ?: ""}|$keyExtra"
+        val curKey = "$months|$interval|${Store.asofDate() ?: ""}|$keyExtra"
         if (!force && slot.rows.isNotEmpty() && slot.key == curKey && now - slot.ts < 300_000) return slot.rows
-        val spy = Store.sliceAsof(Quotes.closes(Tickers.BASE, range, interval))
+        val spy = Store.sliceAsof(Quotes.closes(Tickers.BASE, months, interval))
         if (spy.isEmpty()) return slot.rows
         val trades = Store.visibleTrades()
         // 토스 모드에서는 ★(보유)를 매매기록 계산이 아니라 실제 계좌 잔고로 판정한다
@@ -82,7 +82,7 @@ object OverviewRepo {
         val rows = coroutineScope {
             tickers.map { tk ->
                 async(Dispatchers.IO) {
-                    val r = Quant.analyze(spy, Store.sliceAsof(Quotes.closes(tk, range, interval))) ?: return@async null
+                    val r = Quant.analyze(spy, Store.sliceAsof(Quotes.closes(tk, months, interval))) ?: return@async null
                     val p = r.price; val m = p.size
                     if (m < 2) return@async null
                     val prevD = p[m - 2]

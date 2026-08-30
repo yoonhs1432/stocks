@@ -84,13 +84,13 @@ class AnalysisViewModel : ViewModel() {
         loadJob?.cancel()   // 진행 중이던 이전 요청 취소 (응답 순서가 뒤바뀌는 것 방지)
         if (!quiet) state = state.copy(loading = true, error = null)
         loadJob = viewModelScope.launch {
-            val range = Store.lookbackRange()
+            val months = Store.lookbackMonths()
             val interval = Store.candleInterval()
             val holder = withContext(Dispatchers.IO) {
                 try {
-                    if (spyCache.isEmpty()) spyCache = Quotes.closes(Tickers.BASE, range, interval)
+                    if (spyCache.isEmpty()) spyCache = Quotes.closes(Tickers.BASE, months, interval)
                     val spy = Store.sliceAsof(spyCache)
-                    val candles = Store.sliceAsofCandles(Quotes.ohlc(ticker, range, interval))
+                    val candles = Store.sliceAsofCandles(Quotes.ohlc(ticker, months, interval))
                     val tk = candles.map { Pair(it.t, it.close) }
                     when {
                         spy.isEmpty() -> Result.failure(Exception("SPY 시세를 가져오지 못했습니다"))
