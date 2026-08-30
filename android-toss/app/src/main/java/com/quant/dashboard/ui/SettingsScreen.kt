@@ -73,7 +73,7 @@ import kotlin.math.roundToInt
  * 12개월 이상은 "N년 M개월"로 읽기 쉽게 표기한다.
  */
 @Composable
-private fun MonthSlider(label: String, months: Int, onChange: (Int) -> Unit, hint: String? = null) {
+private fun MonthSlider(label: String, months: Int, hint: String? = null, onChange: (Int) -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Label(label)
         Spacer(Modifier.weight(1f))
@@ -153,11 +153,10 @@ fun SettingsScreen() {
             }
             MonthSlider(
                 "분석 기간 (조회)", rangeM,
-                { rangeM = it; Store.setLookbackMonths(it); AppState.bump() },
                 hint = if (rangeM < 3)
                     "⚠️ 회귀·MACD·RSI는 최소 30 거래일이 필요합니다 — 3개월 미만은 분석이 실패할 수 있습니다"
                 else null,
-            )
+            ) { rangeM = it; Store.setLookbackMonths(it); AppState.bump() }
             Label("봉 기준")
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 listOf("일봉" to "1d", "주봉" to "1wk").forEach { (label, iv) ->
@@ -191,10 +190,10 @@ fun SettingsScreen() {
         SettingsCard {
             var eqM by remember { mutableStateOf(Store.equityMonths()) }
             MonthSlider(
-                "자산추이 기간", eqM, { eqM = it; Store.setEquityMonths(it); AppState.bump() },
+                "자산추이 기간", eqM,
                 hint = "그래프는 항상 일 단위로 그립니다 — 주/월로 묶으면 같은 기간이 성기게 보일 뿐이라 없앴습니다.\n" +
                     "차트에서 핀치로 확대하고, 아무 지점이나 누르면 그 시점의 금액이 표시됩니다.",
-            )
+            ) { eqM = it; Store.setEquityMonths(it); AppState.bump() }
         }
 
         // ══════════ 데이터 (Gist) — 접힘 ══════════
