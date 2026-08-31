@@ -29,7 +29,7 @@ object OverviewRepo {
     /** Z·M 산점도 스크럽 타임라인 (epoch sec, 오래된→최근). 최근 6개월 거래일(일별). */
     fun weekDates(): LongArray = weekDatesArr
 
-    /** 목록별 캐시 슬롯 (워치리스트 / 미장 TOP30). range·interval·asof가 바뀌면 무효화. */
+    /** 목록별 캐시 슬롯 (워치리스트 / 미장 TOP). 조회기간·기준일·랭킹기준이 바뀌면 무효화. */
     private class Slot {
         @Volatile var rows: List<Row> = emptyList()
         @Volatile var ts = 0L
@@ -62,10 +62,9 @@ object OverviewRepo {
     ): List<Row> {
         val now = System.currentTimeMillis()
         val months = Store.lookbackMonths()
-        val interval = Store.candleInterval()
-        val curKey = "$months|$interval|${Store.asofDate() ?: ""}|$keyExtra"
+        val curKey = "$months|${Store.asofDate() ?: ""}|$keyExtra"
         if (!force && slot.rows.isNotEmpty() && slot.key == curKey && now - slot.ts < 300_000) return slot.rows
-        val spy = Store.sliceAsof(Quotes.closes(Tickers.BASE, months, interval))
+        val spy = Store.sliceAsof(Quotes.closes(Tickers.BASE, months))
         if (spy.isEmpty()) return slot.rows
         val trades = Store.visibleTrades()
         // 토스 모드에서는 ★(보유)를 매매기록 계산이 아니라 실제 계좌 잔고로 판정한다
@@ -82,8 +81,12 @@ object OverviewRepo {
         val rows = coroutineScope {
             tickers.map { tk ->
                 async(Dispatchers.IO) {
-                    val r = Quant.analyze(spy, Store.sliceAsof(Quotes.closes(tk, months, interval))) ?: return@async null
-                    val p = r.price; val m = p.size
+                    val closes = Store.sliceAsof(Quotes.closes(tk, months))
+                    val r = Quant.analyze(spy, closes) ?: return@async null
+                    // 등락률은 **원본 일봉**에서 계산한다. r.price 는 SPY 와 날짜 교집합을 낸 결과라
+                    // 기준일이 직전 거래일이 아닐 수 있고, 그러면 "일" 열이 며칠치 변동으로 부풀려진다.
+                    val p = DoubleArray(closes.size) { closes[it].second }
+                    val m = p.size
                     if (m < 2) return@async null
                     val prevD = p[m - 2]
                     val prevW = if (m > 5) p[m - 6] else prevD

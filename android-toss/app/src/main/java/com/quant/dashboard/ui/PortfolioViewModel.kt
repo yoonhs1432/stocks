@@ -45,10 +45,9 @@ class PortfolioViewModel : ViewModel() {
                 if (trades.isEmpty()) return@withContext null
                 val tickers = trades.keys.toList()
                 val months = Store.lookbackMonths()
-                val interval = Store.candleInterval()
                 // 시세 소스 라우팅(토스↔Yahoo)을 타도록 Quotes 경유 — 예전엔 Yahoo 직접 호출이었다
                 val series = tickers.map { tk ->
-                    async { tk to Store.sliceAsof(Quotes.closes(tk, months, interval)) }
+                    async { tk to Store.sliceAsof(Quotes.closes(tk, months)) }
                 }.awaitAll().toMap()
                 val hist = series.filterValues { it.isNotEmpty() }
                 val lastClose = hist.mapValues { (_, v) -> v.last().second }

@@ -85,12 +85,11 @@ class AnalysisViewModel : ViewModel() {
         if (!quiet) state = state.copy(loading = true, error = null)
         loadJob = viewModelScope.launch {
             val months = Store.lookbackMonths()
-            val interval = Store.candleInterval()
             val holder = withContext(Dispatchers.IO) {
                 try {
-                    if (spyCache.isEmpty()) spyCache = Quotes.closes(Tickers.BASE, months, interval)
+                    if (spyCache.isEmpty()) spyCache = Quotes.closes(Tickers.BASE, months)
                     val spy = Store.sliceAsof(spyCache)
-                    val candles = Store.sliceAsofCandles(Quotes.ohlc(ticker, months, interval))
+                    val candles = Store.sliceAsofCandles(Quotes.ohlc(ticker, months))
                     val tk = candles.map { Pair(it.t, it.close) }
                     when {
                         spy.isEmpty() -> Result.failure(Exception("SPY 시세를 가져오지 못했습니다"))

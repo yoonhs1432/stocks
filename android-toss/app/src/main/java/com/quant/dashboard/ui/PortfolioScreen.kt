@@ -414,10 +414,12 @@ private fun DivergingBar(name: String, amount: Double, frac: Float, amountText: 
 /** 📒 매매 일지 — 전 종목 매매 기록을 표 형식(최신순)으로. */
 @Composable
 private fun TradeJournal() {
-    data class Entry(val date: String, val name: String, val type: String, val qty: Int, val price: Double, val memo: String?)
+    // ticker 를 함께 들고 있어야 단가를 원화/달러 중 맞는 단위로 찍을 수 있다
+    data class Entry(val ticker: String, val date: String, val name: String,
+                     val type: String, val qty: Int, val price: Double, val memo: String?)
     val entries = remember {
         Store.visibleTrades().flatMap { (tk, list) ->
-            list.map { Entry(it.date, Tickers.displayName(tk), it.type, it.qty, it.price, it.memo) }
+            list.map { Entry(tk, it.date, Tickers.displayName(tk), it.type, it.qty, it.price, it.memo) }
         }.sortedByDescending { it.date }
     }
     if (entries.isEmpty()) return
@@ -441,7 +443,7 @@ private fun TradeJournal() {
                 JCell(e.name, 1.3f, TextPrimary, FontWeight.SemiBold)
                 JCell(if (buy) "매수" else "매도", 1.0f, if (buy) Profit else Loss, FontWeight.SemiBold, TextAlign.Center)
                 JCell("${e.qty}", 0.8f, TextPrimary, align = TextAlign.End)
-                JCell("$${"%.2f".format(e.price)}", 1.5f, TextPrimary, align = TextAlign.End)
+                JCell(Tickers.priceLabel(e.ticker, e.price), 1.5f, TextPrimary, align = TextAlign.End)
                 JCell(e.memo ?: "", 3.2f, TextSecondary, maxLines = Int.MAX_VALUE)
             }
         }

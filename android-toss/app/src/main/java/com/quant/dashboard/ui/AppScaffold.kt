@@ -84,6 +84,8 @@ object AppState {
 @Composable
 fun AppScaffold() {
     var tab by remember { mutableStateOf(0) }
+    // 분석 탭에서 뒤로가기 → 들어온 탭으로 복귀 (비교에서 왔으면 비교, 포트폴리오에서 왔으면 포트폴리오)
+    var backTab by remember { mutableStateOf(0) }
 
     // ── 실시간 시세 틱 ──
     // 장이 열려 있을 때만, 설정한 주기로 `/prices` 를 한 번 호출해 전 종목 현재가를 갱신한다.
@@ -119,15 +121,19 @@ fun AppScaffold() {
     }
     Scaffold(
         containerColor = BgApp,
-        bottomBar = { TabBar(tab) { tab = it } },
+        bottomBar = { TabBar(tab) { if (it == 1 && tab != 1) backTab = tab; tab = it } },
     ) { pad ->
         Column(Modifier.fillMaxSize().padding(pad)) {
             MarketHeader()
             Box(Modifier.fillMaxWidth().weight(1f)) {
-                val openAnalysis: (String) -> Unit = { AppState.pendingTicker = it; tab = 1 }
+                val openAnalysis: (String) -> Unit = {
+                    AppState.pendingTicker = it
+                    if (tab != 1) backTab = tab
+                    tab = 1
+                }
                 when (tab) {
                     0 -> CompareScreen(onOpenAnalysis = openAnalysis)
-                    1 -> AnalysisScreen(onBack = { tab = 0 })
+                    1 -> AnalysisScreen(onBack = { tab = backTab })
                     2 -> PortfolioScreen(onOpenAnalysis = openAnalysis)
                     else -> SettingsScreen()
                 }

@@ -131,7 +131,6 @@ fun SettingsScreen() {
     var input by remember { mutableStateOf("") }
     var seed by remember { mutableStateOf(Store.seedUsd().toInt().toString()) }
     var rangeM by remember { mutableStateOf(Store.lookbackMonths()) }
-    var interval by remember { mutableStateOf(Store.candleInterval()) }
     val nameEdits = remember { mutableStateMapOf<String, String>().apply { putAll(Store.nameOverrides()) } }
     var indivVer by remember { mutableStateOf(0) }
 
@@ -156,12 +155,6 @@ fun SettingsScreen() {
                     "⚠️ 회귀·MACD·RSI는 최소 30 거래일이 필요합니다 — 3개월 미만은 분석이 실패할 수 있습니다"
                 else null,
             ) { rangeM = it; Store.setLookbackMonths(it); AppState.bump() }
-            Label("봉 기준")
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                listOf("일봉" to "1d", "주봉" to "1wk").forEach { (label, iv) ->
-                    Seg(label, interval == iv) { interval = iv; Store.setCandleInterval(iv); AppState.bump() }
-                }
-            }
             var chartM by remember { mutableStateOf(Store.chartMonths()) }
             MonthSlider("차트 표시기간", chartM) { chartM = it; Store.setChartMonths(it); AppState.bump() }
             // 기준일 시뮬레이션
@@ -368,13 +361,13 @@ fun SettingsScreen() {
                         var tick by remember { mutableStateOf(Store.tickSeconds()) }
                         Label("실시간 시세 갱신 주기")
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            listOf("끔" to 0, "3초" to 3, "5초" to 5, "10초" to 10, "30초" to 30).forEach { (lab, v) ->
+                            listOf("끔" to 0, "1초" to 1, "3초" to 3, "5초" to 5, "10초" to 10, "30초" to 30).forEach { (lab, v) ->
                                 Seg(lab, tick == v) { tick = v; Store.setTickSeconds(v); AppState.bump() }
                             }
                         }
                         Text("장이 열려 있을 때만 동작합니다. 전 종목 현재가를 요청 1번으로 받아오므로 " +
                             "주기를 짧게 해도 호출 수는 늘지 않지만, 배터리와 레이트리밋에는 영향이 있습니다.\n" +
-                            "한도(429)에 걸리면 30초 쉬었다 자동 재개합니다.",
+                            "한도(429)에 걸리면 30초 쉬었다 자동 재개합니다. 1초는 배터리 소모가 큽니다.",
                             color = TextMuted, fontSize = 11.sp)
 
                         // ── 시간외 데이터 진단 ──

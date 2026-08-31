@@ -218,10 +218,6 @@ object Store {
         saveSettings(settings().put("individual", JSONArray(cur.toList())))
     }
 
-    /** 봉 기준: "1d"(일봉) / "1wk"(주봉). app.py 봉 기준 미러. */
-    fun candleInterval(): String = settings().optString("interval", "1d")
-    fun setCandleInterval(v: String) { saveSettings(settings().put("interval", v)) }
-
     /** 차트 조회기간(개월) — 1개월 단위, 최대 MAX_MONTHS. 기본 2개월. */
     fun chartMonths(): Int = settings().optInt("chart_months", 2).coerceIn(1, MAX_MONTHS)
     fun setChartMonths(v: Int) { saveSettings(settings().put("chart_months", v.coerceIn(1, MAX_MONTHS))) }

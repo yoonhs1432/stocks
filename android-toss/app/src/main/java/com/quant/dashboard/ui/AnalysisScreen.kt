@@ -294,8 +294,27 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
         }
     }
 
+    // ── 차트 기간 (아래 시계열 4개에만 적용 — 산점도 2개는 전 구간 기준) ──
+    var periodMonths by remember { mutableStateOf(Store.chartMonths()) }
+    Row(Modifier.fillMaxWidth().padding(top = 2.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text("차트 기간", color = TextMuted, fontSize = 11.sp,
+            modifier = Modifier.align(Alignment.CenterVertically))
+        listOf(1, 6, 12, 24).forEach { m ->
+            val on = periodMonths == m
+            Box(
+                Modifier.clip(RoundedCornerShape(7.dp))
+                    .background(if (on) Teal else SurfaceInput)
+                    .clickable { periodMonths = m; Store.setChartMonths(m) }
+                    .padding(horizontal = 11.dp, vertical = 4.dp),
+            ) {
+                Text(if (m >= 12) "${m / 12}년" else "${m}개월",
+                    color = if (on) Color(0xFF0C0E11) else TextSecondary,
+                    fontSize = 11.sp, fontWeight = if (on) FontWeight.Bold else FontWeight.Normal)
+            }
+        }
+    }
+
     // ── 차트 윈도우 + 매매 마커/화살표 ──
-    val periodMonths = Store.chartMonths()
     val n = r.dates.size
     val cutoff = r.dates[n - 1] - periodMonths.toLong() * 30 * 86400
     var start = 0
@@ -453,102 +472,6 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
         }
     }
 
-    // ── 신중 매매 (충동매매 방지: 모든 그래프 순차 확인 후 매매 기록) ──
-    val guides = listOf(
-        "① 회귀 산점도 — 회귀선 대비 고평가/저평가 위치를 확인했나요?",
-        "② Z·M 궤적 — 사분면(강세/약세) 위치를 확인했나요?",
-        "③ 가격 일봉 — 추세와 최근 흐름을 확인했나요?",
-        "④ Z·M 오실레이터 — 과열/과매도(80·20)를 확인했나요?",
-        "⑤ MACD — 모멘텀·교차를 확인했나요?",
-        "⑥ RSI — 과매수/과매도를 확인했나요?",
-    )
-    var reviewOpen by remember(ticker) { mutableStateOf(false) }
-    var editOpen by remember(ticker) { mutableStateOf(false) }
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Button(onClick = { reviewOpen = true }, modifier = Modifier.weight(1f),
-            colors = ButtonDefaults.buttonColors(containerColor = ProfitBtn)) {
-            Text("신중 매매", fontWeight = FontWeight.Bold)
-        }
-        Button(onClick = { editOpen = true }, modifier = Modifier.weight(1f),
-            colors = ButtonDefaults.buttonColors(containerColor = SegmentOn)) {
-            Text("매매기록 편집", fontWeight = FontWeight.Bold, color = TextPrimary)
-        }
-    }
-    // 매매기록 편집 — 새 창(다이얼로그)
-    if (editOpen) {
-        Dialog(onDismissRequest = { editOpen = false },
-            properties = DialogProperties(usePlatformDefaultWidth = false)) {
-            Surface(Modifier.fillMaxWidth(0.96f).fillMaxHeight(0.85f), color = BgApp,
-                shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, BorderColor)) {
-                Column(Modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text("매매기록 편집", color = TextPrimary, fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                        Text("✕", color = TextSecondary, fontSize = 20.sp,
-                            modifier = Modifier.clickable { editOpen = false })
-                    }
-                    Text("${Tickers.displayName(ticker)}  ${Tickers.priceLabel(ticker, r.lastPrice)}",
-                        color = Profit, fontSize = 14.sp, fontWeight = FontWeight.Bold, fontFamily = Mono)
-                    Box(Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState())) {
-                        TradeListSection(ticker)
-                    }
-                }
-            }
-        }
-    }
-    if (reviewOpen) {
-        val checked = remember { mutableStateListOf(false, false, false, false, false, false) }
-        var step by remember { mutableStateOf(0) }
-        Dialog(onDismissRequest = { reviewOpen = false },
-            properties = DialogProperties(usePlatformDefaultWidth = false)) {
-            Surface(Modifier.fillMaxWidth(0.96f).fillMaxHeight(0.92f), color = BgApp,
-                shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, BorderColor)) {
-                Column(Modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text(if (step < guides.size) "신중 매매   ${step + 1} / ${guides.size}" else "매매 입력",
-                            color = TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                        Text("✕", color = TextSecondary, fontSize = 20.sp,
-                            modifier = Modifier.clickable { reviewOpen = false })
-                    }
-                    Text("${Tickers.displayName(ticker)}  ${Tickers.priceLabel(ticker, r.lastPrice)}",
-                        color = Profit, fontSize = 14.sp, fontWeight = FontWeight.Bold, fontFamily = Mono)
-                    if (step < guides.size) {
-                        Text(guides[step], color = TextSecondary, fontSize = 13.sp)
-                        Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
-                            Column(Modifier.fillMaxWidth()) {
-                                when (step) {
-                                    0 -> RegressionScatter(r.spyNorm, r.tickerNorm, r.predicted, r.bandUpper, r.bandLower, r.beta, markIdx = scatterIdx, height = 240.dp)
-                                    1 -> ZmScatter(r.zPct, r.mPct, scatterIdx, height = 240.dp)
-                                    2 -> if (closes.any { !it.isNaN() })
-                                        CandleChart(opens, highs, lows, closes, segDollar(r.predicted), segDollar(r.bandUpper), segDollar(r.bandLower), markers = priceMarks, currency = Tickers.currencySymbol(ticker), dates = dates, dailyChgPct = dayPct ?: Double.NaN, height = 240.dp)
-                                    else PriceChart(segDollar(r.tickerNorm), segDollar(r.predicted), segDollar(r.bandUpper), segDollar(r.bandLower), markers = priceMarks, currency = Tickers.currencySymbol(ticker), height = 240.dp)
-                                    3 -> ZmChart(seg(r.zPct), seg(r.mPct), zmMarks, height = 210.dp)
-                                    4 -> MacdChart(macdW, sigW, height = 210.dp)
-                                    else -> { RsiChart(seg(r.rsi), height = 210.dp); DateAxis(dates) }
-                                }
-                            }
-                        }
-                        Row(Modifier.fillMaxWidth().clickable { checked[step] = !checked[step] },
-                            verticalAlignment = Alignment.CenterVertically) {
-                            Checkbox(checked = checked[step], onCheckedChange = { checked[step] = it })
-                            Text("이 그래프를 충분히 확인했어요", color = TextPrimary, fontSize = 13.sp)
-                        }
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(onClick = { if (step > 0) step-- }, enabled = step > 0, modifier = Modifier.weight(1f)) { Text("← 이전") }
-                            Button(onClick = { step++ }, enabled = checked[step], modifier = Modifier.weight(1f)) {
-                                Text(if (step == guides.size - 1) "매매하기 →" else "다음 →")
-                            }
-                        }
-                    } else {
-                        Box(Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState())) {
-                            TradeInputSection(ticker, onSaved = { reviewOpen = false; AppState.bump() })
-                        }
-                        Button(onClick = { step = guides.size - 1 }, modifier = Modifier.fillMaxWidth()) { Text("← 그래프 다시 보기") }
-                    }
-                }
-            }
-        }
-    }
 }
 
 /** 차트 카드 — 헤더(제목/부제 + 우측 값) + 플롯. 그리드 셀에서는 modifier=weight 전달.
@@ -576,61 +499,3 @@ private fun ChartCard(modifier: Modifier = Modifier, title: String, sub: String 
         content()
     }
 }
-
-@Composable
-private fun TradeInputSection(ticker: String, onSaved: () -> Unit = {}) {
-    var refresh by remember { mutableStateOf(0) }
-    var type by remember { mutableStateOf("buy") }
-    var qty by remember { mutableStateOf("") }
-    var price by remember { mutableStateOf("") }
-    var date by remember { mutableStateOf(LocalDate.now().toString()) }
-    var memo by remember { mutableStateOf("") }
-    var err by remember { mutableStateOf<String?>(null) }
-    refresh.let {
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text("종목: ${Tickers.displayName(ticker)}", color = TextSecondary, fontSize = 12.sp)
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                FilterChip(selected = type == "buy", onClick = { type = "buy" }, label = { Text("매수") })
-                FilterChip(selected = type == "sell", onClick = { type = "sell" }, label = { Text("매도") })
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                OutlinedTextField(date, { date = it }, label = { Text("날짜") }, singleLine = true, modifier = Modifier.weight(1.4f))
-                OutlinedTextField(qty, { qty = it }, label = { Text("수량") }, singleLine = true, modifier = Modifier.weight(1f))
-                OutlinedTextField(price, { price = it }, label = { Text("단가$") }, singleLine = true, modifier = Modifier.weight(1f))
-            }
-            OutlinedTextField(memo, { memo = it }, label = { Text("메모 (선택)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-            Button(onClick = {
-                val q = qty.toIntOrNull(); val p = price.toDoubleOrNull()
-                if (q == null || q <= 0 || p == null || p <= 0) err = "수량·단가를 올바르게 입력하세요"
-                else { Store.addTrade(ticker, Trade(date.trim(), type, q, p, memo.ifBlank { null })); qty = ""; price = ""; memo = ""; err = null; refresh++; onSaved() }
-            }) { Text("저장") }
-            err?.let { Text(it, color = Loss, fontSize = 12.sp) }
-        }
-    }
-}
-
-@Composable
-private fun TradeListSection(ticker: String) {
-    var refresh by remember { mutableStateOf(0) }
-    val trades = remember(ticker, refresh) { Store.visibleTrades()[ticker].orEmpty() }
-    var editIdx by remember { mutableStateOf(-1) }
-    var editMemo by remember { mutableStateOf("") }
-    if (trades.isEmpty()) { Text("기록 없음", color = TextSecondary, fontSize = 12.sp); return }
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        trades.forEachIndexed { i, t ->
-            Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
-                Text("${t.date}  ${if (t.type == "buy") "▲" else "▼"} ${t.qty}주 @$${"%.2f".format(t.price)}" + (t.memo?.let { "  · $it" } ?: ""),
-                    color = TextSecondary, fontSize = 12.sp, modifier = Modifier.weight(1f))
-                TextButton(onClick = { editIdx = if (editIdx == i) -1 else i; editMemo = t.memo ?: "" }) { Text("메모", fontSize = 12.sp) }
-                TextButton(onClick = { Store.deleteTrade(ticker, i); refresh++ }) { Text("삭제", color = Loss, fontSize = 12.sp) }
-            }
-            if (editIdx == i) {
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    OutlinedTextField(editMemo, { editMemo = it }, label = { Text("메모") }, singleLine = true, modifier = Modifier.weight(1f))
-                    Button(onClick = { Store.updateTradeMemo(ticker, i, editMemo); editIdx = -1; refresh++ }) { Text("저장") }
-                }
-            }
-        }
-    }
-}
-
