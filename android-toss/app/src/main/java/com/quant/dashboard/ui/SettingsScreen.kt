@@ -47,6 +47,8 @@ import com.quant.dashboard.data.TossApi
 import com.quant.dashboard.data.MarketHours
 import com.quant.dashboard.data.NetInfo
 import com.quant.dashboard.data.TossSync
+import com.quant.dashboard.data.LivePrices
+import com.quant.dashboard.data.Quotes
 import com.quant.dashboard.data.Store
 import com.quant.dashboard.data.Tickers
 import com.quant.dashboard.data.Universe
@@ -520,6 +522,26 @@ fun SettingsScreen() {
             }
         }
 
+        // ── 등락률 진단 — 앱이 실제로 어떤 두 날짜를 비교하는지 그대로 출력 ──
+        var diagMsg by remember { mutableStateOf<String?>(null) }
+        var diagBusy by remember { mutableStateOf(false) }
+        val diagScope = rememberCoroutineScope()
+        Button(
+            enabled = !diagBusy,
+            onClick = {
+                diagScope.launch {
+                    diagBusy = true
+                    diagMsg = withContext(Dispatchers.IO) { seriesDiagnostic() }
+                    diagBusy = false
+                }
+            },
+            modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+        ) { Text(if (diagBusy) "확인 중…" else "등락률 진단 (비교 탭 '일' 열 검증)") }
+        diagMsg?.let {
+            Text(it, color = TextSecondary, fontSize = 10.sp, fontFamily = Mono,
+                modifier = Modifier.fillMaxWidth().padding(top = 4.dp))
+        }
+
         Text("최소 ${Store.MIN_TICKERS}개 · 국내=6자리(.KS/.KQ 자동) · 개별/ETF·이름 셀에서 편집\n" +
             "여러 개를 콤마·줄바꿈으로 구분해 한 번에 붙여넣을 수 있습니다",
             color = TextMuted, fontSize = 11.sp, modifier = Modifier.padding(vertical = 2.dp))
@@ -620,4 +642,35 @@ private fun RowScope.TickerCell(
                 modifier = Modifier.clickable { onDelete() }.padding(horizontal = 4.dp, vertical = 4.dp))
         }
     }
+}
+
+/**
+ * 비교 탭 "일" 열이 실제로 어떤 두 날짜를 비교하는지 그대로 찍는다.
+ * 두 날짜가 연속 거래일이 아니면 시세 시계열에 구멍이 있다는 뜻이다.
+ * IO 디스패처에서 호출.
+ */
+private fun seriesDiagnostic(): String {
+    val months = Store.lookbackMonths()
+    val toss = Store.tossQuotes() && BrokerCreds.isLinked()
+    val f = java.text.SimpleDateFormat("MM/dd", java.util.Locale.US)
+    val sb = StringBuilder()
+    sb.append("기간 ${months}개월 · 소스 ${if (toss) "토스" else "Yahoo"}\n")
+    for (tk in (listOf(Tickers.BASE) + Store.loadTickers()).distinct().take(10)) {
+        val c = try { Store.sliceAsof(Quotes.closes(tk, months)) } catch (e: Exception) { emptyList() }
+        if (c.size < 2) { sb.append("$tk  데이터 ${c.size}개\n"); continue }
+        val n = c.size
+        val prev = c[n - 2]
+        val last = c[n - 1]
+        val day = (last.second / prev.second - 1) * 100
+        val hi = c.maxOf { it.second }
+        val fromHi = (last.second / hi - 1) * 100
+        val lp = LivePrices.price(tk)
+        sb.append(
+            "$tk n=$n  ${f.format(java.util.Date(prev.first * 1000))} ${"%.2f".format(prev.second)}" +
+                " → ${f.format(java.util.Date(last.first * 1000))} ${"%.2f".format(last.second)}" +
+                "  일 ${"%+.2f".format(day)}%  고점대비 ${"%+.1f".format(fromHi)}%" +
+                (lp?.let { "  실시간 ${"%.2f".format(it)}" } ?: "") + "\n"
+        )
+    }
+    return sb.toString()
 }

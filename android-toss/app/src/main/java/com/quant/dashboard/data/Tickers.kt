@@ -35,8 +35,17 @@ object Tickers {
         Store.nameOverrides()[ticker] ?: DISPLAY[ticker]
             ?: (if (isKrw(ticker)) Universe.nameOf(ticker) else null) ?: ticker
 
-    /** 한국 종목(6자리 코드 = Yahoo .KS) → 원화 표시. */
-    fun isKrw(ticker: String): Boolean = ticker.length == 6 && ticker.all { it.isDigit() }
+    /**
+     * 원화로 표시할 종목인가.
+     *
+     * 6자리 숫자 코드가 기본이지만, `.KS`/`.KQ` 를 붙여 넣은 경우와
+     * 6자리가 아닌 국내 종목까지 잡으려고 토스 유니버스(KOSPI·KOSDAQ)도 함께 본다.
+     */
+    fun isKrw(ticker: String): Boolean {
+        val t = ticker.substringBefore('.')
+        if (t.length == 6 && t.all { it.isDigit() }) return true
+        return Universe.isKr(t)
+    }
 
     fun currencySymbol(ticker: String): String = if (isKrw(ticker)) "₩" else "$"
 

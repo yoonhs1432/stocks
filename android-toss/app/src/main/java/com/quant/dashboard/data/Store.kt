@@ -166,6 +166,9 @@ object Store {
     fun addTickers(text: String): Pair<Int, Int> {
         val tokens = text.split(',', '\n', '\r', '\t', ' ', ';')
             .map { it.trim().uppercase() }
+            // 국내 코드에 붙여 넣은 거래소 접미사는 떼어 낸다 (005930.KS → 005930).
+            // 안 떼면 6자리 판정에 걸리지 않아 원화 대신 달러로 표시된다.
+            .map { if (it.endsWith(".KS") || it.endsWith(".KQ")) it.dropLast(3) else it }
             .filter { it.isNotEmpty() }
         if (tokens.isEmpty()) return 0 to 0
         val l = loadTickers()

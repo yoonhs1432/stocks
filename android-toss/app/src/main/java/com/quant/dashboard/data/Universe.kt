@@ -28,6 +28,7 @@ object Universe {
 
     @Volatile private var items: List<Item> = emptyList()
     @Volatile private var bySymbol: Map<String, String> = emptyMap()   // 심볼 → 이름 (표시명용)
+    @Volatile private var krSymbols: Set<String> = emptySet()          // 국내(KOSPI·KOSDAQ) 심볼
     @Volatile private var date = ""       // 캐시 생성일 (yyyy-MM-dd)
     @Volatile private var loaded = false
 
@@ -56,6 +57,7 @@ object Universe {
             if (o.optString("v") != VERSION) return
             items = out
             bySymbol = out.associate { it.symbol to it.name }
+            krSymbols = out.filter { it.market == "KOSPI" || it.market == "KOSDAQ" }.map { it.symbol }.toSet()
             date = o.optString("date")
         } catch (e: Exception) {
             // 캐시가 깨졌으면 없는 셈 치고 다시 받는다
@@ -96,6 +98,7 @@ object Universe {
         val kept = items.filter { it.market !in gotMarkets }
         items = out + kept
         bySymbol = items.associate { it.symbol to it.name }
+        krSymbols = items.filter { it.market == "KOSPI" || it.market == "KOSDAQ" }.map { it.symbol }.toSet()
         date = if (ok == MARKETS.size) today() else ""   // 부분 성공은 다음에 다시 시도
         save()
         return items.size
@@ -106,6 +109,9 @@ object Universe {
      * 표시명은 화면 그리는 중에 불리므로 여기서 파일을 읽으면 안 된다.
      */
     fun nameOf(symbol: String): String? = if (!loaded) null else bySymbol[symbol]
+
+    /** 국내(KOSPI·KOSDAQ) 종목인가. 유니버스가 메모리에 없으면 false — 호출부에서 코드 형태로 보완한다. */
+    fun isKr(symbol: String): Boolean = loaded && symbol in krSymbols
 
     /**
      * 티커·이름 검색. 정확도 순: 티커 완전일치 → 티커 접두 → 이름 접두 → 이름/티커 포함.
