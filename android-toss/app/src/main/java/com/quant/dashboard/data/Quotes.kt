@@ -35,6 +35,21 @@ object Quotes {
         return if (out.size >= 2) out else list
     }
 
+    /**
+     * 토스 일봉 동시 요청 제한.
+     *
+     * 비교 탭은 20여 종목을 **병렬로** 분석하는데 종목당 200봉씩 3페이지를 받으므로
+     * 한꺼번에 60여 건이 `MARKET_DATA_CHART` 로 몰린다. 그러면 일부가 429 로 떨어지고
+     * **그 종목만 Yahoo 로 폴백**해, 한 화면 안에서 종목마다 시세 출처가 뒤섞인다.
+     * (실제로 이 때문에 같은 종목의 전일 종가가 호출 시점마다 달라져 등락률이 크게 어긋났다.)
+     */
+    private val chartGate = java.util.concurrent.Semaphore(3, true)
+
+    /** 심볼별로 마지막에 어느 소스를 썼는지 — 진단 화면에서 출처를 확인하기 위해. */
+    private val srcMap = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    fun sourceOf(symbol: String): String = srcMap[symbol] ?: "-"
+
     /** OHLC 봉. 실패 시 Yahoo 로 폴백하며, 그래도 실패하면 빈 리스트. */
     fun ohlc(
         symbol: String,
@@ -43,8 +58,32 @@ object Quotes {
     ): List<Candle> {
         // 주봉 등 일봉이 아닌 요청은 토스가 지원하지 않으므로(1m/1d 뿐) Yahoo 사용
         if (interval == "1d" && useToss(symbol)) {
-            val out = try { TossApi.dailyOhlc(symbol, barCount(months)) } catch (e: Exception) { emptyList() }
-            if (out.size >= 2) return trimMonths(out, months)
+            var out: List<Candle> = emptyList()
+            var err: String? = null
+            chartGate.acquire()
+            try {
+                var attempt = 0
+                while (attempt < 3) {
+                    try {
+                        out = TossApi.dailyOhlc(symbol, barCount(months)); break
+                    } catch (e: TossException) {
+                        err = e.code
+                        // 한도면 잠깐 쉬었다 재시도 — 여기서 포기하면 이 종목만 다른 소스가 된다
+                        if (e.http == 429) { Thread.sleep(1200L * (attempt + 1)); attempt++ } else break
+                    } catch (e: Exception) {
+                        err = e.message; break
+                    }
+                }
+            } finally {
+                chartGate.release()
+            }
+            if (out.size >= 2) {
+                srcMap[symbol] = "토스"
+                return trimMonths(out, months)
+            }
+            srcMap[symbol] = "Yahoo(토스실패:${err ?: "빈응답"})"
+        } else {
+            srcMap[symbol] = "Yahoo"
         }
         return trimMonths(Yahoo.ohlc(symbol, Store.rangeToken(months), interval), months)
     }

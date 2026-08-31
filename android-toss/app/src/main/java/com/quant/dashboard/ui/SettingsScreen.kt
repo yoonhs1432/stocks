@@ -49,6 +49,8 @@ import com.quant.dashboard.data.NetInfo
 import com.quant.dashboard.data.TossSync
 import com.quant.dashboard.data.LivePrices
 import com.quant.dashboard.data.Quotes
+import com.quant.dashboard.data.OverviewRepo
+import com.quant.dashboard.data.Yahoo
 import com.quant.dashboard.data.Store
 import com.quant.dashboard.data.Tickers
 import com.quant.dashboard.data.Universe
@@ -536,7 +538,7 @@ fun SettingsScreen() {
                 }
             },
             modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
-        ) { Text(if (diagBusy) "확인 중…" else "등락률 진단 (비교 탭 '일' 열 검증)") }
+        ) { Text(if (diagBusy) "확인 중…" else "등락률 진단 (토스 vs Yahoo 대조)") }
         diagMsg?.let {
             Text(it, color = TextSecondary, fontSize = 10.sp, fontFamily = Mono,
                 modifier = Modifier.fillMaxWidth().padding(top = 4.dp))
@@ -645,32 +647,43 @@ private fun RowScope.TickerCell(
 }
 
 /**
- * 비교 탭 "일" 열이 실제로 어떤 두 날짜를 비교하는지 그대로 찍는다.
- * 두 날짜가 연속 거래일이 아니면 시세 시계열에 구멍이 있다는 뜻이다.
+ * 등락률 진단 — 종목마다 **토스와 Yahoo 를 나란히** 찍고, 비교 탭이 실제로 들고 있는 값도 같이 보여준다.
+ *
+ * 두 소스의 전일 종가가 다르면 비교 탭 값이 호출 시점(어느 소스가 성공했는지)에 따라 달라진다.
  * IO 디스패처에서 호출.
  */
 private fun seriesDiagnostic(): String {
-    val months = Store.lookbackMonths()
-    val toss = Store.tossQuotes() && BrokerCreds.isLinked()
     val f = java.text.SimpleDateFormat("MM/dd", java.util.Locale.US)
+    fun two(c: List<Pair<Long, Double>>): String {
+        if (c.size < 2) return "데이터 ${c.size}개"
+        val prev = c[c.size - 2]
+        val last = c[c.size - 1]
+        val d = (last.second / prev.second - 1) * 100
+        return "${f.format(java.util.Date(prev.first * 1000))} ${"%.2f".format(prev.second)}" +
+            " → ${f.format(java.util.Date(last.first * 1000))} ${"%.2f".format(last.second)}" +
+            "  ${"%+.2f".format(d)}%"
+    }
+    val linked = BrokerCreds.isLinked()
     val sb = StringBuilder()
-    sb.append("기간 ${months}개월 · 소스 ${if (toss) "토스" else "Yahoo"}\n")
-    for (tk in (listOf(Tickers.BASE) + Store.loadTickers()).distinct().take(10)) {
-        val c = try { Store.sliceAsof(Quotes.closes(tk, months)) } catch (e: Exception) { emptyList() }
-        if (c.size < 2) { sb.append("$tk  데이터 ${c.size}개\n"); continue }
-        val n = c.size
-        val prev = c[n - 2]
-        val last = c[n - 1]
-        val day = (last.second / prev.second - 1) * 100
-        val hi = c.maxOf { it.second }
-        val fromHi = (last.second / hi - 1) * 100
-        val lp = LivePrices.price(tk)
-        sb.append(
-            "$tk n=$n  ${f.format(java.util.Date(prev.first * 1000))} ${"%.2f".format(prev.second)}" +
-                " → ${f.format(java.util.Date(last.first * 1000))} ${"%.2f".format(last.second)}" +
-                "  일 ${"%+.2f".format(day)}%  고점대비 ${"%+.1f".format(fromHi)}%" +
-                (lp?.let { "  실시간 ${"%.2f".format(it)}" } ?: "") + "\n"
-        )
+    sb.append("설정 소스 ${if (Store.tossQuotes() && linked) "토스" else "Yahoo"}\n")
+    val rows = OverviewRepo.cached().associateBy { it.ticker }
+    for (tk in (listOf(Tickers.BASE) + Store.loadTickers()).distinct().take(6)) {
+        sb.append("\n[$tk] 비교탭이 쓰는 소스: ${Quotes.sourceOf(tk)}\n")
+        val row = rows[tk]
+        if (row != null) {
+            sb.append("  비교탭  기준가 ${"%.2f".format(row.prevClose)}" +
+                " → ${"%.2f".format(row.price)}  ${"%+.2f".format(row.day)}%\n")
+        }
+        if (linked) {
+            val t = try {
+                TossApi.dailyOhlc(tk, 40).map { it.t to it.close }
+            } catch (e: Exception) { emptyList() }
+            sb.append("  토스   ${two(t)}\n")
+        }
+        val y = try {
+            Yahoo.ohlc(tk, "3mo", "1d").map { it.t to it.close }
+        } catch (e: Exception) { emptyList() }
+        sb.append("  Yahoo  ${two(y)}\n")
     }
     return sb.toString()
 }
