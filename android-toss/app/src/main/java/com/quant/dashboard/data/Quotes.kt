@@ -50,13 +50,39 @@ object Quotes {
 
     fun sourceOf(symbol: String): String = srcMap[symbol] ?: "-"
 
+    // ── 일봉 캐시 ──
+    // 일봉은 하루에 한 번만 바뀌는데 예전에는 화면을 새로 그릴 때마다(5분 캐시 만료 시마다)
+    // 종목당 200봉×3페이지를 다시 받았다. 현재가는 틱(`LivePrices`)이 따로 갱신하므로
+    // 일봉은 한 번 받아 두고 재사용한다.
+    private class Cached(val months: Int, val at: Long, val bars: List<Candle>)
+
+    private val cache = java.util.concurrent.ConcurrentHashMap<String, Cached>()
+
+    /** 캐시 수명. 미국장 마감(05:00 KST) 뒤 새 봉이 생기므로 반나절이면 충분하다. */
+    private const val TTL = 6 * 3600_000L
+
+    /** 받아 둔 일봉을 모두 버린다 (조회기간을 늘렸거나 소스를 바꿨을 때). */
+    fun clearCache() { cache.clear() }
+
+    fun cachedCount(): Int = cache.size
+
     /** OHLC 봉. 실패 시 Yahoo 로 폴백하며, 그래도 실패하면 빈 리스트. */
     fun ohlc(
         symbol: String,
         months: Int = Store.lookbackMonths(),
         interval: String = "1d",
+        force: Boolean = false,
     ): List<Candle> {
         // 주봉 등 일봉이 아닌 요청은 토스가 지원하지 않으므로(1m/1d 뿐) Yahoo 사용
+        if (interval == "1d") {
+            val c = cache[symbol]
+            // 더 짧은 기간을 요청하면 받아 둔 것을 잘라 쓰면 된다 — 다시 받을 필요 없음
+            if (!force && c != null && c.months >= months &&
+                System.currentTimeMillis() - c.at < TTL
+            ) {
+                return trimMonths(c.bars, months)
+            }
+        }
         if (interval == "1d" && useToss(symbol)) {
             var out: List<Candle> = emptyList()
             var err: String? = null
@@ -79,18 +105,29 @@ object Quotes {
             }
             if (out.size >= 2) {
                 srcMap[symbol] = "토스"
+                cache[symbol] = Cached(months, System.currentTimeMillis(), out)
                 return trimMonths(out, months)
+            }
+            // 폴백을 끄면 값을 지어내지 않고 비운다 — 토스가 실패했다는 사실이 화면에 드러난다
+            if (!Store.yahooFallback()) {
+                srcMap[symbol] = "실패(${err ?: "빈응답"}) · Yahoo 폴백 꺼짐"
+                return emptyList()
             }
             srcMap[symbol] = "Yahoo(토스실패:${err ?: "빈응답"})"
         } else {
             srcMap[symbol] = "Yahoo"
         }
-        return trimMonths(Yahoo.ohlc(symbol, Store.rangeToken(months), interval), months)
+        val y = Yahoo.ohlc(symbol, Store.rangeToken(months), interval)
+        if (interval == "1d" && y.size >= 2) {
+            cache[symbol] = Cached(months, System.currentTimeMillis(), y)
+        }
+        return trimMonths(y, months)
     }
 
     fun closes(
         symbol: String,
         months: Int = Store.lookbackMonths(),
         interval: String = "1d",
-    ): List<Pair<Long, Double>> = ohlc(symbol, months, interval).map { Pair(it.t, it.close) }
+        force: Boolean = false,
+    ): List<Pair<Long, Double>> = ohlc(symbol, months, interval, force).map { Pair(it.t, it.close) }
 }

@@ -436,11 +436,34 @@ fun SettingsScreen() {
                         var tossQ by remember { mutableStateOf(Store.tossQuotes()) }
                         Label("시세 소스")
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Seg("Yahoo", !tossQ) { tossQ = false; Store.setTossQuotes(false); AppState.bump() }
-                            Seg("토스", tossQ) { tossQ = true; Store.setTossQuotes(true); AppState.bump() }
+                            Seg("Yahoo", !tossQ) {
+                                tossQ = false; Store.setTossQuotes(false); Quotes.clearCache(); AppState.bump()
+                            }
+                            Seg("토스", tossQ) {
+                                tossQ = true; Store.setTossQuotes(true); Quotes.clearCache(); AppState.bump()
+                            }
                         }
-                        Text("토스 시세는 일봉 200개/요청이라 2년치면 종목당 3회 호출이 필요합니다.\n" +
-                            "조회되지 않는 종목과 코인(BTC·ETH)은 자동으로 Yahoo로 넘어갑니다.",
+                        var fb by remember { mutableStateOf(Store.yahooFallback()) }
+                        Label("토스 실패 시 Yahoo 로 대체")
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Seg("대체함", fb) { fb = true; Store.setYahooFallback(true); Quotes.clearCache(); AppState.bump() }
+                            Seg("안 함", !fb) { fb = false; Store.setYahooFallback(false); Quotes.clearCache(); AppState.bump() }
+                        }
+                        Text("두 소스의 전일 종가가 달라 등락률이 어긋난 적이 있습니다.\n" +
+                            "\"안 함\"으로 두면 토스가 실패한 종목은 값이 아예 안 나오므로 문제가 바로 드러납니다.",
+                            color = TextMuted, fontSize = 11.sp)
+                        Box(
+                            Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(SurfaceInput)
+                                .clickable { Quotes.clearCache(); AppState.bump() }
+                                .padding(vertical = 8.dp),
+                            contentAlignment = Alignment.Center,
+                        ) { Text("일봉 다시 받기", color = TextSecondary, fontSize = 12.sp) }
+                        Text("일봉은 하루 한 번만 바뀌므로 받아 두고 재사용합니다(6시간). " +
+                            "현재가는 위의 실시간 갱신 주기로 따로 받아옵니다.",
+                            color = TextMuted, fontSize = 11.sp)
+                        Text("토스 일봉은 200개/요청이라 2년치면 종목당 3회 호출입니다. " +
+                            "동시 요청을 3건으로 제한해 한도(429)에 걸리지 않게 합니다.\n" +
+                            "코인(BTC·ETH)은 토스 범위 밖이라 항상 Yahoo입니다.",
                             color = TextMuted, fontSize = 11.sp)
                     }
                     Text("🔒 자격증명은 이 기기에만 암호화 저장되며 외부로 전송되지 않습니다.\n" +
@@ -665,7 +688,9 @@ private fun seriesDiagnostic(): String {
     }
     val linked = BrokerCreds.isLinked()
     val sb = StringBuilder()
-    sb.append("설정 소스 ${if (Store.tossQuotes() && linked) "토스" else "Yahoo"}\n")
+    sb.append("설정 소스 ${if (Store.tossQuotes() && linked) "토스" else "Yahoo"}" +
+        " · Yahoo 대체 ${if (Store.yahooFallback()) "함" else "안 함"}" +
+        " · 일봉 캐시 ${Quotes.cachedCount()}종목\n")
     val rows = OverviewRepo.cached().associateBy { it.ticker }
     for (tk in (listOf(Tickers.BASE) + Store.loadTickers()).distinct().take(6)) {
         sb.append("\n[$tk] 비교탭이 쓰는 소스: ${Quotes.sourceOf(tk)}\n")

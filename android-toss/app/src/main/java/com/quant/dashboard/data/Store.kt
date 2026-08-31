@@ -329,6 +329,16 @@ object Store {
     fun rankDuration(): String = settings().optString("rank_duration", "1d")
     fun setRankDuration(v: String) { saveSettings(settings().put("rank_duration", v)) }
 
+    /**
+     * 토스 조회가 실패했을 때 Yahoo 로 대신 받을지. 기본 켬.
+     *
+     * **끄면** 토스가 실패한 종목은 값이 아예 안 나온다. 두 소스의 종가가 달라
+     * 등락률이 어긋나는 상황에서, 조용히 다른 소스 값을 보여주는 대신
+     * "토스가 실패했다"는 사실 자체를 드러내려는 스위치다.
+     */
+    fun yahooFallback(): Boolean = settings().optBoolean("yahoo_fallback", true)
+    fun setYahooFallback(v: Boolean) { saveSettings(settings().put("yahoo_fallback", v)) }
+
     /** 시세를 토스 API로 받을지 (기본 꺼짐 — 레이트리밋·종목 커버리지 확인 전까지 Yahoo 유지). */
     fun tossQuotes(): Boolean = settings().optBoolean("toss_quotes", false)
     fun setTossQuotes(v: Boolean) { saveSettings(settings().put("toss_quotes", v)) }
