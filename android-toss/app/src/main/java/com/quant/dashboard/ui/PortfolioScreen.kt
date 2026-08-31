@@ -62,6 +62,9 @@ import com.quant.dashboard.ui.theme.TextSecondary
 import com.quant.dashboard.ui.theme.WeightPalette
 
 private fun pc(v: Double) = if (v > 0) Profit else if (v < 0) Loss else Neutral
+
+/** 소수비율(0.0141) → "+1.41%". 토스 API 는 손익률을 전부 소수비율로 준다. */
+private fun signPct(r: Double): String = (if (r >= 0) "+" else "") + "%.2f%%".format(r * 100)
 private fun ident(i: Int) = WeightPalette[i % WeightPalette.size]
 
 /**
@@ -150,8 +153,19 @@ private fun TossBody(onOpenAnalysis: (String) -> Unit) {
         }
         Text("%,.0f원".format(a.totalKrw()), color = TextPrimary, fontSize = 32.sp,
             fontWeight = FontWeight.Bold, fontFamily = Mono)
-        Text("평가손익 ${won(a.pnlKrw(), 1.0)}", color = pc(a.pnlKrw()),
-            fontSize = 13.sp, fontWeight = FontWeight.SemiBold, fontFamily = Mono)
+        // 당일 손익 — 토스 API 가 계산해 준 값을 그대로 쓴다 (증권사 앱과 같은 기준)
+        val hs = a.holdings
+        Text(
+            "오늘 ${won(a.dailyPnlKrw(), 1.0)} (${signPct(hs.dailyPnlRate)})",
+            color = pc(a.dailyPnlKrw()), fontSize = 15.sp,
+            fontWeight = FontWeight.Bold, fontFamily = Mono,
+        )
+        Text(
+            "평가손익 ${won(a.pnlKrw(), 1.0)} (${signPct(hs.pnlRate)})" +
+                " · 비용차감 ${won(a.pnlAfterCostKrw(), 1.0)} (${signPct(hs.pnlRateAfterCost)})",
+            color = pc(a.pnlKrw()), fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold, fontFamily = Mono,
+        )
 
         Spacer(Modifier.height(8.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -183,10 +197,13 @@ private fun TossBody(onOpenAnalysis: (String) -> Unit) {
         }
         a.holdings.items.forEachIndexed { i, h ->
             val cur = if (h.currency == "KRW") "₩" else "$"
-            // 실시간 틱이 있으면 평가금액·손익률을 현재가로 다시 계산
+            // 실시간 틱이 있으면 현재가로 다시 계산한다. 기준은 API 와 동일하게 맞춘다 —
+            // 누적 손익률 = 현재가/평단 - 1, 당일 등락률 = 현재가/전일기준가 - 1
+            // (전일기준가는 API 의 당일 손익률에서 역산). 안 맞으면 증권사 앱과 숫자가 어긋난다.
             val lp = LivePrices.price(h.symbol)
             val evalAmt = if (lp != null) lp * h.quantity else h.evalAmount
             val rate2 = if (lp != null && h.avgPrice > 0) lp / h.avgPrice - 1.0 else h.pnlRate
+            val dayRate = if (lp != null && h.basePrice > 0) lp / h.basePrice - 1.0 else h.dailyPnlRate
             Row(
                 Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
                     .clickable { onOpenAnalysis(h.symbol) }
@@ -201,9 +218,13 @@ private fun TossBody(onOpenAnalysis: (String) -> Unit) {
                 Text(qtyLabel(h.quantity), color = TextMuted, fontSize = 11.sp,
                     fontFamily = Mono, modifier = Modifier.weight(1f))
                 Column(horizontalAlignment = Alignment.End) {
-                    Text("$cur${"%,.2f".format(evalAmt)}", color = TextPrimary,
-                        fontSize = 12.5.sp, fontFamily = Mono)
-                    Text("평단 $cur${"%,.2f".format(h.avgPrice)} · ${if (rate2 >= 0) "+" else ""}${"%.2f".format(rate2 * 100)}%",
+                    Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                        Text("$cur${"%,.2f".format(evalAmt)}", color = TextPrimary,
+                            fontSize = 12.5.sp, fontFamily = Mono)
+                        Text("오늘 ${signPct(dayRate)}", color = pc(dayRate),
+                            fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = Mono)
+                    }
+                    Text("평단 $cur${"%,.2f".format(h.avgPrice)} · ${signPct(rate2)}",
                         color = pc(rate2), fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold, fontFamily = Mono)
                 }

@@ -162,9 +162,16 @@ object TossApi {
         val purchaseAmount: Double,
         val evalAmount: Double,
         val pnlAmount: Double,
-        val pnlRate: Double,         // 소수비율 (0.1077 = 10.77%)
+        val pnlRate: Double,             // 소수비율 (0.1077 = 10.77%). = lastPrice/avgPrice - 1
+        val pnlAmountAfterCost: Double,  // 수수료·세금 공제 후
+        val pnlRateAfterCost: Double,
+        val dailyPnlAmount: Double,      // 당일 손익 (거래 통화 기준)
         val dailyPnlRate: Double,
-    )
+    ) {
+        /** 전일 기준가 — 당일 손익률에서 역산. 실시간 시세로 당일 등락을 다시 계산할 때 쓴다. */
+        val basePrice: Double
+            get() = if (dailyPnlRate > -1.0 && dailyPnlRate != 0.0) lastPrice / (1 + dailyPnlRate) else lastPrice
+    }
 
     /** 계좌 전체 요약 + 종목 목록. 통화별 합계는 환산 없이 통화별로만 집계된다. */
     data class Holdings(
@@ -173,6 +180,11 @@ object TossApi {
         val krwPnl: Double, val usdPnl: Double,
         val pnlRate: Double,          // 전체 원화 환산 기준 손익률
         val items: List<Holding>,
+        // 아래는 토스 앱 화면과 대조하기 위해 API 값을 그대로 들고 있는 것들
+        val krwPnlAfterCost: Double = 0.0, val usdPnlAfterCost: Double = 0.0,
+        val pnlRateAfterCost: Double = 0.0,
+        val krwDailyPnl: Double = 0.0, val usdDailyPnl: Double = 0.0,
+        val dailyPnlRate: Double = 0.0,   // 전체 원화 환산 기준 당일 손익률
     )
 
     /** `GET /api/v1/holdings` — 국내(KR)·미국(US) 주식만 포함. */
@@ -185,6 +197,9 @@ object TossApi {
         val (ke, ue) = pair(r.optJSONObject("marketValue")?.optJSONObject("amount"))
         val pl = r.optJSONObject("profitLoss")
         val (kl, ul) = pair(pl?.optJSONObject("amount"))
+        val (kla, ula) = pair(pl?.optJSONObject("amountAfterCost"))
+        val dpl = r.optJSONObject("dailyProfitLoss")
+        val (kd, ud) = pair(dpl?.optJSONObject("amount"))
 
         val arr = r.optJSONArray("items") ?: JSONArray()
         val items = (0 until arr.length()).mapNotNull { i ->
@@ -203,10 +218,19 @@ object TossApi {
                 evalAmount = mv?.dec("amount", 0.0) ?: 0.0,
                 pnlAmount = p?.dec("amount", 0.0) ?: 0.0,
                 pnlRate = p?.dec("rate", 0.0) ?: 0.0,
+                pnlAmountAfterCost = p?.dec("amountAfterCost", 0.0) ?: 0.0,
+                pnlRateAfterCost = p?.dec("rateAfterCost", 0.0) ?: 0.0,
+                dailyPnlAmount = o.optJSONObject("dailyProfitLoss")?.dec("amount", 0.0) ?: 0.0,
                 dailyPnlRate = o.optJSONObject("dailyProfitLoss")?.dec("rate", 0.0) ?: 0.0,
             )
         }
-        return Holdings(kp, up, ke, ue, kl, ul, pl?.dec("rate", 0.0) ?: 0.0, items)
+        return Holdings(
+            kp, up, ke, ue, kl, ul, pl?.dec("rate", 0.0) ?: 0.0, items,
+            krwPnlAfterCost = kla, usdPnlAfterCost = ula,
+            pnlRateAfterCost = pl?.dec("rateAfterCost", 0.0) ?: 0.0,
+            krwDailyPnl = kd, usdDailyPnl = ud,
+            dailyPnlRate = dpl?.dec("rate", 0.0) ?: 0.0,
+        )
     }
 
     // ── 체결 내역 (종료된 주문) ──

@@ -127,6 +127,10 @@ object TossSync {
         fun totalKrw(): Double = krwEval + krwCash + (usdEval + usdCash) * rate
         /** 평가손익 합계(원화 환산). */
         fun pnlKrw(): Double = holdings.krwPnl + holdings.usdPnl * rate
+        /** 수수료·세금 공제 후 평가손익(원화 환산) — 증권사 앱이 보통 이 값을 보여준다. */
+        fun pnlAfterCostKrw(): Double = holdings.krwPnlAfterCost + holdings.usdPnlAfterCost * rate
+        /** 당일 손익(원화 환산). */
+        fun dailyPnlKrw(): Double = holdings.krwDailyPnl + holdings.usdDailyPnl * rate
     }
 
     @Volatile private var accountCache: Account? = null
