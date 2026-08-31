@@ -95,7 +95,7 @@ fun CompareScreen(vm: CompareViewModel = viewModel(), onOpenAnalysis: (String) -
             ) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(if (s.showTop) Rankings.titleOf(s.rankType, s.rankDuration, s.rankNote != null) else "종목 비교",
+                    Text(if (s.showTop) Rankings.titleOf(s.rankMarket, s.rankType, s.rankDuration, s.rankNote != null) else "종목 비교",
                         color = TextPrimary, fontSize = 19.sp, fontWeight = FontWeight.Bold,
                         modifier = Modifier.weight(1f))
                     // 워치리스트 ↔ 미국 시총 상위 30개 전환
@@ -105,7 +105,7 @@ fun CompareScreen(vm: CompareViewModel = viewModel(), onOpenAnalysis: (String) -
                             .clickable { vm.toggleTop() }
                             .padding(horizontal = 12.dp, vertical = 6.dp),
                     ) {
-                        Text(if (s.showTop) "내 목록" else "TOP 30",
+                        Text(if (s.showTop) "내 목록" else "TOP ${Rankings.COUNT}",
                             color = if (s.showTop) Color(0xFF0C0E11) else TextSecondary,
                             fontSize = 13.sp, fontWeight = FontWeight.Bold)
                     }
@@ -124,6 +124,10 @@ fun CompareScreen(vm: CompareViewModel = viewModel(), onOpenAnalysis: (String) -
                 if (s.showTop) {
                     Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Rankings.MARKETS.forEach { (id, label) ->
+                            RankChip(label, s.rankMarket == id) { vm.setRankMarket(id) }
+                        }
+                        Spacer(Modifier.size(6.dp))
                         Rankings.TYPES.forEach { (id, label) ->
                             RankChip(label, s.rankType == id) { vm.setRankType(id) }
                         }
@@ -141,7 +145,7 @@ fun CompareScreen(vm: CompareViewModel = viewModel(), onOpenAnalysis: (String) -
                 when {
                     active.isEmpty() && err != null -> Text("⚠️ $err", color = Loss)
                     active.isEmpty() -> Text(
-                        if (s.showTop) "미장 TOP ${Rankings.COUNT} 불러오는 중… (${Rankings.COUNT}종목)" else "불러오는 중…",
+                        if (s.showTop) "${Rankings.marketLabel(s.rankMarket)} TOP ${Rankings.COUNT} 불러오는 중…" else "불러오는 중…",
                         color = TextSecondary, modifier = Modifier.padding(24.dp))
                     else -> {
                 Column(Modifier.fillMaxWidth()) {

@@ -320,6 +320,10 @@ object Store {
      * 비교 탭 미장 TOP 목록의 랭킹 기준 (`GET /api/v1/rankings`).
      * 토스에 시가총액 랭킹이 없어 거래대금 상위(1일)를 기본값으로 둔다.
      */
+    /** 비교 탭 TOP 목록의 시장: "US" | "KR". */
+    fun rankMarket(): String = settings().optString("rank_market", "US")
+    fun setRankMarket(v: String) { saveSettings(settings().put("rank_market", v)) }
+
     fun rankType(): String = settings().optString("rank_type", "MARKET_TRADING_AMOUNT")
     fun setRankType(v: String) { saveSettings(settings().put("rank_type", v)) }
 
@@ -330,12 +334,8 @@ object Store {
     fun tossQuotes(): Boolean = settings().optBoolean("toss_quotes", false)
     fun setTossQuotes(v: Boolean) { saveSettings(settings().put("toss_quotes", v)) }
 
-    // ── Gist 연동 ──
-    fun gistToken(): String = settings().optString("gist_token", "")
-    fun gistId(): String = settings().optString("gist_id", "")
-    fun setGist(token: String, id: String) {
-        saveSettings(settings().put("gist_token", token.trim()).put("gist_id", id.trim()))
-    }
+    // ── 데스크톱 JSON 가져오기 ──
+    // Gist 연동을 제거해 지금은 호출부가 없다. 파일 선택으로 가져오기를 붙일 때 재사용하려고 남겨 둔다.
 
     /** 데스크톱 quant_trade_history.json 포맷 → 로컬 매매기록 덮어쓰기. 종목 수 반환.
      *  데스크톱은 누락 필드를 r.get('qty',0)처럼 관대하게 다루므로 여기서도 opt*로 안전 파싱. */

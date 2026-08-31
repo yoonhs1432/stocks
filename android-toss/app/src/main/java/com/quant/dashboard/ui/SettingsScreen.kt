@@ -39,7 +39,6 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.quant.dashboard.data.Gist
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -194,56 +193,6 @@ fun SettingsScreen() {
                 hint = "그래프는 항상 일 단위로 그립니다 — 주/월로 묶으면 같은 기간이 성기게 보일 뿐이라 없앴습니다.\n" +
                     "차트에서 핀치로 확대하고, 아무 지점이나 누르면 그 시점의 금액이 표시됩니다.",
             ) { eqM = it; Store.setEquityMonths(it); AppState.bump() }
-        }
-
-        // ══════════ 데이터 (Gist) — 접힘 ══════════
-        SectionHeader("데이터 (Gist 연동)")
-        SettingsCard {
-            var token by remember { mutableStateOf(Store.gistToken()) }
-            var gistId by remember { mutableStateOf(Store.gistId()) }
-            var gistMsg by remember { mutableStateOf<String?>(null) }
-            var busy by remember { mutableStateOf(false) }
-            var gistOpen by remember { mutableStateOf(false) }
-            val scope = rememberCoroutineScope()
-            val status = gistMsg ?: if (token.isNotBlank() && gistId.isNotBlank()) "연동됨 (탭하여 불러오기)" else "미설정"
-            Text("${if (gistOpen) "▲" else "▼"}  $status", color = TextSecondary, fontSize = 12.sp,
-                modifier = Modifier.fillMaxWidth().clickable { gistOpen = !gistOpen })
-            if (gistOpen) {
-                OutlinedTextField(token, { token = it }, label = { Text("GitHub Token (ghp_…)") },
-                    singleLine = true, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(gistId, { gistId = it }, label = { Text("Gist ID") },
-                    singleLine = true, modifier = Modifier.fillMaxWidth())
-                Button(
-                    enabled = !busy,
-                    onClick = {
-                        Store.setGist(token, gistId)
-                        busy = true; gistMsg = "불러오는 중…"
-                        scope.launch {
-                            val msg = withContext(Dispatchers.IO) {
-                                try {
-                                    val tradesTxt = Gist.fetchFile(token.trim(), gistId.trim(), Gist.FILE_TRADES)
-                                    val tickersTxt = Gist.fetchFile(token.trim(), gistId.trim(), Gist.FILE_TICKERS)
-                                    val settingsTxt = Gist.fetchFile(token.trim(), gistId.trim(), Gist.FILE_SETTINGS)
-                                    if (tradesTxt == null && tickersTxt == null && settingsTxt == null) "실패: 토큰/Gist ID 확인 또는 파일 없음"
-                                    else {
-                                        val nt = tradesTxt?.let { Store.saveTradesFromJson(it) } ?: 0
-                                        val nk = tickersTxt?.let { Store.saveTickersFromJson(it) } ?: 0
-                                        val ni = settingsTxt?.let { Store.saveSettingsFromJson(it) } ?: 0
-                                        "✓ 불러옴: 매매 ${nt}종목 · 종목 ${nk}개 · 개별 ${ni}개"
-                                    }
-                                } catch (e: Exception) { "오류: ${e.message}" }
-                            }
-                            gistMsg = msg; busy = false
-                            tickers = Store.loadTickers().toList()
-                            nameEdits.clear(); nameEdits.putAll(Store.nameOverrides())
-                            indivVer++; AppState.bump()
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                ) { Text(if (busy) "불러오는 중…" else "Gist에서 불러오기") }
-                Text("데스크톱과 같은 Gist 사용. 불러오면 로컬 데이터를 덮어씁니다.",
-                    color = TextMuted, fontSize = 11.sp)
-            }
         }
 
         // ══════════ 토스증권 연동 (조회 전용) ══════════
@@ -497,7 +446,7 @@ fun SettingsScreen() {
                             "조회되지 않는 종목과 코인(BTC·ETH)은 자동으로 Yahoo로 넘어갑니다.",
                             color = TextMuted, fontSize = 11.sp)
                     }
-                    Text("🔒 자격증명은 이 기기에만 암호화 저장되며 Gist·서버로 전송되지 않습니다.\n" +
+                    Text("🔒 자격증명은 이 기기에만 암호화 저장되며 외부로 전송되지 않습니다.\n" +
                         "조회 전용입니다 — 주문·정정·취소 기능은 구현되어 있지 않습니다.\n" +
                         "⚠️ 토스 API는 허용 IP 목록 밖에서는 차단됩니다. 휴대폰 IP는 자주 바뀌므로\n" +
                         "토스증권 WTS(tossinvest.com) → 설정 → Open API → 허용 IP 관리에서 현재 IP를 등록해야 합니다.",
@@ -532,7 +481,7 @@ fun SettingsScreen() {
         }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedTextField(input, { input = it },
-                placeholder = { Text(if (uniCount > 0) "티커 또는 이름 (NVDA·애플)" else "티커 (NVDA, AAPL, PLTR)") },
+                placeholder = { Text(if (uniCount > 0) "티커 또는 이름 (NVDA·애플·삼성전자)" else "티커 (NVDA, AAPL, 005930)") },
                 singleLine = false, maxLines = 4, modifier = Modifier.weight(1f))
             Button(onClick = {
                 if (input.isNotBlank()) {
@@ -578,14 +527,14 @@ fun SettingsScreen() {
             }
         }
 
-        Text("최소 ${Store.MIN_TICKERS}개 · 한국=6자리(.KS/.KQ 자동) · 개별/ETF·이름 셀에서 편집\n" +
+        Text("최소 ${Store.MIN_TICKERS}개 · 국내=6자리(.KS/.KQ 자동) · 개별/ETF·이름 셀에서 편집\n" +
             "여러 개를 콤마·줄바꿈으로 구분해 한 번에 붙여넣을 수 있습니다",
             color = TextMuted, fontSize = 11.sp, modifier = Modifier.padding(vertical = 2.dp))
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(
                 when {
                     uniBusy -> "종목 목록 받는 중…"
-                    uniCount > 0 -> "🔎 이름 검색 가능 — 미국 ${"%,d".format(uniCount)}종목 (${Universe.cachedDate().ifEmpty { "부분" }})"
+                    uniCount > 0 -> "🔎 이름 검색 가능 — 미국·국내 ${"%,d".format(uniCount)}종목 (${Universe.cachedDate().ifEmpty { "부분" }})"
                     BrokerCreds.isLinked() -> "종목 목록을 아직 받지 못했습니다"
                     else -> "토스 연동 시 이름으로 종목을 찾을 수 있습니다"
                 },

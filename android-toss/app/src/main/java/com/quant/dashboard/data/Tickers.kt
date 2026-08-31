@@ -25,9 +25,15 @@ object Tickers {
         "BTC-USD" to "BTC", "ETH-USD" to "ETH", "005930" to "삼전", "000660" to "하닉",
     )
 
-    /** 사용자 override > 하드코딩 표시명 > 코드 그대로. */
+    /**
+     * 사용자 override > 하드코딩 표시명 > (국내 종목만) 토스 유니버스 이름 > 코드 그대로.
+     *
+     * 국내는 6자리 숫자라 코드만 보면 무슨 종목인지 알 수 없어 이름을 채운다.
+     * 미국은 티커 자체가 읽히므로 그대로 둔다 — 표에서 "AAPL"이 "애플"보다 낫다.
+     */
     fun displayName(ticker: String): String =
-        Store.nameOverrides()[ticker] ?: DISPLAY[ticker] ?: ticker
+        Store.nameOverrides()[ticker] ?: DISPLAY[ticker]
+            ?: (if (isKrw(ticker)) Universe.nameOf(ticker) else null) ?: ticker
 
     /** 한국 종목(6자리 코드 = Yahoo .KS) → 원화 표시. */
     fun isKrw(ticker: String): Boolean = ticker.length == 6 && ticker.all { it.isDigit() }

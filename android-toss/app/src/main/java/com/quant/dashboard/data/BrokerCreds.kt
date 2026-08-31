@@ -10,8 +10,8 @@ import androidx.security.crypto.MasterKeys
  *
  * ⚠️ 절대 지켜야 할 것 (저장소·APK가 모두 공개이므로):
  *  1. 키를 코드·리소스·gradle에 넣지 말 것 — 사용자가 설정 탭에서 직접 입력한다.
- *  2. `Store.settings()`(filesDir/settings.json)에 두지 말 것 — 그 경로는 Gist로
- *     동기화되므로 원격 저장소에 자격증명이 올라간다.
+ *  2. `Store.settings()`(filesDir/settings.json)에 두지 말 것 — 백업·내보내기 대상 경로라
+ *     자격증명이 기기 밖으로 나갈 수 있다. (이 앱의 Gist 연동은 제거했지만 원칙은 유지)
  *  3. 암호화 저장에 실패하면 **평문으로 물러나지 않고** 연동을 비활성화한다.
  *
  * 계좌번호는 사용자가 입력하지 않는다 — `GET /api/v1/accounts` 로 조회한 `accountSeq` 를

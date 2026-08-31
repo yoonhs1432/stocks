@@ -37,6 +37,7 @@ import com.quant.dashboard.data.LivePrices
 import com.quant.dashboard.data.MarketHours
 import com.quant.dashboard.data.MarketRepo
 import com.quant.dashboard.data.Tickers
+import com.quant.dashboard.data.Universe
 import com.quant.dashboard.data.TossSync
 import com.quant.dashboard.data.Store
 import com.quant.dashboard.ui.theme.BgApp
@@ -87,6 +88,17 @@ fun AppScaffold() {
     // ── 실시간 시세 틱 ──
     // 장이 열려 있을 때만, 설정한 주기로 `/prices` 를 한 번 호출해 전 종목 현재가를 갱신한다.
     // 일봉·분석은 무거워서 기존 5분 캐시 그대로 두고, 화면의 현재가·등락률만 이 값으로 덮어쓴다.
+    // 종목 유니버스(이름 검색·국내 표시명)는 앱 시작 시 한 번 메모리에 올려 둔다 —
+    // 표시명은 화면 그리는 중에 불리므로 그때 파일을 읽으면 안 된다.
+    LaunchedEffect(Unit) {
+        val before = withContext(Dispatchers.IO) { Universe.count() }   // 파일 캐시 → 메모리
+        val after = withContext(Dispatchers.IO) {
+            runCatching { Universe.ensure() }.getOrDefault(before)      // 하루 1회만 실제 요청
+        }
+        // 처음으로 이름이 생겼을 때만 화면을 갱신한다 (매 실행마다 전체 재조회를 유발하지 않게)
+        if (after != before) AppState.bump()
+    }
+
     LaunchedEffect(AppState.dataVersion) {
         while (true) {
             val sec = Store.tickSeconds()

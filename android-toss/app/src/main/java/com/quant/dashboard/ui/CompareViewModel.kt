@@ -30,6 +30,7 @@ data class CompareState(
     val topLoading: Boolean = false,
     val topError: String? = null,
     // 랭킹 기준 (토스 /rankings). 미연동이면 하드코딩 목록으로 폴백되고 그 사유가 rankNote 에 담긴다.
+    val rankMarket: String = "US",
     val rankType: String = "MARKET_TRADING_AMOUNT",
     val rankDuration: String = "1d",
     val rankNote: String? = null,
@@ -37,7 +38,11 @@ data class CompareState(
 
 class CompareViewModel : ViewModel() {
     var state by mutableStateOf(
-        CompareState(rankType = Store.rankType(), rankDuration = Store.rankDuration())
+        CompareState(
+            rankMarket = Store.rankMarket(),
+            rankType = Store.rankType(),
+            rankDuration = Store.rankDuration(),
+        )
     )
         private set
 
@@ -53,6 +58,14 @@ class CompareViewModel : ViewModel() {
             loadIfEmpty()
             if (state.showTop && state.topRows.isEmpty() && !state.topLoading) loadTop()
         }
+    }
+
+    /** 시장 전환(미국 ↔ 국내) — 종목 자체가 바뀌므로 강제 재로드. */
+    fun setRankMarket(m: String) {
+        if (m == state.rankMarket) return
+        Store.setRankMarket(m)
+        state = state.copy(rankMarket = m, topRows = emptyList())
+        loadTop(force = true)
     }
 
     /** 랭킹 기준 변경 — 종목 자체가 바뀌므로 강제 재로드. */
