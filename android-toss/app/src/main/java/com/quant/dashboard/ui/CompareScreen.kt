@@ -206,6 +206,8 @@ private fun RowScope.DotName(state: Int, name: String, weight: Float, alpha: Flo
     }
 }
 
+private fun zmText(v: Double) = if (v.isNaN()) "–" else "%.0f".format(v)
+
 private fun signed(v: Double) = (if (v >= 0) "+" else "") + "%.1f%%".format(v)
 
 
@@ -279,7 +281,8 @@ private fun QuoteRow(vm: CompareViewModel, r: CompareRow, onOpenAnalysis: (Strin
         DotName((if (r.holding) 2 else if (r.hasHistory) 1 else 0), r.name, 2.4f, alpha = alpha)
         Cell(Tickers.priceLabel(r.ticker, px), 2f, pnColor(day).copy(alpha = alpha), bg = flashBg)
         Cell(signed(day), 1.4f, pnColor(day).copy(alpha = alpha))
-        Cell("%.0f".format(r.zPct), 1f, pctColor(r.zPct).copy(alpha = alpha), fw = FontWeight.Bold)
-        Cell("%.0f".format(r.mPct), 1f, pctColor(r.mPct).copy(alpha = alpha), fw = FontWeight.Bold)
+        // 상장 직후 등으로 회귀가 안 되는 종목은 Z·M 이 비어 있다 (NaN → "–")
+        Cell(zmText(r.zPct), 1f, pctColor(r.zPct).copy(alpha = alpha), fw = FontWeight.Bold)
+        Cell(zmText(r.mPct), 1f, pctColor(r.mPct).copy(alpha = alpha), fw = FontWeight.Bold)
     }
 }

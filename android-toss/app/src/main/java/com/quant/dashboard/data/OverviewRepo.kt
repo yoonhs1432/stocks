@@ -40,8 +40,12 @@ object OverviewRepo {
      * 파일에 박아 두면 전량 매도 후에 손으로 지워야 한다.
      */
     suspend fun load(force: Boolean = false): List<Row> {
-        val held = TossSync.cachedAccount()?.holdings?.items
-            ?.filter { it.quantity > 0 }?.map { it.symbol }.orEmpty()
+        // 캐시만 읽으면 포트폴리오 탭을 아직 안 열었을 때 보유종목이 비어 목록에서 빠진다.
+        // account() 는 5분 캐시라 여기서 불러도 추가 요청이 거의 없다.
+        val acct = withContext(Dispatchers.IO) {
+            TossSync.cachedAccount() ?: runCatching { TossSync.account() }.getOrNull()
+        }
+        val held = acct?.holdings?.items?.filter { it.quantity > 0 }?.map { it.symbol }.orEmpty()
         val tickers = (Store.loadTickers() + held).distinct()
         return loadInto(watchSlot, tickers, force, keyExtra = held.sorted().joinToString(","))
     }
@@ -56,34 +60,54 @@ object OverviewRepo {
         val spy = Store.sliceAsof(Quotes.closes(Tickers.BASE, months))
         if (spy.isEmpty()) return slot.rows
         val trades = Store.visibleTrades()
+        val acct = TossSync.cachedAccount()
         // 토스 모드에서는 ★(보유)를 매매기록 계산이 아니라 실제 계좌 잔고로 판정한다
         val tossHeld: Set<String>? =
-            if (Store.tossMode()) TossSync.cachedAccount()?.holdings?.items
+            if (Store.tossMode()) acct?.holdings?.items
                 ?.filter { it.quantity > 0 }?.map { it.symbol }?.toSet()
             else null
+        // 시세를 못 받은 보유종목의 최후 수단 — 계좌가 알려주는 현재가
+        val heldPrice: Map<String, Double> =
+            acct?.holdings?.items?.associate { it.symbol to it.lastPrice }.orEmpty()
         val rows = coroutineScope {
             tickers.map { tk ->
                 async(Dispatchers.IO) {
                     val closes = Store.sliceAsof(Quotes.closes(tk, months))
-                    val r = Quant.analyze(spy, closes) ?: return@async null
-                    // 등락률은 **원본 일봉**에서 계산한다. r.price 는 SPY 와 날짜 교집합을 낸 결과라
-                    // 기준일이 직전 거래일이 아닐 수 있고, 그러면 "일" 열이 며칠치 변동으로 부풀려진다.
                     val p = DoubleArray(closes.size) { closes[it].second }
                     val m = p.size
-                    if (m < 2) return@async null
+                    val held = tossHeld?.contains(tk) ?: (Portfolio.currentHoldQty(trades[tk].orEmpty()) > 0)
+                    val hasTrades = trades[tk].orEmpty().isNotEmpty()
+                    val NA = Double.NaN
+
+                    // 시세를 못 받았어도 보유 중이면 계좌가 알려주는 현재가로라도 목록에 남긴다.
+                    // 조용히 빠지면 "내가 산 종목이 왜 안 보이지"가 된다.
+                    if (m < 2) {
+                        val hp = heldPrice[tk] ?: return@async null
+                        return@async Row(
+                            ticker = tk, name = Tickers.displayName(tk), price = hp, prevClose = hp,
+                            day = 0.0, week = 0.0, fromHigh = 0.0,
+                            zPct = NA, mPct = NA, signal = "", beta = NA, sigmaPct = NA,
+                            holding = held, hasHistory = hasTrades,
+                        )
+                    }
+
+                    // 상장한 지 얼마 안 된 종목은 회귀에 필요한 거래일이 모자라 analyze 가 null 이다.
+                    // 그래도 가격·등락률은 보여줄 수 있으므로 행을 버리지 않고 Z·M 만 비운다.
+                    val r = Quant.analyze(spy, closes)
+                    // 등락률은 **원본 일봉**에서 계산한다. r.price 는 SPY 와 날짜 교집합을 낸 결과라
+                    // 기준일이 직전 거래일이 아닐 수 있고, 그러면 "일" 열이 며칠치 변동으로 부풀려진다.
                     val prevD = p[m - 2]
                     val prevW = if (m > 5) p[m - 6] else prevD
                     val high = p.max()
-                    val held = tossHeld?.contains(tk) ?: (Portfolio.currentHoldQty(trades[tk].orEmpty()) > 0)
                     Row(
                         ticker = tk, name = Tickers.displayName(tk), price = p[m - 1],
                         prevClose = prevD,
                         day = if (prevD > 0) (p[m - 1] / prevD - 1) * 100 else 0.0,
                         week = if (prevW > 0) (p[m - 1] / prevW - 1) * 100 else 0.0,
                         fromHigh = if (high > 0) (p[m - 1] / high - 1) * 100 else 0.0,
-                        zPct = r.lastZpct, mPct = r.lastMpct, signal = r.signal,
-                        beta = r.beta, sigmaPct = r.sigmaPct, holding = held,
-                        hasHistory = trades[tk].orEmpty().isNotEmpty(),
+                        zPct = r?.lastZpct ?: NA, mPct = r?.lastMpct ?: NA, signal = r?.signal ?: "",
+                        beta = r?.beta ?: NA, sigmaPct = r?.sigmaPct ?: NA, holding = held,
+                        hasHistory = hasTrades,
                     )
                 }
             }.awaitAll().filterNotNull()
