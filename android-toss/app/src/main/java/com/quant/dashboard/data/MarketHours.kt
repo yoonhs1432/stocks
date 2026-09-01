@@ -50,6 +50,13 @@ object MarketHours {
             ?.start
     }
 
+    /** 특정 시장(KR/US)에서 지금 열린 세션 이름. 닫혀 있으면 null. */
+    fun labelFor(market: String): String? {
+        val open = openNow().filter { it.market == market }
+        if (open.isEmpty()) return null
+        return "$market ${open.joinToString(" · ") { it.name }}"
+    }
+
     /** 화면 표시용 라벨 (예: "US 정규장", "KR 정규장 · US 프리마켓"). 닫혀 있으면 null. */
     fun label(): String? {
         val open = openNow()

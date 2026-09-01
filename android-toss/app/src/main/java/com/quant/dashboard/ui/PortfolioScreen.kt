@@ -161,8 +161,7 @@ private fun TossBody(onOpenAnalysis: (String) -> Unit) {
             fontWeight = FontWeight.Bold, fontFamily = Mono,
         )
         Text(
-            "평가손익 ${won(a.pnlKrw(), 1.0)} (${signPct(hs.pnlRate)})" +
-                " · 비용차감 ${won(a.pnlAfterCostKrw(), 1.0)} (${signPct(hs.pnlRateAfterCost)})",
+            "평가손익 ${won(a.pnlKrw(), 1.0)} (${signPct(hs.pnlRate)})",
             color = pc(a.pnlKrw()), fontSize = 12.sp,
             fontWeight = FontWeight.SemiBold, fontFamily = Mono,
         )

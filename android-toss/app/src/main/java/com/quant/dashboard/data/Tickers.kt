@@ -10,17 +10,6 @@ object Tickers {
         "BNKU", "BTC-USD", "ETH-USD", "GLD",
     )
 
-    /**
-     * 미국 시가총액 상위 30개 — **폴백 목록**.
-     * 평소에는 토스 랭킹 API(`Rankings`)가 비교 탭 "미장 TOP" 목록을 채우고,
-     * 토스 미연동·조회 실패·집계 없음일 때만 이 정적 목록을 쓴다. (기준: 2026년 상반기)
-     */
-    val US_TOP30 = listOf(
-        "NVDA", "MSFT", "AAPL", "GOOGL", "AMZN", "META", "AVGO", "TSLA", "BRK-B", "LLY",
-        "JPM", "WMT", "V", "XOM", "ORCL", "MA", "UNH", "COST", "JNJ", "HD",
-        "PG", "NFLX", "ABBV", "BAC", "AMD", "CRM", "KO", "CVX", "TMUS", "WFC",
-    )
-
     private val DISPLAY = mapOf(
         "BTC-USD" to "BTC", "ETH-USD" to "ETH", "005930" to "삼전", "000660" to "하닉",
     )

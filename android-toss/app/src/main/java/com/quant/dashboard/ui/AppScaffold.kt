@@ -35,7 +35,6 @@ import androidx.compose.ui.unit.sp
 import com.quant.dashboard.data.BrokerCreds
 import com.quant.dashboard.data.LivePrices
 import com.quant.dashboard.data.MarketHours
-import com.quant.dashboard.data.MarketRepo
 import com.quant.dashboard.data.Tickers
 import com.quant.dashboard.data.Universe
 import com.quant.dashboard.data.TossSync
@@ -128,7 +127,7 @@ fun AppScaffold() {
         bottomBar = { TabBar(tab) { if (it == 1 && tab != 1) backTab = tab; tab = it } },
     ) { pad ->
         Column(Modifier.fillMaxSize().padding(pad)) {
-            MarketHeader()
+            AsofBanner()
             Box(Modifier.fillMaxWidth().weight(1f)) {
                 val openAnalysis: (String) -> Unit = {
                     AppState.pendingTicker = it
@@ -217,58 +216,17 @@ private fun TabIcon(index: Int, color: Color) {
     }
 }
 
+/** 기준일 시뮬레이션이 켜져 있을 때만 나오는 얇은 경고줄 — 탭하면 해제.
+ *  상단 시장 헤더를 없앴으므로, 기준일이 켜진 줄 모르고 쓰는 일이 없게 이것만 남긴다. */
 @Composable
-private fun MarketHeader() {
-    var info by remember { mutableStateOf<MarketRepo.Info?>(null) }
-    LaunchedEffect(Unit) {
-        info = withContext(Dispatchers.IO) { MarketRepo.load() }
-    }
-    val i = info ?: return
-    // 일간 등락 → 한국식 색 (상승 빨강 / 하락 파랑 / 보합 회색)
-    fun pctColorOf(v: Double) = when { v > 0 -> Profit; v < 0 -> Loss; else -> TextSecondary }
-    Row(
-        Modifier.fillMaxWidth().background(BgApp).horizontalScroll(rememberScrollState())
-            .padding(horizontal = 12.dp, vertical = 6.dp),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+private fun AsofBanner() {
+    val d = AppState.asof ?: return
+    Box(
+        Modifier.fillMaxWidth().background(Gold).clickable { AppState.applyAsof(null) }
+            .padding(vertical = 3.dp),
+        contentAlignment = Alignment.Center,
     ) {
-        // 기준일(As-of) 활성 배지 — 탭하면 해제
-        AppState.asof?.let { d ->
-            Box(
-                Modifier.background(Gold, RoundedCornerShape(8.dp))
-                    .clickable { AppState.applyAsof(null) }
-                    .padding(horizontal = 8.dp, vertical = 4.dp),
-            ) {
-                Text("📅 $d ✕", color = Color(0xFF0C0E11), fontSize = 10.sp, fontWeight = FontWeight.Bold)
-            }
-        }
-        MarketHours.label()?.let { Chip("● $it", tickAgo(), Color(0xFF2EA078)) }
-        i.spy?.let { Chip("SPY", "${if (it >= 0) "+" else ""}${"%.1f".format(it)}%", pctColorOf(it)) }
-        i.nasdaq?.let { Chip("NASDAQ", "${if (it >= 0) "+" else ""}${"%.1f".format(it)}%", pctColorOf(it)) }
-        i.kospi?.let { Chip("KOSPI", "${if (it >= 0) "+" else ""}${"%.1f".format(it)}%", pctColorOf(it)) }
-        i.us10y?.let { Chip("10Y", "${"%.2f".format(it)}%", Gold) }
-        i.usdkrw?.let { Chip("₩", "%,.0f".format(it), TextSecondary) }
-    }
-}
-
-/** 마지막 시세 갱신 경과 (예: "3초 전"). 아직 없으면 "대기". */
-@Composable
-private fun tickAgo(): String {
-    val t = LivePrices.updatedAt
-    if (t == 0L) return "대기"
-    val sec = ((System.currentTimeMillis() - t) / 1000).coerceAtLeast(0)
-    return if (sec < 60) "${sec}초 전" else "${sec / 60}분 전"
-}
-
-/** 시장 지표 칩 — 라벨 + 모노 값, 컬러 틴트 배경. */
-@Composable
-private fun Chip(label: String, value: String, color: Color) {
-    Row(
-        Modifier.background(color.copy(alpha = 0.16f), RoundedCornerShape(8.dp))
-            .padding(horizontal = 8.dp, vertical = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(label, color = TextSecondary, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
-        Text(value, color = color, fontSize = 10.sp, fontWeight = FontWeight.Bold, fontFamily = Mono)
+        Text("📅 기준일 $d — 탭하여 해제", color = Color(0xFF0C0E11),
+            fontSize = 11.sp, fontWeight = FontWeight.Bold)
     }
 }

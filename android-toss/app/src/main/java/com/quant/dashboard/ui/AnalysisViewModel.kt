@@ -36,10 +36,7 @@ class AnalysisViewModel : ViewModel() {
     fun loadOverview(force: Boolean = false) {
         viewModelScope.launch {
             val rows = withContext(Dispatchers.IO) { OverviewRepo.load(force) }
-            // 비교 탭에서 미장 TOP30을 열어 뒀다면 그 캐시도 합친다 —
-            // 워치리스트 밖 종목으로 넘어와도 헤더 일간 등락이 보이게 (추가 요청 없음)
-            val merged = rows + OverviewRepo.cachedTop().filter { t -> rows.none { it.ticker == t.ticker } }
-            if (merged.isNotEmpty()) overview = merged
+            if (rows.isNotEmpty()) overview = rows
         }
     }
 

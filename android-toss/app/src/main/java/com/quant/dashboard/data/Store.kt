@@ -319,15 +319,9 @@ object Store {
      * 비교 탭 미장 TOP 목록의 랭킹 기준 (`GET /api/v1/rankings`).
      * 토스에 시가총액 랭킹이 없어 거래대금 상위(1일)를 기본값으로 둔다.
      */
-    /** 비교 탭 TOP 목록의 시장: "US" | "KR". */
-    fun rankMarket(): String = settings().optString("rank_market", "US")
-    fun setRankMarket(v: String) { saveSettings(settings().put("rank_market", v)) }
-
-    fun rankType(): String = settings().optString("rank_type", "MARKET_TRADING_AMOUNT")
-    fun setRankType(v: String) { saveSettings(settings().put("rank_type", v)) }
-
-    fun rankDuration(): String = settings().optString("rank_duration", "1d")
-    fun setRankDuration(v: String) { saveSettings(settings().put("rank_duration", v)) }
+    /** 비교 탭에서 보고 있는 시장: "US" | "KR". 한 번에 한쪽만 보여준다. */
+    fun compareMarket(): String = settings().optString("compare_market", "US")
+    fun setCompareMarket(v: String) { saveSettings(settings().put("compare_market", v)) }
 
     /**
      * 토스 조회가 실패했을 때 Yahoo 로 대신 받을지. 기본 켬.

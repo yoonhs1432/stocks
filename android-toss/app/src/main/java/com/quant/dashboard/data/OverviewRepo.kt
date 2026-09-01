@@ -21,40 +21,29 @@ object OverviewRepo {
         val beta: Double, val sigmaPct: Double,
         val holding: Boolean,      // 현재 보유 중 (★)
         val hasHistory: Boolean,   // 과거 매매 이력만 (☆)
-        val zHist: DoubleArray = DoubleArray(0),   // 주간 Z 시계열(최근 N주)
-        val mHist: DoubleArray = DoubleArray(0),   // 주간 M 시계열(최근 N주)
     )
 
-    @Volatile private var weekDatesArr: LongArray = LongArray(0)
-    /** Z·M 산점도 스크럽 타임라인 (epoch sec, 오래된→최근). 최근 6개월 거래일(일별). */
-    fun weekDates(): LongArray = weekDatesArr
-
-    /** 목록별 캐시 슬롯 (워치리스트 / 미장 TOP). 조회기간·기준일·랭킹기준이 바뀌면 무효화. */
+    /** 목록 캐시 슬롯. 조회기간·기준일이 바뀌면 무효화. */
     private class Slot {
         @Volatile var rows: List<Row> = emptyList()
         @Volatile var ts = 0L
         @Volatile var key = ""
     }
     private val watchSlot = Slot()
-    private val topSlot = Slot()
 
     fun cached(): List<Row> = watchSlot.rows
 
-    /** 미장 TOP30 캐시 — 이미 받아둔 게 있으면 재요청 없이 조회(분석 탭 일간등락 표시용). */
-    fun cachedTop(): List<Row> = topSlot.rows
-
-    /** 사용자 워치리스트. force=false면 5분 캐시 재사용. IO 디스패처에서 호출 권장. */
-    suspend fun load(force: Boolean = false): List<Row> =
-        loadInto(watchSlot, Store.loadTickers(), force)
-
     /**
-     * 미장 TOP 목록. 비교 탭에서 해당 목록을 열 때만 호출(요청 30건).
-     * 종목 선정은 토스 랭킹 API(`Rankings`)가 하고, 미연동·실패 시 하드코딩 목록으로 폴백한다.
+     * 워치리스트 + **토스 계좌 보유종목**. force=false면 5분 캐시 재사용. IO 디스패처에서 호출 권장.
+     *
+     * 보유종목을 워치리스트 파일에 넣지 않고 여기서 합치는 이유 — 계좌 상태에 따라 계속 바뀌므로
+     * 파일에 박아 두면 전량 매도 후에 손으로 지워야 한다.
      */
-    suspend fun loadTop(force: Boolean = false): List<Row> {
-        val symbols = withContext(Dispatchers.IO) { Rankings.symbols(force) }
-        // 랭킹 기준이 바뀌면 종목 자체가 달라지므로 캐시 키에 포함시킨다
-        return loadInto(topSlot, symbols, force, keyExtra = Rankings.cacheKey())
+    suspend fun load(force: Boolean = false): List<Row> {
+        val held = TossSync.cachedAccount()?.holdings?.items
+            ?.filter { it.quantity > 0 }?.map { it.symbol }.orEmpty()
+        val tickers = (Store.loadTickers() + held).distinct()
+        return loadInto(watchSlot, tickers, force, keyExtra = held.sorted().joinToString(","))
     }
 
     private suspend fun loadInto(
@@ -72,12 +61,6 @@ object OverviewRepo {
             if (Store.tossMode()) TossSync.cachedAccount()?.holdings?.items
                 ?.filter { it.quantity > 0 }?.map { it.symbol }?.toSet()
             else null
-        // 스크럽 타임라인 — 최근 6개월 거래일(일별), 모든 종목 공유
-        val latest = spy.last().first
-        val cutoff = latest - 182L * 86400
-        val wd = spy.asSequence().map { it.first }.filter { it >= cutoff }.toList().toLongArray()
-        val WN = wd.size
-        weekDatesArr = wd
         val rows = coroutineScope {
             tickers.map { tk ->
                 async(Dispatchers.IO) {
@@ -92,14 +75,6 @@ object OverviewRepo {
                     val prevW = if (m > 5) p[m - 6] else prevD
                     val high = p.max()
                     val held = tossHeld?.contains(tk) ?: (Portfolio.currentHoldQty(trades[tk].orEmpty()) > 0)
-                    // 거래일별 Z·M 샘플 (각 날짜 이하의 최근 값)
-                    val zh = DoubleArray(WN) { Double.NaN }
-                    val mh = DoubleArray(WN) { Double.NaN }
-                    for (w in 0 until WN) {
-                        var idx = -1
-                        for (i in r.dates.indices) { if (r.dates[i] <= wd[w]) idx = i else break }
-                        if (idx >= 0) { zh[w] = r.zPct[idx]; mh[w] = r.mPct[idx] }
-                    }
                     Row(
                         ticker = tk, name = Tickers.displayName(tk), price = p[m - 1],
                         prevClose = prevD,
@@ -109,7 +84,6 @@ object OverviewRepo {
                         zPct = r.lastZpct, mPct = r.lastMpct, signal = r.signal,
                         beta = r.beta, sigmaPct = r.sigmaPct, holding = held,
                         hasHistory = trades[tk].orEmpty().isNotEmpty(),
-                        zHist = zh, mHist = mh,
                     )
                 }
             }.awaitAll().filterNotNull()
