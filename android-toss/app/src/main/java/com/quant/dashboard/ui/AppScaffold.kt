@@ -106,7 +106,7 @@ fun AppScaffold() {
             val sec = Store.tickSeconds()
             if (sec <= 0 || !BrokerCreds.isLinked()) {
                 LivePrices.clear()
-                LivePrices.setNote(if (sec <= 0) "실시간 갱신 꺼짐" else "토스 미연동")
+                LivePrices.noteIdle(if (sec <= 0) "실시간 갱신 꺼짐" else "토스 미연동")
                 kotlinx.coroutines.delay(30_000)
                 continue
             }
@@ -117,7 +117,7 @@ fun AppScaffold() {
                     LivePrices.tick((Store.loadTickers() + Tickers.BASE + held).distinct())
                 } else {
                     // 왜 안 도는지 화면에 남긴다 — 조용히 멈추면 고장과 구분이 안 된다
-                    LivePrices.setNote("장 마감")
+                    LivePrices.noteIdle("장 마감")
                 }
             }
             kotlinx.coroutines.delay(sec * 1000L)

@@ -48,7 +48,8 @@ object LivePrices {
         return q.at == null || q.at < start
     }
 
-    fun setNote(v: String?) { if (note != v) note = v }
+    /** 틱이 안 도는 사유를 남긴다. (`var note` 의 자동 setter 와 JVM 시그니처가 겹치지 않게 다른 이름) */
+    fun noteIdle(v: String?) { if (note != v) note = v }
 
     fun clear() {
         quotes = emptyMap(); updatedAt = 0L; changed = emptySet(); throttleUntil = 0L
