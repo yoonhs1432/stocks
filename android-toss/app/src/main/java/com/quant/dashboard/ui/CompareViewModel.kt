@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.quant.dashboard.data.LivePrices
 import com.quant.dashboard.data.OverviewRepo
 import com.quant.dashboard.data.Rankings
 import com.quant.dashboard.data.Store
@@ -155,13 +156,30 @@ class CompareViewModel : ViewModel() {
     fun visibleRows(): List<CompareRow> =
         if (state.holdingsOnly) activeRows().filter { it.holding } else activeRows()
 
+    /**
+     * 화면에 실제로 **표시되는** 현재가 — 실시간 틱이 있으면 그 값.
+     * 정렬도 이 값으로 해야 표에 보이는 숫자와 순서가 맞는다.
+     */
+    fun shownPrice(r: CompareRow): Double = LivePrices.price(r.ticker) ?: r.price
+
+    /**
+     * 화면에 실제로 표시되는 등락률.
+     *
+     * 예전에는 정렬만 일봉 종가 기준(`r.day`)으로 하고 표시는 실시간가로 다시 계산해서,
+     * 장중에 두 값이 벌어지면 **정렬이 표시값과 어긋나** 보였다 (예: -0.1% 가 +0.4% 와 +0.3% 사이).
+     */
+    fun shownDay(r: CompareRow): Double {
+        val live = LivePrices.price(r.ticker)
+        return if (live != null && r.prevClose > 0) (live / r.prevClose - 1) * 100 else r.day
+    }
+
     fun sorted(): List<CompareRow> {
         val src = visibleRows()
         val base = when (state.sortKey) {
             SortKey.RANK -> src   // 목록 원래 순서 유지
             SortKey.NAME -> src.sortedBy { it.name }
-            SortKey.PRICE -> src.sortedBy { it.price }
-            SortKey.DAY -> src.sortedBy { it.day }
+            SortKey.PRICE -> src.sortedBy { shownPrice(it) }
+            SortKey.DAY -> src.sortedBy { shownDay(it) }
             SortKey.WEEK -> src.sortedBy { it.week }
             SortKey.FROM_HIGH -> src.sortedBy { it.fromHigh }
             SortKey.Z -> src.sortedBy { it.zPct }

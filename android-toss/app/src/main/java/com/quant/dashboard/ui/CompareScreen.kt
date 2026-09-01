@@ -176,7 +176,7 @@ fun CompareScreen(vm: CompareViewModel = viewModel(), onOpenAnalysis: (String) -
                                 modifier = Modifier.padding(top = 8.dp, bottom = 2.dp))
                         }
                         list.forEachIndexed { idx, r ->
-                            QuoteRow(r, s.showTop, vm.rankOf(r.ticker) + 1, onOpenAnalysis)
+                            QuoteRow(vm, r, s.showTop, vm.rankOf(r.ticker) + 1, onOpenAnalysis)
                             if (idx < list.lastIndex)
                                 Box(Modifier.fillMaxWidth().height(1.dp).background(BorderColor))
                         }
@@ -357,10 +357,11 @@ private fun TickStatus() {
  * 이번 장에 체결이 없는 종목(직전 종가)은 흐리게 표시한다.
  */
 @Composable
-private fun QuoteRow(r: CompareRow, showTop: Boolean, rank: Int, onOpenAnalysis: (String) -> Unit) {
-    val live = LivePrices.price(r.ticker)
-    val px = live ?: r.price
-    val day = if (live != null && r.prevClose > 0) (live / r.prevClose - 1) * 100 else r.day
+private fun QuoteRow(vm: CompareViewModel, r: CompareRow, showTop: Boolean, rank: Int,
+                     onOpenAnalysis: (String) -> Unit) {
+    // 표시값과 정렬값이 어긋나지 않도록 같은 함수를 쓴다
+    val px = vm.shownPrice(r)
+    val day = vm.shownDay(r)
     val stale = LivePrices.isStale(r.ticker, if (Tickers.isKrw(r.ticker)) "KR" else "US")
 
     // 가격이 바뀐 틱에서만 배경을 깔았다 지운다
