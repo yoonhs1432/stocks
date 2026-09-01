@@ -302,15 +302,23 @@ object TossApi {
      * `GET /api/v1/prices?symbols=…` — 현재가 다건 조회 (요청당 최대 200종목).
      * @return symbol → 현재가. 조회 실패 종목은 누락된다.
      */
-    fun prices(symbols: List<String>): Map<String, Double> {
+    /**
+     * 현재가 1건. `at` 은 **체결 시각**이며, 스펙상 "체결 미발생 등으로 시각이 없을 경우 null" 이다 —
+     * 즉 `at == null` 이면 이번 세션에 아직 체결이 없어 `price` 가 직전 종가라는 뜻이다.
+     */
+    data class Quote(val price: Double, val at: Long?)
+
+    fun prices(symbols: List<String>): Map<String, Quote> {
         if (symbols.isEmpty()) return emptyMap()
-        val out = LinkedHashMap<String, Double>()
+        val out = LinkedHashMap<String, Quote>()
         for (chunk in symbols.chunked(200)) {
             val arr = resultArray(get("/api/v1/prices", listOf("symbols" to chunk.joinToString(","))))
             for (i in 0 until arr.length()) {
                 val o = arr.optJSONObject(i) ?: continue
                 val v = o.dec("lastPrice", Double.NaN)
-                if (!v.isNaN()) out[o.optString("symbol")] = v
+                if (v.isNaN()) continue
+                val at = if (o.isNull("timestamp")) null else epochSec(o.optString("timestamp"))
+                out[o.optString("symbol")] = Quote(v, at)
             }
         }
         return out

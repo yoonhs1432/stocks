@@ -61,6 +61,10 @@ import kotlin.math.roundToInt
 import com.quant.dashboard.ui.theme.TextPrimary
 import com.quant.dashboard.ui.theme.TextSecondary
 import com.quant.dashboard.ui.theme.pctColor
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.graphics.lerp
+import com.quant.dashboard.data.Store
 
 // 한국식: 상승=빨강 / 하락=파랑 / 0=회색
 private val TableGray = Color(0xFFA4ADB8)
@@ -120,6 +124,7 @@ fun CompareScreen(vm: CompareViewModel = viewModel(), onOpenAnalysis: (String) -
                             fontSize = 13.sp, fontWeight = FontWeight.Bold)
                     }
                 }
+                TickStatus()
                 // ── 랭킹 기준 선택 (미장 TOP 목록에서만) ──
                 if (s.showTop) {
                     Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
@@ -161,27 +166,25 @@ fun CompareScreen(vm: CompareViewModel = viewModel(), onOpenAnalysis: (String) -
                     if (rows.isEmpty())
                         Text("보유 종목이 없습니다", color = TextSecondary, fontSize = 13.sp,
                             modifier = Modifier.padding(12.dp))
-                    rows.forEachIndexed { idx, r ->
-                        Row(Modifier.fillMaxWidth().clickable { onOpenAnalysis(r.ticker) }
-                            .padding(horizontal = 2.dp, vertical = 6.dp)) {
-                            DotName((if (r.holding) 2 else if (r.hasHistory) 1 else 0), r.name, 2.4f,
-                                rank = if (s.showTop) vm.rankOf(r.ticker) + 1 else null)
-                            // 실시간 틱이 있으면 현재가·등락률을 그 값으로 (없으면 일봉 종가 기준)
-                            val live = LivePrices.price(r.ticker)
-                            val px = live ?: r.price
-                            val day = if (live != null && r.prevClose > 0) (live / r.prevClose - 1) * 100 else r.day
-                            Cell(Tickers.priceLabel(r.ticker, px), 2f, pnColor(day))
-                            Cell(signed(day), 1.4f, pnColor(day))
-                            Cell("%.0f".format(r.zPct), 1f, pctColor(r.zPct), fw = FontWeight.Bold)
-                            Cell("%.0f".format(r.mPct), 1f, pctColor(r.mPct), fw = FontWeight.Bold)
+                    // 미장·국장을 섞어 놓으면 장 상태가 달라 등락률을 나란히 읽기 어렵다
+                    val us = rows.filter { !Tickers.isKrw(it.ticker) }
+                    val kr = rows.filter { Tickers.isKrw(it.ticker) }
+                    listOf("미국" to us, "국내" to kr).forEach { (label, list) ->
+                        if (list.isEmpty()) return@forEach
+                        if (us.isNotEmpty() && kr.isNotEmpty()) {
+                            Text(label, color = TextMuted, fontSize = 11.sp, fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(top = 8.dp, bottom = 2.dp))
                         }
-                        if (idx < rows.lastIndex)
-                            Box(Modifier.fillMaxWidth().height(1.dp).background(BorderColor))
+                        list.forEachIndexed { idx, r ->
+                            QuoteRow(r, s.showTop, vm.rankOf(r.ticker) + 1, onOpenAnalysis)
+                            if (idx < list.lastIndex)
+                                Box(Modifier.fillMaxWidth().height(1.dp).background(BorderColor))
+                        }
                     }
                 }
                 Text(
                     if (s.showTop) "숫자=랭킹 순위 · 행 탭=분석 이동 · 헤더 탭=정렬 (토스는 시총 랭킹을 주지 않아 거래대금 기준이 기본)"
-                    else "● 보유 / ○ 이력 · 행 탭=분석 이동 · 헤더 탭=정렬 · Z·M 낮음 빨강·높음 파랑",
+                    else "● 보유 / ○ 이력 · 행 탭=분석 이동 · 헤더 탭=정렬 · 흐림=이번 장 체결 없음(직전 종가)",
                     color = TextSecondary, fontSize = 11.sp)
 
                 // ── Z·M 사분면 (주간 날짜 스크럽) ──
@@ -268,24 +271,27 @@ private fun RowScope.HCell(vm: CompareViewModel, text: String, key: SortKey, wei
 }
 
 @Composable
-private fun RowScope.Cell(text: String, weight: Float, color: Color, align: TextAlign = TextAlign.End, fw: FontWeight = FontWeight.Normal) {
+private fun RowScope.Cell(text: String, weight: Float, color: Color, align: TextAlign = TextAlign.End,
+                          fw: FontWeight = FontWeight.Normal, bg: Color = Color.Transparent) {
     Text(text, color = color, fontSize = 17.sp, textAlign = align, fontWeight = fw,
-        fontFamily = Mono, modifier = Modifier.weight(weight))
+        fontFamily = Mono,
+        modifier = Modifier.weight(weight).clip(RoundedCornerShape(4.dp)).background(bg))
 }
 
 /** 종목 셀 — 상태 점(보유=금채움/이력=금링) + 티커(모노). */
 @Composable
-private fun RowScope.DotName(state: Int, name: String, weight: Float, rank: Int? = null) {
+private fun RowScope.DotName(state: Int, name: String, weight: Float, rank: Int? = null, alpha: Float = 1f) {
     Row(Modifier.weight(weight), verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         // 랭킹 순위 (미장 TOP에서만) — 정렬을 바꿔도 원래 순위를 알 수 있게
-        if (rank != null) Text("$rank", color = TextMuted, fontSize = 11.sp, fontFamily = Mono)
+        if (rank != null) Text("$rank", color = TextMuted.copy(alpha = alpha), fontSize = 11.sp, fontFamily = Mono)
         if (state == 0) Spacer(Modifier.size(6.dp)) else Box(
             Modifier.size(6.dp).clip(RoundedCornerShape(50))
-                .then(if (state == 2) Modifier.background(Gold)
-                else Modifier.border(1.3.dp, Gold, RoundedCornerShape(50))),
+                .then(if (state == 2) Modifier.background(Gold.copy(alpha = alpha))
+                else Modifier.border(1.3.dp, Gold.copy(alpha = alpha), RoundedCornerShape(50))),
         )
-        Text(name, color = TextPrimary, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, fontFamily = Mono)
+        Text(name, color = TextPrimary.copy(alpha = alpha), fontSize = 17.sp,
+            fontWeight = FontWeight.SemiBold, fontFamily = Mono)
     }
 }
 
@@ -303,5 +309,78 @@ private fun RankChip(text: String, on: Boolean, small: Boolean = false, onClick:
         Text(text, color = if (on) Color(0xFF0C0E11) else TextSecondary,
             fontSize = if (small) 11.sp else 12.sp,
             fontWeight = if (on) FontWeight.Bold else FontWeight.Normal)
+    }
+}
+
+/**
+ * 실시간 틱 상태 — 갱신될 때마다 점이 밝아졌다 사그라들고, **안 도는 경우 그 사유**를 보여준다.
+ * 조용히 멈추면 고장과 구분이 안 되므로 사유 표시가 핵심이다.
+ */
+@Composable
+private fun TickStatus() {
+    val seq = LivePrices.tickSeq
+    val note = LivePrices.note
+    val at = LivePrices.updatedAt
+    // 설정 파일을 매 틱마다 읽지 않도록 — 설정 변경은 dataVersion 을 올린다
+    val sec = remember(AppState.dataVersion) { Store.tickSeconds() }
+
+    // 틱이 들어올 때마다 1 → 0 으로 감쇠 (Compose 가 seq 변화를 보고 다시 실행)
+    val glow = remember { Animatable(0f) }
+    LaunchedEffect(seq) {
+        if (seq > 0) { glow.snapTo(1f); glow.animateTo(0f, tween(700)) }
+    }
+    val dot = if (note != null) TextMuted else lerp(Color(0xFF2EA078), Color(0xFF7BFFCB), glow.value)
+
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(SurfaceInput)
+            .padding(horizontal = 10.dp, vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Box(Modifier.size(8.dp).clip(RoundedCornerShape(50)).background(dot))
+        Text(
+            note ?: if (sec > 0) "실시간 ${sec}초 간격" else "실시간 갱신 꺼짐",
+            color = if (note != null) Gold else TextSecondary, fontSize = 11.sp,
+        )
+        Spacer(Modifier.weight(1f))
+        if (at > 0) {
+            Text(
+                remember(at) { SimpleDateFormat("HH:mm:ss", Locale.US).format(Date(at)) },
+                color = TextMuted, fontSize = 11.sp,
+            )
+        }
+    }
+}
+
+/**
+ * 비교 표 한 줄. 값이 실제로 바뀐 종목은 현재가 칸이 잠깐 물들었다 사라진다(체결 플래시).
+ * 이번 장에 체결이 없는 종목(직전 종가)은 흐리게 표시한다.
+ */
+@Composable
+private fun QuoteRow(r: CompareRow, showTop: Boolean, rank: Int, onOpenAnalysis: (String) -> Unit) {
+    val live = LivePrices.price(r.ticker)
+    val px = live ?: r.price
+    val day = if (live != null && r.prevClose > 0) (live / r.prevClose - 1) * 100 else r.day
+    val stale = LivePrices.isStale(r.ticker, if (Tickers.isKrw(r.ticker)) "KR" else "US")
+
+    // 가격이 바뀐 틱에서만 배경을 깔았다 지운다
+    val flash = remember { Animatable(0f) }
+    val seq = LivePrices.tickSeq
+    LaunchedEffect(seq) {
+        if (r.ticker in LivePrices.changed) { flash.snapTo(1f); flash.animateTo(0f, tween(600)) }
+    }
+    val flashBg = (if (day >= 0) Profit else Loss).copy(alpha = 0.22f * flash.value)
+    val alpha = if (stale) 0.45f else 1f
+
+    Row(
+        Modifier.fillMaxWidth().clickable { onOpenAnalysis(r.ticker) }
+            .padding(horizontal = 2.dp, vertical = 6.dp),
+    ) {
+        DotName((if (r.holding) 2 else if (r.hasHistory) 1 else 0), r.name, 2.4f,
+            rank = if (showTop) rank else null, alpha = alpha)
+        Cell(Tickers.priceLabel(r.ticker, px), 2f, pnColor(day).copy(alpha = alpha), bg = flashBg)
+        Cell(signed(day), 1.4f, pnColor(day).copy(alpha = alpha))
+        Cell("%.0f".format(r.zPct), 1f, pctColor(r.zPct).copy(alpha = alpha), fw = FontWeight.Bold)
+        Cell("%.0f".format(r.mPct), 1f, pctColor(r.mPct).copy(alpha = alpha), fw = FontWeight.Bold)
     }
 }

@@ -36,6 +36,20 @@ object MarketHours {
     fun anyOpen(): Boolean =
         if (sessions.isEmpty()) fallbackOpen() else openNow().isNotEmpty()
 
+    /**
+     * 해당 시장(KR/US)에서 **지금 진행 중인 세션의 시작 시각**(epoch 초).
+     * 열린 세션이 없으면 이미 끝난 세션 중 가장 최근 것의 시작을 돌려준다 —
+     * 장 마감 중에는 마지막 세션의 종가가 정상값이므로 "낡음"으로 보면 안 된다.
+     * 캘린더가 없으면 null (판정하지 않음).
+     */
+    fun sessionStart(market: String): Long? {
+        val now = System.currentTimeMillis() / 1000
+        return sessions.asSequence()
+            .filter { it.market == market && it.start <= now }
+            .maxByOrNull { it.start }
+            ?.start
+    }
+
     /** 화면 표시용 라벨 (예: "US 정규장", "KR 정규장 · US 프리마켓"). 닫혀 있으면 null. */
     fun label(): String? {
         val open = openNow()

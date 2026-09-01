@@ -294,25 +294,9 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
         }
     }
 
-    // ── 차트 기간 (아래 시계열 4개에만 적용 — 산점도 2개는 전 구간 기준) ──
+    // ── 차트 기간 (시계열 4개에만 적용 — 산점도 2개는 전 구간 기준) ──
+    // 상태는 여기서 선언해야 아래 윈도우 계산에 쓸 수 있고, 버튼은 차트 아래에 그린다.
     var periodMonths by remember { mutableStateOf(Store.chartMonths()) }
-    Row(Modifier.fillMaxWidth().padding(top = 2.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text("차트 기간", color = TextMuted, fontSize = 11.sp,
-            modifier = Modifier.align(Alignment.CenterVertically))
-        listOf(1, 6, 12, 24).forEach { m ->
-            val on = periodMonths == m
-            Box(
-                Modifier.clip(RoundedCornerShape(7.dp))
-                    .background(if (on) Teal else SurfaceInput)
-                    .clickable { periodMonths = m; Store.setChartMonths(m) }
-                    .padding(horizontal = 11.dp, vertical = 4.dp),
-            ) {
-                Text(if (m >= 12) "${m / 12}년" else "${m}개월",
-                    color = if (on) Color(0xFF0C0E11) else TextSecondary,
-                    fontSize = 11.sp, fontWeight = if (on) FontWeight.Bold else FontWeight.Normal)
-            }
-        }
-    }
 
     // ── 차트 윈도우 + 매매 마커/화살표 ──
     val n = r.dates.size
@@ -422,6 +406,25 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
         ChartCard(Modifier.weight(1f), "RSI", value = "%.1f".format(rsiLast), valueColor = Teal, onClick = { zoom = 5 }) {
             RsiChart(seg(r.rsi), height = gh)
             DateAxis(dates)
+        }
+    }
+
+    // 시계열 차트 4개(가격·Z·M·MACD·RSI)의 표시 기간
+    Row(Modifier.fillMaxWidth().padding(top = 2.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text("차트 기간", color = TextMuted, fontSize = 11.sp,
+            modifier = Modifier.align(Alignment.CenterVertically))
+        listOf(1, 6, 12, 24).forEach { m ->
+            val on = periodMonths == m
+            Box(
+                Modifier.clip(RoundedCornerShape(7.dp))
+                    .background(if (on) Teal else SurfaceInput)
+                    .clickable { periodMonths = m; Store.setChartMonths(m) }
+                    .padding(horizontal = 11.dp, vertical = 4.dp),
+            ) {
+                Text(if (m >= 12) "${m / 12}년" else "${m}개월",
+                    color = if (on) Color(0xFF0C0E11) else TextSecondary,
+                    fontSize = 11.sp, fontWeight = if (on) FontWeight.Bold else FontWeight.Normal)
+            }
         }
     }
 
