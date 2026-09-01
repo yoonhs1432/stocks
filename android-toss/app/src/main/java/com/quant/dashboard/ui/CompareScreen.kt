@@ -102,26 +102,29 @@ fun CompareScreen(vm: CompareViewModel = viewModel(), onOpenAnalysis: (String) -
                         s.rows.isEmpty() -> Text("불러오는 중…", color = TextSecondary,
                             modifier = Modifier.padding(24.dp))
                         else -> {
-                            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(SurfaceInput)
-                                .padding(vertical = 4.dp, horizontal = 2.dp)) {
-                                HCell(vm, "종목", SortKey.NAME, 2.4f, TextAlign.Start)
-                                HCell(vm, "현재가", SortKey.PRICE, 2f)
-                                HCell(vm, "일", SortKey.DAY, 1.4f)
-                                HCell(vm, "Z", SortKey.Z, 1f)
-                                HCell(vm, "M", SortKey.M, 1f)
-                            }
-                            if (rows.isEmpty()) {
-                                Text("표시할 종목이 없습니다", color = TextSecondary, fontSize = 13.sp,
-                                    modifier = Modifier.padding(12.dp))
-                            }
-                            rows.forEachIndexed { idx, r ->
-                                QuoteRow(vm, r, onOpenAnalysis)
-                                if (idx < rows.lastIndex)
-                                    Box(Modifier.fillMaxWidth().height(1.dp).background(BorderColor))
+                            // 표는 **간격 없는** 안쪽 Column 에 넣는다. 바깥 Column 의 spacedBy 가
+                            // 행마다·구분선마다 붙으면 행 하나당 12dp 가 더 생겨 오히려 벌어진다.
+                            Column(Modifier.fillMaxWidth()) {
+                                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(6.dp)).background(SurfaceInput)
+                                    .padding(vertical = 3.dp, horizontal = 2.dp)) {
+                                    HCell(vm, "종목", SortKey.NAME, 2.4f, TextAlign.Start)
+                                    HCell(vm, "현재가", SortKey.PRICE, 2f)
+                                    HCell(vm, "일", SortKey.DAY, 1.4f)
+                                    HCell(vm, "Z", SortKey.Z, 1f)
+                                    HCell(vm, "M", SortKey.M, 1f)
+                                }
+                                if (rows.isEmpty()) {
+                                    Text("표시할 종목이 없습니다", color = TextSecondary, fontSize = 13.sp,
+                                        modifier = Modifier.padding(12.dp))
+                                }
+                                rows.forEachIndexed { idx, r ->
+                                    QuoteRow(vm, r, onOpenAnalysis)
+                                    if (idx < rows.lastIndex)
+                                        Box(Modifier.fillMaxWidth().height(1.dp).background(BorderColor))
+                                }
                             }
                             Text("● 보유 / ○ 이력 · 행 탭=분석 이동 · 헤더 탭=정렬 · 흐림=이번 장 체결 없음(직전 종가)",
-                                color = TextSecondary, fontSize = 11.sp,
-                                modifier = Modifier.padding(top = 4.dp))
+                                color = TextSecondary, fontSize = 11.sp)
                         }
                     }
                 }
@@ -183,8 +186,8 @@ private fun RowScope.HCell(vm: CompareViewModel, text: String, key: SortKey, wei
 @Composable
 private fun RowScope.Cell(text: String, weight: Float, color: Color, align: TextAlign = TextAlign.End,
                           fw: FontWeight = FontWeight.Normal, bg: Color = Color.Transparent) {
-    Text(text, color = color, fontSize = 17.sp, textAlign = align, fontWeight = fw,
-        fontFamily = Mono,
+    Text(text, color = color, fontSize = 15.sp, textAlign = align, fontWeight = fw,
+        fontFamily = Mono, maxLines = 1,
         modifier = Modifier.weight(weight).clip(RoundedCornerShape(4.dp)).background(bg))
 }
 
@@ -198,7 +201,7 @@ private fun RowScope.DotName(state: Int, name: String, weight: Float, alpha: Flo
                 .then(if (state == 2) Modifier.background(Gold.copy(alpha = alpha))
                 else Modifier.border(1.3.dp, Gold.copy(alpha = alpha), RoundedCornerShape(50))),
         )
-        Text(name, color = TextPrimary.copy(alpha = alpha), fontSize = 17.sp,
+        Text(name, color = TextPrimary.copy(alpha = alpha), fontSize = 15.sp, maxLines = 1,
             fontWeight = FontWeight.SemiBold, fontFamily = Mono)
     }
 }
@@ -271,7 +274,7 @@ private fun QuoteRow(vm: CompareViewModel, r: CompareRow, onOpenAnalysis: (Strin
     Row(
         // 여백을 줄여 한 화면에 더 많은 종목이 들어가게
         Modifier.fillMaxWidth().clickable { onOpenAnalysis(r.ticker) }
-            .padding(horizontal = 2.dp, vertical = 3.dp),
+            .padding(horizontal = 2.dp, vertical = 1.dp),
     ) {
         DotName((if (r.holding) 2 else if (r.hasHistory) 1 else 0), r.name, 2.4f, alpha = alpha)
         Cell(Tickers.priceLabel(r.ticker, px), 2f, pnColor(day).copy(alpha = alpha), bg = flashBg)
