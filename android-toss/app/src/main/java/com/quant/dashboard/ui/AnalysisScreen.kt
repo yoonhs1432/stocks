@@ -101,6 +101,8 @@ fun AnalysisScreen(vm: AnalysisViewModel = viewModel(), onBack: () -> Unit = {})
 
     var diOpen by remember { mutableStateOf(false) }
     var diText by remember { mutableStateOf("") }
+    // 차트 묶음 전환 (산점도 2개 / 시계열 4개) — 비교 탭 시장 전환과 같은 자리·같은 모양
+    var group by remember { mutableStateOf(Store.chartGroup()) }
 
     // 기기 뒤로가기 → 비교 탭으로
     BackHandler { onBack() }
@@ -149,7 +151,7 @@ fun AnalysisScreen(vm: AnalysisViewModel = viewModel(), onBack: () -> Unit = {})
                             .padding(horizontal = 8.dp, vertical = 8.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        ResultView(s.result, s.ticker, s.ohlc, ov[s.ticker]?.day)
+                        ResultView(s.result, s.ticker, s.ohlc, ov[s.ticker]?.day, group)
                         Spacer(Modifier.height(4.dp))
                     }
                 }
@@ -161,6 +163,25 @@ fun AnalysisScreen(vm: AnalysisViewModel = viewModel(), onBack: () -> Unit = {})
             }
         }
 
+        // ── 하단 고정: 차트 묶음 전환 ──
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            listOf("scatter" to "산점도", "series" to "시계열").forEach { (id, label) ->
+                val on = group == id
+                Box(
+                    Modifier.clip(RoundedCornerShape(8.dp))
+                        .background(if (on) Teal else SurfaceInput)
+                        .clickable { group = id; Store.setChartGroup(id) }
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                ) {
+                    Text(label, color = if (on) Color(0xFF0C0E11) else TextSecondary,
+                        fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
     }
 }
 
@@ -265,7 +286,8 @@ private fun Accordion(title: String, content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayPct: Double?) {
+private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayPct: Double?,
+                       group: String) {
     // ── 종목명 + σ·β + (우측) 현재가/평단/수량 — 한 줄, 넘치면 가로 스크롤 ──
     val trades = remember(ticker) { Store.visibleTrades()[ticker].orEmpty() }
     val pos = remember(ticker) { Portfolio.position(trades) }
@@ -366,67 +388,80 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
         }
     }
 
-    // ── 1행: ① 회귀 산점도 · ② Z·M 궤적 ──
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        ChartCard(Modifier.weight(1f), "회귀 산점도", value = "β ${"%.2f".format(r.beta)}", valueColor = Profit, onClick = { zoom = 0 }) {
+    if (group == "scatter") {
+        // ── 산점도 2개 — 전체 폭으로 위아래 배치 (반폭일 땐 점이 뭉개졌다) ──
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        ChartCard(Modifier.fillMaxWidth(), "회귀 산점도", value = "β ${"%.2f".format(r.beta)}",
+            valueColor = Profit, onClick = { zoom = 0 }) {
             RegressionScatter(r.spyNorm, r.tickerNorm, r.predicted,
-                r.bandUpper, r.bandLower, r.beta, markIdx = scatterIdx, height = gh)
+                r.bandUpper, r.bandLower, r.beta, markIdx = scatterIdx, height = 300.dp)
         }
-        ChartCard(Modifier.weight(1f), "Z·M 궤적", sub = "현재 ★", onClick = { zoom = 1 }) {
-            ZmScatter(r.zPct, r.mPct, scatterIdx, height = gh)
+        ChartCard(Modifier.fillMaxWidth(), "Z·M 궤적", sub = "현재 ★", onClick = { zoom = 1 }) {
+            ZmScatter(r.zPct, r.mPct, scatterIdx, height = 300.dp)
         }
-    }
+        }
+    } else {
+        // ── 시계열 4개 — x축을 통일해 4행으로 ──
+        // ChartView 를 하나만 두고 넷이 공유한다. 아무 차트에서나 핀치·드래그하면 넷이 같이 움직이고,
+        // 날짜축은 공통이므로 맨 아래 한 번만 그린다.
+        // 카드 테두리를 빼고 얇은 제목줄만 둬서 네 개가 한 화면에 들어가게 했다.
+        var sView by remember(ticker) { mutableStateOf(ChartView()) }
+        val sh = 140.dp
+        val gest = Modifier.chartGestures(sView, { sView = it }, xOnly = true)
 
-    // ── 2행: ③ 가격 캔들 · ④ Z·M 오실레이터 ──
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        ChartCard(Modifier.weight(1f), "가격·일봉", value = Tickers.priceLabel(ticker, r.lastPrice), onClick = { zoom = 2 }) {
-            if (closes.any { !it.isNaN() }) {
-                CandleChart(opens, highs, lows, closes,
-                    segDollar(r.predicted), segDollar(r.bandUpper), segDollar(r.bandLower),
-                    markers = priceMarks,
-                    currency = Tickers.currencySymbol(ticker), topLabel = "",
-                    dates = dates, dailyChgPct = dayPct ?: Double.NaN, height = gh)
-            } else {
-                PriceChart(segDollar(r.tickerNorm), segDollar(r.predicted), segDollar(r.bandUpper), segDollar(r.bandLower),
-                    markers = priceMarks, currency = Tickers.currencySymbol(ticker), height = gh)
+        // 간격 없는 Column — 바깥 Column 의 spacedBy(8dp) 가 항목마다 붙으면
+        // 제목줄·차트 사이가 벌어져 네 개가 한 화면에 안 들어간다
+        Column(Modifier.fillMaxWidth()) {
+        SeriesHeader("가격·일봉", Tickers.priceLabel(ticker, r.lastPrice), TextPrimary) { zoom = 2 }
+        if (closes.any { !it.isNaN() }) {
+            CandleChart(opens, highs, lows, closes,
+                segDollar(r.predicted), segDollar(r.bandUpper), segDollar(r.bandLower),
+                markers = priceMarks, currency = Tickers.currencySymbol(ticker), topLabel = "",
+                dates = dates, dailyChgPct = dayPct ?: Double.NaN,
+                height = sh, view = sView, zoomed = true, modifier = gest)
+        } else {
+            PriceChart(segDollar(r.tickerNorm), segDollar(r.predicted), segDollar(r.bandUpper),
+                segDollar(r.bandLower), markers = priceMarks,
+                currency = Tickers.currencySymbol(ticker),
+                height = sh, view = sView, zoomed = true, modifier = gest)
+        }
+
+        SeriesHeader("Z·M", "Z${"%.0f".format(r.lastZpct)}·M${"%.0f".format(r.lastMpct)}", TextPrimary) { zoom = 3 }
+        ZmChart(seg(r.zPct), seg(r.mPct), zmMarks, height = sh, view = sView, zoomed = true, modifier = gest)
+
+        SeriesHeader("MACD", "${"%.2f".format(macdLast)}(${"%+.2f".format(macdLast - sigLast)})", TextPrimary) { zoom = 4 }
+        MacdChart(macdW, sigW, height = sh, view = sView, zoomed = true, modifier = gest)
+
+        SeriesHeader("RSI", "%.1f".format(rsiLast), Teal) { zoom = 5 }
+        RsiChart(seg(r.rsi), height = sh, view = sView, zoomed = true, modifier = gest)
+
+        DateAxis(dates, sView, zoomed = true)
+        if (!sView.isIdentity) {
+            Text("확대 ${"%.1f".format(sView.sx)}배 — 탭하여 원본", color = TextMuted, fontSize = 11.sp,
+                modifier = Modifier.fillMaxWidth().clickable { sView = ChartView() })
+        }
+        }
+
+        // 시계열 차트 4개(가격·Z·M·MACD·RSI)의 표시 기간
+        Row(Modifier.fillMaxWidth().padding(top = 2.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("차트 기간", color = TextMuted, fontSize = 11.sp,
+                modifier = Modifier.align(Alignment.CenterVertically))
+            listOf(1, 6, 12, 24).forEach { m ->
+                val on = periodMonths == m
+                Box(
+                    Modifier.clip(RoundedCornerShape(7.dp))
+                        .background(if (on) Teal else SurfaceInput)
+                        .clickable { periodMonths = m; Store.setChartMonths(m) }
+                        .padding(horizontal = 11.dp, vertical = 4.dp),
+                ) {
+                    Text(if (m >= 12) "${m / 12}년" else "${m}개월",
+                        color = if (on) Color(0xFF0C0E11) else TextSecondary,
+                        fontSize = 11.sp, fontWeight = if (on) FontWeight.Bold else FontWeight.Normal)
+                }
             }
         }
-        ChartCard(Modifier.weight(1f), "Z·M", value = "Z${"%.0f".format(r.lastZpct)}·M${"%.0f".format(r.lastMpct)}", onClick = { zoom = 3 }) {
-            ZmChart(seg(r.zPct), seg(r.mPct), zmMarks, height = gh)
-        }
     }
 
-    // ── 3행: ⑤ MACD · ⑥ RSI ──
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        ChartCard(Modifier.weight(1f), "MACD",
-            value = "${"%.2f".format(macdLast)}(${"%+.2f".format(macdLast - sigLast)})", onClick = { zoom = 4 }) {
-            MacdChart(macdW, sigW, height = gh)
-            DateAxis(dates)
-        }
-        ChartCard(Modifier.weight(1f), "RSI", value = "%.1f".format(rsiLast), valueColor = Teal, onClick = { zoom = 5 }) {
-            RsiChart(seg(r.rsi), height = gh)
-            DateAxis(dates)
-        }
-    }
-
-    // 시계열 차트 4개(가격·Z·M·MACD·RSI)의 표시 기간
-    Row(Modifier.fillMaxWidth().padding(top = 2.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text("차트 기간", color = TextMuted, fontSize = 11.sp,
-            modifier = Modifier.align(Alignment.CenterVertically))
-        listOf(1, 6, 12, 24).forEach { m ->
-            val on = periodMonths == m
-            Box(
-                Modifier.clip(RoundedCornerShape(7.dp))
-                    .background(if (on) Teal else SurfaceInput)
-                    .clickable { periodMonths = m; Store.setChartMonths(m) }
-                    .padding(horizontal = 11.dp, vertical = 4.dp),
-            ) {
-                Text(if (m >= 12) "${m / 12}년" else "${m}개월",
-                    color = if (on) Color(0xFF0C0E11) else TextSecondary,
-                    fontSize = 11.sp, fontWeight = if (on) FontWeight.Bold else FontWeight.Normal)
-            }
-        }
-    }
 
     // ── 차트 확대 다이얼로그 (그리드에서 탭한 차트를 전체화면 크게) ──
     if (zoom >= 0) {
@@ -475,6 +510,22 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
         }
     }
 
+}
+
+/** 시계열 스택용 얇은 제목줄 — 카드 테두리 없이 제목·값·확대(⤢)만. 세로 공간을 아낀다. */
+@Composable
+private fun SeriesHeader(title: String, value: String, valueColor: Color, onZoom: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clickable { onZoom() }.padding(top = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(title, color = TextPrimary, fontSize = 11.sp, fontWeight = FontWeight.Bold,
+            fontFamily = Mono, maxLines = 1)
+        Spacer(Modifier.weight(1f))
+        Text(value, color = valueColor, fontSize = 11.sp, fontWeight = FontWeight.Bold,
+            fontFamily = Mono, maxLines = 1)
+        Text(" ⤢", color = TextMuted, fontSize = 11.sp)
+    }
 }
 
 /** 차트 카드 — 헤더(제목/부제 + 우측 값) + 플롯. 그리드 셀에서는 modifier=weight 전달.

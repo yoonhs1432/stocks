@@ -319,6 +319,10 @@ object Store {
      * 비교 탭 미장 TOP 목록의 랭킹 기준 (`GET /api/v1/rankings`).
      * 토스에 시가총액 랭킹이 없어 거래대금 상위(1일)를 기본값으로 둔다.
      */
+    /** 분석 탭에서 보고 있는 차트 묶음: "scatter"(산점도 2개) | "series"(시계열 4개). */
+    fun chartGroup(): String = settings().optString("chart_group", "series")
+    fun setChartGroup(v: String) { saveSettings(settings().put("chart_group", v)) }
+
     /** 비교 탭에서 보고 있는 시장: "US" | "KR". 한 번에 한쪽만 보여준다. */
     fun compareMarket(): String = settings().optString("compare_market", "US")
     fun setCompareMarket(v: String) { saveSettings(settings().put("compare_market", v)) }
