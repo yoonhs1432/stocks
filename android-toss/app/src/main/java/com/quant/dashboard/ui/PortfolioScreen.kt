@@ -67,6 +67,10 @@ private fun pc(v: Double) = if (v > 0) Profit else if (v < 0) Loss else Neutral
 private fun signPct(r: Double): String = (if (r >= 0) "+" else "") + "%.2f%%".format(r * 100)
 private fun ident(i: Int) = WeightPalette[i % WeightPalette.size]
 
+/** 부호를 앞에 붙인 금액 — `-$12.34` 처럼 통화기호 뒤가 아니라 앞에 부호가 오게. */
+private fun signedAmt(v: Double, cur: String, dec: Int): String =
+    (if (v >= 0) "+" else "-") + cur + "%,.${dec}f".format(kotlin.math.abs(v))
+
 /**
  * 자산추이 x축 라벨 (epoch 초 → yy.MM.dd).
  *
@@ -196,70 +200,123 @@ private fun TossBody(onOpenAnalysis: (String) -> Unit) {
         }
         a.holdings.items.forEachIndexed { i, h ->
             val cur = if (h.currency == "KRW") "₩" else "$"
-            // 실시간 틱이 있으면 현재가로 다시 계산한다. 기준은 API 와 동일하게 맞춘다 —
-            // 누적 손익률 = 현재가/평단 - 1, 당일 등락률 = 현재가/전일기준가 - 1
-            // (전일기준가는 API 의 당일 손익률에서 역산). 안 맞으면 증권사 앱과 숫자가 어긋난다.
+            // 실시간 틱이 있으면 현재가로 다시 계산한다. 기준은 API 와 동일 —
+            // 누적 손익률 = 현재가/평단 - 1 (안 맞추면 증권사 앱과 숫자가 어긋난다).
+            // 한 줄에 담으려고 **현재가·평단은 빼고** 수익률 · 수익금 · 평가금액만 남겼다.
             val lp = LivePrices.price(h.symbol)
             val evalAmt = if (lp != null) lp * h.quantity else h.evalAmount
             val rate2 = if (lp != null && h.avgPrice > 0) lp / h.avgPrice - 1.0 else h.pnlRate
-            val dayRate = if (lp != null && h.basePrice > 0) lp / h.basePrice - 1.0 else h.dailyPnlRate
+            val pnlAmt = if (lp != null) (lp - h.avgPrice) * h.quantity else h.pnlAmount
+            val dec = if (h.currency == "KRW") 0 else 2
             Row(
                 Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
                     .clickable { onOpenAnalysis(h.symbol) }
-                    .padding(top = 7.dp, bottom = 2.dp),
+                    .padding(top = 6.dp, bottom = 2.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Box(Modifier.size(8.dp).clip(RoundedCornerShape(50)).background(ident(i)))
-                Spacer(Modifier.size(7.dp))
-                Text(h.name, color = TextPrimary, fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold, fontFamily = Mono)
                 Spacer(Modifier.size(6.dp))
-                Text(qtyLabel(h.quantity), color = TextMuted, fontSize = 11.sp,
-                    fontFamily = Mono, modifier = Modifier.weight(1f))
-                Column(horizontalAlignment = Alignment.End) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                        Text("$cur${"%,.2f".format(evalAmt)}", color = TextPrimary,
-                            fontSize = 12.5.sp, fontFamily = Mono)
-                        Text("오늘 ${signPct(dayRate)}", color = pc(dayRate),
-                            fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = Mono)
-                    }
-                    Text("평단 $cur${"%,.2f".format(h.avgPrice)} · ${signPct(rate2)}",
-                        color = pc(rate2), fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold, fontFamily = Mono)
-                }
-                Text(" ›", color = TextMuted, fontSize = 15.sp)
+                Text(h.name, color = TextPrimary, fontSize = 13.sp, maxLines = 1,
+                    fontWeight = FontWeight.SemiBold, fontFamily = Mono)
+                Spacer(Modifier.size(5.dp))
+                Text(qtyLabel(h.quantity), color = TextMuted, fontSize = 10.sp,
+                    maxLines = 1, fontFamily = Mono, modifier = Modifier.weight(1f))
+                Text(signPct(rate2), color = pc(rate2), fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold, fontFamily = Mono, maxLines = 1)
+                Spacer(Modifier.size(6.dp))
+                Text(signedAmt(pnlAmt, cur, dec), color = pc(pnlAmt), fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold, fontFamily = Mono, maxLines = 1)
+                Spacer(Modifier.size(6.dp))
+                Text(cur + "%,.${dec}f".format(evalAmt), color = TextPrimary,
+                    fontSize = 12.sp, fontFamily = Mono, maxLines = 1)
+                Text(" ›", color = TextMuted, fontSize = 14.sp)
             }
         }
     }
 
     // ── 자산 추이 (스냅샷) ──
+    //
+    // ⚠️ 총자산 곡선은 **입금하면 그대로 올라간다** — 수익률이 아니다.
+    //    그래서 기본을 [수익률](입출금을 걷어낸 TWR 지수)로 두고, 총자산은 참고용으로 남긴다.
+    var mode by remember { mutableStateOf(Store.equityMode()) }
     val snaps = remember(AppState.dataVersion) { Snapshots.totals() }
+    val pnlSeries = remember(AppState.dataVersion) { Snapshots.investPnl() }
+    val twrSeries = remember(AppState.dataVersion) { Snapshots.twr() }
+
     Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(BgCard).padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(3.dp)) {
-        Text("자산 추이 (총자산) · 핀치=확대 · 탭=그 시점 금액",
+
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            listOf("return" to "수익률", "pnl" to "누적손익", "total" to "총자산").forEach { (id, label) ->
+                val on = mode == id
+                Box(
+                    Modifier.weight(1f).clip(RoundedCornerShape(8.dp))
+                        .background(if (on) SegmentOn else SurfaceInput)
+                        .clickable { mode = id; Store.setEquityMode(id) }
+                        .padding(vertical = 6.dp),
+                ) {
+                    Text(label, color = if (on) Color.White else TextSecondary, fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold, textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth())
+                }
+            }
+        }
+
+        val series = when (mode) { "total" -> snaps; "pnl" -> pnlSeries; else -> twrSeries }
+        val caption = when (mode) {
+            "total" -> "총자산 (입출금 포함)"
+            "pnl" -> "누적 투자손익 (평가 + 실현) · 입출금 무관"
+            else -> "수익률 지수 (입출금 제거, 시작 = 100)"
+        }
+        Text(caption + " · 핀치=확대 · 탭=그 시점 값",
             color = TextSecondary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-        if (snaps.size < 2) {
-            Text("기록이 ${snaps.size}일치뿐입니다. 앱을 열 때마다 하루 1회 잔고를 저장하므로\n" +
-                "며칠 지나면 그래프가 그려집니다.", color = TextMuted, fontSize = 11.sp)
+
+        if (series.size < 2) {
+            Text(
+                if (mode == "total")
+                    "기록이 ${snaps.size}일치뿐입니다. 앱을 열 때마다 하루 1회 잔고를 저장하므로\n" +
+                        "며칠 지나면 그래프가 그려집니다."
+                else
+                    "손익까지 남긴 기록이 ${series.size}일치뿐입니다. 입출금을 걷어내려면 평가손익·매입금액이\n" +
+                        "같이 필요한데 이전 기록에는 없어서, 이 곡선은 오늘부터 새로 쌓입니다.",
+                color = TextMuted, fontSize = 11.sp,
+            )
         } else {
+            val values = (
+                if (mode == "return") series.map { it.second }
+                else series.map { it.second / 10000.0 }
+            ).toDoubleArray()
             EquityChart(
-                snaps.map { it.second / 10000.0 }.toDoubleArray(),
-                unit = "만원", labels = snaps.map { it.first },
+                values,
+                unit = if (mode == "return") "" else "만원",
+                labels = series.map { it.first },
+                baseZero = mode == "pnl",   // 누적손익은 0선이 기준
             )
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(snaps.first().first, color = TextSecondary, fontSize = 10.sp)
-                Text("${snaps.size}일 기록", color = TextMuted, fontSize = 10.sp)
-                Text(snaps.last().first, color = TextSecondary, fontSize = 10.sp)
+                Text(series.first().first, color = TextSecondary, fontSize = 10.sp)
+                Text(
+                    if (mode == "total") "${series.size}일 기록"
+                    else "구간 " + signPct(values.last() / values.first() - 1.0),
+                    color = if (mode == "total") TextMuted else pc(values.last() - values.first()),
+                    fontSize = 10.sp, fontWeight = FontWeight.Bold,
+                )
+                Text(series.last().first, color = TextSecondary, fontSize = 10.sp)
             }
-            Snapshots.drawdown()?.let { dd ->
+            // 낙폭은 지금 보고 있는 곡선 기준. 총자산 낙폭은 입금 타이밍에 휘둘리므로 참고용이다.
+            Snapshots.drawdown(series)?.let { dd ->
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp),
                     modifier = Modifier.padding(top = 4.dp)) {
                     StatChip("고점대비", "${"%.1f".format(dd.current)}%")
                     StatChip("MDD", "${"%.1f".format(dd.max)}%" + (dd.maxDate?.let { " ($it)" } ?: ""))
                 }
             }
+            if (mode == "total") {
+                Text("입금·출금이 그대로 반영되는 곡선입니다. 순수 매매 성과는 [수익률] 을 보세요.",
+                    color = TextMuted, fontSize = 10.sp, modifier = Modifier.padding(top = 3.dp))
+            }
         }
     }
+
 
     TradeJournal()
 }

@@ -45,6 +45,15 @@ object Portfolio {
         return if (c.holdQty > 0 && c.buyQty > 0) Position(c.holdQty, c.buyCost / c.buyQty) else null
     }
 
+    /**
+     * 종목 하나의 **누적 실현손익** (완결된 사이클 합 + 진행 중 사이클의 부분 실현).
+     * 금액은 그 종목의 거래 통화 기준 — 통화가 섞이므로 합칠 때 환산은 호출부 책임이다.
+     */
+    fun realizedOf(trades: List<Trade>): Double {
+        val c = resolve(trades)
+        return c.cumulative + (c.currentPnl ?: 0.0)
+    }
+
     /** 매매 기록 → 현재 사이클 + 누적 실현손익 (resolve_all_cycles). */
     private fun resolve(trades: List<Trade>): Cyc {
         val sorted = trades.filter { it.qty > 0 && it.price > 0 }.sortedBy { it.date }

@@ -320,6 +320,10 @@ object Store {
      * 토스에 시가총액 랭킹이 없어 거래대금 상위(1일)를 기본값으로 둔다.
      */
     /** 분석 탭에서 보고 있는 차트 묶음: "scatter"(산점도 2개) | "series"(시계열 4개). */
+    /** 자산 추이 곡선 종류: "return"(TWR 수익률) | "pnl"(누적 투자손익) | "total"(총자산). */
+    fun equityMode(): String = settings().optString("equity_mode", "return")
+    fun setEquityMode(v: String) { saveSettings(settings().put("equity_mode", v)) }
+
     fun chartGroup(): String = settings().optString("chart_group", "series")
     fun setChartGroup(v: String) { saveSettings(settings().put("chart_group", v)) }
 

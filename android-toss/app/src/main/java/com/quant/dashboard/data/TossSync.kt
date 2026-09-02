@@ -157,7 +157,12 @@ object TossSync {
             val a = Account(h, krw, usd, rate)
             accountCache = a; accountAt = now
             holdingsCache = h; holdingsAt = now
-            Snapshots.recordToday(a.krwEval, a.usdEval, krw, usd, rate)
+            // 손익·매입금액까지 같이 남긴다 — 없으면 입금과 수익을 구분할 수 없다
+            Snapshots.recordToday(
+                a.krwEval, a.usdEval, krw, usd, rate,
+                krwPnl = h.krwPnl, usdPnl = h.usdPnl,
+                krwPurchase = h.krwPurchase, usdPurchase = h.usdPurchase,
+            )
             a
         } catch (e: Exception) {
             c   // 실패 시 이전 스냅샷 유지
