@@ -21,16 +21,12 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -53,19 +49,15 @@ import com.quant.dashboard.data.LivePrices
 import com.quant.dashboard.data.MarketHours
 import com.quant.dashboard.data.Store
 import com.quant.dashboard.data.Tickers
-import com.quant.dashboard.data.Trade
 import com.quant.dashboard.quant.Portfolio
 import com.quant.dashboard.quant.Quant
 import com.quant.dashboard.ui.theme.BgApp
 import com.quant.dashboard.ui.theme.BgCard
 import com.quant.dashboard.ui.theme.BorderColor
-import com.quant.dashboard.ui.theme.HoldingBg
-import com.quant.dashboard.ui.theme.HoldingBorder
 import com.quant.dashboard.ui.theme.Loss
 import com.quant.dashboard.ui.theme.Mono
 import com.quant.dashboard.ui.theme.Neutral
 import com.quant.dashboard.ui.theme.Profit
-import com.quant.dashboard.ui.theme.ProfitBtn
 import com.quant.dashboard.ui.theme.SegmentOn
 import com.quant.dashboard.ui.theme.SurfaceInput
 import com.quant.dashboard.ui.theme.Teal
@@ -76,6 +68,8 @@ import com.quant.dashboard.ui.theme.mHeat
 import com.quant.dashboard.ui.theme.pctColor
 import com.quant.dashboard.ui.theme.signalColor
 import java.time.LocalDate
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.ui.unit.Dp
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -139,7 +133,10 @@ fun AnalysisScreen(vm: AnalysisViewModel = viewModel(), onBack: () -> Unit = {})
         }
 
         // ── 본문: 당겨서 새로고침 + 그래프 2열 그리드 + 매매 아코디언 ──
-        Box(Modifier.weight(1f).fillMaxWidth()) {
+        // 차트 높이를 화면에 맞춰 계산하려면 가용 높이를 알아야 한다.
+        // 스크롤 안쪽에서 재면 무한대가 나오므로 **스크롤 바깥**에서 잰다.
+        BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
+            val avail = maxHeight
             when {
                 // 당겨서 새로고침 → 전체 탭 새로고침 (dataVersion bump로 모든 탭이 재로드)
                 s.result != null -> PullToRefreshBox(
@@ -151,8 +148,7 @@ fun AnalysisScreen(vm: AnalysisViewModel = viewModel(), onBack: () -> Unit = {})
                             .padding(horizontal = 8.dp, vertical = 8.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        ResultView(s.result, s.ticker, s.ohlc, ov[s.ticker]?.day, group)
-                        Spacer(Modifier.height(4.dp))
+                        ResultView(s.result, s.ticker, s.ohlc, ov[s.ticker]?.day, group, avail)
                     }
                 }
                 s.loading -> Row(Modifier.fillMaxWidth().padding(24.dp), Arrangement.Center) {
@@ -287,7 +283,7 @@ private fun Accordion(title: String, content: @Composable () -> Unit) {
 
 @Composable
 private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayPct: Double?,
-                       group: String) {
+                       group: String, avail: Dp) {
     // ── 종목명 + σ·β + (우측) 현재가/평단/수량 — 한 줄, 넘치면 가로 스크롤 ──
     val trades = remember(ticker) { Store.visibleTrades()[ticker].orEmpty() }
     val pos = remember(ticker) { Portfolio.position(trades) }
@@ -316,19 +312,15 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
         }
     }
 
-    // ── 차트 기간 (시계열 4개에만 적용 — 산점도 2개는 전 구간 기준) ──
-    // 상태는 여기서 선언해야 아래 윈도우 계산에 쓸 수 있고, 버튼은 차트 아래에 그린다.
-    var periodMonths by remember { mutableStateOf(Store.chartMonths()) }
-
-    // ── 차트 윈도우 + 매매 마커/화살표 ──
+    // ── 차트 데이터 — 분석 기간 전체를 넘긴다 ──
+    // 예전에는 여기서 기간만큼 잘라 보여주고 기간 버튼으로 바꿨는데,
+    // 이제 보이는 구간은 ChartView(핀치=범위, 드래그=이동)가 정하므로 자르지 않는다.
     val n = r.dates.size
-    val cutoff = r.dates[n - 1] - periodMonths.toLong() * 30 * 86400
-    var start = 0
-    while (start < n - 2 && r.dates[start] < cutoff) start++
+    val start = 0
     val base = r.price[0]
-    fun seg(a: DoubleArray) = a.copyOfRange(start, n)
-    fun segDollar(a: DoubleArray) = DoubleArray(n - start) { a[start + it] * base }
-    val dates = r.dates.copyOfRange(start, n)
+    fun seg(a: DoubleArray) = a
+    fun segDollar(a: DoubleArray) = DoubleArray(n) { a[it] * base }
+    val dates = r.dates
 
     val priceMarks = ArrayList<Mark>()
     val zmMarks = ArrayList<Mark>()
@@ -390,23 +382,35 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
 
     if (group == "scatter") {
         // ── 산점도 2개 — 전체 폭으로 위아래 배치 (반폭일 땐 점이 뭉개졌다) ──
+        // 화면에 딱 맞는 높이 — 헤더줄(34) + 카드 2개의 제목·여백(≈76) + 카드 사이(8)
+        val sc = ((avail - 118.dp) / 2).coerceAtLeast(140.dp)
         Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        ChartCard(Modifier.fillMaxWidth(), "회귀 산점도", value = "β ${"%.2f".format(r.beta)}",
-            valueColor = Profit, onClick = { zoom = 0 }) {
-            RegressionScatter(r.spyNorm, r.tickerNorm, r.predicted,
-                r.bandUpper, r.bandLower, r.beta, markIdx = scatterIdx, height = 300.dp)
-        }
-        ChartCard(Modifier.fillMaxWidth(), "Z·M 궤적", sub = "현재 ★", onClick = { zoom = 1 }) {
-            ZmScatter(r.zPct, r.mPct, scatterIdx, height = 300.dp)
-        }
+            ChartCard(Modifier.fillMaxWidth(), "회귀 산점도", value = "β ${"%.2f".format(r.beta)}",
+                valueColor = Profit, onClick = { zoom = 0 }) {
+                // zoomed=true → 우측 y축·하단 x축 눈금 값 표시
+                RegressionScatter(r.spyNorm, r.tickerNorm, r.predicted,
+                    r.bandUpper, r.bandLower, r.beta, markIdx = scatterIdx,
+                    height = sc, zoomed = true)
+            }
+            ChartCard(Modifier.fillMaxWidth(), "Z·M 궤적", sub = "현재 ★", onClick = { zoom = 1 }) {
+                ZmScatter(r.zPct, r.mPct, scatterIdx, height = sc, zoomed = true)
+            }
         }
     } else {
         // ── 시계열 4개 — x축을 통일해 4행으로 ──
         // ChartView 를 하나만 두고 넷이 공유한다. 아무 차트에서나 핀치·드래그하면 넷이 같이 움직이고,
         // 날짜축은 공통이므로 맨 아래 한 번만 그린다.
         // 카드 테두리를 빼고 얇은 제목줄만 둬서 네 개가 한 화면에 들어가게 했다.
-        var sView by remember(ticker) { mutableStateOf(ChartView()) }
-        val sh = 140.dp
+        // 처음 보여줄 구간 = 설정의 "차트 표시기간". 전체를 그려 놓고 배율로 잘라 보여준다.
+        val totalMonths = ((dates.last() - dates.first()).toDouble() / 2_629_746.0).coerceAtLeast(1.0)
+        var sView by remember(ticker, n, AppState.dataVersion) {
+            val s0 = (totalMonths / Store.chartMonths()).toFloat()
+                .coerceIn(1f, ChartView.MAX_ZOOM)
+            // nx = 1 - sx 이면 오른쪽 끝(최신)에 붙는다
+            mutableStateOf(ChartView(sx = s0, nx = 1f - s0))
+        }
+        // 헤더줄(34) + 제목줄 4개(≈72) + 날짜축(20) + 안내(20)
+        val sh = ((avail - 146.dp) / 4).coerceAtLeast(90.dp)
         val gest = Modifier.chartGestures(sView, { sView = it }, xOnly = true)
 
         // 간격 없는 Column — 바깥 Column 의 spacedBy(8dp) 가 항목마다 붙으면
@@ -436,30 +440,14 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
         RsiChart(seg(r.rsi), height = sh, view = sView, zoomed = true, modifier = gest)
 
         DateAxis(dates, sView, zoomed = true)
-        if (!sView.isIdentity) {
-            Text("확대 ${"%.1f".format(sView.sx)}배 — 탭하여 원본", color = TextMuted, fontSize = 11.sp,
-                modifier = Modifier.fillMaxWidth().clickable { sView = ChartView() })
-        }
+        Text(
+            if (sView.isIdentity) "두 손가락으로 기간 확대·축소 · 끌어서 이동"
+            else "보이는 기간 ${"%.1f".format(totalMonths / sView.sx)}개월 — 탭하면 전체",
+            color = TextMuted, fontSize = 11.sp,
+            modifier = Modifier.fillMaxWidth().clickable { sView = ChartView() },
+        )
         }
 
-        // 시계열 차트 4개(가격·Z·M·MACD·RSI)의 표시 기간
-        Row(Modifier.fillMaxWidth().padding(top = 2.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text("차트 기간", color = TextMuted, fontSize = 11.sp,
-                modifier = Modifier.align(Alignment.CenterVertically))
-            listOf(1, 6, 12, 24).forEach { m ->
-                val on = periodMonths == m
-                Box(
-                    Modifier.clip(RoundedCornerShape(7.dp))
-                        .background(if (on) Teal else SurfaceInput)
-                        .clickable { periodMonths = m; Store.setChartMonths(m) }
-                        .padding(horizontal = 11.dp, vertical = 4.dp),
-                ) {
-                    Text(if (m >= 12) "${m / 12}년" else "${m}개월",
-                        color = if (on) Color(0xFF0C0E11) else TextSecondary,
-                        fontSize = 11.sp, fontWeight = if (on) FontWeight.Bold else FontWeight.Normal)
-                }
-            }
-        }
     }
 
 

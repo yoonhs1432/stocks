@@ -97,7 +97,8 @@ data class ChartView(
     fun visibleY(): Pair<Float, Float> =
         ((-ny) / sy).coerceIn(0f, 1f) to ((1f - ny) / sy).coerceIn(0f, 1f)
 
-    companion object { const val MAX_ZOOM = 12f }
+    // 2년치에서 2주 남짓까지 좁힐 수 있게 — 기간 버튼을 없애고 제스처로만 범위를 정하므로 넉넉히.
+    companion object { const val MAX_ZOOM = 40f }
 }
 
 /** 현재 뷰에서 화면에 보이는 데이터 인덱스 구간 [i0, i1]. */
