@@ -37,6 +37,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -135,7 +137,9 @@ fun AnalysisScreen(vm: AnalysisViewModel = viewModel(), onBack: () -> Unit = {})
         // 차트 높이를 화면에 맞춰 계산하려면 가용 높이를 알아야 한다.
         // 스크롤 안쪽에서 재면 무한대가 나오므로 **스크롤 바깥**에서 잰다.
         BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
-            val avail = maxHeight
+            // 본문에 실제로 남는 높이 — 아래 Column 의 세로 패딩(8+8)을 뺀 값이어야
+            // ResultView 가 잰 여백과 더했을 때 딱 맞는다
+            val avail = maxHeight - BODY_PAD * 2
             when {
                 // 당겨서 새로고침 → 전체 탭 새로고침 (dataVersion bump로 모든 탭이 재로드)
                 s.result != null -> PullToRefreshBox(
@@ -144,7 +148,7 @@ fun AnalysisScreen(vm: AnalysisViewModel = viewModel(), onBack: () -> Unit = {})
                 ) {
                     Column(
                         Modifier.fillMaxSize().verticalScroll(rememberScrollState())
-                            .padding(horizontal = 8.dp, vertical = 8.dp),
+                            .padding(horizontal = 8.dp, vertical = BODY_PAD),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         ResultView(s.result, s.ticker, s.ohlc, ov[s.ticker]?.day, group, avail,
@@ -281,10 +285,36 @@ private fun Accordion(title: String, content: @Composable () -> Unit) {
     }
 }
 
+/** 분석 본문 Column 의 세로 패딩. 가용 높이 계산에서 정확히 이만큼 빠져야 한다. */
+private val BODY_PAD = 8.dp
+
+/** 컴포지션 중에 쓰고 레이아웃 뒤에 읽는 값 — 스냅샷 상태가 아니라 재구성을 유발하지 않는다. */
+private class ChartsHeight(var total: Dp = 0.dp)
+
 @Composable
 private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayPct: Double?,
                        group: String, avail: Dp,
                        savedView: ChartView?, onView: (ChartView) -> Unit) {
+    // ── 차트가 화면에 딱 맞게 — 여백을 **추정하지 않고 잰다** ──
+    //
+    // 종목 헤더·제목줄·날짜축·안내문의 높이를 dp 로 추정해 빼고 있었는데, 글꼴 크기나 줄바꿈으로
+    // 조금만 어긋나도 세로 스크롤이 생겼다. 실제로 그려진 높이에서 차트 몫을 빼면 여백이 정확히
+    // 나오고, 그 값은 차트 높이와 무관하므로 한 프레임 만에 수렴한다(진동하지 않는다).
+    val density = LocalDensity.current
+    // Dp.Unspecified 는 NaN 이라 == 비교가 항상 false 다 — 널로 둔다
+    var chrome by remember(group) { mutableStateOf<Dp?>(null) }
+    // 이번 컴포지션에서 차트에 준 높이 합. 스냅샷 상태로 두면 컴포지션 중 쓰기가 되므로 평범한 객체.
+    val charts = remember { ChartsHeight() }
+    fun chromeDp(fallback: Dp): Dp = chrome ?: fallback
+
+    Column(
+        Modifier.fillMaxWidth().onSizeChanged { sz ->
+            val measured = with(density) { sz.height.toDp() } - charts.total
+            val cur = chrome
+            if (cur == null || kotlin.math.abs((measured - cur).value) > 0.5f) chrome = measured
+        },
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
     // ── 종목명 + σ·β + (우측) 현재가/평단/수량 — 한 줄, 넘치면 가로 스크롤 ──
     val trades = remember(ticker) { Store.visibleTrades()[ticker].orEmpty() }
     val pos = remember(ticker) { Portfolio.position(trades) }
@@ -383,8 +413,8 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
 
     if (group == "scatter") {
         // ── 산점도 2개 — 전체 폭으로 위아래 배치 (반폭일 땐 점이 뭉개졌다) ──
-        // 화면에 딱 맞는 높이 — 헤더줄(34) + 카드 2개의 제목·여백(≈76) + 카드 사이(8)
-        val sc = ((avail - 118.dp) / 2).coerceAtLeast(140.dp)
+        val sc = ((avail - chromeDp(118.dp)) / 2).coerceAtLeast(140.dp)
+        charts.total = sc * 2
         Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             ChartCard(Modifier.fillMaxWidth(), "회귀 산점도", value = "β ${"%.2f".format(r.beta)}",
                 valueColor = Profit, onClick = { zoom = 0 }) {
@@ -417,11 +447,11 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
             )
         }
         fun pushView(v: ChartView) { sView = v; onView(v) }
-        // 남는 높이 = 헤더줄(34) + 제목줄 4개(≈72) + 날짜축(20) + 안내(20)
         // MACD·RSI 는 보조지표라 가격·Z·M 보다 낮게 (가중치 1 : 1 : 0.7 : 0.7)
-        val body = (avail - 146.dp).coerceAtLeast(360.dp)
-        val shMain = (body / 3.4f).coerceAtLeast(100.dp)
-        val shSub = (shMain * 0.7f).coerceAtLeast(70.dp)
+        val body = (avail - chromeDp(146.dp)).coerceAtLeast(240.dp)
+        val shMain = (body / 3.4f).coerceAtLeast(80.dp)
+        val shSub = (shMain * 0.7f).coerceAtLeast(56.dp)
+        charts.total = shMain * 2 + shSub * 2
         val gest = Modifier.chartGestures(sView, { pushView(it) }, xOnly = true)
 
         // 간격 없는 Column — 바깥 Column 의 spacedBy(8dp) 가 항목마다 붙으면
@@ -460,7 +490,7 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
         }
 
     }
-
+    }   // 측정 Column 끝
 
     // ── 차트 확대 다이얼로그 (그리드에서 탭한 차트를 전체화면 크게) ──
     if (zoom >= 0) {

@@ -328,6 +328,19 @@ private fun DrawScope.pennant(plotRight: Float, y: Float, lines: List<String>, b
 }
 
 /**
+ * 마지막 봉/점이 오른쪽 경계(clipRect = plotW)에 걸려 **반쪽만 그려지지 않도록** 비워 두는 폭.
+ *
+ * 캔들은 중심이 x, 폭이 w 라 마지막 봉 중심이 plotW 에 오면 오른쪽 절반이 잘린다.
+ * 시계열 차트 4개가 x축을 공유하므로 **모두 같은 값**을 써야 한다 — 그래서 보이는 봉 수만으로
+ * 계산한다(`view`·`n` 이 같으면 결과도 같다).
+ */
+private fun barInset(plotW: Float, n: Int, view: ChartView): Float {
+    val (u0, u1) = view.visibleX()
+    val visible = ((u1 - u0) * (n - 1)).coerceAtLeast(1f)
+    return (plotW / (visible + 1f) * 0.3f + 2f).coerceAtLeast(EDGE_PAD)
+}
+
+/**
  * 확대 뷰에서 우측 y축 라벨용으로 비워 두는 폭.
  *
  * 모든 차트가 같은 값을 써야 한다 — 시계열 4개가 x축을 공유하므로 차트마다 플롯 폭이
@@ -606,7 +619,9 @@ fun PriceChart(
 
     Canvas(modifier = modifier.fillMaxWidth().height(height)) {
         val plotW = size.width - (if (zoomed) AXIS_W else EDGE_PAD)
-        fun xAt(i: Int) = view.x(plotW * i / (n - 1), plotW)
+        // 데이터 폭은 마지막 봉이 잘리지 않게 오른쪽을 조금 비운다
+        val xw = plotW - barInset(plotW, n, view)
+        fun xAt(i: Int) = view.x(xw * i / (n - 1), xw)
         fun yAt(v: Double) = (size.height * (1 - (v - lo) / (hi - lo))).toFloat()
         if (zoomed) rightAxis(niceTicks(lo, hi), ::yAt, plotW) { "$currency${priceFmt(it)}" }
         clipRect(0f, 0f, plotW, size.height) {
@@ -661,7 +676,9 @@ fun CandleChart(
     fun dlbl(i: Int) = if (i in dates.indices) df.format(Date(dates[i] * 1000L)) else ""
     Canvas(modifier = modifier.fillMaxWidth().height(height)) {
         val plotW = size.width - (if (zoomed) AXIS_W else EDGE_PAD)
-        fun xAt(i: Int) = view.x(plotW * i / (n - 1), plotW)
+        // 데이터 폭은 마지막 봉이 잘리지 않게 오른쪽을 조금 비운다
+        val xw = plotW - barInset(plotW, n, view)
+        fun xAt(i: Int) = view.x(xw * i / (n - 1), xw)
         fun yAt(v: Double) = (size.height * (1 - (Math.log10(v) - ymin) / (ymax - ymin))).toFloat()
         if (zoomed) rightAxis(niceTicks(lo, hi), ::yAt, plotW) { "$currency${priceFmt(it)}" }
         clipRect(0f, 0f, plotW, size.height) {
@@ -719,7 +736,9 @@ fun ZmChart(zPct: DoubleArray, mPct: DoubleArray, markers: List<Mark> = emptyLis
     }
     Canvas(modifier = modifier.fillMaxWidth().height(height)) {
         val plotW = size.width - (if (zoomed) AXIS_W else EDGE_PAD)
-        fun xAt(i: Int) = view.x(plotW * i / (n - 1), plotW)
+        // 데이터 폭은 마지막 봉이 잘리지 않게 오른쪽을 조금 비운다
+        val xw = plotW - barInset(plotW, n, view)
+        fun xAt(i: Int) = view.x(xw * i / (n - 1), xw)
         fun yAt(v: Double) = (size.height * (1 - (v - lo) / (hi - lo))).toFloat()
         // 위(>80) 빨강 / 아래(<20) 파랑 음영 밴드 (RSI 스타일)
         drawRect(Color(0x1AEF6066), topLeft = Offset(0f, yAt(100.0)), size = Size(size.width, yAt(80.0) - yAt(100.0)))
@@ -816,7 +835,9 @@ fun RsiChart(rsi: DoubleArray, topLabel: String = "", height: Dp = 90.dp,
     }
     Canvas(modifier = modifier.fillMaxWidth().height(height)) {
         val plotW = size.width - (if (zoomed) AXIS_W else EDGE_PAD)
-        fun xAt(i: Int) = view.x(plotW * i / (n - 1), plotW)
+        // 데이터 폭은 마지막 봉이 잘리지 않게 오른쪽을 조금 비운다
+        val xw = plotW - barInset(plotW, n, view)
+        fun xAt(i: Int) = view.x(xw * i / (n - 1), xw)
         fun yAt(v: Double) = (size.height * (1 - (v - lo) / (hi - lo))).toFloat()
         // 과매수(>70) 빨강 / 과매도(<30) 파랑 음영
         drawRect(Color(0x1AEF6066), topLeft = Offset(0f, yAt(100.0)), size = Size(size.width, yAt(70.0) - yAt(100.0)))
@@ -913,7 +934,9 @@ fun EquityChart(
                     onTapAt = { u -> sel = (u * (n - 1)).roundToInt().coerceIn(0, n - 1) }),
         ) {
             val plotW = size.width - AXIS_W
-            fun xAt(i: Int) = view.x(plotW * i / (n - 1), plotW)
+            // 데이터 폭은 마지막 점이 잘리지 않게 오른쪽을 조금 비운다
+            val xw = plotW - barInset(plotW, n, view)
+            fun xAt(i: Int) = view.x(xw * i / (n - 1), xw)
             fun yAt(v: Double) = (size.height * (1 - (v - lo) / (hi - lo))).toFloat()
 
             // 눈금 + 값 라벨 — 금액을 눈으로 바로 읽을 수 있게 항상 표시
@@ -976,7 +999,9 @@ fun MacdChart(macd: DoubleArray, signal: DoubleArray, topLabel: String = "", hei
     mx *= 1.15
     Canvas(modifier = modifier.fillMaxWidth().height(height)) {
         val plotW = size.width - (if (zoomed) AXIS_W else EDGE_PAD)
-        fun xAt(i: Int) = view.x(plotW * i / (n - 1), plotW)
+        // 데이터 폭은 마지막 봉이 잘리지 않게 오른쪽을 조금 비운다
+        val xw = plotW - barInset(plotW, n, view)
+        fun xAt(i: Int) = view.x(xw * i / (n - 1), xw)
         fun yAt(v: Double) = (size.height * (1 - (v + mx) / (2 * mx))).toFloat()
         // 표시 범위 기준 상단 30% 빨강 / 하단 30% 파랑 음영 (RSI 스타일)
         drawRect(Color(0x1AEF6066), topLeft = Offset(0f, 0f), size = Size(size.width, size.height * 0.3f))
