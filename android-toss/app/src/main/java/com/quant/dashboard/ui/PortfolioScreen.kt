@@ -63,6 +63,10 @@ private fun pc(v: Double) = if (v > 0) Profit else if (v < 0) Loss else Neutral
 private fun signPct(r: Double): String = (if (r >= 0) "+" else "") + "%.2f%%".format(r * 100)
 private fun ident(i: Int) = WeightPalette[i % WeightPalette.size]
 
+/** 원화 손익 표기 — 부호를 앞에. rate=1.0 이면 이미 원화인 값. */
+private fun won(usd: Double, rate: Double) =
+    (if (usd >= 0) "+" else "-") + "%,.0f원".format(kotlin.math.abs(usd * rate))
+
 /** 부호를 앞에 붙인 금액 — `-$12.34` 처럼 통화기호 뒤가 아니라 앞에 부호가 오게. */
 private fun signedAmt(v: Double, cur: String, dec: Int): String =
     (if (v >= 0) "+" else "-") + cur + "%,.${dec}f".format(kotlin.math.abs(v))

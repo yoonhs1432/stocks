@@ -8,6 +8,9 @@ package com.quant.dashboard.data
  * 그만큼 어긋난다(GDXU 가 -7.6% 대신 -19.4% 로 나왔다). 그래서 소스를 하나로 못 박았다.
  * 실패하면 값을 지어내지 않고 **빈 리스트**를 돌려준다 — 화면에 문제가 드러나는 편이 낫다.
  */
+/** 봉 1개 (일봉). */
+data class Candle(val t: Long, val open: Double, val high: Double, val low: Double, val close: Double)
+
 object Quotes {
 
     /** 토스는 봉 수로 요청한다 — 개월당 약 22 거래일 + 경계 여유. */
