@@ -33,6 +33,22 @@ class AnalysisViewModel : ViewModel() {
     var overview by mutableStateOf<List<OverviewRepo.Row>>(emptyList())
         private set
 
+    /**
+     * 시계열 차트의 x축 확대/이동 — **종목별로 ViewModel 이 들고 있는다.**
+     *
+     * 화면 안에서 `remember` 로 두면 탭을 옮기는 순간 컴포저블이 폐기돼 범위가 초기화된다.
+     * ViewModel 은 액티비티 스코프라 탭을 오가도 살아남는다. 값이 없으면 화면이
+     * "차트 표시기간" 기준으로 처음 배율을 만들어 넣는다.
+     */
+    private val chartViews = HashMap<String, ChartView>()
+
+    fun chartView(ticker: String): ChartView? = chartViews[ticker]
+
+    fun setChartView(ticker: String, v: ChartView) { chartViews[ticker] = v }
+
+    /** 데이터가 갈리면(기간 변경·새로고침) 저장해 둔 배율도 의미가 없어진다. */
+    private fun clearChartViews() { chartViews.clear() }
+
     fun loadOverview(force: Boolean = false) {
         viewModelScope.launch {
             val rows = withContext(Dispatchers.IO) { OverviewRepo.load(force) }
@@ -52,7 +68,7 @@ class AnalysisViewModel : ViewModel() {
      */
     fun sync(version: Int, pending: String? = null) {
         val changed = version != loadedVersion
-        if (changed) { loadedVersion = version; spyCache = emptyList() }
+        if (changed) { loadedVersion = version; spyCache = emptyList(); clearChartViews() }
         when {
             pending != null -> select(pending)
             changed -> load()
@@ -85,8 +101,8 @@ class AnalysisViewModel : ViewModel() {
             val holder = withContext(Dispatchers.IO) {
                 try {
                     if (spyCache.isEmpty()) spyCache = Quotes.closes(Tickers.BASE, months)
-                    val spy = Store.sliceAsof(spyCache)
-                    val candles = Store.sliceAsofCandles(Quotes.ohlc(ticker, months))
+                    val spy = spyCache
+                    val candles = Quotes.ohlc(ticker, months)
                     val tk = candles.map { Pair(it.t, it.close) }
                     when {
                         spy.isEmpty() -> Result.failure(Exception("SPY 시세를 가져오지 못했습니다"))

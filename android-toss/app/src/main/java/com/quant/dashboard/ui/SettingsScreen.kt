@@ -18,7 +18,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
@@ -33,7 +32,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -44,15 +42,10 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import com.quant.dashboard.data.BrokerCreds
 import com.quant.dashboard.data.TossApi
-import com.quant.dashboard.data.MarketHours
 import com.quant.dashboard.data.NetInfo
 import com.quant.dashboard.data.TossSync
-import com.quant.dashboard.data.LivePrices
 import com.quant.dashboard.data.Quotes
-import com.quant.dashboard.data.OverviewRepo
-import com.quant.dashboard.data.Yahoo
 import com.quant.dashboard.data.Store
-import com.quant.dashboard.data.Tickers
 import com.quant.dashboard.data.Universe
 import com.quant.dashboard.ui.theme.BgApp
 import com.quant.dashboard.ui.theme.BgCard
@@ -68,7 +61,6 @@ import com.quant.dashboard.ui.theme.TextSecondary
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.time.LocalDate
 import kotlin.math.roundToInt
 
 /**
@@ -133,10 +125,8 @@ private fun Seg(label: String, selected: Boolean, onClick: () -> Unit) {
 fun SettingsScreen() {
     var tickers by remember { mutableStateOf(Store.loadTickers().toList()) }
     var input by remember { mutableStateOf("") }
-    var seed by remember { mutableStateOf(Store.seedUsd().toInt().toString()) }
     var rangeM by remember { mutableStateOf(Store.lookbackMonths()) }
     val nameEdits = remember { mutableStateMapOf<String, String>().apply { putAll(Store.nameOverrides()) } }
-    var indivVer by remember { mutableStateOf(0) }
 
     Column(
         modifier = Modifier.fillMaxSize().background(BgApp)
@@ -148,11 +138,6 @@ fun SettingsScreen() {
         // ══════════ 분석 ══════════
         SectionHeader("분석")
         SettingsCard {
-            Label("시드 ($)")
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(seed, { seed = it }, singleLine = true, modifier = Modifier.weight(1f))
-                Button(onClick = { seed.toDoubleOrNull()?.let { if (it > 0) { Store.setSeedUsd(it); AppState.bump() } } }) { Text("저장") }
-            }
             MonthSlider(
                 "분석 기간 (조회)", rangeM,
                 hint = if (rangeM < 3)
@@ -160,40 +145,15 @@ fun SettingsScreen() {
                 else null,
             ) { rangeM = it; Store.setLookbackMonths(it); AppState.bump() }
             var chartM by remember { mutableStateOf(Store.chartMonths()) }
-            MonthSlider("차트 표시기간", chartM) { chartM = it; Store.setChartMonths(it); AppState.bump() }
-            // 기준일 시뮬레이션
-            var asofEnabled by remember { mutableStateOf(Store.asofDate() != null) }
-            var asofText by remember { mutableStateOf(Store.asofDate() ?: LocalDate.now().toString()) }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Checkbox(checked = asofEnabled, onCheckedChange = { asofEnabled = it; if (!it) AppState.applyAsof(null) })
-                Text("📅 기준일 시뮬레이션 (이 날짜까지 데이터만)", color = TextSecondary, fontSize = 12.sp)
-            }
-            if (asofEnabled) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(asofText, { asofText = it }, label = { Text("기준일 (YYYY-MM-DD)") },
-                        singleLine = true, modifier = Modifier.weight(1f))
-                    Button(onClick = {
-                        val ok = try { LocalDate.parse(asofText.trim()); true } catch (e: Exception) { false }
-                        if (ok) AppState.applyAsof(asofText.trim())
-                    }) { Text("적용") }
-                }
-            }
-            AppState.asof?.let { Text("현재 기준일: $it (헤더 ✕로 해제)", color = TextMuted, fontSize = 11.sp) }
-        }
-
-        // ══════════ 포트폴리오 ══════════
-        SectionHeader("포트폴리오")
-        SettingsCard {
-            var eqM by remember { mutableStateOf(Store.equityMonths()) }
             MonthSlider(
-                "자산추이 기간", eqM,
-                hint = "그래프는 항상 일 단위로 그립니다 — 주/월로 묶으면 같은 기간이 성기게 보일 뿐이라 없앴습니다.\n" +
-                    "차트에서 핀치로 확대하고, 아무 지점이나 누르면 그 시점의 금액이 표시됩니다.",
-            ) { eqM = it; Store.setEquityMonths(it); AppState.bump() }
+                "차트 표시기간", chartM,
+                hint = "분석 탭 시계열을 처음 열었을 때 보여줄 구간입니다. 이후에는 두 손가락으로 넓히거나 좁힐 수 있습니다.",
+            ) { chartM = it; Store.setChartMonths(it); AppState.bump() }
         }
 
-        // ══════════ 토스증권 연동 (조회 전용) ══════════
-        SectionHeader("토스증권 연동 (조회 전용)")
+        // ══════════ 토스증권 ══════════
+        // 계정(키 입력)은 처음 한 번만 쓰므로 접어 두고, 매일 쓰는 것만 밖으로 낸다.
+        SectionHeader("토스증권 (조회 전용)")
         SettingsCard {
             var bkOpen by remember { mutableStateOf(false) }
             var bkKey by remember { mutableStateOf(BrokerCreds.appKey()) }
@@ -209,7 +169,9 @@ fun SettingsScreen() {
                 BrokerCreds.hasKeys() -> "키만 저장됨 (연결 테스트 필요)"
                 else -> "미설정"
             }
-            Text("${if (bkOpen) "▲" else "▼"}  $status", color = TextSecondary, fontSize = 12.sp,
+
+            // ── 계정 (접힘) ──
+            Text("${if (bkOpen) "▲" else "▼"}  계정 · $status", color = TextSecondary, fontSize = 12.sp,
                 modifier = Modifier.fillMaxWidth().clickable { bkOpen = !bkOpen })
             if (bkOpen) {
                 if (!BrokerCreds.available()) {
@@ -247,7 +209,7 @@ fun SettingsScreen() {
                                             } else base
                                         }
                                     }
-                                    bkMsg = msg; bkBusy = false; bkVer++
+                                    bkMsg = msg; bkBusy = false; bkVer++; AppState.bump()
                                 }
                             },
                             modifier = Modifier.weight(1f),
@@ -256,11 +218,13 @@ fun SettingsScreen() {
                             enabled = !bkBusy,
                             onClick = {
                                 BrokerCreds.clear(); bkKey = ""; bkSecret = ""
-                                bkVer++; bkMsg = "삭제했습니다"
+                                bkVer++; bkMsg = "삭제했습니다"; AppState.bump()
                             },
                             modifier = Modifier.weight(1f),
                         ) { Text("삭제") }
                     }
+
+                    // 허용 IP — 휴대폰 IP 는 자주 바뀌므로 여기서 바로 확인·복사한다
                     val clipboard = LocalClipboardManager.current
                     var myIp by remember { mutableStateOf<String?>(null) }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -288,190 +252,63 @@ fun SettingsScreen() {
                             color = TextMuted, fontSize = 10.sp)
                     }
 
-                    bkMsg?.let {
-                        Text(it, color = if (it.startsWith("실패")) Loss else TextSecondary, fontSize = 11.sp)
-                    }
-
-                    // ── 연결된 뒤에만: 체결내역 가져오기 · 시세 소스 ──
-                    if (linked) {
-                        Box(Modifier.fillMaxWidth().height(1.dp).background(BorderColor))
-                        Label("체결내역 가져오기")
-                        Text("토스 계좌의 체결분을 매매기록으로 합칩니다. 이미 가져온 건과 손으로 입력해 둔 같은 거래는 건너뜁니다.",
-                            color = TextMuted, fontSize = 11.sp)
-                        Button(
-                            enabled = !bkBusy,
-                            onClick = {
-                                bkBusy = true; bkMsg = "체결내역 가져오는 중…"
-                                bkScope.launch {
-                                    val msg = withContext(Dispatchers.IO) {
-                                        try { TossSync.importFills().summary() }
-                                        catch (e: Exception) { "실패: ${e.message}" }
-                                    }
-                                    bkMsg = msg; bkBusy = false; AppState.bump()
-                                }
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                        ) { Text("체결내역 가져오기") }
-
-                        // ── 종목 커버리지 (이관·시세 전환 판단용) ──
-                        Box(Modifier.fillMaxWidth().height(1.dp).background(BorderColor))
-                        Label("종목 커버리지 확인")
-                        Text("워치리스트 + 회귀 기준(SPY)이 토스에서 취급되는지 한 번에 확인합니다. " +
-                            "여기 없는 종목은 토스에서 사고팔 수 없고, 시세도 Yahoo로 받게 됩니다.",
-                            color = TextMuted, fontSize = 11.sp)
-                        var cov by remember { mutableStateOf<List<Triple<String, Boolean, String>>?>(null) }
-                        var covBusy by remember { mutableStateOf(false) }
-                        Button(
-                            enabled = !covBusy,
-                            onClick = {
-                                covBusy = true
-                                bkScope.launch {
-                                    val rows = withContext(Dispatchers.IO) {
-                                        val syms = (Store.loadTickers() + Tickers.BASE).distinct()
-                                        try {
-                                            val found = TossApi.stocks(syms)
-                                            syms.map { sym ->
-                                                val i = found[sym]
-                                                if (i == null) Triple(sym, false, "토스에 없음 → Yahoo")
-                                                else Triple(sym, i.status == "ACTIVE",
-                                                    "${i.name} · ${i.market} · ${i.securityType}" +
-                                                        if (i.status != "ACTIVE") " · ${i.status}" else "")
-                                            }
-                                        } catch (e: Exception) {
-                                            listOf(Triple("오류", false, e.message ?: ""))
-                                        }
-                                    }
-                                    cov = rows; covBusy = false
-                                }
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                        ) { Text(if (covBusy) "확인 중…" else "종목 커버리지 확인") }
-                        cov?.let { rows ->
-                            val ok = rows.count { it.second }
-                            Text("토스 취급 $ok / ${rows.size}", color = TextSecondary,
-                                fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                            rows.forEach { (sym, okOne, desc) ->
-                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    Text(if (okOne) "✓" else "✗", color = if (okOne) Profit else Loss,
-                                        fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                    Text(sym, color = TextPrimary, fontSize = 11.sp, fontFamily = Mono)
-                                    Text(desc, color = TextMuted, fontSize = 11.sp)
-                                }
-                            }
-                        }
-
-                        // ── 실시간 시세 ──
-                        Box(Modifier.fillMaxWidth().height(1.dp).background(BorderColor))
-                        var tick by remember { mutableStateOf(Store.tickSeconds()) }
-                        Label("실시간 시세 갱신 주기")
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            listOf("끔" to 0, "1초" to 1, "3초" to 3, "5초" to 5, "10초" to 10, "30초" to 30).forEach { (lab, v) ->
-                                Seg(lab, tick == v) { tick = v; Store.setTickSeconds(v); AppState.bump() }
-                            }
-                        }
-                        Text("장이 열려 있을 때만 동작합니다. 전 종목 현재가를 요청 1번으로 받아오므로 " +
-                            "주기를 짧게 해도 호출 수는 늘지 않지만, 배터리와 레이트리밋에는 영향이 있습니다.\n" +
-                            "한도(429)에 걸리면 30초 쉬었다 자동 재개합니다. 1초는 배터리 소모가 큽니다.",
-                            color = TextMuted, fontSize = 11.sp)
-
-                        // ── 시간외 데이터 진단 ──
-                        Box(Modifier.fillMaxWidth().height(1.dp).background(BorderColor))
-                        Label("시세 진단 (프리·애프터 확인용)")
-                        Text("`/prices` 와 `/trades` 응답의 시각을 그대로 보여줍니다. 프리마켓 시간대(저녁)에 눌러 " +
-                            "그 시각이 찍히면 시간외 데이터가 오는 것이고, 전일 마감 시각이면 오지 않는 것입니다.",
-                            color = TextMuted, fontSize = 11.sp)
-                        var diag by remember { mutableStateOf<List<String>?>(null) }
-                        var diagBusy by remember { mutableStateOf(false) }
-                        Button(
-                            enabled = !diagBusy,
-                            onClick = {
-                                diagBusy = true
-                                bkScope.launch {
-                                    val lines = withContext(Dispatchers.IO) {
-                                        try {
-                                            val syms = (Store.loadTickers().take(3) + Tickers.BASE).distinct()
-                                            val out = ArrayList<String>()
-                                            MarketHours.ensure(force = true)
-                                            out.add("개장: ${MarketHours.label() ?: "닫힘"}")
-                                            out.add("기기 시각: ${java.time.OffsetDateTime.now()}")
-                                            TossApi.pricesRaw(syms).forEach {
-                                                out.add("prices ${it.symbol} = ${it.price} @ ${it.timestamp}")
-                                            }
-                                            syms.forEach { sym ->
-                                                val t = runCatching { TossApi.lastTradeTime(sym) }.getOrNull()
-                                                out.add("trades $sym 최근체결 @ ${t ?: "(없음)"}")
-                                            }
-                                            out
-                                        } catch (e: Exception) {
-                                            listOf("실패: ${e.message}")
-                                        }
-                                    }
-                                    diag = lines; diagBusy = false
-                                }
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                        ) { Text(if (diagBusy) "확인 중…" else "시세 진단") }
-                        diag?.let { lines ->
-                            lines.forEach {
-                                Text(it, color = if (it.startsWith("실패")) Loss else TextSecondary,
-                                    fontSize = 10.sp, fontFamily = Mono)
-                            }
-                        }
-
-                        // ── 토스 기반 모드 ──
-                        Box(Modifier.fillMaxWidth().height(1.dp).background(BorderColor))
-                        var tossM by remember { mutableStateOf(Store.tossMode()) }
-                        Label("포트폴리오 기준")
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Seg("매매기록", !tossM) { tossM = false; Store.setTossMode(false); AppState.bump() }
-                            Seg("토스 계좌", tossM) { tossM = true; Store.setTossMode(true); AppState.bump() }
-                        }
-                        Text("토스 계좌: 보유·평단·예수금·총자산을 증권사 실측으로 표시하고, " +
-                            "이관 전 수기 매매기록은 화면에서 숨깁니다(파일은 지우지 않으므로 되돌릴 수 있음).\n" +
-                            "자산추이는 토스에 과거 잔고 API가 없어 앱을 열 때마다 하루 1회 저장한 스냅샷으로 그립니다 — " +
-                            "전환 시점부터 쌓입니다.",
-                            color = TextMuted, fontSize = 11.sp)
-
-                        Box(Modifier.fillMaxWidth().height(1.dp).background(BorderColor))
-                        var tossQ by remember { mutableStateOf(Store.tossQuotes()) }
-                        Label("시세 소스")
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Seg("Yahoo", !tossQ) {
-                                tossQ = false; Store.setTossQuotes(false); Quotes.clearCache(); AppState.bump()
-                            }
-                            Seg("토스", tossQ) {
-                                tossQ = true; Store.setTossQuotes(true); Quotes.clearCache(); AppState.bump()
-                            }
-                        }
-                        var fb by remember { mutableStateOf(Store.yahooFallback()) }
-                        Label("토스 실패 시 Yahoo 로 대체")
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Seg("대체함", fb) { fb = true; Store.setYahooFallback(true); Quotes.clearCache(); AppState.bump() }
-                            Seg("안 함", !fb) { fb = false; Store.setYahooFallback(false); Quotes.clearCache(); AppState.bump() }
-                        }
-                        Text("두 소스의 전일 종가가 달라 등락률이 어긋난 적이 있습니다.\n" +
-                            "\"안 함\"으로 두면 토스가 실패한 종목은 값이 아예 안 나오므로 문제가 바로 드러납니다.",
-                            color = TextMuted, fontSize = 11.sp)
-                        Box(
-                            Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(SurfaceInput)
-                                .clickable { Quotes.clearCache(); AppState.bump() }
-                                .padding(vertical = 8.dp),
-                            contentAlignment = Alignment.Center,
-                        ) { Text("일봉 다시 받기", color = TextSecondary, fontSize = 12.sp) }
-                        Text("일봉은 하루 한 번만 바뀌므로 받아 두고 재사용합니다(6시간). " +
-                            "현재가는 위의 실시간 갱신 주기로 따로 받아옵니다.",
-                            color = TextMuted, fontSize = 11.sp)
-                        Text("토스 일봉은 200개/요청이라 2년치면 종목당 3회 호출입니다. " +
-                            "동시 요청을 3건으로 제한해 한도(429)에 걸리지 않게 합니다.\n" +
-                            "코인(BTC·ETH)은 토스 범위 밖이라 항상 Yahoo입니다.",
-                            color = TextMuted, fontSize = 11.sp)
-                    }
                     Text("🔒 자격증명은 이 기기에만 암호화 저장되며 외부로 전송되지 않습니다.\n" +
                         "조회 전용입니다 — 주문·정정·취소 기능은 구현되어 있지 않습니다.\n" +
                         "⚠️ 토스 API는 허용 IP 목록 밖에서는 차단됩니다. 휴대폰 IP는 자주 바뀌므로\n" +
                         "토스증권 WTS(tossinvest.com) → 설정 → Open API → 허용 IP 관리에서 현재 IP를 등록해야 합니다.",
                         color = TextMuted, fontSize = 11.sp)
                 }
+            }
+            bkMsg?.let {
+                Text(it, color = if (it.startsWith("실패")) Loss else TextSecondary, fontSize = 11.sp)
+            }
+
+            // ── 데이터 (연결됐을 때만, 펼친 채로) ──
+            if (linked) {
+                Box(Modifier.fillMaxWidth().height(1.dp).background(BorderColor))
+                Label("체결내역 가져오기")
+                Text("토스 계좌의 체결분을 매매기록으로 합칩니다. 이미 가져온 건과 손으로 입력해 둔 같은 거래는 건너뜁니다.",
+                    color = TextMuted, fontSize = 11.sp)
+                Button(
+                    enabled = !bkBusy,
+                    onClick = {
+                        bkBusy = true; bkMsg = "체결내역 가져오는 중…"
+                        bkScope.launch {
+                            val msg = withContext(Dispatchers.IO) {
+                                try { TossSync.importFills().summary() }
+                                catch (e: Exception) { "실패: ${e.message}" }
+                            }
+                            bkMsg = msg; bkBusy = false; AppState.bump()
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("체결내역 가져오기") }
+
+                Box(Modifier.fillMaxWidth().height(1.dp).background(BorderColor))
+                var tick by remember { mutableStateOf(Store.tickSeconds()) }
+                Label("실시간 시세 갱신 주기")
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf("끔" to 0, "1초" to 1, "3초" to 3, "5초" to 5, "10초" to 10, "30초" to 30).forEach { (lab, v) ->
+                        Seg(lab, tick == v) { tick = v; Store.setTickSeconds(v); AppState.bump() }
+                    }
+                }
+                Text("장이 열려 있을 때만 동작합니다. 전 종목 현재가를 요청 1번으로 받아오므로 " +
+                    "주기를 짧게 해도 호출 수는 늘지 않지만, 배터리와 레이트리밋에는 영향이 있습니다.\n" +
+                    "한도(429)에 걸리면 30초 쉬었다 자동 재개합니다. 1초는 배터리 소모가 큽니다.",
+                    color = TextMuted, fontSize = 11.sp)
+
+                Box(Modifier.fillMaxWidth().height(1.dp).background(BorderColor))
+                Label("일봉 다시 받기")
+                Box(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(SurfaceInput)
+                        .clickable { Quotes.clearCache(); AppState.bump() }
+                        .padding(vertical = 8.dp),
+                    contentAlignment = Alignment.Center,
+                ) { Text("받아 둔 일봉 버리고 다시 받기", color = TextSecondary, fontSize = 12.sp) }
+                Text("일봉은 하루 한 번만 바뀌므로 받아 두고 재사용합니다(6시간). " +
+                    "현재가는 위의 갱신 주기로 따로 받아옵니다.\n" +
+                    "토스 일봉은 200개/요청이라 2년치면 종목당 3회 호출이라, 동시 요청을 3건으로 제한합니다.",
+                    color = TextMuted, fontSize = 11.sp)
             }
         }
 
@@ -547,27 +384,7 @@ fun SettingsScreen() {
             }
         }
 
-        // ── 등락률 진단 — 앱이 실제로 어떤 두 날짜를 비교하는지 그대로 출력 ──
-        var diagMsg by remember { mutableStateOf<String?>(null) }
-        var diagBusy by remember { mutableStateOf(false) }
-        val diagScope = rememberCoroutineScope()
-        Button(
-            enabled = !diagBusy,
-            onClick = {
-                diagScope.launch {
-                    diagBusy = true
-                    diagMsg = withContext(Dispatchers.IO) { seriesDiagnostic() }
-                    diagBusy = false
-                }
-            },
-            modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
-        ) { Text(if (diagBusy) "확인 중…" else "등락률 진단 (토스 vs Yahoo 대조)") }
-        diagMsg?.let {
-            Text(it, color = TextSecondary, fontSize = 10.sp, fontFamily = Mono,
-                modifier = Modifier.fillMaxWidth().padding(top = 4.dp))
-        }
-
-        Text("최소 ${Store.MIN_TICKERS}개 · 국내=6자리(.KS/.KQ 자동) · 개별/ETF·이름 셀에서 편집\n" +
+        Text("최소 ${Store.MIN_TICKERS}개 · 국내=6자리(.KS/.KQ 자동) · 셀에서 별칭 편집\n" +
             "여러 개를 콤마·줄바꿈으로 구분해 한 번에 붙여넣을 수 있습니다",
             color = TextMuted, fontSize = 11.sp, modifier = Modifier.padding(vertical = 2.dp))
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -595,22 +412,18 @@ fun SettingsScreen() {
             }
         }
 
-        indivVer.let {
-            tickers.chunked(2).forEach { pair ->
-                Row(Modifier.fillMaxWidth().padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.Top) {
-                    pair.forEach { tk ->
-                        TickerCell(
-                            tk = tk, weight = 1f,
-                            indiv = Store.isIndividual(tk),
-                            nameValue = nameEdits[tk] ?: "",
-                            onName = { nameEdits[tk] = it },
-                            onToggle = { Store.setIndividual(tk, !Store.isIndividual(tk)); indivVer++; AppState.bump() },
-                            onDelete = { Store.removeTicker(tk); tickers = Store.loadTickers().toList(); AppState.bump() },
-                        )
-                    }
-                    if (pair.size == 1) Spacer(Modifier.weight(1f))
+        tickers.chunked(2).forEach { pair ->
+            Row(Modifier.fillMaxWidth().padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.Top) {
+                pair.forEach { tk ->
+                    TickerCell(
+                        tk = tk, weight = 1f,
+                        nameValue = nameEdits[tk] ?: "",
+                        onName = { nameEdits[tk] = it },
+                        onDelete = { Store.removeTicker(tk); tickers = Store.loadTickers().toList(); AppState.bump() },
+                    )
                 }
+                if (pair.size == 1) Spacer(Modifier.weight(1f))
             }
         }
         Button(onClick = {
@@ -622,31 +435,19 @@ fun SettingsScreen() {
     }
 }
 
-/** 종목 관리 카드 — 티커 + ETF/개별 뱃지(상단) / 별칭 + 삭제(하단). */
+/** 종목 관리 카드 — 티커(상단) / 별칭 + 삭제(하단). */
 @Composable
 private fun RowScope.TickerCell(
-    tk: String, weight: Float, indiv: Boolean, nameValue: String,
-    onName: (String) -> Unit, onToggle: () -> Unit, onDelete: () -> Unit,
+    tk: String, weight: Float, nameValue: String,
+    onName: (String) -> Unit, onDelete: () -> Unit,
 ) {
     Column(
         Modifier.weight(weight).clip(RoundedCornerShape(12.dp)).background(BgCard)
             .border(1.dp, BorderColor, RoundedCornerShape(12.dp)).padding(10.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        // 상단: 티커 + ETF/개별 뱃지
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(tk, color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold, fontFamily = Mono,
-                maxLines = 1, modifier = Modifier.weight(1f))
-            Box(
-                Modifier.clip(RoundedCornerShape(6.dp))
-                    .background(if (indiv) Profit.copy(alpha = 0.18f) else SurfaceInput)
-                    .clickable { onToggle() }
-                    .padding(horizontal = 8.dp, vertical = 3.dp),
-            ) {
-                Text(if (indiv) "개별" else "ETF",
-                    color = if (indiv) Profit else TextMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-            }
-        }
+        Text(tk, color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold, fontFamily = Mono,
+            maxLines = 1, modifier = Modifier.fillMaxWidth())
         // 하단: 별칭 입력 + 삭제
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -667,48 +468,4 @@ private fun RowScope.TickerCell(
                 modifier = Modifier.clickable { onDelete() }.padding(horizontal = 4.dp, vertical = 4.dp))
         }
     }
-}
-
-/**
- * 등락률 진단 — 종목마다 **토스와 Yahoo 를 나란히** 찍고, 비교 탭이 실제로 들고 있는 값도 같이 보여준다.
- *
- * 두 소스의 전일 종가가 다르면 비교 탭 값이 호출 시점(어느 소스가 성공했는지)에 따라 달라진다.
- * IO 디스패처에서 호출.
- */
-private fun seriesDiagnostic(): String {
-    val f = java.text.SimpleDateFormat("MM/dd", java.util.Locale.US)
-    fun two(c: List<Pair<Long, Double>>): String {
-        if (c.size < 2) return "데이터 ${c.size}개"
-        val prev = c[c.size - 2]
-        val last = c[c.size - 1]
-        val d = (last.second / prev.second - 1) * 100
-        return "${f.format(java.util.Date(prev.first * 1000))} ${"%.2f".format(prev.second)}" +
-            " → ${f.format(java.util.Date(last.first * 1000))} ${"%.2f".format(last.second)}" +
-            "  ${"%+.2f".format(d)}%"
-    }
-    val linked = BrokerCreds.isLinked()
-    val sb = StringBuilder()
-    sb.append("설정 소스 ${if (Store.tossQuotes() && linked) "토스" else "Yahoo"}" +
-        " · Yahoo 대체 ${if (Store.yahooFallback()) "함" else "안 함"}" +
-        " · 일봉 캐시 ${Quotes.cachedCount()}종목\n")
-    val rows = OverviewRepo.cached().associateBy { it.ticker }
-    for (tk in (listOf(Tickers.BASE) + Store.loadTickers()).distinct().take(6)) {
-        sb.append("\n[$tk] 비교탭이 쓰는 소스: ${Quotes.sourceOf(tk)}\n")
-        val row = rows[tk]
-        if (row != null) {
-            sb.append("  비교탭  기준가 ${"%.2f".format(row.prevClose)}" +
-                " → ${"%.2f".format(row.price)}  ${"%+.2f".format(row.day)}%\n")
-        }
-        if (linked) {
-            val t = try {
-                TossApi.dailyOhlc(tk, 40).map { it.t to it.close }
-            } catch (e: Exception) { emptyList() }
-            sb.append("  토스   ${two(t)}\n")
-        }
-        val y = try {
-            Yahoo.ohlc(tk, "3mo", "1d").map { it.t to it.close }
-        } catch (e: Exception) { emptyList() }
-        sb.append("  Yahoo  ${two(y)}\n")
-    }
-    return sb.toString()
 }

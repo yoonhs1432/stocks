@@ -55,24 +55,22 @@ object OverviewRepo {
     ): List<Row> {
         val now = System.currentTimeMillis()
         val months = Store.lookbackMonths()
-        val curKey = "$months|${Store.asofDate() ?: ""}|$keyExtra"
+        val curKey = "$months|$keyExtra"
         if (!force && slot.rows.isNotEmpty() && slot.key == curKey && now - slot.ts < 300_000) return slot.rows
-        val spy = Store.sliceAsof(Quotes.closes(Tickers.BASE, months))
+        val spy = Quotes.closes(Tickers.BASE, months)
         if (spy.isEmpty()) return slot.rows
         val trades = Store.visibleTrades()
         val acct = TossSync.cachedAccount()
-        // 토스 모드에서는 ★(보유)를 매매기록 계산이 아니라 실제 계좌 잔고로 판정한다
-        val tossHeld: Set<String>? =
-            if (Store.tossMode()) acct?.holdings?.items
-                ?.filter { it.quantity > 0 }?.map { it.symbol }?.toSet()
-            else null
+        // ★(보유)는 매매기록 계산이 아니라 실제 계좌 잔고로 판정한다
+        val tossHeld: Set<String>? = acct?.holdings?.items
+            ?.filter { it.quantity > 0 }?.map { it.symbol }?.toSet()
         // 시세를 못 받은 보유종목의 최후 수단 — 계좌가 알려주는 현재가
         val heldPrice: Map<String, Double> =
             acct?.holdings?.items?.associate { it.symbol to it.lastPrice }.orEmpty()
         val rows = coroutineScope {
             tickers.map { tk ->
                 async(Dispatchers.IO) {
-                    val closes = Store.sliceAsof(Quotes.closes(tk, months))
+                    val closes = Quotes.closes(tk, months)
                     val p = DoubleArray(closes.size) { closes[it].second }
                     val m = p.size
                     val held = tossHeld?.contains(tk) ?: (Portfolio.currentHoldQty(trades[tk].orEmpty()) > 0)

@@ -18,7 +18,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -37,7 +36,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import com.quant.dashboard.data.BrokerCreds
@@ -46,10 +44,8 @@ import com.quant.dashboard.data.Snapshots
 import com.quant.dashboard.data.TossSync
 import com.quant.dashboard.data.Store
 import com.quant.dashboard.data.Tickers
-import com.quant.dashboard.quant.Portfolio
 import com.quant.dashboard.ui.theme.BgApp
 import com.quant.dashboard.ui.theme.BgCard
-import com.quant.dashboard.ui.theme.DividerColor
 import com.quant.dashboard.ui.theme.Loss
 import com.quant.dashboard.ui.theme.Mono
 import com.quant.dashboard.ui.theme.Neutral
@@ -71,49 +67,22 @@ private fun ident(i: Int) = WeightPalette[i % WeightPalette.size]
 private fun signedAmt(v: Double, cur: String, dec: Int): String =
     (if (v >= 0) "+" else "-") + cur + "%,.${dec}f".format(kotlin.math.abs(v))
 
-/**
- * 자산추이 x축 라벨 (epoch 초 → yy.MM.dd).
- *
- * 예전에는 일/주/월 리샘플 토글이 있었는데, 같은 기간을 성기게 그릴 뿐이라 없앴다 —
- * 기간은 "자산추이 기간" 설정으로 조절하고 그래프는 항상 일 단위로 그린다.
- */
-private fun equityLabels(equity: List<Pair<Long, Double>>): List<String> {
-    val f = java.text.SimpleDateFormat("yy.MM.dd", java.util.Locale.US)
-    return equity.map { f.format(java.util.Date(it.first * 1000L)) }
-}
-private fun won(usd: Double, rate: Double) =
-    (if (usd >= 0) "+" else "-") + "%,.0f원".format(kotlin.math.abs(usd * rate))
-private fun wonAbs(usd: Double, rate: Double) = "%,.0f원".format(usd * rate)
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PortfolioScreen(vm: PortfolioViewModel = viewModel(), onOpenAnalysis: (String) -> Unit = {}) {
-    val s = vm.state
-    LaunchedEffect(AppState.dataVersion) { vm.sync(AppState.dataVersion) }
-
+fun PortfolioScreen(onOpenAnalysis: (String) -> Unit = {}) {
     Column(modifier = Modifier.fillMaxSize().background(BgApp)) {
         // 당겨서 새로고침 → 전체 탭 새로고침 (dataVersion bump로 모든 탭이 재로드)
-        PullToRefreshBox(isRefreshing = s.loading, onRefresh = { AppState.bump() },
+        PullToRefreshBox(isRefreshing = false, onRefresh = { AppState.bump() },
             modifier = Modifier.fillMaxSize()) {
             Column(
                 modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(14.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Text(if (Store.tossMode() && BrokerCreds.isLinked()) "포트폴리오 (토스)" else "포트폴리오",
-                    color = TextPrimary, fontSize = 19.sp, fontWeight = FontWeight.Bold)
+                Text("포트폴리오", color = TextPrimary, fontSize = 19.sp, fontWeight = FontWeight.Bold)
 
-                val toss = Store.tossMode() && BrokerCreds.isLinked()
-                when {
-                    toss -> TossBody(onOpenAnalysis)
-                    s.result != null -> ResultBody(s.result, s.rate, onOpenAnalysis)
-                    s.loading -> Row(Modifier.fillMaxWidth().padding(24.dp), Arrangement.Center) {
-                        CircularProgressIndicator()
-                    }
-                    s.empty -> Text(
-                        "매매 기록이 없습니다.\n분석 탭에서 종목을 보고 ‘매매 기록’으로 입력하세요.",
-                        color = TextSecondary, fontSize = 14.sp,
-                    )
-                }
+                if (BrokerCreds.isLinked()) TossBody(onOpenAnalysis)
+                else Text("설정 탭에서 토스증권을 연결하면 계좌가 표시됩니다.",
+                    color = TextSecondary, fontSize = 14.sp)
             }
         }
     }
@@ -326,110 +295,6 @@ private fun qtyLabel(q: Double): String =
     if (q == Math.floor(q)) "%,.0f주".format(q)
     else "%,.4f".format(q).trimEnd('0').trimEnd('.') + "주"
 
-@Composable
-private fun ResultBody(r: Portfolio.Result, rate: Double, onOpenAnalysis: (String) -> Unit = {}) {
-    // ── 평가금액 히어로 카드 (그라데이션) ──
-    val evalSum = r.holdings.sumOf { it.eval }
-    val pnlSum = r.holdings.sumOf { it.pnl }
-    val rp = if (evalSum - pnlSum != 0.0) pnlSum / (evalSum - pnlSum) * 100 else 0.0
-    Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
-            .background(Brush.linearGradient(listOf(Color(0xFF1C2330), BgCard)))
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(3.dp),
-    ) {
-        Text("평가금액", color = TextSecondary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-        Text(wonAbs(evalSum, rate), color = TextPrimary, fontSize = 32.sp, fontWeight = FontWeight.Bold, fontFamily = Mono)
-        Text("${won(pnlSum, rate)} · ${if (rp >= 0) "+" else ""}${"%.2f".format(rp)}%",
-            color = pc(pnlSum), fontSize = 13.sp, fontWeight = FontWeight.SemiBold, fontFamily = Mono)
-
-        // 보유 비중 100% 스택바
-        if (evalSum > 0 && r.holdings.isNotEmpty()) {
-            Spacer(Modifier.height(10.dp))
-            Row(Modifier.fillMaxWidth().height(10.dp).clip(RoundedCornerShape(5.dp))) {
-                r.holdings.forEachIndexed { i, h ->
-                    Box(Modifier.weight((h.eval / evalSum).toFloat().coerceAtLeast(0.001f))
-                        .fillMaxHeight().background(ident(i)))
-                }
-            }
-            Text("색 = 종목별 비중", color = TextMuted, fontSize = 10.sp, modifier = Modifier.padding(top = 4.dp))
-        }
-
-        // 보유 목록 — 행을 누르면 해당 종목 분석 탭으로 이동
-        if (r.holdings.isNotEmpty()) {
-            Text("종목을 누르면 분석 탭으로 이동", color = TextMuted, fontSize = 10.sp,
-                modifier = Modifier.padding(top = 6.dp))
-        }
-        r.holdings.forEachIndexed { i, h ->
-            Row(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
-                    .clickable { onOpenAnalysis(h.ticker) }
-                    .padding(top = 7.dp, bottom = 2.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Box(Modifier.size(8.dp).clip(RoundedCornerShape(50)).background(ident(i)))
-                Spacer(Modifier.size(7.dp))
-                Text(h.name, color = TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, fontFamily = Mono)
-                Spacer(Modifier.size(6.dp))
-                Text("${h.qty}주", color = TextMuted, fontSize = 11.sp, fontFamily = Mono, modifier = Modifier.weight(1f))
-                Column(horizontalAlignment = Alignment.End) {
-                    Text(wonAbs(h.eval, rate), color = TextPrimary, fontSize = 12.5.sp, fontFamily = Mono)
-                    Text("${won(h.pnl, rate)} · ${if (h.retPct >= 0) "+" else ""}${"%.2f".format(h.retPct)}%",
-                        color = pc(h.pnl), fontSize = 11.sp, fontWeight = FontWeight.SemiBold, fontFamily = Mono)
-                }
-                Text(" ›", color = TextMuted, fontSize = 15.sp)
-            }
-        }
-    }
-
-    // ── 손익 종합 카드 ──
-    val total = r.seed + r.totalPnl
-    val retPct = if (r.seed > 0) r.totalPnl / r.seed * 100 else 0.0
-    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(BgCard).padding(14.dp),
-        verticalArrangement = Arrangement.spacedBy(3.dp)) {
-        Text("손익 종합 (시드+실현)", color = TextSecondary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-        Text(wonAbs(total, rate), color = TextPrimary, fontSize = 24.sp, fontWeight = FontWeight.Bold, fontFamily = Mono)
-        Text("${won(r.totalPnl, rate)} · ${if (retPct >= 0) "+" else ""}${"%.2f".format(retPct)}%",
-            color = pc(r.totalPnl), fontSize = 13.sp, fontWeight = FontWeight.SemiBold, fontFamily = Mono)
-        // 보조 칩: 고점대비 / MDD
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 4.dp)) {
-            StatChip("고점대비", "${"%.1f".format(r.currentDd)}%")
-            StatChip("MDD", "${"%.1f".format(r.mdd)}%")
-        }
-
-        // 종목별 실현손익 — 다이버징 막대 (이익 오른쪽 빨강 / 손실 왼쪽 파랑)
-        if (r.realized.isNotEmpty()) {
-            Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("종목별 실현손익", color = TextMuted, fontSize = 11.sp, modifier = Modifier.weight(1f))
-                Text("◀ 손실", color = Loss, fontSize = 10.sp)
-                Spacer(Modifier.size(8.dp))
-                Text("이익 ▶", color = Profit, fontSize = 10.sp)
-            }
-            val maxAbs = r.realized.maxOf { kotlin.math.abs(it.realized) }.coerceAtLeast(1e-9)
-            r.realized.forEach { rz ->
-                DivergingBar(rz.name, rz.realized, (kotlin.math.abs(rz.realized) / maxAbs).toFloat(),
-                    won(rz.realized, rate))
-            }
-        }
-    }
-
-    // ── 자산 추이 ──
-    if (r.equity.size >= 2) {
-        val months = Store.equityMonths()
-        Text("자산 추이 (누적손익) · ${months}개월 · 핀치=확대 · 탭=그 시점 금액",
-            color = TextSecondary, fontSize = 12.sp)
-        val cut = r.equity.last().first - months.toLong() * 30 * 86400
-        val windowed = r.equity.filter { it.first >= cut }
-        val src = if (windowed.size >= 2) windowed else r.equity
-        EquityChart(
-            src.map { it.second * rate / 10000.0 }.toDoubleArray(),
-            unit = "만원", labels = equityLabels(src), baseZero = true,
-        )
-    }
-
-    TradeJournal()
-}
-
 /** 보조 통계 칩. */
 @Composable
 private fun StatChip(label: String, value: String) {
@@ -440,30 +305,6 @@ private fun StatChip(label: String, value: String) {
     ) {
         Text(label, color = TextMuted, fontSize = 10.sp)
         Text(value, color = Loss, fontSize = 10.sp, fontWeight = FontWeight.Bold, fontFamily = Mono)
-    }
-}
-
-/** 다이버징 막대 — 중앙 제로선 기준 이익 오른쪽(빨강)·손실 왼쪽(파랑). */
-@Composable
-private fun DivergingBar(name: String, amount: Double, frac: Float, amountText: String) {
-    val profit = amount >= 0
-    Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(name, color = TextPrimary, fontSize = 11.sp, fontFamily = Mono,
-            maxLines = 1, modifier = Modifier.weight(1.2f))
-        // 바 영역 (좌:손실 / 중앙선 / 우:이익)
-        Row(Modifier.weight(3f).height(13.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.CenterEnd) {
-                if (!profit && frac > 0f) Box(Modifier.fillMaxWidth(frac).height(9.dp)
-                    .clip(RoundedCornerShape(2.dp)).background(Loss))
-            }
-            Box(Modifier.width(1.dp).fillMaxHeight().background(DividerColor))
-            Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.CenterStart) {
-                if (profit && frac > 0f) Box(Modifier.fillMaxWidth(frac).height(9.dp)
-                    .clip(RoundedCornerShape(2.dp)).background(Profit))
-            }
-        }
-        Text(amountText, color = pc(amount), fontSize = 11.sp, fontWeight = FontWeight.SemiBold,
-            fontFamily = Mono, textAlign = TextAlign.End, modifier = Modifier.weight(1.6f))
     }
 }
 

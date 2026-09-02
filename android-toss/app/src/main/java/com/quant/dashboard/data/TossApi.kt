@@ -326,7 +326,7 @@ object TossApi {
 
     /**
      * `GET /api/v1/candles` — 일봉. 요청당 최대 200봉이므로 `nextBefore` 로 페이징해 이어붙인다.
-     * 응답은 최신순이므로 마지막에 **오래된→최신** 순으로 뒤집어 반환한다 (Yahoo.ohlc 와 동일 규약).
+     * 응답은 최신순이므로 마지막에 **오래된→최신** 순으로 뒤집어 반환한다.
      *
      * @param count 필요한 봉 수 (2년 ≈ 500 거래일 → 3페이지)
      */
@@ -368,124 +368,9 @@ object TossApi {
         return out.asReversed().distinctBy { it.t }
     }
 
-    /** (epochSec, close) — Yahoo.closes 와 동일 규약. */
-    fun dailyCloses(symbol: String, count: Int = 520): List<Pair<Long, Double>> =
-        dailyOhlc(symbol, count).map { Pair(it.t, it.close) }
-
     /** ISO 8601 offset 문자열 → epoch 초. 실패 시 null. */
     private fun epochSec(iso: String): Long? =
         runCatching { java.time.OffsetDateTime.parse(iso).toEpochSecond() }.getOrNull()
-
-    // ── 종목 기본 정보 (커버리지 확인) ──
-
-    data class StockInfo(
-        val symbol: String,
-        val name: String,
-        val market: String,        // KOSPI | KOSDAQ | NYSE | NASDAQ | AMEX | KR_ETC | US_ETC
-        val securityType: String,  // STOCK | ETF | ETN | FOREIGN_ETF …
-        val status: String,        // SCHEDULED | ACTIVE | DELISTED
-        val currency: String,
-    )
-
-    /**
-     * `GET /api/v1/stocks?symbols=…` — 토스가 취급하는 종목의 기본 정보 (요청당 최대 200).
-     * **결과에 없는 심볼 = 토스에서 조회·거래되지 않는 종목**이므로 커버리지 확인에 쓴다.
-     *
-     * 알 수 없는 심볼이 섞이면 배치 전체가 404 로 실패할 수 있어, 실패 시 한 종목씩 다시 물어
-     * 어떤 것이 빠지는지 가려낸다.
-     */
-    fun stocks(symbols: List<String>): Map<String, StockInfo> {
-        if (symbols.isEmpty()) return emptyMap()
-        val out = LinkedHashMap<String, StockInfo>()
-        for (chunk in symbols.chunked(200)) {
-            try {
-                parseStocks(get("/api/v1/stocks", listOf("symbols" to chunk.joinToString(",")))) { out[it.symbol] = it }
-            } catch (e: Exception) {
-                // 배치 실패 → 개별 조회로 가려내기
-                for (sym in chunk) {
-                    try {
-                        parseStocks(get("/api/v1/stocks", listOf("symbols" to sym))) { out[it.symbol] = it }
-                    } catch (e2: Exception) {
-                        // 이 심볼은 토스에 없음 — 결과에서 빠진 채로 둔다
-                    }
-                }
-            }
-        }
-        return out
-    }
-
-    private inline fun parseStocks(text: String, add: (StockInfo) -> Unit) {
-        val arr = resultArray(text)
-        for (i in 0 until arr.length()) {
-            val o = arr.optJSONObject(i) ?: continue
-            add(
-                StockInfo(
-                    symbol = o.optString("symbol"),
-                    name = o.optString("name"),
-                    market = o.optString("market"),
-                    securityType = o.optString("securityType"),
-                    status = o.optString("status"),
-                    currency = o.optString("currency"),
-                )
-            )
-        }
-    }
-
-    // ── 랭킹 (비교 탭 미장 TOP 목록) ──
-
-    /** `GET /api/v1/rankings` 항목. changeRate 는 basePrice 가 0이면 null. */
-    data class RankItem(
-        val rank: Int,
-        val symbol: String,
-        val lastPrice: Double,
-        val basePrice: Double,
-        val changeRate: Double?,   // 소수비율 (0.0125 = 1.25%)
-    )
-
-    /**
-     * 주식 랭킹 (상위 100위까지). 집계 데이터가 없는 조합은 에러가 아니라 **빈 배열**로 온다.
-     *
-     * - `type`: MARKET_TRADING_AMOUNT · MARKET_TRADING_VOLUME · TOP_GAINERS · TOP_LOSERS ·
-     *   TOSS_SECURITIES_TRADING_AMOUNT · TOSS_SECURITIES_TRADING_VOLUME
-     * - `TOP_GAINERS` / `TOP_LOSERS` 는 `duration=realtime` 미지원 (400 unsupported-ranking-duration)
-     * - 시세 조회에 실패한 종목은 빠지므로 응답 수 < count 일 수 있다.
-     */
-    fun rankings(
-        type: String,
-        marketCountry: String = "US",
-        duration: String = "1d",
-        count: Int = 30,
-        excludeInvestmentCaution: Boolean = true,
-    ): List<RankItem> {
-        val q = listOf(
-            "type" to type,
-            "marketCountry" to marketCountry,
-            "duration" to duration,
-            "count" to count.coerceIn(1, 100).toString(),
-            "excludeInvestmentCaution" to excludeInvestmentCaution.toString(),
-        )
-        val r = resultObject(get("/api/v1/rankings", q))
-        val arr = r.optJSONArray("rankings") ?: JSONArray()
-        val out = ArrayList<RankItem>(arr.length())
-        for (i in 0 until arr.length()) {
-            val o = arr.optJSONObject(i) ?: continue
-            val sym = o.optString("symbol")
-            if (sym.isBlank()) continue
-            val p = o.optJSONObject("price")
-            out.add(
-                RankItem(
-                    rank = o.optInt("rank", i + 1),
-                    symbol = sym,
-                    lastPrice = p?.dec("lastPrice", Double.NaN) ?: Double.NaN,
-                    basePrice = p?.dec("basePrice", Double.NaN) ?: Double.NaN,
-                    changeRate = p?.dec("changeRate", Double.NaN)?.takeIf { !it.isNaN() },
-                )
-            )
-        }
-        return out
-    }
-
-    // ── 종목 유니버스 (이름 검색) ──
 
     /** `GET /api/v1/stocks/all` 항목. 미국 종목도 `name` 은 한글로 온다 (AAPL → "애플"). */
     data class ListedStock(
@@ -555,26 +440,6 @@ object TossApi {
             }
         }
         return out
-    }
-
-    /** 진단용 — `/prices` 응답의 심볼·가격·타임스탬프 원문. */
-    data class PriceStamp(val symbol: String, val price: String, val timestamp: String)
-
-    fun pricesRaw(symbols: List<String>): List<PriceStamp> {
-        if (symbols.isEmpty()) return emptyList()
-        val arr = resultArray(get("/api/v1/prices", listOf("symbols" to symbols.joinToString(","))))
-        return (0 until arr.length()).mapNotNull { i ->
-            val o = arr.optJSONObject(i) ?: return@mapNotNull null
-            PriceStamp(o.optString("symbol"), o.optString("lastPrice"),
-                if (o.isNull("timestamp")) "(없음)" else o.optString("timestamp"))
-        }
-    }
-
-    /** 진단용 — `/trades` 최근 체결의 시각. 시간외 체결이 흐르는지 확인용. */
-    fun lastTradeTime(symbol: String): String? {
-        val arr = resultArray(get("/api/v1/trades", listOf("symbol" to symbol, "count" to "1")))
-        val o = arr.optJSONObject(0) ?: return null
-        return o.optString("timestamp").ifBlank { null }
     }
 
     // ── 예수금 (매수 가능 금액) ──

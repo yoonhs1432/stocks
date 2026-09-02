@@ -113,7 +113,7 @@ object Snapshots {
     private fun realizedByCurrency(): Pair<Double, Double> {
         var kr = 0.0; var us = 0.0
         return try {
-            for ((tk, list) in Store.loadTrades()) {
+            for ((tk, list) in Store.visibleTrades()) {
                 val v = Portfolio.realizedOf(list)
                 if (v == 0.0) continue
                 if (Tickers.isKrw(tk)) kr += v else us += v

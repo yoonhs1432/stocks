@@ -327,16 +327,34 @@ private fun DrawScope.pennant(plotRight: Float, y: Float, lines: List<String>, b
     for (ln in lines) { drawContext.canvas.nativeCanvas.drawText(ln, cx, ty, tp); ty += fs * 1.12f }
 }
 
-/** 확대 뷰에서 우측 y축 라벨용으로 비워 두는 폭. */
-private val DrawScope.AXIS_W: Float get() = AX_SIZE * 3.6f
+/**
+ * 확대 뷰에서 우측 y축 라벨용으로 비워 두는 폭.
+ *
+ * 모든 차트가 같은 값을 써야 한다 — 시계열 4개가 x축을 공유하므로 차트마다 플롯 폭이
+ * 달라지면 네 개의 x축이 어긋난다. 그래서 라벨에 맞춰 폭을 늘리지 않고,
+ * 대신 [rightAxis] 가 **글자를 줄여** 이 폭 안에 넣는다. (`DateAxis` 의 여백도 같은 값)
+ */
+private val DrawScope.AXIS_W: Float get() = AX_SIZE * AXIS_CHARS
 
-/** 우측 y축 — 가로 그리드 + 우측정렬 값 라벨 (화면 밖 눈금은 생략). */
+const val AXIS_CHARS = 4.6f
+
+/**
+ * 우측 y축 — 가로 그리드 + 우측정렬 값 라벨 (화면 밖 눈금은 생략).
+ *
+ * 라벨은 우측정렬이라 `AXIS_W` 보다 넓으면 **왼쪽으로 흘러 차트 오른쪽 끝을 덮는다**
+ * (`$1,234.56` 처럼 자릿수가 많을 때). 가장 넓은 라벨이 들어갈 때까지 글자를 줄인다.
+ */
 private fun DrawScope.rightAxis(ticks: List<Double>, yAt: (Double) -> Float, plotRight: Float, fmt: (Double) -> String) {
-    for (t in ticks) {
+    val texts = ticks.map(fmt)
+    val longest = texts.maxByOrNull { it.length } ?: ""
+    val tp = Paint().apply { textSize = AX_SIZE; isAntiAlias = true }
+    var fs = AX_SIZE
+    while (tp.measureText(longest) > AXIS_W - 5f && fs > AX_SIZE * 0.6f) { fs -= 1f; tp.textSize = fs }
+    for ((k, t) in ticks.withIndex()) {
         val yy = yAt(t)
-        if (yy < AX_SIZE * 0.5f || yy > size.height - AX_SIZE * 0.3f) continue
+        if (yy < fs * 0.5f || yy > size.height - fs * 0.3f) continue
         drawLine(Color(0x2EADBAC7), Offset(0f, yy), Offset(plotRight, yy), 0.8f)
-        label(fmt(t), size.width - 3f, yy + AX_SIZE * 0.34f, AX_COLOR, AX_SIZE, Paint.Align.RIGHT)
+        label(texts[k], size.width - 3f, yy + fs * 0.34f, AX_COLOR, fs, Paint.Align.RIGHT)
     }
 }
 
@@ -1099,7 +1117,8 @@ fun DateAxis(
     fun d(i: Int) = fmt.format(Date(datesEpochSec[i] * 1000L))
     val ticks = if (zoomed) 5 else 3
     Row(
-        modifier = modifier.fillMaxWidth().padding(end = if (zoomed) 47.dp else 0.dp),
+        // 우측 축 라벨 자리 = AXIS_W (13sp × AXIS_CHARS). 안 맞추면 날짜 눈금이 그래프와 어긋난다
+        modifier = modifier.fillMaxWidth().padding(end = if (zoomed) (13 * AXIS_CHARS).dp else 0.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
         for (k in 0 until ticks) {

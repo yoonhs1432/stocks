@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -42,13 +41,8 @@ import com.quant.dashboard.data.Store
 import com.quant.dashboard.ui.theme.BgApp
 import com.quant.dashboard.ui.theme.BgElevated
 import com.quant.dashboard.ui.theme.DividerColor
-import com.quant.dashboard.ui.theme.Gold
-import com.quant.dashboard.ui.theme.Loss
-import com.quant.dashboard.ui.theme.Mono
-import com.quant.dashboard.ui.theme.Profit
 import com.quant.dashboard.ui.theme.TabActive
 import com.quant.dashboard.ui.theme.TabInactive
-import com.quant.dashboard.ui.theme.TextSecondary
 import kotlin.math.cos
 import kotlin.math.sin
 import kotlinx.coroutines.Dispatchers
@@ -57,26 +51,16 @@ import kotlinx.coroutines.withContext
 private val TAB_LABELS = listOf("비교", "분석", "포트폴리오", "설정")
 
 /**
- * 앱 전역 상태 — 기준일(As-of)·설정 변경 시 모든 탭이 자동으로 데이터를 다시 로드하도록
- * dataVersion을 관찰. (Streamlit의 st.rerun + 슬라이싱 동작 미러)
+ * 앱 전역 상태 — 설정이 바뀌면 모든 탭이 데이터를 다시 로드하도록 dataVersion 을 관찰.
  */
 object AppState {
-    var asof by mutableStateOf(Store.asofDate())
-        private set
     var dataVersion by mutableStateOf(0)
         private set
 
     /** 비교·포트폴리오 탭에서 종목 클릭 시 분석 탭으로 넘길 종목(처리 후 null). */
     var pendingTicker by mutableStateOf<String?>(null)
 
-    /** 기준일 설정/해제 (null=해제) 후 전 탭 리로드 트리거. */
-    fun applyAsof(d: String?) {
-        Store.setAsofDate(d)
-        asof = Store.asofDate()
-        bump()
-    }
-
-    /** 설정(종목·시드·기간·봉기준 등) 변경 후 전 탭 리로드 트리거. */
+    /** 설정(종목·기간 등) 변경 후 전 탭 리로드 트리거. */
     fun bump() { dataVersion++ }
 }
 
@@ -127,7 +111,6 @@ fun AppScaffold() {
         bottomBar = { TabBar(tab) { if (it == 1 && tab != 1) backTab = tab; tab = it } },
     ) { pad ->
         Column(Modifier.fillMaxSize().padding(pad)) {
-            AsofBanner()
             Box(Modifier.fillMaxWidth().weight(1f)) {
                 val openAnalysis: (String) -> Unit = {
                     AppState.pendingTicker = it
@@ -216,17 +199,3 @@ private fun TabIcon(index: Int, color: Color) {
     }
 }
 
-/** 기준일 시뮬레이션이 켜져 있을 때만 나오는 얇은 경고줄 — 탭하면 해제.
- *  상단 시장 헤더를 없앴으므로, 기준일이 켜진 줄 모르고 쓰는 일이 없게 이것만 남긴다. */
-@Composable
-private fun AsofBanner() {
-    val d = AppState.asof ?: return
-    Box(
-        Modifier.fillMaxWidth().background(Gold).clickable { AppState.applyAsof(null) }
-            .padding(vertical = 3.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text("📅 기준일 $d — 탭하여 해제", color = Color(0xFF0C0E11),
-            fontSize = 11.sp, fontWeight = FontWeight.Bold)
-    }
-}

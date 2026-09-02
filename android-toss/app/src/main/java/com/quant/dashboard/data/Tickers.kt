@@ -7,11 +7,11 @@ object Tickers {
     val DEFAULT = listOf(
         "FNGU", "TQQQ", "SOXL", "HIBL", "QPUX", "LABU", "DFEN", "DPST",
         "GDXU", "KORU", "005930", "AVXX", "SPYU", "TARK", "URTY", "TNA",
-        "BNKU", "BTC-USD", "ETH-USD", "GLD",
+        "BNKU", "GLD",
     )
 
     private val DISPLAY = mapOf(
-        "BTC-USD" to "BTC", "ETH-USD" to "ETH", "005930" to "삼전", "000660" to "하닉",
+        "005930" to "삼전", "000660" to "하닉",
     )
 
     /**

@@ -30,7 +30,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -148,7 +147,8 @@ fun AnalysisScreen(vm: AnalysisViewModel = viewModel(), onBack: () -> Unit = {})
                             .padding(horizontal = 8.dp, vertical = 8.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        ResultView(s.result, s.ticker, s.ohlc, ov[s.ticker]?.day, group, avail)
+                        ResultView(s.result, s.ticker, s.ohlc, ov[s.ticker]?.day, group, avail,
+                            vm.chartView(s.ticker)) { vm.setChartView(s.ticker, it) }
                     }
                 }
                 s.loading -> Row(Modifier.fillMaxWidth().padding(24.dp), Arrangement.Center) {
@@ -283,7 +283,8 @@ private fun Accordion(title: String, content: @Composable () -> Unit) {
 
 @Composable
 private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayPct: Double?,
-                       group: String, avail: Dp) {
+                       group: String, avail: Dp,
+                       savedView: ChartView?, onView: (ChartView) -> Unit) {
     // ── 종목명 + σ·β + (우측) 현재가/평단/수량 — 한 줄, 넘치면 가로 스크롤 ──
     val trades = remember(ticker) { Store.visibleTrades()[ticker].orEmpty() }
     val pos = remember(ticker) { Portfolio.position(trades) }
@@ -403,15 +404,25 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
         // 카드 테두리를 빼고 얇은 제목줄만 둬서 네 개가 한 화면에 들어가게 했다.
         // 처음 보여줄 구간 = 설정의 "차트 표시기간". 전체를 그려 놓고 배율로 잘라 보여준다.
         val totalMonths = ((dates.last() - dates.first()).toDouble() / 2_629_746.0).coerceAtLeast(1.0)
-        var sView by remember(ticker, n, AppState.dataVersion) {
-            val s0 = (totalMonths / Store.chartMonths()).toFloat()
-                .coerceIn(1f, ChartView.MAX_ZOOM)
-            // nx = 1 - sx 이면 오른쪽 끝(최신)에 붙는다
-            mutableStateOf(ChartView(sx = s0, nx = 1f - s0))
+        // 배율은 ViewModel 이 종목별로 들고 있다 — 탭을 옮겼다 와도 보던 구간이 유지된다.
+        // 처음 보는 종목만 "차트 표시기간"으로 초기 배율을 만든다.
+        var sView by remember(ticker, n) {
+            mutableStateOf(
+                savedView ?: run {
+                    val s0 = (totalMonths / Store.chartMonths()).toFloat()
+                        .coerceIn(1f, ChartView.MAX_ZOOM)
+                    // nx = 1 - sx 이면 오른쪽 끝(최신)에 붙는다
+                    ChartView(sx = s0, nx = 1f - s0)
+                }
+            )
         }
-        // 헤더줄(34) + 제목줄 4개(≈72) + 날짜축(20) + 안내(20)
-        val sh = ((avail - 146.dp) / 4).coerceAtLeast(90.dp)
-        val gest = Modifier.chartGestures(sView, { sView = it }, xOnly = true)
+        fun pushView(v: ChartView) { sView = v; onView(v) }
+        // 남는 높이 = 헤더줄(34) + 제목줄 4개(≈72) + 날짜축(20) + 안내(20)
+        // MACD·RSI 는 보조지표라 가격·Z·M 보다 낮게 (가중치 1 : 1 : 0.7 : 0.7)
+        val body = (avail - 146.dp).coerceAtLeast(360.dp)
+        val shMain = (body / 3.4f).coerceAtLeast(100.dp)
+        val shSub = (shMain * 0.7f).coerceAtLeast(70.dp)
+        val gest = Modifier.chartGestures(sView, { pushView(it) }, xOnly = true)
 
         // 간격 없는 Column — 바깥 Column 의 spacedBy(8dp) 가 항목마다 붙으면
         // 제목줄·차트 사이가 벌어져 네 개가 한 화면에 안 들어간다
@@ -422,29 +433,29 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
                 segDollar(r.predicted), segDollar(r.bandUpper), segDollar(r.bandLower),
                 markers = priceMarks, currency = Tickers.currencySymbol(ticker), topLabel = "",
                 dates = dates, dailyChgPct = dayPct ?: Double.NaN,
-                height = sh, view = sView, zoomed = true, modifier = gest)
+                height = shMain, view = sView, zoomed = true, modifier = gest)
         } else {
             PriceChart(segDollar(r.tickerNorm), segDollar(r.predicted), segDollar(r.bandUpper),
                 segDollar(r.bandLower), markers = priceMarks,
                 currency = Tickers.currencySymbol(ticker),
-                height = sh, view = sView, zoomed = true, modifier = gest)
+                height = shMain, view = sView, zoomed = true, modifier = gest)
         }
 
         SeriesHeader("Z·M", "Z${"%.0f".format(r.lastZpct)}·M${"%.0f".format(r.lastMpct)}", TextPrimary) { zoom = 3 }
-        ZmChart(seg(r.zPct), seg(r.mPct), zmMarks, height = sh, view = sView, zoomed = true, modifier = gest)
+        ZmChart(seg(r.zPct), seg(r.mPct), zmMarks, height = shMain, view = sView, zoomed = true, modifier = gest)
 
         SeriesHeader("MACD", "${"%.2f".format(macdLast)}(${"%+.2f".format(macdLast - sigLast)})", TextPrimary) { zoom = 4 }
-        MacdChart(macdW, sigW, height = sh, view = sView, zoomed = true, modifier = gest)
+        MacdChart(macdW, sigW, height = shSub, view = sView, zoomed = true, modifier = gest)
 
         SeriesHeader("RSI", "%.1f".format(rsiLast), Teal) { zoom = 5 }
-        RsiChart(seg(r.rsi), height = sh, view = sView, zoomed = true, modifier = gest)
+        RsiChart(seg(r.rsi), height = shSub, view = sView, zoomed = true, modifier = gest)
 
         DateAxis(dates, sView, zoomed = true)
         Text(
             if (sView.isIdentity) "두 손가락으로 기간 확대·축소 · 끌어서 이동"
             else "보이는 기간 ${"%.1f".format(totalMonths / sView.sx)}개월 — 탭하면 전체",
             color = TextMuted, fontSize = 11.sp,
-            modifier = Modifier.fillMaxWidth().clickable { sView = ChartView() },
+            modifier = Modifier.fillMaxWidth().clickable { pushView(ChartView()) },
         )
         }
 
