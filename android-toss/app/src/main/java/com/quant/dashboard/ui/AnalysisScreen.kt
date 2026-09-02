@@ -490,9 +490,9 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
         }
 
     }
-    }   // 측정 Column 끝
 
     // ── 차트 확대 다이얼로그 (그리드에서 탭한 차트를 전체화면 크게) ──
+    // Dialog 는 별도 창이라 측정 Column 의 높이에는 잡히지 않는다 — 안에 둬도 무방하다.
     if (zoom >= 0) {
         val titles = listOf("회귀 산점도", "Z·M 궤적", "가격·일봉", "Z·M 오실레이터", "MACD", "RSI")
         Dialog(onDismissRequest = { zoom = -1 },
@@ -538,7 +538,7 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
             }
         }
     }
-
+    }   // 측정 Column 끝
 }
 
 /** 시계열 스택용 얇은 제목줄 — 카드 테두리 없이 제목·값·확대(⤢)만. 세로 공간을 아낀다. */
