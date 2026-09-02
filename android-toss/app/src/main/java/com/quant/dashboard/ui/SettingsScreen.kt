@@ -227,6 +227,7 @@ fun SettingsScreen() {
                     // 허용 IP — 휴대폰 IP 는 자주 바뀌므로 여기서 바로 확인·복사한다
                     val clipboard = LocalClipboardManager.current
                     var myIp by remember { mutableStateOf<String?>(null) }
+                    var ipCopied by remember { mutableStateOf(false) }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.fillMaxWidth()) {
@@ -234,21 +235,32 @@ fun SettingsScreen() {
                             enabled = !bkBusy,
                             onClick = {
                                 bkScope.launch {
-                                    myIp = "확인 중…"
+                                    myIp = "확인 중…"; ipCopied = false
                                     val ip = withContext(Dispatchers.IO) { NetInfo.publicIp() }
                                     myIp = ip ?: "확인 실패"
                                 }
                             },
                         ) { Text("현재 IP 확인") }
                         myIp?.let { ip ->
-                            Text(ip, color = TextPrimary, fontSize = 12.sp, fontFamily = Mono,
-                                modifier = Modifier.weight(1f).clickable {
-                                    clipboard.setText(AnnotatedString(ip))
-                                })
+                            Text(ip, color = TextPrimary, fontSize = 13.sp, fontFamily = Mono,
+                                maxLines = 1, modifier = Modifier.weight(1f))
+                        }
+                        // 확인된 IP 가 있을 때만 복사 버튼 (확인 중·실패 상태에는 복사할 게 없다)
+                        val ipOk = myIp != null && myIp != "확인 중…" && myIp != "확인 실패"
+                        if (ipOk) {
+                            Box(
+                                Modifier.clip(RoundedCornerShape(8.dp)).background(SurfaceInput)
+                                    .clickable {
+                                        clipboard.setText(AnnotatedString(myIp!!))
+                                        ipCopied = true
+                                    }
+                                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                            ) { Text(if (ipCopied) "복사됨" else "복사", color = TextPrimary, fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold) }
                         }
                     }
                     if (myIp != null && myIp != "확인 중…" && myIp != "확인 실패") {
-                        Text("탭하면 복사됩니다. 이 값을 WTS 허용 IP 목록에 등록하세요.",
+                        Text("이 값을 토스증권 WTS 허용 IP 목록에 등록하세요.",
                             color = TextMuted, fontSize = 10.sp)
                     }
 
