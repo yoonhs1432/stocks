@@ -328,6 +328,25 @@ private fun DrawScope.pennant(plotRight: Float, y: Float, lines: List<String>, b
 }
 
 /**
+ * 임계 밴드(과매수·과매도 음영) — **플롯 안으로 잘라** 그린다.
+ *
+ * 예전에는 size.width 를 써서 우측 y축 라벨 자리까지 색이 깔렸고, y 도 자르지 않아
+ * 표시 범위가 좁을 때(예: RSI 가 30 아래에만 있을 때) 밴드가 패널 전체를 덮었다.
+ */
+private fun DrawScope.band(color: Color, yFrom: Float, yTo: Float, plotRight: Float) {
+    val top = minOf(yFrom, yTo).coerceIn(0f, size.height)
+    val bot = maxOf(yFrom, yTo).coerceIn(0f, size.height)
+    if (bot - top <= 0.5f) return
+    drawRect(color, topLeft = Offset(0f, top), size = Size(plotRight, bot - top))
+}
+
+/** 가로 기준선 — 플롯 폭까지만, 패널 밖이면 생략. */
+private fun DrawScope.hline(color: Color, y: Float, plotRight: Float, w: Float) {
+    if (y < 0f || y > size.height) return
+    drawLine(color, Offset(0f, y), Offset(plotRight, y), w)
+}
+
+/**
  * 마지막 봉/점이 오른쪽 경계(clipRect = plotW)에 걸려 **반쪽만 그려지지 않도록** 비워 두는 폭.
  *
  * 캔들은 중심이 x, 폭이 w 라 마지막 봉 중심이 plotW 에 오면 오른쪽 절반이 잘린다.
@@ -409,9 +428,9 @@ private fun DrawScope.miniTag(x: Float, y: Float, text: String, bg: Color, align
 }
 
 /** 산점도 현재 위치 십자선 + 축 교점 값 태그 + 다이아 마커. */
-private fun DrawScope.crosshair(cx: Float, cy: Float) {
+private fun DrawScope.crosshair(cx: Float, cy: Float, plotRight: Float = size.width) {
     dotline(MAGENTA, cx, 0f, cx, size.height, 1f)
-    dotline(MAGENTA, 0f, cy, size.width, cy, 1f)
+    dotline(MAGENTA, 0f, cy, plotRight, cy, 1f)
     currentMarker(cx, cy, 13f)
 }
 
@@ -422,10 +441,10 @@ private fun DrawScope.crosshair(cx: Float, cy: Float) {
  * 배경 있는 값 태그는 뺐다 — 차트를 가리는데, 같은 값이 이미 위 제목줄(가격·Z·M·MACD·RSI)과
  * 우측 축 눈금에 나오고 날짜도 아래 x축에 있다.
  */
-private fun DrawScope.currentCross(cx: Float, series: List<Pair<Float, Color>>) {
+private fun DrawScope.currentCross(cx: Float, series: List<Pair<Float, Color>>, plotRight: Float = size.width) {
     dotline(MAGENTA, cx, 0f, cx, size.height, 1.2f)
     for ((y, col) in series) {
-        dotline(col, 0f, y, size.width, y, 1.2f)
+        dotline(col, 0f, y, plotRight, y, 1.2f)
         drawCircle(col, 5f, Offset(cx, y))
         drawCircle(Color.White, 5f, Offset(cx, y), style = Stroke(1.2f))
     }
@@ -577,7 +596,7 @@ fun RegressionScatter(
             if (spyNorm[li] > 0 && tickerNorm[li] > 0) {
                 val cx = sx(spyNorm[li]); val cy = sy(tickerNorm[li])
                 if (zoomed) {
-                    crosshair(cx, cy)
+                    crosshair(cx, cy, plotW)
                 }
                 starMarker(cx, cy)
             }
@@ -634,7 +653,7 @@ fun PriceChart(
         if (zoomed) {
             val ci = priceDollar.indices.lastOrNull { !priceDollar[it].isNaN() } ?: -1
             if (ci >= 0) {
-                currentCross(xAt(ci), listOf(yAt(priceDollar[ci]) to MAGENTA))
+                currentCross(xAt(ci), listOf(yAt(priceDollar[ci]) to MAGENTA), plotW)
             }
         }
     }
@@ -713,7 +732,7 @@ fun CandleChart(
         if (zoomed) {
             val ci = closes.indices.lastOrNull { !closes[it].isNaN() } ?: -1
             if (ci >= 0) {
-                currentCross(xAt(ci), listOf(yAt(cur) to MAGENTA))
+                currentCross(xAt(ci), listOf(yAt(cur) to MAGENTA), plotW)
             }
         }
     }
@@ -744,14 +763,10 @@ fun ZmChart(zPct: DoubleArray, mPct: DoubleArray, markers: List<Mark> = emptyLis
         fun xAt(i: Int) = view.x(xw * i / (n - 1), xw)
         fun yAt(v: Double) = (size.height * (1 - (v - lo) / (hi - lo))).toFloat()
         // 위(>80) 빨강 / 아래(<20) 파랑 음영 밴드 (RSI 스타일)
-        drawRect(Color(0x1AEF6066), topLeft = Offset(0f, yAt(100.0)), size = Size(size.width, yAt(80.0) - yAt(100.0)))
-        drawRect(Color(0x1A5B9BF2), topLeft = Offset(0f, yAt(20.0)), size = Size(size.width, yAt(0.0) - yAt(20.0)))
-        // 80/20 기준선 (옅은 회색)
-        for (t in intArrayOf(20, 80)) {
-            drawLine(Color(0x33FFFFFF), Offset(0f, yAt(t.toDouble())), Offset(size.width, yAt(t.toDouble())), 0.7f)
-        }
-        // 50 중앙선 — 흰색
-        drawLine(Color(0xCCFFFFFF), Offset(0f, yAt(50.0)), Offset(size.width, yAt(50.0)), 0.9f)
+        band(Color(0x1AEF6066), yAt(100.0), yAt(80.0), plotW)
+        band(Color(0x1A5B9BF2), yAt(20.0), yAt(0.0), plotW)
+        for (t in intArrayOf(20, 80)) hline(Color(0x33FFFFFF), yAt(t.toDouble()), plotW, 0.7f)
+        hline(Color(0xCCFFFFFF), yAt(50.0), plotW, 0.9f)   // 50 중앙선
         if (zoomed) rightAxis(niceTicks(lo, hi), ::yAt, plotW) { "%.0f".format(it) }
         clipRect(0f, 0f, plotW, size.height) {
             poly(zPct, ::xAt, ::yAt, Color(0xFFEF6066), 2f)        // Z 빨강
@@ -764,7 +779,7 @@ fun ZmChart(zPct: DoubleArray, mPct: DoubleArray, markers: List<Mark> = emptyLis
             val lines = ArrayList<Pair<Float, Color>>()
             if (zi >= 0) lines.add(yAt(zPct[zi]) to Color(0xFFEF6066))
             if (mi >= 0) lines.add(yAt(mPct[mi]) to Color(0xFFFFD24D))
-            if (lines.isNotEmpty()) currentCross(xAt(maxOf(zi, mi)), lines)
+            if (lines.isNotEmpty()) currentCross(xAt(maxOf(zi, mi)), lines, plotW)
         }
     }
 }
@@ -791,7 +806,7 @@ fun ZmScatter(
         fun py(v: Double) = view.y((size.height * (1 - (v - lo) / span)).toFloat(), size.height)
         // 중앙 십자선(50) — 옅게
         drawLine(Color(0x26FFFFFF), Offset(px(50.0), 0f), Offset(px(50.0), size.height), 0.8f)
-        drawLine(Color(0x26FFFFFF), Offset(0f, py(50.0)), Offset(size.width, py(50.0)), 0.8f)
+        drawLine(Color(0x26FFFFFF), Offset(0f, py(50.0)), Offset(plotW, py(50.0)), 0.8f)
         // 시간 궤적 점 — Turbo 컬러맵
         for (i in 0 until n) {
             if (zPct[i].isNaN() || mPct[i].isNaN()) continue
@@ -806,7 +821,7 @@ fun ZmScatter(
         if (!zPct[li].isNaN() && !mPct[li].isNaN()) {
             val cx = px(zPct[li]); val cy = py(mPct[li])
             if (zoomed) {
-                crosshair(cx, cy)
+                crosshair(cx, cy, plotW)
             }
             starMarker(cx, cy)
         }
@@ -843,13 +858,10 @@ fun RsiChart(rsi: DoubleArray, topLabel: String = "", height: Dp = 90.dp,
         fun xAt(i: Int) = view.x(xw * i / (n - 1), xw)
         fun yAt(v: Double) = (size.height * (1 - (v - lo) / (hi - lo))).toFloat()
         // 과매수(>70) 빨강 / 과매도(<30) 파랑 음영
-        drawRect(Color(0x1AEF6066), topLeft = Offset(0f, yAt(100.0)), size = Size(size.width, yAt(70.0) - yAt(100.0)))
-        drawRect(Color(0x1A5B9BF2), topLeft = Offset(0f, yAt(30.0)), size = Size(size.width, yAt(0.0) - yAt(30.0)))
-        for (t in intArrayOf(30, 70)) {
-            drawLine(Color(0x33FFFFFF), Offset(0f, yAt(t.toDouble())), Offset(size.width, yAt(t.toDouble())), 0.7f)
-        }
-        // 50 중앙선 — 흰색
-        drawLine(Color(0xCCFFFFFF), Offset(0f, yAt(50.0)), Offset(size.width, yAt(50.0)), 0.9f)
+        band(Color(0x1AEF6066), yAt(100.0), yAt(70.0), plotW)
+        band(Color(0x1A5B9BF2), yAt(30.0), yAt(0.0), plotW)
+        for (t in intArrayOf(30, 70)) hline(Color(0x33FFFFFF), yAt(t.toDouble()), plotW, 0.7f)
+        hline(Color(0xCCFFFFFF), yAt(50.0), plotW, 0.9f)   // 50 중앙선
         if (zoomed) rightAxis(niceTicks(lo, hi), ::yAt, plotW) { "%.0f".format(it) }
         clipRect(0f, 0f, plotW, size.height) {
             poly(rsi, ::xAt, ::yAt, Color(0xFF37B6C4), 2f)   // 청록
@@ -857,7 +869,7 @@ fun RsiChart(rsi: DoubleArray, topLabel: String = "", height: Dp = 90.dp,
         if (zoomed) {
             val ci = rsi.indices.lastOrNull { !rsi[it].isNaN() } ?: -1
             if (ci >= 0) {
-                currentCross(xAt(ci), listOf(yAt(rsi[ci]) to Color(0xFF37B6C4)))
+                currentCross(xAt(ci), listOf(yAt(rsi[ci]) to Color(0xFF37B6C4)), plotW)
             }
         }
     }
@@ -1007,10 +1019,9 @@ fun MacdChart(macd: DoubleArray, signal: DoubleArray, topLabel: String = "", hei
         fun xAt(i: Int) = view.x(xw * i / (n - 1), xw)
         fun yAt(v: Double) = (size.height * (1 - (v + mx) / (2 * mx))).toFloat()
         // 표시 범위 기준 상단 30% 빨강 / 하단 30% 파랑 음영 (RSI 스타일)
-        drawRect(Color(0x1AEF6066), topLeft = Offset(0f, 0f), size = Size(size.width, size.height * 0.3f))
-        drawRect(Color(0x1A5B9BF2), topLeft = Offset(0f, size.height * 0.7f), size = Size(size.width, size.height * 0.3f))
-        // 0선 — 흰색
-        drawLine(Color(0xCCFFFFFF), Offset(0f, yAt(0.0)), Offset(size.width, yAt(0.0)), 0.9f)
+        band(Color(0x1AEF6066), 0f, size.height * 0.3f, plotW)
+        band(Color(0x1A5B9BF2), size.height * 0.7f, size.height, plotW)
+        hline(Color(0xCCFFFFFF), yAt(0.0), plotW, 0.9f)   // 0선
         if (zoomed) rightAxis(niceTicks(-mx, mx), ::yAt, plotW) { "%.2f".format(it) }
         clipRect(0f, 0f, plotW, size.height) {
             poly(macd, ::xAt, ::yAt, Color(0xFF9B8CFF), 2f)     // MACD 보라
@@ -1022,7 +1033,7 @@ fun MacdChart(macd: DoubleArray, signal: DoubleArray, topLabel: String = "", hei
             val lines = ArrayList<Pair<Float, Color>>()
             if (mi >= 0) lines.add(yAt(macd[mi]) to Color(0xFF9B8CFF))
             if (si >= 0) lines.add(yAt(signal[si]) to Color(0xFFC9C5BB))
-            if (lines.isNotEmpty()) currentCross(xAt(maxOf(mi, si)), lines)
+            if (lines.isNotEmpty()) currentCross(xAt(maxOf(mi, si)), lines, plotW)
         }
     }
 }
