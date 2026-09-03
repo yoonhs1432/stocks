@@ -18,9 +18,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Text
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -70,7 +68,6 @@ private fun zCellColor(pct: Double) = when {
     pct >= 80 -> Loss; pct <= 20 -> Profit; else -> TableGray
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CompareScreen(vm: CompareViewModel = viewModel(), onOpenAnalysis: (String) -> Unit = {}) {
     val s = vm.state
@@ -86,47 +83,43 @@ fun CompareScreen(vm: CompareViewModel = viewModel(), onOpenAnalysis: (String) -
     Column(modifier = Modifier.fillMaxSize().background(BgApp)) {
         // 표는 위, 조작 버튼은 아래 — 한 손으로 엄지가 닿는 곳에 둔다
         Box(Modifier.fillMaxWidth().weight(1f)) {
-            // bump() 만 하면 일봉 캐시(6시간) 때문에 값이 그대로다 — 캐시를 건너뛰고 다시 받는다
-            PullToRefreshBox(isRefreshing = s.loading, onRefresh = { vm.load(force = true) },
-                modifier = Modifier.fillMaxSize()) {
-                Column(
-                    modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())
-                        .padding(horizontal = 12.dp).padding(top = 8.dp, bottom = 4.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    TickStatus(s.market)
+            Column(
+                modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+                    .padding(horizontal = 12.dp).padding(top = 8.dp, bottom = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                TickStatus(s.market)
 
-                    val rows = vm.sorted()
-                    val err = s.error
-                    when {
-                        rows.isEmpty() && err != null -> Text("⚠️ $err", color = Loss)
-                        s.rows.isEmpty() -> Text("불러오는 중…", color = TextSecondary,
-                            modifier = Modifier.padding(24.dp))
-                        else -> {
-                            // 표는 **간격 없는** 안쪽 Column 에 넣는다. 바깥 Column 의 spacedBy 가
-                            // 행마다·구분선마다 붙으면 행 하나당 12dp 가 더 생겨 오히려 벌어진다.
-                            Column(Modifier.fillMaxWidth()) {
-                                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(6.dp)).background(SurfaceInput)
-                                    .padding(vertical = 3.dp, horizontal = 2.dp)) {
-                                    HCell(vm, "종목", SortKey.NAME, 2.4f, TextAlign.Start)
-                                    HCell(vm, "현재가", SortKey.PRICE, 2f)
-                                    HCell(vm, "일", SortKey.DAY, 1.4f)
-                                    HCell(vm, "Z", SortKey.Z, 1f)
-                                    HCell(vm, "M", SortKey.M, 1f)
-                                }
-                                if (rows.isEmpty()) {
-                                    Text("표시할 종목이 없습니다", color = TextSecondary, fontSize = 13.sp,
-                                        modifier = Modifier.padding(12.dp))
-                                }
-                                rows.forEachIndexed { idx, r ->
-                                    QuoteRow(vm, r, onOpenAnalysis)
-                                    if (idx < rows.lastIndex)
-                                        Box(Modifier.fillMaxWidth().height(1.dp).background(BorderColor))
-                                }
+                val rows = vm.sorted()
+                val err = s.error
+                when {
+                    rows.isEmpty() && err != null -> Text("⚠️ $err", color = Loss)
+                    s.rows.isEmpty() -> Text("불러오는 중…", color = TextSecondary,
+                        modifier = Modifier.padding(24.dp))
+                    else -> {
+                        // 표는 **간격 없는** 안쪽 Column 에 넣는다. 바깥 Column 의 spacedBy 가
+                        // 행마다·구분선마다 붙으면 행 하나당 12dp 가 더 생겨 오히려 벌어진다.
+                        Column(Modifier.fillMaxWidth()) {
+                            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(6.dp)).background(SurfaceInput)
+                                .padding(vertical = 3.dp, horizontal = 2.dp)) {
+                                HCell(vm, "종목", SortKey.NAME, 2.4f, TextAlign.Start)
+                                HCell(vm, "현재가", SortKey.PRICE, 2f)
+                                HCell(vm, "일", SortKey.DAY, 1.4f)
+                                HCell(vm, "Z", SortKey.Z, 1f)
+                                HCell(vm, "M", SortKey.M, 1f)
                             }
-                            Text("● 보유 / ○ 이력 · 행 탭=분석 이동 · 헤더 탭=정렬 · 흐림=이번 장 체결 없음(직전 종가)",
-                                color = TextSecondary, fontSize = 11.sp)
+                            if (rows.isEmpty()) {
+                                Text("표시할 종목이 없습니다", color = TextSecondary, fontSize = 13.sp,
+                                    modifier = Modifier.padding(12.dp))
+                            }
+                            rows.forEachIndexed { idx, r ->
+                                QuoteRow(vm, r, onOpenAnalysis)
+                                if (idx < rows.lastIndex)
+                                    Box(Modifier.fillMaxWidth().height(1.dp).background(BorderColor))
+                            }
                         }
+                        Text("● 보유 / ○ 이력 · 행 탭=분석 이동 · 헤더 탭=정렬 · 흐림=이번 장 체결 없음(직전 종가)",
+                            color = TextSecondary, fontSize = 11.sp)
                     }
                 }
             }
