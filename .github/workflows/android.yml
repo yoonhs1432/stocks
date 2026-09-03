@@ -1,10 +1,17 @@
 name: Android Build
 
-# 수동 빌드 전용 — 요청 시에만 실행해 디버그 APK를 'android-latest' 릴리스에 게시.
-# (자동 push 트리거 제거: Actions 사용량/저장 용량 절약)
+# 수동 빌드 전용 — 요청 시에만 실행. (자동 push 트리거 제거: Actions 사용량/저장 용량 절약)
+#
+# publish=false 로 돌리면 **빌드만 검증**하고 릴리스는 건드리지 않는다.
+# 평소 커밋은 이걸로 컴파일만 확인하고, 실제 게시는 요청이 있을 때 publish=true 로 돌린다.
 
 on:
   workflow_dispatch:
+    inputs:
+      publish:
+        description: "android-latest 릴리스에 APK 게시 (끄면 빌드 검증만)"
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -50,7 +57,7 @@ jobs:
 
       - name: Publish to rolling release
         # main 병합 후 기준 브랜치가 main으로 바뀜 (이전: claude/android-native)
-        if: github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/main' && inputs.publish
         uses: softprops/action-gh-release@v2
         with:
           tag_name: android-latest

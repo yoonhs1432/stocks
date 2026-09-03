@@ -48,6 +48,7 @@ import com.quant.dashboard.data.Store
 import com.quant.dashboard.data.Tickers
 import com.quant.dashboard.ui.theme.BgApp
 import com.quant.dashboard.ui.theme.BgCard
+import com.quant.dashboard.ui.theme.ChipOn
 import com.quant.dashboard.ui.theme.Loss
 import com.quant.dashboard.ui.theme.Mono
 import com.quant.dashboard.ui.theme.Neutral
@@ -64,13 +65,24 @@ private fun pc(v: Double) = if (v > 0) Profit else if (v < 0) Loss else Neutral
 private fun signPct(r: Double): String = (if (r >= 0) "+" else "") + "%.2f%%".format(r * 100)
 private fun ident(i: Int) = WeightPalette[i % WeightPalette.size]
 
-/** 원화 손익 표기 — 부호를 앞에. rate=1.0 이면 이미 원화인 값. */
-private fun won(usd: Double, rate: Double) =
-    (if (usd >= 0) "+" else "-") + "%,.0f원".format(kotlin.math.abs(usd * rate))
+/**
+ * 포트폴리오 표시 통화 — 원/달러 토글.
+ *
+ * 계산은 전부 **원화로 모아 놓고** 표시 직전에만 환산한다. 종목마다 거래 통화가 달라
+ * (국내 ₩ / 해외 $) 화면에 섞여 나오면 합계와 비교가 안 됐다.
+ */
+private class Money(val usd: Boolean, val rate: Double) {
+    /** 원화 금액 → 표시 문자열. */
+    fun of(krw: Double): String =
+        if (usd) "$" + "%,.2f".format(krw / rate) else "%,.0f원".format(krw)
 
-/** 부호를 앞에 붙인 금액 — `-$12.34` 처럼 통화기호 뒤가 아니라 앞에 부호가 오게. */
-private fun signedAmt(v: Double, cur: String, dec: Int): String =
-    (if (v >= 0) "+" else "-") + cur + "%,.${dec}f".format(kotlin.math.abs(v))
+    /** 부호를 앞에 붙인 금액 (`-$12.34` / `-1,688,798원`). */
+    fun signed(krw: Double): String =
+        (if (krw >= 0) "+" else "-") + of(kotlin.math.abs(krw))
+
+    /** 거래 통화(KRW|USD) 기준 금액을 원화로. */
+    fun krwOf(v: Double, currency: String): Double = if (currency == "USD") v * rate else v
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -81,6 +93,7 @@ fun PortfolioScreen(onOpenAnalysis: (String) -> Unit = {}) {
     var acct by remember { mutableStateOf(TossSync.cachedAccount()) }
     var err by remember { mutableStateOf<String?>(null) }
     var refreshing by remember { mutableStateOf(false) }
+    var usdMode by remember { mutableStateOf(Store.portfolioUsd()) }
     val scope = rememberCoroutineScope()
 
     suspend fun reload(force: Boolean) {
@@ -109,13 +122,29 @@ fun PortfolioScreen(onOpenAnalysis: (String) -> Unit = {}) {
                 modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(14.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Text("포트폴리오", color = TextPrimary, fontSize = 19.sp, fontWeight = FontWeight.Bold)
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("포트폴리오", color = TextPrimary, fontSize = 19.sp,
+                        fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                    // 표시 통화 — 계산은 원화로 하고 표시만 바꾼다
+                    listOf(false to "원", true to "$").forEach { (isUsd, label) ->
+                        val on = usdMode == isUsd
+                        Box(
+                            Modifier.padding(start = 6.dp).clip(RoundedCornerShape(8.dp))
+                                .background(if (on) ChipOn else SurfaceInput)
+                                .clickable { usdMode = isUsd; Store.setPortfolioUsd(isUsd) }
+                                .padding(horizontal = 14.dp, vertical = 6.dp),
+                        ) {
+                            Text(label, color = if (on) TextPrimary else TextMuted,
+                                fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
 
                 val a = acct
                 when {
                     !BrokerCreds.isLinked() -> Text("설정 탭에서 토스증권을 연결하면 계좌가 표시됩니다.",
                         color = TextSecondary, fontSize = 14.sp)
-                    a != null -> TossBody(a, onOpenAnalysis)
+                    a != null -> TossBody(a, usdMode, onOpenAnalysis)
                     else -> Text(err?.let { "⚠️ $it" } ?: "계좌 정보를 불러오는 중…",
                         color = if (err != null) Loss else TextSecondary, fontSize = 13.sp)
                 }
@@ -132,7 +161,8 @@ fun PortfolioScreen(onOpenAnalysis: (String) -> Unit = {}) {
  * (= 전환 시점부터 쌓이며, 앱을 안 연 날은 비어 있다).
  */
 @Composable
-private fun TossBody(a: TossSync.Account, onOpenAnalysis: (String) -> Unit) {
+private fun TossBody(a: TossSync.Account, usdMode: Boolean, onOpenAnalysis: (String) -> Unit) {
+    val m = Money(usdMode, a.rate)
     // ── 총자산 히어로 (평가금액 + 예수금) ──
     Column(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
@@ -145,25 +175,25 @@ private fun TossBody(a: TossSync.Account, onOpenAnalysis: (String) -> Unit) {
                 fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
             Text(BrokerCreds.maskedAccount(), color = TextMuted, fontSize = 10.sp, fontFamily = Mono)
         }
-        Text("%,.0f원".format(a.totalKrw()), color = TextPrimary, fontSize = 32.sp,
+        Text(m.of(a.totalKrw()), color = TextPrimary, fontSize = 32.sp,
             fontWeight = FontWeight.Bold, fontFamily = Mono)
         // 당일 손익 — 토스 API 가 계산해 준 값을 그대로 쓴다 (증권사 앱과 같은 기준)
         val hs = a.holdings
         Text(
-            "오늘 ${won(a.dailyPnlKrw(), 1.0)} (${signPct(hs.dailyPnlRate)})",
+            "오늘 ${m.signed(a.dailyPnlKrw())} (${signPct(hs.dailyPnlRate)})",
             color = pc(a.dailyPnlKrw()), fontSize = 15.sp,
             fontWeight = FontWeight.Bold, fontFamily = Mono,
         )
         Text(
-            "평가손익 ${won(a.pnlKrw(), 1.0)} (${signPct(hs.pnlRate)})",
+            "평가손익 ${m.signed(a.pnlKrw())} (${signPct(hs.pnlRate)})",
             color = pc(a.pnlKrw()), fontSize = 12.sp,
             fontWeight = FontWeight.SemiBold, fontFamily = Mono,
         )
 
         Spacer(Modifier.height(8.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            StatChip("평가금액", "%,.0f원".format(a.krwEval + a.usdEval * a.rate))
-            StatChip("예수금", "%,.0f원".format(a.krwCash + a.usdCash * a.rate))
+            StatChip("평가금액", m.of(a.krwEval + a.usdEval * a.rate))
+            StatChip("예수금", m.of(a.krwCash + a.usdCash * a.rate))
             StatChip("환율", "%,.1f".format(a.rate))
         }
         if (a.usdEval != 0.0 || a.usdCash != 0.0) {
@@ -172,8 +202,7 @@ private fun TossBody(a: TossSync.Account, onOpenAnalysis: (String) -> Unit) {
         }
 
         // 평가금액(원화 환산) 내림차순. 스택바와 목록이 **같은 목록**을 써야 색과 순서가 맞는다
-        fun krwOf(h: com.quant.dashboard.data.TossApi.Holding) =
-            if (h.currency == "USD") h.evalAmount * a.rate else h.evalAmount
+        fun krwOf(h: com.quant.dashboard.data.TossApi.Holding) = m.krwOf(h.evalAmount, h.currency)
         val items = remember(a) { a.holdings.items.sortedByDescending { krwOf(it) } }
 
         // 보유 비중 100% 스택바
@@ -194,37 +223,40 @@ private fun TossBody(a: TossSync.Account, onOpenAnalysis: (String) -> Unit) {
                 modifier = Modifier.padding(top = 6.dp))
         }
         items.forEachIndexed { i, h ->
-            val cur = if (h.currency == "KRW") "₩" else "$"
             // 실시간 틱이 있으면 현재가로 다시 계산한다. 기준은 API 와 동일 —
             // 누적 손익률 = 현재가/평단 - 1 (안 맞추면 증권사 앱과 숫자가 어긋난다).
-            // 한 줄에 담으려고 **현재가·평단은 빼고** 수익률 · 수익금 · 평가금액만 남겼다.
             val lp = LivePrices.price(h.symbol)
-            val evalAmt = if (lp != null) lp * h.quantity else h.evalAmount
+            val evalKrw = m.krwOf(if (lp != null) lp * h.quantity else h.evalAmount, h.currency)
             val rate2 = if (lp != null && h.avgPrice > 0) lp / h.avgPrice - 1.0 else h.pnlRate
-            val pnlAmt = if (lp != null) (lp - h.avgPrice) * h.quantity else h.pnlAmount
-            val dec = if (h.currency == "KRW") 0 else 2
-            Row(
+            val pnlKrw = m.krwOf(if (lp != null) (lp - h.avgPrice) * h.quantity else h.pnlAmount, h.currency)
+            // 한 줄에 다 넣었더니 글자가 작고 빽빽해 읽기 어려웠다 → 이름 / 수량·금액·손익 2줄로
+            Column(
                 Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
                     .clickable { onOpenAnalysis(h.symbol) }
-                    .padding(top = 6.dp, bottom = 2.dp),
-                verticalAlignment = Alignment.CenterVertically,
+                    .padding(top = 10.dp, bottom = 2.dp),
             ) {
-                Box(Modifier.size(8.dp).clip(RoundedCornerShape(50)).background(ident(i)))
-                Spacer(Modifier.size(6.dp))
-                Text(h.name, color = TextPrimary, fontSize = 13.sp, maxLines = 1,
-                    fontWeight = FontWeight.SemiBold, fontFamily = Mono)
-                Spacer(Modifier.size(5.dp))
-                Text(qtyLabel(h.quantity), color = TextMuted, fontSize = 10.sp,
-                    maxLines = 1, fontFamily = Mono, modifier = Modifier.weight(1f))
-                Text(signPct(rate2), color = pc(rate2), fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold, fontFamily = Mono, maxLines = 1)
-                Spacer(Modifier.size(6.dp))
-                Text(signedAmt(pnlAmt, cur, dec), color = pc(pnlAmt), fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold, fontFamily = Mono, maxLines = 1)
-                Spacer(Modifier.size(6.dp))
-                Text(cur + "%,.${dec}f".format(evalAmt), color = TextPrimary,
-                    fontSize = 12.sp, fontFamily = Mono, maxLines = 1)
-                Text(" ›", color = TextMuted, fontSize = 14.sp)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(9.dp).clip(RoundedCornerShape(50)).background(ident(i)))
+                    Spacer(Modifier.size(8.dp))
+                    Text(h.name, color = TextPrimary, fontSize = 17.sp, maxLines = 1,
+                        fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                    Text("›", color = TextMuted, fontSize = 16.sp)
+                }
+                Row(Modifier.fillMaxWidth().padding(top = 2.dp), verticalAlignment = Alignment.Bottom) {
+                    Text(qtyLabel(h.quantity), color = TextSecondary, fontSize = 14.sp,
+                        maxLines = 1, modifier = Modifier.weight(1f))
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text(m.of(evalKrw), color = TextPrimary, fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold, fontFamily = Mono, maxLines = 1)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(m.signed(pnlKrw), color = pc(pnlKrw), fontSize = 14.sp,
+                                fontWeight = FontWeight.SemiBold, fontFamily = Mono, maxLines = 1)
+                            Text("  |  ", color = TextMuted, fontSize = 13.sp)
+                            Text(signPct(rate2), color = pc(rate2), fontSize = 14.sp,
+                                fontWeight = FontWeight.SemiBold, fontFamily = Mono, maxLines = 1)
+                        }
+                    }
+                }
             }
         }
     }
@@ -233,8 +265,11 @@ private fun TossBody(a: TossSync.Account, onOpenAnalysis: (String) -> Unit) {
     //
     // 토스가 준 값을 그대로 그린다. 예전에는 매매기록으로 입출금을 역산해 TWR 수익률을 냈는데,
     // 매매기록이 불완전하면 값이 어긋나서 걷어냈다.
-    val sr = remember(AppState.dataVersion) { Snapshots.series() }
-    val pnlSeries = remember(AppState.dataVersion) { Snapshots.pnls() }
+    val sr = remember(AppState.dataVersion, usdMode) { Snapshots.series(usdMode) }
+    val pnlSeries = remember(AppState.dataVersion, usdMode) { Snapshots.pnls(usdMode) }
+    // 원화는 만원 단위로 접어야 축이 읽힌다. 달러는 그대로
+    val div = if (usdMode) 1.0 else 10000.0
+    val unit = if (usdMode) "$" else "만원"
 
     Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(BgCard).padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(3.dp)) {
@@ -245,9 +280,9 @@ private fun TossBody(a: TossSync.Account, onOpenAnalysis: (String) -> Unit) {
                 "며칠 지나면 그래프가 그려집니다.", color = TextMuted, fontSize = 11.sp)
         } else {
             AssetStackChart(
-                eval = DoubleArray(sr.eval.size) { sr.eval[it] / 10000.0 },
-                cash = DoubleArray(sr.cash.size) { sr.cash[it] / 10000.0 },
-                unit = "만원", labels = sr.dates,
+                eval = DoubleArray(sr.eval.size) { sr.eval[it] / div },
+                cash = DoubleArray(sr.cash.size) { sr.cash[it] / div },
+                unit = unit, labels = sr.dates,
             )
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text(sr.dates.first(), color = TextSecondary, fontSize = 10.sp)
@@ -269,8 +304,8 @@ private fun TossBody(a: TossSync.Account, onOpenAnalysis: (String) -> Unit) {
                 "이 곡선은 새로 쌓입니다.", color = TextMuted, fontSize = 11.sp)
         } else {
             EquityChart(
-                pnlSeries.map { it.second / 10000.0 }.toDoubleArray(),
-                unit = "만원", labels = pnlSeries.map { it.first },
+                pnlSeries.map { it.second / div }.toDoubleArray(),
+                unit = unit, labels = pnlSeries.map { it.first },
                 baseZero = true,   // 손익은 0선이 기준
             )
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {

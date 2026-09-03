@@ -261,6 +261,10 @@ object Store {
             .put("chart_range_end", endOffset))
     }
 
+    /** 포트폴리오 탭 표시 통화 — true = 달러, false = 원. */
+    fun portfolioUsd(): Boolean = settings().optBoolean("portfolio_usd", false)
+    fun setPortfolioUsd(v: Boolean) { saveSettings(settings().put("portfolio_usd", v)) }
+
     /** 분석 탭에서 보고 있는 차트 묶음: "scatter"(산점도 2개) | "series"(시계열 4개). */
     fun chartGroup(): String = settings().optString("chart_group", "series")
     fun setChartGroup(v: String) { saveSettings(settings().put("chart_group", v)) }

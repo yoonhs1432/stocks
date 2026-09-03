@@ -124,19 +124,24 @@ object Snapshots {
         val total: DoubleArray,  // 총자산 = 평가 + 예수금
     )
 
-    fun series(): Series {
+    /**
+     * @param usd true 면 **그날의 환율**로 달러 환산. 과거 금액을 오늘 환율로 바꾸면
+     *            환율 변동이 자산 변동처럼 보이므로 스냅샷에 저장된 rate 를 쓴다.
+     */
+    fun series(usd: Boolean = false): Series {
         val l = load()
+        fun conv(v: Double, r: Double) = if (usd) v / r else v
         return Series(
             l.map { it.date },
-            DoubleArray(l.size) { l[it].evalKrw() },
-            DoubleArray(l.size) { l[it].cashKrw() },
-            DoubleArray(l.size) { l[it].totalKrw() },
+            DoubleArray(l.size) { conv(l[it].evalKrw(), l[it].rate) },
+            DoubleArray(l.size) { conv(l[it].cashKrw(), l[it].rate) },
+            DoubleArray(l.size) { conv(l[it].totalKrw(), l[it].rate) },
         )
     }
 
-    /** 평가손익(원) 시계열. 손익이 기록된 날만 — 옛 스냅샷에는 없다. */
-    fun pnls(): List<Pair<String, Double>> =
-        load().filter { it.hasPnl }.map { it.date to it.pnlKrw() }
+    /** 평가손익 시계열. 손익이 기록된 날만 — 옛 스냅샷에는 없다. */
+    fun pnls(usd: Boolean = false): List<Pair<String, Double>> =
+        load().filter { it.hasPnl }.map { it.date to (if (usd) it.pnlKrw() / it.rate else it.pnlKrw()) }
 
     fun clear() { Store.fileIn(FILE)?.delete() }
 }
