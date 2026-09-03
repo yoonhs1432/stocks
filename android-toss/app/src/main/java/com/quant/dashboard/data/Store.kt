@@ -246,10 +246,6 @@ object Store {
     fun tickSeconds(): Int = settings().optInt("tick_seconds", 0)
     fun setTickSeconds(v: Int) { saveSettings(settings().put("tick_seconds", v)) }
 
-    /** 자산 추이 곡선 종류: "return"(TWR 수익률) | "pnl"(누적 투자손익) | "total"(총자산). */
-    fun equityMode(): String = settings().optString("equity_mode", "return")
-    fun setEquityMode(v: String) { saveSettings(settings().put("equity_mode", v)) }
-
     /**
      * 분석 탭 시계열에서 사용자가 두 손가락으로 맞춘 x축 구간.
      *

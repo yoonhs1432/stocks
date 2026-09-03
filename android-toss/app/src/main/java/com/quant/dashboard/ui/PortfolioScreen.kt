@@ -52,7 +52,6 @@ import com.quant.dashboard.ui.theme.Loss
 import com.quant.dashboard.ui.theme.Mono
 import com.quant.dashboard.ui.theme.Neutral
 import com.quant.dashboard.ui.theme.Profit
-import com.quant.dashboard.ui.theme.SegmentOn
 import com.quant.dashboard.ui.theme.SurfaceInput
 import com.quant.dashboard.ui.theme.TextMuted
 import com.quant.dashboard.ui.theme.TextPrimary
@@ -172,24 +171,29 @@ private fun TossBody(a: TossSync.Account, onOpenAnalysis: (String) -> Unit) {
                 color = TextMuted, fontSize = 10.sp, modifier = Modifier.padding(top = 4.dp))
         }
 
+        // 평가금액(원화 환산) 내림차순. 스택바와 목록이 **같은 목록**을 써야 색과 순서가 맞는다
+        fun krwOf(h: com.quant.dashboard.data.TossApi.Holding) =
+            if (h.currency == "USD") h.evalAmount * a.rate else h.evalAmount
+        val items = remember(a) { a.holdings.items.sortedByDescending { krwOf(it) } }
+
         // 보유 비중 100% 스택바
-        val evalSum = a.holdings.items.sumOf { if (it.currency == "USD") it.evalAmount * a.rate else it.evalAmount }
-        if (evalSum > 0 && a.holdings.items.isNotEmpty()) {
+        val evalSum = items.sumOf { krwOf(it) }
+        if (evalSum > 0 && items.isNotEmpty()) {
             Spacer(Modifier.height(10.dp))
             Row(Modifier.fillMaxWidth().height(10.dp).clip(RoundedCornerShape(5.dp))) {
-                a.holdings.items.forEachIndexed { i, h ->
-                    val w = (if (h.currency == "USD") h.evalAmount * a.rate else h.evalAmount) / evalSum
-                    Box(Modifier.weight(w.toFloat().coerceAtLeast(0.001f)).fillMaxHeight().background(ident(i)))
+                items.forEachIndexed { i, h ->
+                    Box(Modifier.weight((krwOf(h) / evalSum).toFloat().coerceAtLeast(0.001f))
+                        .fillMaxHeight().background(ident(i)))
                 }
             }
         }
 
         // 보유 목록 — 행 탭 시 분석 이동
-        if (a.holdings.items.isNotEmpty()) {
+        if (items.isNotEmpty()) {
             Text("종목을 누르면 분석 탭으로 이동", color = TextMuted, fontSize = 10.sp,
                 modifier = Modifier.padding(top = 6.dp))
         }
-        a.holdings.items.forEachIndexed { i, h ->
+        items.forEachIndexed { i, h ->
             val cur = if (h.currency == "KRW") "₩" else "$"
             // 실시간 틱이 있으면 현재가로 다시 계산한다. 기준은 API 와 동일 —
             // 누적 손익률 = 현재가/평단 - 1 (안 맞추면 증권사 앱과 숫자가 어긋난다).
@@ -225,89 +229,59 @@ private fun TossBody(a: TossSync.Account, onOpenAnalysis: (String) -> Unit) {
         }
     }
 
-    // ── 자산 추이 (스냅샷) ──
+    // ── 자산 추이 ──
     //
-    // ⚠️ 총자산 곡선은 **입금하면 그대로 올라간다** — 수익률이 아니다.
-    //    그래서 기본을 [수익률](입출금을 걷어낸 TWR 지수)로 두고, 총자산은 참고용으로 남긴다.
-    var mode by remember { mutableStateOf(Store.equityMode()) }
-    val snaps = remember(AppState.dataVersion) { Snapshots.totals() }
-    val pnlSeries = remember(AppState.dataVersion) { Snapshots.investPnl() }
-    val twrSeries = remember(AppState.dataVersion) { Snapshots.twr() }
+    // 토스가 준 값을 그대로 그린다. 예전에는 매매기록으로 입출금을 역산해 TWR 수익률을 냈는데,
+    // 매매기록이 불완전하면 값이 어긋나서 걷어냈다.
+    val sr = remember(AppState.dataVersion) { Snapshots.series() }
+    val pnlSeries = remember(AppState.dataVersion) { Snapshots.pnls() }
 
     Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(BgCard).padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(3.dp)) {
-
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            listOf("return" to "수익률", "pnl" to "누적손익", "total" to "총자산").forEach { (id, label) ->
-                val on = mode == id
-                Box(
-                    Modifier.weight(1f).clip(RoundedCornerShape(8.dp))
-                        .background(if (on) SegmentOn else SurfaceInput)
-                        .clickable { mode = id; Store.setEquityMode(id) }
-                        .padding(vertical = 6.dp),
-                ) {
-                    Text(label, color = if (on) Color.White else TextSecondary, fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold, textAlign = TextAlign.Center,
-                        modifier = Modifier.fillMaxWidth())
-                }
-            }
-        }
-
-        val series = when (mode) { "total" -> snaps; "pnl" -> pnlSeries; else -> twrSeries }
-        val caption = when (mode) {
-            "total" -> "총자산 (입출금 포함)"
-            "pnl" -> "누적 투자손익 (평가 + 실현) · 입출금 무관"
-            else -> "수익률 지수 (입출금 제거, 시작 = 100)"
-        }
-        Text(caption + " · 핀치=확대 · 탭=그 시점 값",
-            color = TextSecondary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-
-        if (series.size < 2) {
-            Text(
-                if (mode == "total")
-                    "기록이 ${snaps.size}일치뿐입니다. 앱을 열 때마다 하루 1회 잔고를 저장하므로\n" +
-                        "며칠 지나면 그래프가 그려집니다."
-                else
-                    "손익까지 남긴 기록이 ${series.size}일치뿐입니다. 입출금을 걷어내려면 평가손익·매입금액이\n" +
-                        "같이 필요한데 이전 기록에는 없어서, 이 곡선은 오늘부터 새로 쌓입니다.",
-                color = TextMuted, fontSize = 11.sp,
-            )
+        Text("자산 · 핀치=확대 · 탭=그 시점 값", color = TextSecondary,
+            fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+        if (sr.dates.size < 2) {
+            Text("기록이 ${sr.dates.size}일치뿐입니다. 앱을 열 때마다 하루 1회 잔고를 저장하므로\n" +
+                "며칠 지나면 그래프가 그려집니다.", color = TextMuted, fontSize = 11.sp)
         } else {
-            val values = (
-                if (mode == "return") series.map { it.second }
-                else series.map { it.second / 10000.0 }
-            ).toDoubleArray()
-            EquityChart(
-                values,
-                unit = if (mode == "return") "" else "만원",
-                labels = series.map { it.first },
-                baseZero = mode == "pnl",   // 누적손익은 0선이 기준
+            AssetStackChart(
+                eval = DoubleArray(sr.eval.size) { sr.eval[it] / 10000.0 },
+                cash = DoubleArray(sr.cash.size) { sr.cash[it] / 10000.0 },
+                unit = "만원", labels = sr.dates,
             )
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(series.first().first, color = TextSecondary, fontSize = 10.sp)
-                Text(
-                    if (mode == "total") "${series.size}일 기록"
-                    else "구간 " + signPct(values.last() / values.first() - 1.0),
-                    color = if (mode == "total") TextMuted else pc(values.last() - values.first()),
-                    fontSize = 10.sp, fontWeight = FontWeight.Bold,
-                )
-                Text(series.last().first, color = TextSecondary, fontSize = 10.sp)
+                Text(sr.dates.first(), color = TextSecondary, fontSize = 10.sp)
+                Text("${sr.dates.size}일 기록", color = TextMuted, fontSize = 10.sp)
+                Text(sr.dates.last(), color = TextSecondary, fontSize = 10.sp)
             }
-            // 낙폭은 지금 보고 있는 곡선 기준. 총자산 낙폭은 입금 타이밍에 휘둘리므로 참고용이다.
-            Snapshots.drawdown(series)?.let { dd ->
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    modifier = Modifier.padding(top = 4.dp)) {
-                    StatChip("고점대비", "${"%.1f".format(dd.current)}%")
-                    StatChip("MDD", "${"%.1f".format(dd.max)}%" + (dd.maxDate?.let { " ($it)" } ?: ""))
-                }
-            }
-            if (mode == "total") {
-                Text("입금·출금이 그대로 반영되는 곡선입니다. 순수 매매 성과는 [수익률] 을 보세요.",
-                    color = TextMuted, fontSize = 10.sp, modifier = Modifier.padding(top = 3.dp))
-            }
+            Text("총자산 = 평가금액 + 예수금. 입금·출금도 그대로 반영되는 곡선입니다.",
+                color = TextMuted, fontSize = 10.sp, modifier = Modifier.padding(top = 3.dp))
         }
     }
 
+    // ── 평가손익 추이 ──
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(BgCard).padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        Text("평가손익 · 핀치=확대 · 탭=그 시점 값", color = TextSecondary,
+            fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+        if (pnlSeries.size < 2) {
+            Text("평가손익까지 남긴 기록이 ${pnlSeries.size}일치뿐입니다 — 이전 기록에는 없어서\n" +
+                "이 곡선은 새로 쌓입니다.", color = TextMuted, fontSize = 11.sp)
+        } else {
+            EquityChart(
+                pnlSeries.map { it.second / 10000.0 }.toDoubleArray(),
+                unit = "만원", labels = pnlSeries.map { it.first },
+                baseZero = true,   // 손익은 0선이 기준
+            )
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(pnlSeries.first().first, color = TextSecondary, fontSize = 10.sp)
+                Text("${pnlSeries.size}일 기록", color = TextMuted, fontSize = 10.sp)
+                Text(pnlSeries.last().first, color = TextSecondary, fontSize = 10.sp)
+            }
+            Text("보유 중인 종목의 미실현 손익입니다 — 전량 매도하면 0으로 떨어집니다.",
+                color = TextMuted, fontSize = 10.sp, modifier = Modifier.padding(top = 3.dp))
+        }
+    }
 
     TradeJournal()
 }

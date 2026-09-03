@@ -9,6 +9,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.background
+import androidx.compose.ui.draw.clip
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
@@ -982,6 +985,119 @@ fun EquityChart(
                 miniTag(2f, cy, amountText(values[selIdx], unit), MAGENTA, Paint.Align.LEFT)
             }
         }
+    }
+}
+
+/**
+ * 자산 누적 영역 — 평가금액(아래) + 예수금(위), 윗면이 총자산.
+ *
+ * 총자산 = 평가금액 + 예수금 이라 쌓아 그리면 "얼마가 종목에 들어가 있고 얼마가 현금인지"를
+ * 한 눈에 볼 수 있다. y 는 0부터 — 누적 영역은 0 기준이어야 두께가 곧 금액이 된다.
+ */
+@Composable
+fun AssetStackChart(
+    eval: DoubleArray,          // 평가금액 (원화 환산)
+    cash: DoubleArray,          // 예수금 (원화 환산)
+    unit: String = "만원",
+    labels: List<String> = emptyList(),
+    height: Dp = 190.dp,
+    modifier: Modifier = Modifier,
+) {
+    val n = eval.size
+    if (n < 2 || cash.size != n) return
+    var view by remember(n) { mutableStateOf(ChartView()) }
+    var sel by remember(n) { mutableStateOf(-1) }
+
+    val total = DoubleArray(n) { eval[it] + cash[it] }
+    val (i0, i1) = visibleRange(n, view)
+    val hiRaw = total.maxNaN(i0, i1)
+    if (hiRaw.isNaN()) return
+    val lo = 0.0
+    val hi = hiRaw * 1.06 + 1e-9
+
+    val curIdx = (n - 1 downTo 0).firstOrNull { !total[it].isNaN() } ?: return
+    val selIdx = if (sel in 0 until n && !total[sel].isNaN()) sel else -1
+    val shown = if (selIdx >= 0) selIdx else curIdx
+
+    Column(modifier.fillMaxWidth()) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
+            Column(Modifier.weight(1f)) {
+                androidx.compose.material3.Text(
+                    if (selIdx >= 0) labels.getOrNull(selIdx) ?: "선택 시점" else "현재 총자산",
+                    color = TextSecondary, fontSize = 10.sp,
+                )
+                androidx.compose.material3.Text(
+                    amountText(total[shown], unit), color = TextPrimary,
+                    fontSize = 21.sp, fontWeight = FontWeight.Bold, fontFamily = Mono,
+                )
+            }
+            Column(horizontalAlignment = Alignment.End) {
+                LegendDot("평가금액", Color(0xFFEF6066), amountText(eval[shown], unit))
+                LegendDot("예수금", Color(0xFF4F9EE8), amountText(cash[shown], unit))
+            }
+            if (!view.isIdentity || selIdx >= 0) {
+                androidx.compose.material3.Text(
+                    "  ⟲", color = TextSecondary, fontSize = 17.sp,
+                    modifier = Modifier.padding(start = 2.dp)
+                        .clickable { view = ChartView(); sel = -1 },
+                )
+            }
+        }
+        Canvas(
+            modifier = Modifier.fillMaxWidth().height(height)
+                .chartGestures(view, { view = it }, xOnly = true,
+                    onTapAt = { u -> sel = (u * (n - 1)).roundToInt().coerceIn(0, n - 1) }),
+        ) {
+            val plotW = size.width - AXIS_W
+            val xw = plotW - barInset(plotW, n, view)
+            fun xAt(i: Int) = view.x(xw * i / (n - 1), xw)
+            fun yAt(v: Double) = (size.height * (1 - (v - lo) / (hi - lo))).toFloat()
+            rightAxis(niceTicks(lo, hi), ::yAt, plotW) { amountText(it, unit) }
+
+            var first = -1; var last = -1
+            for (i in 0 until n) if (!total[i].isNaN()) { if (first < 0) first = i; last = i }
+            if (first < 0 || first >= last) return@Canvas
+
+            clipRect(0f, 0f, plotW, size.height) {
+                // 아래 = 평가금액, 위 = 예수금. 위 띠는 평가금액 선 위에 쌓는다
+                fun stack(lower: (Int) -> Double, upper: (Int) -> Double, color: Color) {
+                    val path = Path()
+                    path.moveTo(xAt(first), yAt(lower(first)))
+                    for (i in first..last) path.lineTo(xAt(i), yAt(lower(i)))
+                    for (i in last downTo first) path.lineTo(xAt(i), yAt(upper(i)))
+                    path.close()
+                    drawPath(path, color)
+                }
+                stack({ 0.0 }, { eval[it] }, Color(0x59EF6066))
+                stack({ eval[it] }, { total[it] }, Color(0x594F9EE8))
+                poly(eval, ::xAt, ::yAt, Color(0xFFEF6066), 1.6f)
+                poly(total, ::xAt, ::yAt, Color(0xFFEEF1F4), 2.4f)   // 윗면 = 총자산
+            }
+            val yCur = yAt(total[curIdx])
+            dline(Color(0x99EEF1F4), 0f, yCur, plotW, yCur, 1.2f)
+            drawCircle(Color(0xFFEEF1F4), 5.5f, Offset(xAt(curIdx).coerceIn(0f, plotW), yCur))
+            if (selIdx >= 0) {
+                val cx = xAt(selIdx).coerceIn(0f, plotW)
+                dotline(MAGENTA, cx, 0f, cx, size.height, 1.2f)
+                currentMarker(cx, yAt(total[selIdx]), 12f)
+            }
+        }
+    }
+}
+
+/** 범례 한 줄 — 색 점 + 이름 + 값. */
+@Composable
+private fun LegendDot(name: String, color: Color, value: String) {
+    Row(verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        androidx.compose.foundation.layout.Box(
+            Modifier.size(7.dp)
+                .clip(androidx.compose.foundation.shape.RoundedCornerShape(50))
+                .background(color),
+        )
+        androidx.compose.material3.Text(name, color = TextSecondary, fontSize = 10.sp)
+        androidx.compose.material3.Text(value, color = TextPrimary, fontSize = 12.sp,
+            fontWeight = FontWeight.Bold, fontFamily = Mono)
     }
 }
 
