@@ -28,6 +28,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -152,8 +153,7 @@ fun AnalysisScreen(vm: AnalysisViewModel = viewModel(), onBack: () -> Unit = {})
                             .padding(horizontal = 8.dp, vertical = BODY_PAD),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        ResultView(s.result, s.ticker, s.ohlc, ov[s.ticker]?.day, group, avail,
-                            vm.chartView(s.ticker)) { vm.setChartView(s.ticker, it) }
+                        ResultView(s.result, s.ticker, s.ohlc, ov[s.ticker]?.day, group, avail)
                     }
                 }
                 s.loading -> Row(Modifier.fillMaxWidth().padding(24.dp), Arrangement.Center) {
@@ -294,8 +294,7 @@ private class ChartsHeight(var total: Dp = 0.dp)
 
 @Composable
 private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayPct: Double?,
-                       group: String, avail: Dp,
-                       savedView: ChartView?, onView: (ChartView) -> Unit) {
+                       group: String, avail: Dp) {
     // ── 차트가 화면에 딱 맞게 — 여백을 **추정하지 않고 잰다** ──
     //
     // 종목 헤더·제목줄·날짜축·안내문의 높이를 dp 로 추정해 빼고 있었는데, 글꼴 크기나 줄바꿈으로
@@ -435,19 +434,12 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
         // 카드 테두리를 빼고 얇은 제목줄만 둬서 네 개가 한 화면에 들어가게 했다.
         // 처음 보여줄 구간 = 설정의 "차트 표시기간". 전체를 그려 놓고 배율로 잘라 보여준다.
         val totalMonths = ((dates.last() - dates.first()).toDouble() / 2_629_746.0).coerceAtLeast(1.0)
-        // 배율은 ViewModel 이 종목별로 들고 있다 — 탭을 옮겼다 와도 보던 구간이 유지된다.
-        // 처음 보는 종목만 "차트 표시기간"으로 초기 배율을 만든다.
-        var sView by remember(ticker, n) {
-            mutableStateOf(
-                savedView ?: run {
-                    val s0 = (totalMonths / Store.chartMonths()).toFloat()
-                        .coerceIn(1f, ChartView.MAX_ZOOM)
-                    // nx = 1 - sx 이면 오른쪽 끝(최신)에 붙는다
-                    ChartView(sx = s0, nx = 1f - s0)
-                }
-            )
-        }
-        fun pushView(v: ChartView) { sView = v; onView(v) }
+        // 사용자가 맞춘 구간은 ChartRange 가 들고 있다 — 종목을 바꿔도, 앱을 껐다 켜도 유지된다.
+        // 종목마다 전체 기간이 다르므로 "보이는 개월 수"를 이 종목의 배율로 환산해 받는다.
+        var sView by remember(ticker, n) { mutableStateOf(ChartRange.viewFor(totalMonths)) }
+        fun pushView(v: ChartView) { sView = v; ChartRange.save(v, totalMonths) }
+        // 화면을 벗어날 때 마지막 값을 파일에 확정 (제스처 중에는 throttle 되어 있다)
+        DisposableEffect(ticker) { onDispose { ChartRange.flush() } }
         // MACD·RSI 는 보조지표라 가격·Z·M 보다 낮게 (가중치 1 : 1 : 0.5 : 0.5)
         val body = (avail - chromeDp(146.dp)).coerceAtLeast(240.dp)
         val shMain = (body / 3.0f).coerceAtLeast(80.dp)

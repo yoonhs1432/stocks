@@ -250,6 +250,21 @@ object Store {
     fun equityMode(): String = settings().optString("equity_mode", "return")
     fun setEquityMode(v: String) { saveSettings(settings().put("equity_mode", v)) }
 
+    /**
+     * 분석 탭 시계열에서 사용자가 두 손가락으로 맞춘 x축 구간.
+     *
+     * 배율이 아니라 **보이는 기간(개월)** 과 **오른쪽 끝이 최신에서 떨어진 정도(개월)** 로 저장한다.
+     * 배율은 종목의 전체 기간에 대한 비율이라, 데이터 길이가 다른 종목에 그대로 옮기면
+     * 보이는 기간이 달라진다. (미설정 = -1 → chartMonths() 를 기본값으로)
+     */
+    fun chartRangeMonths(): Double = settings().optDouble("chart_range_months", -1.0)
+    fun chartRangeEnd(): Double = settings().optDouble("chart_range_end", 0.0)
+    fun setChartRange(months: Double, endOffset: Double) {
+        saveSettings(settings()
+            .put("chart_range_months", months)
+            .put("chart_range_end", endOffset))
+    }
+
     /** 분석 탭에서 보고 있는 차트 묶음: "scatter"(산점도 2개) | "series"(시계열 4개). */
     fun chartGroup(): String = settings().optString("chart_group", "series")
     fun setChartGroup(v: String) { saveSettings(settings().put("chart_group", v)) }

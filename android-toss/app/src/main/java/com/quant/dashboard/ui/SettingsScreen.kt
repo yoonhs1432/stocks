@@ -147,7 +147,7 @@ fun SettingsScreen() {
             var chartM by remember { mutableStateOf(Store.chartMonths()) }
             MonthSlider(
                 "차트 표시기간", chartM,
-                hint = "분석 탭 시계열을 처음 열었을 때 보여줄 구간입니다. 이후에는 두 손가락으로 넓히거나 좁힐 수 있습니다.",
+                hint = "분석 탭 시계열을 **처음** 열 때 보여줄 구간입니다.\n한 번 두 손가락으로 조절하면 그 구간이 기억되어, 종목을 바꾸거나 앱을 다시 켜도 유지됩니다.",
             ) { chartM = it; Store.setChartMonths(it); AppState.bump() }
         }
 
