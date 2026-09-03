@@ -143,7 +143,8 @@ fun AnalysisScreen(vm: AnalysisViewModel = viewModel(), onBack: () -> Unit = {})
             when {
                 // 당겨서 새로고침 → 전체 탭 새로고침 (dataVersion bump로 모든 탭이 재로드)
                 s.result != null -> PullToRefreshBox(
-                    isRefreshing = s.loading, onRefresh = { AppState.bump() },
+                    // bump() 만 하면 일봉 캐시 때문에 값이 그대로다 — 캐시를 건너뛰고 다시 받는다
+                    isRefreshing = s.loading, onRefresh = { vm.refresh() },
                     modifier = Modifier.fillMaxSize(),
                 ) {
                     Column(

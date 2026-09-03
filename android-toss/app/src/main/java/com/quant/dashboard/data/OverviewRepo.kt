@@ -43,7 +43,9 @@ object OverviewRepo {
         // 캐시만 읽으면 포트폴리오 탭을 아직 안 열었을 때 보유종목이 비어 목록에서 빠진다.
         // account() 는 5분 캐시라 여기서 불러도 추가 요청이 거의 없다.
         val acct = withContext(Dispatchers.IO) {
-            TossSync.cachedAccount() ?: runCatching { TossSync.account() }.getOrNull()
+            if (force) runCatching { TossSync.account(force = true) }.getOrNull()
+                ?: TossSync.cachedAccount()
+            else TossSync.cachedAccount() ?: runCatching { TossSync.account() }.getOrNull()
         }
         val held = acct?.holdings?.items?.filter { it.quantity > 0 }?.map { it.symbol }.orEmpty()
         val tickers = (Store.loadTickers() + held).distinct()
@@ -57,7 +59,8 @@ object OverviewRepo {
         val months = Store.lookbackMonths()
         val curKey = "$months|$keyExtra"
         if (!force && slot.rows.isNotEmpty() && slot.key == curKey && now - slot.ts < 300_000) return slot.rows
-        val spy = Quotes.closes(Tickers.BASE, months)
+        // force=사용자가 당겨서 새로고침 — 일봉 캐시(6시간)까지 무시하고 다시 받는다
+        val spy = Quotes.closes(Tickers.BASE, months, force)
         if (spy.isEmpty()) return slot.rows
         val trades = Store.visibleTrades()
         val acct = TossSync.cachedAccount()
@@ -70,7 +73,7 @@ object OverviewRepo {
         val rows = coroutineScope {
             tickers.map { tk ->
                 async(Dispatchers.IO) {
-                    val closes = Quotes.closes(tk, months)
+                    val closes = Quotes.closes(tk, months, force)
                     val p = DoubleArray(closes.size) { closes[it].second }
                     val m = p.size
                     val held = tossHeld?.contains(tk) ?: (Portfolio.currentHoldQty(trades[tk].orEmpty()) > 0)

@@ -23,6 +23,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -37,6 +38,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.quant.dashboard.data.BrokerCreds
 import com.quant.dashboard.data.LivePrices
@@ -74,19 +76,50 @@ private fun signedAmt(v: Double, cur: String, dec: Int): String =
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PortfolioScreen(onOpenAnalysis: (String) -> Unit = {}) {
+    // 계좌 상태를 여기서 들고 있어야 당겨서 새로고침 스피너가 실제 조회와 맞물린다.
+    // (예전에는 isRefreshing=false 로 박혀 있어 스피너가 즉시 사라졌고,
+    //  account() 도 5분 캐시라 당겨도 아무 일이 일어나지 않았다)
+    var acct by remember { mutableStateOf(TossSync.cachedAccount()) }
+    var err by remember { mutableStateOf<String?>(null) }
+    var refreshing by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+
+    suspend fun reload(force: Boolean) {
+        val fresh = withContext(Dispatchers.IO) {
+            try { TossSync.account(force = force) } catch (e: Exception) { err = e.message; null }
+        }
+        if (fresh != null) { acct = fresh; err = null }
+    }
+
+    LaunchedEffect(AppState.dataVersion) { reload(force = false) }
+
     Column(modifier = Modifier.fillMaxSize().background(BgApp)) {
-        // 당겨서 새로고침 → 전체 탭 새로고침 (dataVersion bump로 모든 탭이 재로드)
-        PullToRefreshBox(isRefreshing = false, onRefresh = { AppState.bump() },
-            modifier = Modifier.fillMaxSize()) {
+        PullToRefreshBox(
+            isRefreshing = refreshing,
+            onRefresh = {
+                refreshing = true
+                scope.launch {
+                    reload(force = true)   // 5분 캐시를 건너뛰고 계좌를 다시 받는다
+                    AppState.bump()        // 다른 탭도 갱신
+                    refreshing = false
+                }
+            },
+            modifier = Modifier.fillMaxSize(),
+        ) {
             Column(
                 modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(14.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Text("포트폴리오", color = TextPrimary, fontSize = 19.sp, fontWeight = FontWeight.Bold)
 
-                if (BrokerCreds.isLinked()) TossBody(onOpenAnalysis)
-                else Text("설정 탭에서 토스증권을 연결하면 계좌가 표시됩니다.",
-                    color = TextSecondary, fontSize = 14.sp)
+                val a = acct
+                when {
+                    !BrokerCreds.isLinked() -> Text("설정 탭에서 토스증권을 연결하면 계좌가 표시됩니다.",
+                        color = TextSecondary, fontSize = 14.sp)
+                    a != null -> TossBody(a, onOpenAnalysis)
+                    else -> Text(err?.let { "⚠️ $it" } ?: "계좌 정보를 불러오는 중…",
+                        color = if (err != null) Loss else TextSecondary, fontSize = 13.sp)
+                }
             }
         }
     }
@@ -100,22 +133,7 @@ fun PortfolioScreen(onOpenAnalysis: (String) -> Unit = {}) {
  * (= 전환 시점부터 쌓이며, 앱을 안 연 날은 비어 있다).
  */
 @Composable
-private fun TossBody(onOpenAnalysis: (String) -> Unit) {
-    var acct by remember { mutableStateOf(TossSync.cachedAccount()) }
-    var err by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(AppState.dataVersion) {
-        val fresh = withContext(Dispatchers.IO) {
-            try { TossSync.account() } catch (e: Exception) { err = e.message; null }
-        }
-        if (fresh != null) { acct = fresh; err = null }
-    }
-    val a = acct
-    if (a == null) {
-        Text(err?.let { "⚠️ $it" } ?: "계좌 정보를 불러오는 중…",
-            color = if (err != null) Loss else TextSecondary, fontSize = 13.sp)
-        return
-    }
-
+private fun TossBody(a: TossSync.Account, onOpenAnalysis: (String) -> Unit) {
     // ── 총자산 히어로 (평가금액 + 예수금) ──
     Column(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))

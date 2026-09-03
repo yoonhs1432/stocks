@@ -86,7 +86,8 @@ fun CompareScreen(vm: CompareViewModel = viewModel(), onOpenAnalysis: (String) -
     Column(modifier = Modifier.fillMaxSize().background(BgApp)) {
         // 표는 위, 조작 버튼은 아래 — 한 손으로 엄지가 닿는 곳에 둔다
         Box(Modifier.fillMaxWidth().weight(1f)) {
-            PullToRefreshBox(isRefreshing = s.loading, onRefresh = { AppState.bump() },
+            // bump() 만 하면 일봉 캐시(6시간) 때문에 값이 그대로다 — 캐시를 건너뛰고 다시 받는다
+            PullToRefreshBox(isRefreshing = s.loading, onRefresh = { vm.load(force = true) },
                 modifier = Modifier.fillMaxSize()) {
                 Column(
                     modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())

@@ -92,7 +92,19 @@ class AnalysisViewModel : ViewModel() {
         loadOverview(false)   // 5분 캐시: 만료 시에만 실제 재요청
     }
 
-    fun load(ticker: String = state.ticker, quiet: Boolean = false) {
+    /**
+     * 당겨서 새로고침 — 시세를 **실제로 다시 받는다**.
+     *
+     * 그냥 다시 그리기만 하면 일봉 캐시(6시간) 때문에 아무것도 안 바뀐다.
+     * 자동 새로고침과 달리 사용자가 명시적으로 요청한 것이므로 캐시를 건너뛴다.
+     */
+    fun refresh() {
+        spyCache = emptyList()
+        load(force = true)
+        loadOverview(force = true)
+    }
+
+    fun load(ticker: String = state.ticker, quiet: Boolean = false, force: Boolean = false) {
         val seq = ++reqSeq
         loadJob?.cancel()   // 진행 중이던 이전 요청 취소 (응답 순서가 뒤바뀌는 것 방지)
         if (!quiet) state = state.copy(loading = true, error = null)
@@ -100,9 +112,9 @@ class AnalysisViewModel : ViewModel() {
             val months = Store.lookbackMonths()
             val holder = withContext(Dispatchers.IO) {
                 try {
-                    if (spyCache.isEmpty()) spyCache = Quotes.closes(Tickers.BASE, months)
+                    if (spyCache.isEmpty()) spyCache = Quotes.closes(Tickers.BASE, months, force)
                     val spy = spyCache
-                    val candles = Quotes.ohlc(ticker, months)
+                    val candles = Quotes.ohlc(ticker, months, force)
                     val tk = candles.map { Pair(it.t, it.close) }
                     when {
                         spy.isEmpty() -> Result.failure(Exception("SPY 시세를 가져오지 못했습니다"))
