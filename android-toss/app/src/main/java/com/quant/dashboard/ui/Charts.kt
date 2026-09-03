@@ -402,29 +402,25 @@ private fun DrawScope.miniTag(x: Float, y: Float, text: String, bg: Color, align
 }
 
 /** 산점도 현재 위치 십자선 + 축 교점 값 태그 + 다이아 마커. */
-private fun DrawScope.crosshair(cx: Float, cy: Float, xText: String, yText: String) {
+private fun DrawScope.crosshair(cx: Float, cy: Float) {
     dotline(MAGENTA, cx, 0f, cx, size.height, 1f)
     dotline(MAGENTA, 0f, cy, size.width, cy, 1f)
     currentMarker(cx, cy, 13f)
-    miniTag(cx, size.height - (AX_SIZE + 9f) / 2f - 1f, xText, MAGENTA, Paint.Align.CENTER)
-    miniTag(2f, cy, yText, MAGENTA, Paint.Align.LEFT)
 }
 
 /**
- * 시계열 차트 현재값 십자선 — 현재 시점 세로선(마젠타) + 계열별 가로선/값 태그.
- * series = (y좌표, 색, 값 텍스트).
+ * 시계열 차트 현재값 십자선 — 현재 시점 세로선(마젠타) + 계열별 가로선·점.
+ * series = (y좌표, 색).
+ *
+ * 배경 있는 값 태그는 뺐다 — 차트를 가리는데, 같은 값이 이미 위 제목줄(가격·Z·M·MACD·RSI)과
+ * 우측 축 눈금에 나오고 날짜도 아래 x축에 있다.
  */
-private fun DrawScope.currentCross(cx: Float, series: List<Triple<Float, Color, String>>, xText: String = "") {
+private fun DrawScope.currentCross(cx: Float, series: List<Pair<Float, Color>>) {
     dotline(MAGENTA, cx, 0f, cx, size.height, 1.2f)
-    for ((y, col, _) in series) {
+    for ((y, col) in series) {
         dotline(col, 0f, y, size.width, y, 1.2f)
         drawCircle(col, 5f, Offset(cx, y))
         drawCircle(Color.White, 5f, Offset(cx, y), style = Stroke(1.2f))
-    }
-    // 값 태그는 선을 가리지 않게 왼쪽 끝에, 위→아래 순으로
-    for ((y, col, txt) in series.sortedBy { it.first }) miniTag(2f, y, txt, col, Paint.Align.LEFT)
-    if (xText.isNotEmpty()) {
-        miniTag(cx, size.height - (AX_SIZE + 9f) / 2f - 1f, xText, MAGENTA, Paint.Align.CENTER)
     }
 }
 
@@ -574,7 +570,7 @@ fun RegressionScatter(
             if (spyNorm[li] > 0 && tickerNorm[li] > 0) {
                 val cx = sx(spyNorm[li]); val cy = sy(tickerNorm[li])
                 if (zoomed) {
-                    crosshair(cx, cy, "SPY ${"%.2f".format(spyNorm[li])}", "%.2f".format(tickerNorm[li]))
+                    crosshair(cx, cy)
                 }
                 starMarker(cx, cy)
             }
@@ -631,8 +627,7 @@ fun PriceChart(
         if (zoomed) {
             val ci = priceDollar.indices.lastOrNull { !priceDollar[it].isNaN() } ?: -1
             if (ci >= 0) {
-                currentCross(xAt(ci),
-                    listOf(Triple(yAt(priceDollar[ci]), MAGENTA, "$currency${priceFmt(priceDollar[ci])}")))
+                currentCross(xAt(ci), listOf(yAt(priceDollar[ci]) to MAGENTA))
             }
         }
     }
@@ -711,7 +706,7 @@ fun CandleChart(
         if (zoomed) {
             val ci = closes.indices.lastOrNull { !closes[it].isNaN() } ?: -1
             if (ci >= 0) {
-                currentCross(xAt(ci), listOf(Triple(yAt(cur), MAGENTA, "$currency${priceFmt(cur)}")), dlbl(ci))
+                currentCross(xAt(ci), listOf(yAt(cur) to MAGENTA))
             }
         }
     }
@@ -758,9 +753,9 @@ fun ZmChart(zPct: DoubleArray, mPct: DoubleArray, markers: List<Mark> = emptyLis
         if (zoomed) {
             val zi = zPct.indices.lastOrNull { !zPct[it].isNaN() } ?: -1
             val mi = mPct.indices.lastOrNull { !mPct[it].isNaN() } ?: -1
-            val lines = ArrayList<Triple<Float, Color, String>>()
-            if (zi >= 0) lines.add(Triple(yAt(zPct[zi]), Color(0xFFEF6066), "Z ${"%.0f".format(zPct[zi])}"))
-            if (mi >= 0) lines.add(Triple(yAt(mPct[mi]), Color(0xFFFFD24D), "M ${"%.0f".format(mPct[mi])}"))
+            val lines = ArrayList<Pair<Float, Color>>()
+            if (zi >= 0) lines.add(yAt(zPct[zi]) to Color(0xFFEF6066))
+            if (mi >= 0) lines.add(yAt(mPct[mi]) to Color(0xFFFFD24D))
             if (lines.isNotEmpty()) currentCross(xAt(maxOf(zi, mi)), lines)
         }
     }
@@ -803,7 +798,7 @@ fun ZmScatter(
         if (!zPct[li].isNaN() && !mPct[li].isNaN()) {
             val cx = px(zPct[li]); val cy = py(mPct[li])
             if (zoomed) {
-                crosshair(cx, cy, "Z ${"%.0f".format(zPct[li])}", "M ${"%.0f".format(mPct[li])}")
+                crosshair(cx, cy)
             }
             starMarker(cx, cy)
         }
@@ -854,7 +849,7 @@ fun RsiChart(rsi: DoubleArray, topLabel: String = "", height: Dp = 90.dp,
         if (zoomed) {
             val ci = rsi.indices.lastOrNull { !rsi[it].isNaN() } ?: -1
             if (ci >= 0) {
-                currentCross(xAt(ci), listOf(Triple(yAt(rsi[ci]), Color(0xFF37B6C4), "%.1f".format(rsi[ci]))))
+                currentCross(xAt(ci), listOf(yAt(rsi[ci]) to Color(0xFF37B6C4)))
             }
         }
     }
@@ -1016,9 +1011,9 @@ fun MacdChart(macd: DoubleArray, signal: DoubleArray, topLabel: String = "", hei
         if (zoomed) {
             val mi = macd.indices.lastOrNull { !macd[it].isNaN() } ?: -1
             val si = signal.indices.lastOrNull { !signal[it].isNaN() } ?: -1
-            val lines = ArrayList<Triple<Float, Color, String>>()
-            if (mi >= 0) lines.add(Triple(yAt(macd[mi]), Color(0xFF9B8CFF), "MACD ${"%.2f".format(macd[mi])}"))
-            if (si >= 0) lines.add(Triple(yAt(signal[si]), Color(0xFFC9C5BB), "SIG ${"%.2f".format(signal[si])}"))
+            val lines = ArrayList<Pair<Float, Color>>()
+            if (mi >= 0) lines.add(yAt(macd[mi]) to Color(0xFF9B8CFF))
+            if (si >= 0) lines.add(yAt(signal[si]) to Color(0xFFC9C5BB))
             if (lines.isNotEmpty()) currentCross(xAt(maxOf(mi, si)), lines)
         }
     }

@@ -1,6 +1,6 @@
 package com.quant.dashboard.data
 
-/** 기본 종목 + 표시명 (app.py DEFAULT_TICKERS / TICKER_DISPLAY_NAMES 미러). */
+/** 기본 종목 목록 + 표시명 규칙. */
 object Tickers {
     const val BASE = "SPY"  // 회귀 기준 자산
 
@@ -10,18 +10,17 @@ object Tickers {
         "BNKU", "GLD",
     )
 
-    private val DISPLAY = mapOf(
-        "005930" to "삼전", "000660" to "하닉",
-    )
-
     /**
-     * 사용자 override > 하드코딩 표시명 > (국내 종목만) 토스 유니버스 이름 > 코드 그대로.
+     * 사용자 별칭 > (국내 종목만) 토스 유니버스 이름 > 코드 그대로.
      *
      * 국내는 6자리 숫자라 코드만 보면 무슨 종목인지 알 수 없어 이름을 채운다.
      * 미국은 티커 자체가 읽히므로 그대로 둔다 — 표에서 "AAPL"이 "애플"보다 낫다.
+     *
+     * 예전에는 "삼전"·"하닉" 같은 축약형을 코드에 박아 뒀는데(데스크톱 app.py 잔재),
+     * 설정에서 바꾼 적도 없는데 멋대로 그렇게 보여서 없앴다. 짧게 쓰려면 별칭을 직접 넣으면 된다.
      */
     fun displayName(ticker: String): String =
-        Store.nameOverrides()[ticker] ?: DISPLAY[ticker]
+        Store.nameOverrides()[ticker]
             ?: (if (isKrw(ticker)) Universe.nameOf(ticker) else null) ?: ticker
 
     /**
