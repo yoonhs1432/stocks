@@ -448,10 +448,10 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
             )
         }
         fun pushView(v: ChartView) { sView = v; onView(v) }
-        // MACD·RSI 는 보조지표라 가격·Z·M 보다 낮게 (가중치 1 : 1 : 0.7 : 0.7)
+        // MACD·RSI 는 보조지표라 가격·Z·M 보다 낮게 (가중치 1 : 1 : 0.5 : 0.5)
         val body = (avail - chromeDp(146.dp)).coerceAtLeast(240.dp)
-        val shMain = (body / 3.4f).coerceAtLeast(80.dp)
-        val shSub = (shMain * 0.7f).coerceAtLeast(56.dp)
+        val shMain = (body / 3.0f).coerceAtLeast(80.dp)
+        val shSub = (shMain * 0.5f).coerceAtLeast(48.dp)
         charts.total = shMain * 2 + shSub * 2
         val gest = Modifier.chartGestures(sView, { pushView(it) }, xOnly = true)
 

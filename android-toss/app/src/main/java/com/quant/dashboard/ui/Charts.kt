@@ -334,11 +334,18 @@ private fun DrawScope.pennant(plotRight: Float, y: Float, lines: List<String>, b
  * 시계열 차트 4개가 x축을 공유하므로 **모두 같은 값**을 써야 한다 — 그래서 보이는 봉 수만으로
  * 계산한다(`view`·`n` 이 같으면 결과도 같다).
  */
-private fun barInset(plotW: Float, n: Int, view: ChartView): Float {
+private fun barInset(plotW: Float, n: Int, view: ChartView): Float =
+    (barSlot(plotW, n, view) * BAR_FILL / 2f + 2f).coerceAtLeast(EDGE_PAD)
+
+/** 봉 하나가 차지하는 가로 간격(px) — 확대 배율 반영. */
+private fun barSlot(plotW: Float, n: Int, view: ChartView): Float {
     val (u0, u1) = view.visibleX()
     val visible = ((u1 - u0) * (n - 1)).coerceAtLeast(1f)
-    return (plotW / (visible + 1f) * 0.3f + 2f).coerceAtLeast(EDGE_PAD)
+    return plotW / visible
 }
+
+/** 간격 대비 봉 몸통 폭. 증권사 앱처럼 봉을 두껍게, 사이 틈은 좁게. */
+private const val BAR_FILL = 0.82f
 
 /**
  * 확대 뷰에서 우측 y축 라벨용으로 비워 두는 폭.
@@ -610,7 +617,7 @@ fun PriceChart(
     var lo = priceDollar.minNaN(i0, i1)
     var hi = priceDollar.maxNaN(i0, i1)
     if (hi <= lo) return
-    val pad = (hi - lo) * 0.06
+    val pad = (hi - lo) * 0.03   // 데이터가 패널을 꽉 채우도록 여백 최소화 (위아래 대칭)
     lo -= pad; hi += pad
 
     Canvas(modifier = modifier.fillMaxWidth().height(height)) {
@@ -657,7 +664,7 @@ fun CandleChart(
     if (hi <= lo || lo <= 0) return
     // 로그 y축 — 비율 변화가 균일하게 보이도록 (log10 공간 패딩)
     val lLo = Math.log10(lo); val lHi = Math.log10(hi)
-    val lPad = (lHi - lLo) * 0.08 + 1e-6
+    val lPad = (lHi - lLo) * 0.03 + 1e-6   // 데이터가 패널을 꽉 채우도록 (위아래 대칭)
     val ymin = lLo - lPad; val ymax = lHi + lPad
     // 최고/최저 캔들 위치도 보이는 구간 기준 + 현재가
     var hiI = -1; var loI = -1
@@ -678,7 +685,7 @@ fun CandleChart(
         if (zoomed) rightAxis(niceTicks(lo, hi), ::yAt, plotW) { "$currency${priceFmt(it)}" }
         clipRect(0f, 0f, plotW, size.height) {
             poly(closes, ::xAt, ::yAt, Color(0x66E6EDF3), 1.0f)   // 흰 종가선
-            val w = (plotW / (i1 - i0 + 1) * 0.6f).coerceAtLeast(1.5f)
+            val w = (barSlot(plotW, n, view) * BAR_FILL).coerceAtLeast(1.5f)
             for (i in 0 until n) {
                 if (opens[i].isNaN() || highs[i].isNaN() || lows[i].isNaN() || closes[i].isNaN()) continue
                 val up = closes[i] >= opens[i]
@@ -720,13 +727,14 @@ fun ZmChart(zPct: DoubleArray, mPct: DoubleArray, markers: List<Mark> = emptyLis
             modifier: Modifier = Modifier) {
     val n = zPct.size
     if (n < 2) return
-    // x축만 확대/이동. 확대했을 때만 y를 보이는 구간에 맞춤 (원본 배율은 고정 0~100 유지)
+    // x축만 확대/이동. y는 보이는 구간의 값에 맞춘다
     val (i0, i1) = visibleRange(n, view)
-    var lo = 0.0; var hi = 100.0
-    if (view.sx > 1f) {
-        lo = minOf(zPct.minNaN(i0, i1), mPct.minNaN(i0, i1))
-        hi = maxOf(zPct.maxNaN(i0, i1), mPct.maxNaN(i0, i1))
-        val pad = ((hi - lo) * 0.08).coerceAtLeast(1.0)
+    // 0~100 고정이 아니라 보이는 구간의 실제 값에 맞춘다 — 좁은 구간이 가운데 눌려 보이던 문제
+    var lo = minOf(zPct.minNaN(i0, i1), mPct.minNaN(i0, i1))
+    var hi = maxOf(zPct.maxNaN(i0, i1), mPct.maxNaN(i0, i1))
+    if (lo.isNaN() || hi.isNaN() || hi <= lo) { lo = 0.0; hi = 100.0 }
+    else {
+        val pad = ((hi - lo) * 0.04).coerceAtLeast(1.0)
         lo -= pad; hi += pad
     }
     Canvas(modifier = modifier.fillMaxWidth().height(height)) {
@@ -820,12 +828,12 @@ fun RsiChart(rsi: DoubleArray, topLabel: String = "", height: Dp = 90.dp,
              modifier: Modifier = Modifier) {
     val n = rsi.size
     if (n < 2) return
-    // x축만 확대/이동. 확대했을 때만 y를 보이는 구간에 맞춤 (원본 배율은 고정 0~100 유지)
+    // x축만 확대/이동. y는 보이는 구간의 값에 맞춘다 (0~100 고정이면 데이터가 가운데 눌려 보인다)
     val (i0, i1) = visibleRange(n, view)
-    var lo = 0.0; var hi = 100.0
-    if (view.sx > 1f) {
-        lo = rsi.minNaN(i0, i1); hi = rsi.maxNaN(i0, i1)
-        val pad = ((hi - lo) * 0.08).coerceAtLeast(1.0)
+    var lo = rsi.minNaN(i0, i1); var hi = rsi.maxNaN(i0, i1)
+    if (lo.isNaN() || hi.isNaN() || hi <= lo) { lo = 0.0; hi = 100.0 }
+    else {
+        val pad = ((hi - lo) * 0.04).coerceAtLeast(1.0)
         lo -= pad; hi += pad
     }
     Canvas(modifier = modifier.fillMaxWidth().height(height)) {
@@ -991,7 +999,7 @@ fun MacdChart(macd: DoubleArray, signal: DoubleArray, topLabel: String = "", hei
         if (!signal[i].isNaN() && abs(signal[i]) > mx) mx = abs(signal[i])
     }
     if (mx <= 0) mx = 1.0
-    mx *= 1.15
+    mx *= 1.04   // 0선이 가운데 오도록 대칭은 유지하고 여백만 최소화
     Canvas(modifier = modifier.fillMaxWidth().height(height)) {
         val plotW = size.width - (if (zoomed) AXIS_W else EDGE_PAD)
         // 데이터 폭은 마지막 봉이 잘리지 않게 오른쪽을 조금 비운다
