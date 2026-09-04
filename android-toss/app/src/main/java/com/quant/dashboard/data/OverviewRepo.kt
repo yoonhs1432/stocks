@@ -19,6 +19,10 @@ object OverviewRepo {
         val day: Double, val week: Double, val fromHigh: Double,
         val zPct: Double, val mPct: Double, val signal: String,
         val beta: Double, val sigmaPct: Double,
+        // 미니 캔들용 당일 시/고/저 (없으면 NaN)
+        val open: Double = Double.NaN,
+        val high: Double = Double.NaN,
+        val low: Double = Double.NaN,
         val holding: Boolean,      // 현재 보유 중 (★)
         val hasHistory: Boolean,   // 과거 매매 이력만 (☆)
     )
@@ -73,8 +77,14 @@ object OverviewRepo {
         val rows = coroutineScope {
             tickers.map { tk ->
                 async(Dispatchers.IO) {
-                    val closes = Quotes.closes(tk, months, force)
-                    val p = DoubleArray(closes.size) { closes[it].second }
+                    val bars = Quotes.ohlc(tk, months, force)
+                    val p = DoubleArray(bars.size) { bars[it].close }
+                    val closes = bars.map { it.t to it.close }
+                    // 장중에는 분석용 일봉(6시간 캐시)의 오늘 봉이 낡아 있다 → 3봉만 따로 받아 덮는다.
+                    // 장이 닫혀 있으면 마지막 봉이 이미 확정값이라 그대로 쓴다.
+                    val mk = if (Tickers.isKrw(tk)) "KR" else "US"
+                    val today = (if (MarketHours.labelFor(mk) != null) Quotes.todayCandle(tk) else null)
+                        ?: bars.lastOrNull()
                     val m = p.size
                     val held = tossHeld?.contains(tk) ?: (Portfolio.currentHoldQty(trades[tk].orEmpty()) > 0)
                     val hasTrades = trades[tk].orEmpty().isNotEmpty()
@@ -109,6 +119,7 @@ object OverviewRepo {
                         zPct = r?.lastZpct ?: NA, mPct = r?.lastMpct ?: NA, signal = r?.signal ?: "",
                         beta = r?.beta ?: NA, sigmaPct = r?.sigmaPct ?: NA, holding = held,
                         hasHistory = hasTrades,
+                        open = today?.open ?: NA, high = today?.high ?: NA, low = today?.low ?: NA,
                     )
                 }
             }.awaitAll().filterNotNull()

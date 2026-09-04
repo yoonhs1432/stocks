@@ -1,6 +1,9 @@
 package com.quant.dashboard.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -186,6 +189,33 @@ private fun RowScope.Cell(text: String, weight: Float, color: Color, align: Text
 }
 
 /** 종목 셀 — 상태 점(보유=금채움/이력=금링) + 티커(모노). */
+/**
+ * 종목 왼쪽 미니 캔들 — 당일 시/고/저 + 현재가.
+ *
+ * 현재가는 틱으로 즉시 맞고, 고·저는 현재가가 벗어나면 늘려 준다(캐시가 5분이라
+ * 그 사이 갱신된 값이 아직 안 왔을 수 있다). 시가는 장이 열린 뒤엔 바뀌지 않는다.
+ */
+@Composable
+private fun MiniCandle(open: Double, high: Double, low: Double, close: Double, alpha: Float) {
+    if (open.isNaN() || high.isNaN() || low.isNaN() || close.isNaN()) {
+        Spacer(Modifier.size(width = 7.dp, height = 20.dp)); return
+    }
+    val hi = maxOf(high, close)
+    val lo = minOf(low, close)
+    val up = close >= open
+    val col = (if (up) Profit else Loss).copy(alpha = alpha)
+    Canvas(Modifier.size(width = 7.dp, height = 20.dp)) {
+        val span = (hi - lo).takeIf { it > 1e-9 } ?: return@Canvas
+        fun y(v: Double) = (size.height * (1 - (v - lo) / span)).toFloat()
+        val cx = size.width / 2f
+        drawLine(col, Offset(cx, y(hi)), Offset(cx, y(lo)), 1.5f)   // 꼬리
+        val top = y(maxOf(open, close))
+        val bot = y(minOf(open, close))
+        drawRect(col, topLeft = Offset(cx - size.width * 0.38f, top),
+            size = Size(size.width * 0.76f, maxOf(bot - top, 1.5f)))
+    }
+}
+
 @Composable
 private fun RowScope.DotName(state: Int, name: String, weight: Float, alpha: Float = 1f) {
     Row(Modifier.weight(weight), verticalAlignment = Alignment.CenterVertically,
@@ -272,6 +302,8 @@ private fun QuoteRow(vm: CompareViewModel, r: CompareRow, onOpenAnalysis: (Strin
         Modifier.fillMaxWidth().clickable { onOpenAnalysis(r.ticker) }
             .padding(horizontal = 2.dp, vertical = 1.dp),
     ) {
+        MiniCandle(r.open, r.high, r.low, px, alpha)
+        Spacer(Modifier.size(4.dp))
         DotName((if (r.holding) 2 else if (r.hasHistory) 1 else 0), r.name, 2.4f, alpha = alpha)
         Cell(Tickers.priceLabel(r.ticker, px), 2f, pnColor(day).copy(alpha = alpha), bg = flashBg)
         Cell(signed(day), 1.4f, pnColor(day).copy(alpha = alpha))

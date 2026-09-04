@@ -47,7 +47,31 @@ object Quotes {
     private const val TTL = 6 * 3600_000L
 
     /** 받아 둔 일봉을 모두 버린다 (조회기간을 늘렸거나 손으로 다시 받을 때). */
-    fun clearCache() { cache.clear() }
+    fun clearCache() { cache.clear(); todayCache.clear() }
+
+    // ── 당일 캔들 (비교 탭 미니 캔들용) ──
+    // 분석용 일봉은 2년치라 종목당 3페이지 + 6시간 캐시다. 장중에 그걸 자주 받으면
+    // 예전처럼 429 가 나므로 건드리지 않고, **3봉만** 따로 받는다(1페이지, 5분 캐시).
+    private class Today(val at: Long, val bar: Candle?)
+
+    private val todayCache = java.util.concurrent.ConcurrentHashMap<String, Today>()
+    private const val TODAY_TTL = 5 * 60_000L
+
+    /** 마지막 일봉 1개. 장중이면 오늘 봉이 갱신돼 온다. 실패하면 null. */
+    fun todayCandle(symbol: String): Candle? {
+        val c = todayCache[symbol]
+        if (c != null && System.currentTimeMillis() - c.at < TODAY_TTL) return c.bar
+        if (!BrokerCreds.isLinked()) return null
+        var bar: Candle? = null
+        chartGate.acquire()
+        try {
+            bar = runCatching { TossApi.dailyOhlc(symbol, 3).lastOrNull() }.getOrNull()
+        } finally {
+            chartGate.release()
+        }
+        todayCache[symbol] = Today(System.currentTimeMillis(), bar)
+        return bar
+    }
 
     /** 일봉. 조회 실패 시 빈 리스트. */
     fun ohlc(
