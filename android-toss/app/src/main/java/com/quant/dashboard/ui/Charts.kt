@@ -96,6 +96,20 @@ data class ChartView(
     fun visibleX(): Pair<Float, Float> =
         ((-nx) / sx).coerceIn(0f, 1f) to ((1f - nx) / sx).coerceIn(0f, 1f)
 
+    /**
+     * 좌우 이동을 **봉 1개 단위로** 맞춘다 — 끌면 봉이 하나씩 딱딱 넘어간다.
+     *
+     * 오른쪽 끝(최신 쪽)을 정수 봉에 맞춘다. 왼쪽 기준으로 맞추면 오른쪽 끝이 봉 중간에
+     * 걸려 마지막 봉이 반쯤 보인다. 배율이 1이면 전체가 보이므로 그대로 둔다.
+     */
+    fun snappedX(n: Int): ChartView {
+        if (n < 2 || sx <= 1f) return this
+        val u1 = (1f - nx) / sx                       // 오른쪽 끝(데이터 0~1)
+        val minI = kotlin.math.ceil((n - 1) / sx).toInt()   // 왼쪽 끝이 0 이상이 되는 최소 봉
+        val i1 = Math.round(u1 * (n - 1)).coerceIn(minI, n - 1)
+        return copy(nx = 1f - i1.toFloat() / (n - 1) * sx)
+    }
+
     /** 현재 보이는 y 구간(플롯 0~1 비율, 0=위) — 축 눈금 계산용. */
     fun visibleY(): Pair<Float, Float> =
         ((-ny) / sy).coerceIn(0f, 1f) to ((1f - ny) / sy).coerceIn(0f, 1f)

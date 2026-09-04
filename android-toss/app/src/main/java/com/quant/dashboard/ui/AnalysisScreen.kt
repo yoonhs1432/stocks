@@ -170,13 +170,13 @@ fun AnalysisScreen(vm: AnalysisViewModel = viewModel(), onBack: () -> Unit = {})
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            listOf("scatter" to "산점도", "series" to "시계열").forEach { (id, label) ->
+            listOf("scatter" to "산점도", "series" to "시계열", "sub" to "보조지표").forEach { (id, label) ->
                 val on = group == id
                 Box(
                     Modifier.clip(RoundedCornerShape(8.dp))
                         .background(if (on) Teal else SurfaceInput)
                         .clickable { group = id; Store.setChartGroup(id) }
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                        .padding(horizontal = 13.dp, vertical = 8.dp),
                 ) {
                     Text(label, color = if (on) Color(0xFF0C0E11) else TextSecondary,
                         fontSize = 13.sp, fontWeight = FontWeight.Bold)
@@ -428,60 +428,66 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
             }
         }
     } else {
-        // ── 시계열 4개 — x축을 통일해 4행으로 ──
-        // ChartView 를 하나만 두고 넷이 공유한다. 아무 차트에서나 핀치·드래그하면 넷이 같이 움직이고,
+        // ── 시계열 — x축을 통일해 세로로 쌓는다 ──
+        // ChartView 를 하나만 두고 전부 공유한다. 아무 차트에서나 핀치·드래그하면 같이 움직이고,
         // 날짜축은 공통이므로 맨 아래 한 번만 그린다.
-        // 카드 테두리를 빼고 얇은 제목줄만 둬서 네 개가 한 화면에 들어가게 했다.
-        // 처음 보여줄 구간 = 설정의 "차트 표시기간". 전체를 그려 놓고 배율로 잘라 보여준다.
+        // [시계열] 가격·일봉 + Z·M / [보조지표] MACD + RSI — 넷을 한 화면에 넣으면
+        // 하나하나가 너무 낮아 읽기 어려워 둘씩 나눴다.
+        val sub = group == "sub"
         val totalMonths = ((dates.last() - dates.first()).toDouble() / 2_629_746.0).coerceAtLeast(1.0)
         // 사용자가 맞춘 구간은 ChartRange 가 들고 있다 — 종목을 바꿔도, 앱을 껐다 켜도 유지된다.
         // 종목마다 전체 기간이 다르므로 "보이는 개월 수"를 이 종목의 배율로 환산해 받는다.
-        var sView by remember(ticker, n) { mutableStateOf(ChartRange.viewFor(totalMonths)) }
-        fun pushView(v: ChartView) { sView = v; ChartRange.save(v, totalMonths) }
+        var sView by remember(ticker, n) { mutableStateOf(ChartRange.viewFor(totalMonths).snappedX(n)) }
+        // 좌우 이동은 봉 1개 단위로 끊는다
+        fun pushView(v: ChartView) {
+            val snapped = v.snappedX(n)
+            sView = snapped
+            ChartRange.save(snapped, totalMonths)
+        }
         // 화면을 벗어날 때 마지막 값을 파일에 확정 (제스처 중에는 throttle 되어 있다)
         DisposableEffect(ticker) { onDispose { ChartRange.flush() } }
-        // MACD·RSI 는 보조지표라 가격·Z·M 보다 낮게 (가중치 1 : 1 : 0.5 : 0.5)
-        val body = (avail - chromeDp(146.dp)).coerceAtLeast(240.dp)
-        val shMain = (body / 3.0f).coerceAtLeast(80.dp)
-        val shSub = (shMain * 0.5f).coerceAtLeast(48.dp)
-        charts.total = shMain * 2 + shSub * 2
+        // 헤더줄 2개 + 날짜축 + 안내문을 뺀 나머지를 둘로 나눈다
+        val body = (avail - chromeDp(120.dp)).coerceAtLeast(200.dp)
+        val sh = (body / 2f).coerceAtLeast(100.dp)
+        charts.total = sh * 2
         val gest = Modifier.chartGestures(sView, { pushView(it) }, xOnly = true)
 
         // 간격 없는 Column — 바깥 Column 의 spacedBy(8dp) 가 항목마다 붙으면
-        // 제목줄·차트 사이가 벌어져 네 개가 한 화면에 안 들어간다
+        // 제목줄·차트 사이가 벌어져 한 화면에 안 들어간다
         Column(Modifier.fillMaxWidth()) {
-        SeriesHeader("가격·일봉", Tickers.priceLabel(ticker, r.lastPrice), TextPrimary) { zoom = 2 }
-        if (closes.any { !it.isNaN() }) {
-            CandleChart(opens, highs, lows, closes,
-                segDollar(r.predicted), segDollar(r.bandUpper), segDollar(r.bandLower),
-                markers = priceMarks, currency = Tickers.currencySymbol(ticker), topLabel = "",
-                dates = dates, dailyChgPct = dayPct ?: Double.NaN,
-                height = shMain, view = sView, zoomed = true, modifier = gest)
-        } else {
-            PriceChart(segDollar(r.tickerNorm), segDollar(r.predicted), segDollar(r.bandUpper),
-                segDollar(r.bandLower), markers = priceMarks,
-                currency = Tickers.currencySymbol(ticker),
-                height = shMain, view = sView, zoomed = true, modifier = gest)
+            if (!sub) {
+                SeriesHeader("가격·일봉", Tickers.priceLabel(ticker, r.lastPrice), TextPrimary) { zoom = 2 }
+                if (closes.any { !it.isNaN() }) {
+                    CandleChart(opens, highs, lows, closes,
+                        segDollar(r.predicted), segDollar(r.bandUpper), segDollar(r.bandLower),
+                        markers = priceMarks, currency = Tickers.currencySymbol(ticker), topLabel = "",
+                        dates = dates, dailyChgPct = dayPct ?: Double.NaN,
+                        height = sh, view = sView, zoomed = true, modifier = gest)
+                } else {
+                    PriceChart(segDollar(r.tickerNorm), segDollar(r.predicted), segDollar(r.bandUpper),
+                        segDollar(r.bandLower), markers = priceMarks,
+                        currency = Tickers.currencySymbol(ticker),
+                        height = sh, view = sView, zoomed = true, modifier = gest)
+                }
+
+                SeriesHeader("Z·M", "Z${"%.0f".format(r.lastZpct)}·M${"%.0f".format(r.lastMpct)}", TextPrimary) { zoom = 3 }
+                ZmChart(seg(r.zPct), seg(r.mPct), zmMarks, height = sh, view = sView, zoomed = true, modifier = gest)
+            } else {
+                SeriesHeader("MACD", "${"%.2f".format(macdLast)}(${"%+.2f".format(macdLast - sigLast)})", TextPrimary) { zoom = 4 }
+                MacdChart(macdW, sigW, height = sh, view = sView, zoomed = true, modifier = gest)
+
+                SeriesHeader("RSI", "%.1f".format(rsiLast), Teal) { zoom = 5 }
+                RsiChart(seg(r.rsi), height = sh, view = sView, zoomed = true, modifier = gest)
+            }
+
+            DateAxis(dates, sView, zoomed = true)
+            Text(
+                if (sView.isIdentity) "두 손가락으로 기간 확대·축소 · 끌어서 이동(봉 단위)"
+                else "보이는 기간 ${"%.1f".format(totalMonths / sView.sx)}개월 — 탭하면 전체",
+                color = TextMuted, fontSize = 11.sp,
+                modifier = Modifier.fillMaxWidth().clickable { pushView(ChartView()) },
+            )
         }
-
-        SeriesHeader("Z·M", "Z${"%.0f".format(r.lastZpct)}·M${"%.0f".format(r.lastMpct)}", TextPrimary) { zoom = 3 }
-        ZmChart(seg(r.zPct), seg(r.mPct), zmMarks, height = shMain, view = sView, zoomed = true, modifier = gest)
-
-        SeriesHeader("MACD", "${"%.2f".format(macdLast)}(${"%+.2f".format(macdLast - sigLast)})", TextPrimary) { zoom = 4 }
-        MacdChart(macdW, sigW, height = shSub, view = sView, zoomed = true, modifier = gest)
-
-        SeriesHeader("RSI", "%.1f".format(rsiLast), Teal) { zoom = 5 }
-        RsiChart(seg(r.rsi), height = shSub, view = sView, zoomed = true, modifier = gest)
-
-        DateAxis(dates, sView, zoomed = true)
-        Text(
-            if (sView.isIdentity) "두 손가락으로 기간 확대·축소 · 끌어서 이동"
-            else "보이는 기간 ${"%.1f".format(totalMonths / sView.sx)}개월 — 탭하면 전체",
-            color = TextMuted, fontSize = 11.sp,
-            modifier = Modifier.fillMaxWidth().clickable { pushView(ChartView()) },
-        )
-        }
-
     }
 
     // ── 차트 확대 다이얼로그 (그리드에서 탭한 차트를 전체화면 크게) ──
