@@ -188,25 +188,6 @@ object Store {
 
     const val MIN_TICKERS = 3   // app.py MIN_TICKERS 미러
 
-    // ── 종목 표시명 override (app.py 사용자 이름 override 미러) ──
-    fun nameOverrides(): Map<String, String> {
-        val o = settings().optJSONObject("names") ?: return emptyMap()
-        val out = LinkedHashMap<String, String>()
-        for (k in o.keys()) o.optString(k).takeIf { it.isNotBlank() }?.let { out[k] = it }
-        return out
-    }
-
-    fun setNameOverride(ticker: String, name: String?) {
-        val s = settings()
-        val o = s.optJSONObject("names") ?: JSONObject()
-        if (name.isNullOrBlank()) o.remove(ticker) else o.put(ticker, name.trim())
-        saveSettings(s.put("names", o))
-    }
-
-    /** 차트 조회기간(개월) — 1개월 단위, 최대 MAX_MONTHS. 기본 2개월. */
-    fun chartMonths(): Int = settings().optInt("chart_months", 2).coerceIn(1, MAX_MONTHS)
-    fun setChartMonths(v: Int) { saveSettings(settings().put("chart_months", v.coerceIn(1, MAX_MONTHS))) }
-
     // ── 설정 ──
     private fun settings(): JSONObject {
         val file = f("settings.json")
@@ -251,7 +232,7 @@ object Store {
      *
      * 배율이 아니라 **보이는 기간(개월)** 과 **오른쪽 끝이 최신에서 떨어진 정도(개월)** 로 저장한다.
      * 배율은 종목의 전체 기간에 대한 비율이라, 데이터 길이가 다른 종목에 그대로 옮기면
-     * 보이는 기간이 달라진다. (미설정 = -1 → chartMonths() 를 기본값으로)
+     * 보이는 기간이 달라진다. (미설정 = -1 → 2개월)
      */
     fun chartRangeMonths(): Double = settings().optDouble("chart_range_months", -1.0)
     fun chartRangeEnd(): Double = settings().optDouble("chart_range_end", 0.0)
@@ -260,6 +241,10 @@ object Store {
             .put("chart_range_months", months)
             .put("chart_range_end", endOffset))
     }
+
+    /** WTS 허용 목록에 마지막으로 등록한 공인 IP — 바뀌었는지 비교용. 등록 자체는 API 가 없다. */
+    fun registeredIp(): String = settings().optString("registered_ip", "")
+    fun setRegisteredIp(v: String) { saveSettings(settings().put("registered_ip", v)) }
 
     /** 포트폴리오 탭 표시 통화 — true = 달러, false = 원. */
     fun portfolioUsd(): Boolean = settings().optBoolean("portfolio_usd", false)

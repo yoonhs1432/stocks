@@ -482,8 +482,8 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
 
             DateAxis(dates, sView, zoomed = true)
             Text(
-                if (sView.isIdentity) "두 손가락으로 기간 확대·축소 · 끌어서 이동(봉 단위)"
-                else "보이는 기간 ${"%.1f".format(totalMonths / sView.sx)}개월 — 탭하면 전체",
+                if (sView.isIdentity) "전체 ${"%.1f".format(totalMonths)}개월"
+                else "${"%.1f".format(totalMonths / sView.sx)}개월 — 탭하면 전체",
                 color = TextMuted, fontSize = 11.sp,
                 modifier = Modifier.fillMaxWidth().clickable { pushView(ChartView()) },
             )

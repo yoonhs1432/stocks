@@ -218,10 +218,6 @@ private fun TossBody(a: TossSync.Account, usdMode: Boolean, onOpenAnalysis: (Str
         }
 
         // 보유 목록 — 행 탭 시 분석 이동
-        if (items.isNotEmpty()) {
-            Text("종목을 누르면 분석 탭으로 이동", color = TextMuted, fontSize = 10.sp,
-                modifier = Modifier.padding(top = 6.dp))
-        }
         items.forEachIndexed { i, h ->
             // 실시간 틱이 있으면 현재가로 다시 계산한다. 기준은 API 와 동일 —
             // 누적 손익률 = 현재가/평단 - 1 (안 맞추면 증권사 앱과 숫자가 어긋난다).
@@ -273,11 +269,10 @@ private fun TossBody(a: TossSync.Account, usdMode: Boolean, onOpenAnalysis: (Str
 
     Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(BgCard).padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(3.dp)) {
-        Text("자산 · 핀치=확대 · 탭=그 시점 값", color = TextSecondary,
+        Text("자산", color = TextSecondary,
             fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
         if (sr.dates.size < 2) {
-            Text("기록이 ${sr.dates.size}일치뿐입니다. 앱을 열 때마다 하루 1회 잔고를 저장하므로\n" +
-                "며칠 지나면 그래프가 그려집니다.", color = TextMuted, fontSize = 11.sp)
+            Text("기록 ${sr.dates.size}일 — 2일 이상 쌓이면 표시", color = TextMuted, fontSize = 11.sp)
         } else {
             AssetStackChart(
                 eval = DoubleArray(sr.eval.size) { sr.eval[it] / div },
@@ -289,19 +284,16 @@ private fun TossBody(a: TossSync.Account, usdMode: Boolean, onOpenAnalysis: (Str
                 Text("${sr.dates.size}일 기록", color = TextMuted, fontSize = 10.sp)
                 Text(sr.dates.last(), color = TextSecondary, fontSize = 10.sp)
             }
-            Text("총자산 = 평가금액 + 예수금. 입금·출금도 그대로 반영되는 곡선입니다.",
-                color = TextMuted, fontSize = 10.sp, modifier = Modifier.padding(top = 3.dp))
         }
     }
 
     // ── 평가손익 추이 ──
     Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(BgCard).padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(3.dp)) {
-        Text("평가손익 · 핀치=확대 · 탭=그 시점 값", color = TextSecondary,
+        Text("평가손익", color = TextSecondary,
             fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
         if (pnlSeries.size < 2) {
-            Text("평가손익까지 남긴 기록이 ${pnlSeries.size}일치뿐입니다 — 이전 기록에는 없어서\n" +
-                "이 곡선은 새로 쌓입니다.", color = TextMuted, fontSize = 11.sp)
+            Text("기록 ${pnlSeries.size}일 — 2일 이상 쌓이면 표시", color = TextMuted, fontSize = 11.sp)
         } else {
             EquityChart(
                 pnlSeries.map { it.second / div }.toDoubleArray(),
@@ -313,8 +305,6 @@ private fun TossBody(a: TossSync.Account, usdMode: Boolean, onOpenAnalysis: (Str
                 Text("${pnlSeries.size}일 기록", color = TextMuted, fontSize = 10.sp)
                 Text(pnlSeries.last().first, color = TextSecondary, fontSize = 10.sp)
             }
-            Text("보유 중인 종목의 미실현 손익입니다 — 전량 매도하면 0으로 떨어집니다.",
-                color = TextMuted, fontSize = 10.sp, modifier = Modifier.padding(top = 3.dp))
         }
     }
 

@@ -121,8 +121,6 @@ fun CompareScreen(vm: CompareViewModel = viewModel(), onOpenAnalysis: (String) -
                                     Box(Modifier.fillMaxWidth().height(1.dp).background(BorderColor))
                             }
                         }
-                        Text("● 보유 / ○ 이력 · 행 탭=분석 이동 · 헤더 탭=정렬 · 흐림=이번 장 체결 없음(직전 종가)",
-                            color = TextSecondary, fontSize = 11.sp)
                     }
                 }
             }

@@ -16,7 +16,7 @@ import com.quant.dashboard.data.Store
  */
 object ChartRange {
 
-    /** 보이는 기간(개월). 0 이하면 미설정 → "차트 표시기간" 설정을 쓴다. */
+    /** 보이는 기간(개월). 0 이하면 미설정 → 2개월. 한 번 조절하면 그 값이 남는다. */
     private var months: Double = -1.0
 
     /** 오른쪽 끝이 최신 봉에서 떨어진 정도(개월). 0 = 최신에 붙임. */
@@ -37,7 +37,7 @@ object ChartRange {
     fun viewFor(totalMonths: Double): ChartView {
         ensureLoaded()
         val total = totalMonths.coerceAtLeast(0.1)
-        val want = if (months > 0) months else Store.chartMonths().toDouble()
+        val want = if (months > 0) months else 2.0
         // 보이는 기간이 전체보다 길면 전체를 보여준다(배율 1 미만은 없다)
         val span = (want / total).coerceIn(1.0 / ChartView.MAX_ZOOM, 1.0).toFloat()
         val sx = 1f / span
