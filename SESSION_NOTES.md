@@ -1,7 +1,67 @@
 # SESSION_NOTES — 최근 작업 핸드오프
 
 > 새 세션 시작 시 이 파일을 읽으면 직전 세션의 맥락을 이어받을 수 있음.
-> 마지막 업데이트: 2026-09-02 (토스 앱: 등락률 소스 혼입 · 비교탭 개편 · 분석탭 차트 묶음 · 자산추이 수익률)
+> 마지막 업데이트: 2026-09-05 (토스 앱: Yahoo 제거 · x구간 영속 · 자산 차트 토스값 · A-1 UI 통일 · 릴리스 분리)
+
+## 2026-09-03~05 토스 앱 세션 (Yahoo 제거 · 차트 구간 영속 · A-1 UI 통일)
+
+> ⚠️ **릴리스 규칙 (사용자 지시)**: 커밋·푸시 후 `android.yml` 을 `publish=false` 로 돌려 **빌드만 검증**한다.
+> 사용자가 "릴리즈" 라고 말했을 때만 `publish=true` 로 돌려 `android-latest` 에 올리고, **링크를 반드시 보낸다.**
+> 수정 요청이 오면 **먼저 계획을 말하고**, "수정해" 라고 하면 그때 고친다.
+
+### 1. Yahoo 완전 제거 — 시세는 토스 하나
+- `data/Yahoo.kt`, `ui/PortfolioViewModel.kt` 삭제. `Candle` 은 `data/Quotes.kt` 로 이동(같이 지워져 빌드가 깨졌었음).
+- `Store` 에서 asof·individual·tossMode·seedUsd·equityMonths·chartMonths·nameOverrides·yahooFallback·
+  tossQuotes·데스크탑 JSON import·equityMode 전부 제거. 설정 탭은 분석/토스증권/종목 관리 세 덩어리만.
+- `Tickers.DISPLAY`(삼전·하닉 별칭) 제거 — 국내는 Universe 이름, 미장은 코드 그대로.
+- `Quotes.todayCandle(symbol)`: 3봉만 받아 5분 캐시 → 비교 탭 종목 왼쪽 **당일 미니 캔들** (장중에만).
+  일봉 캐시(6h)와 별도라 캔들 정보가 어긋날 수 있다는 점은 사용자와 합의한 B안.
+
+### 2. 분석 탭 x축 구간 — 종목·재시작 무관하게 유지 (`ui/ChartRange.kt`)
+- 배율(sx)이 아니라 **보이는 개월 수 + 오른쪽 끝 오프셋(개월)** 로 저장(`chart_range_months/_end`).
+  종목마다 전체 기간이 달라 배율을 그대로 옮기면 기간이 달라진다.
+- 저장은 700ms throttle, `DisposableEffect(ticker){ onDispose { flush() } }`.
+- `ChartView.snappedX(n)`: 오른쪽 끝을 정수 봉에 맞춤 → 좌우 이동이 **봉 1개 단위**, 마지막 봉 잘림도 해결.
+- 차트 묶음 3개: `scatter`(산점도 2) / `series`(가격+Z·M) / `sub`(MACD+RSI, [보조지표] 버튼). 각 차트 높이 = body/2.
+- 밴드·기준선은 `plotW`(우측 축 제외)와 패널 안으로 clip — 다른 영역 침범 버그 수정.
+- 우측 축 폭 `AXIS_W = AX_SIZE × 4.6`, 글자가 안 들어가면 폰트 축소. 배경색 값 태그(miniTag) 전부 제거.
+- 봉 폭 `BAR_FILL=0.82`. Z·M/RSI 는 항상 보이는 데이터에 y 맞춤(0~100 고정 안 함).
+
+### 3. 포트폴리오 — 토스 값 그대로
+- TWR·실현손익·입출금 추정·고점대비·MDD 전부 삭제(직전 세션 4번 항목은 폐기).
+  스냅샷은 `date/krwEval/usdEval/krwCash/usdCash/rate/krwPnl/usdPnl/krwPurchase/usdPurchase`.
+- 차트 2개: `AssetStackChart`(평가금액+예수금 누적 영역) / `EquityChart`(평가손익, baseZero).
+- 보유 목록은 **평가금액 내림차순**(스택 바와 리스트가 같은 정렬), 행은 증권사 앱처럼 2줄.
+- 헤더 세그먼트로 **원/$ 전환**(`Store.portfolioUsd()`), `Money(usd, rate)` 헬퍼로 환산.
+- 당겨서 새로고침은 분석·포트폴리오만. **비교 탭은 제거**(사용자 지시).
+
+### 4. 설정 탭 정리 + IP
+- 분석기간은 숫자 입력(개월, 기본 24, 3~`Store.MAX_MONTHS`), 적용 시 `Quotes.clearCache()`. 차트 표시기간 삭제.
+- 토스 섹션 항상 펼침. 키 입력칸은 미연결이거나 [키 변경] 눌렀을 때만.
+- **IP**: 토스 API 에 허용 IP 등록 엔드포인트가 없다. 설정을 열면 `NetInfo.publicIp()` 자동 확인,
+  [복사] · [WTS](tossinvest.com 열기) · [등록함](IP 기억) — 다음에 다르면 빨갛게.
+  5G 로 IP 가 매일 바뀌는 문제는 **Tailscale exit node(집 PC)** 로 고정 IP 를 쓰는 안을 안내함.
+
+### 5. A-1 "토스 블루" — 전 탭 UI 통일 (`ui/Ui.kt`, `theme/Theme.kt`)
+- 카드 없음. 배경 `#101013` 한 톤 + 1px 구분선 `#24242A`. 액센트는 파랑 `#3182F6` 하나(버튼·선택·탭).
+  빨강/파랑은 **손익 숫자에만**. `BgCard/SegmentOn/ChipOn/ProfitBtn/LossBtn` 은 호환용으로 남김.
+- 공통 부품: `ScreenPad(20dp)` · `ScreenHeader(title){actions}` · `HDivider` · `SectionLabel` ·
+  `PrimaryButton`(파랑 채움, r12) · `GhostButton`(고스트, r10) · `UnderlineSegments`(밑줄 탭) ·
+  `ListRow`(44dp) · `BottomActionBar`(48dp). **새 화면·버튼은 반드시 이걸로.**
+- 4개 화면 전부 적용: 헤더 좌 제목/우 액션, 본문 `padding(horizontal = ScreenPad)`, 하단 조작바.
+- 에뮬레이터가 없어 **HTML 목업을 headless Chromium 으로 렌더**해 확인했다
+  (`/opt/pw-browsers/chromium-*/chrome-linux/chrome`). Yahoo·Toss 는 egress 차단이라 실데이터 확인 불가.
+
+### 이 세션에서 빌드를 깨뜨린 것들 (추가분)
+| 증상 | 원인 |
+|---|---|
+| `Unresolved reference: Candle / won` | Yahoo.kt 를 지우면서 안에 있던 `Candle`·`won()` 이 같이 사라짐 → **삭제한 선언을 아직 참조하는 곳** 스캐너 추가 |
+| `Unresolved reference: zoom/view` | 측정용 Column 을 Dialog 앞에서 닫아 스코프 밖으로 나감 |
+| `Dp.Unspecified` 비교가 항상 false | NaN 이라 `==` 안 됨 → `Dp?` 로 |
+| import 자동 정리가 `clickable` 을 지움 | `.clickable {` 는 `\.name\s*\(` 패턴에 안 걸림 — 후행 람다 호출도 사용으로 셀 것 |
+| 중괄호 스캐너 오탐 | `"https://..."` 문자열의 `//` 를 주석으로 지워 문자열이 열린 채 남음 — 문자열 먼저 지울 것 |
+
+---
 
 ## 2026-08-07 Android UX 수정 세션
 
