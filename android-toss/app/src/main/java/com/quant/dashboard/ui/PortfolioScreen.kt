@@ -181,10 +181,6 @@ private fun TossBody(a: TossSync.Account, usdMode: Boolean, onOpenAnalysis: (Str
             StatChip("예수금", m.of(a.krwCash + a.usdCash * a.rate))
             StatChip("환율", "%,.1f".format(a.rate))
         }
-        if (a.usdEval != 0.0 || a.usdCash != 0.0) {
-            Text("달러 자산 $${"%,.2f".format(a.usdEval)} + 예수금 $${"%,.2f".format(a.usdCash)} (환율 환산 포함)",
-                color = TextMuted, fontSize = 10.sp, modifier = Modifier.padding(top = 4.dp))
-        }
 
         // 평가금액(원화 환산) 내림차순. 스택바와 목록이 **같은 목록**을 써야 색과 순서가 맞는다
         fun krwOf(h: com.quant.dashboard.data.TossApi.Holding) = m.krwOf(h.evalAmount, h.currency)
@@ -210,35 +206,29 @@ private fun TossBody(a: TossSync.Account, usdMode: Boolean, onOpenAnalysis: (Str
             val evalKrw = m.krwOf(if (lp != null) lp * h.quantity else h.evalAmount, h.currency)
             val rate2 = if (lp != null && h.avgPrice > 0) lp / h.avgPrice - 1.0 else h.pnlRate
             val pnlKrw = m.krwOf(if (lp != null) (lp - h.avgPrice) * h.quantity else h.pnlAmount, h.currency)
-            // 한 줄에 다 넣었더니 글자가 작고 빽빽해 읽기 어려웠다 → 이름 / 수량·금액·손익 2줄로
+            // 증권사 앱처럼 딱 2줄 — 1줄: 이름 · 평가금액 / 2줄: 수량 · 손익 | 수익률
+            // (평가금액을 오른쪽 Column 에 세로로 쌓았더니 3줄이 되어 행이 73dp 까지 커졌었다)
             Column(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
-                    .clickable { onOpenAnalysis(h.symbol) }
-                    .padding(top = 10.dp, bottom = 2.dp),
+                Modifier.fillMaxWidth().clickable { onOpenAnalysis(h.symbol) }.padding(top = 9.dp),
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(9.dp).clip(RoundedCornerShape(50)).background(ident(i)))
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(8.dp).clip(RoundedCornerShape(50)).background(ident(i)))
                     Spacer(Modifier.size(8.dp))
-                    Text(h.name, color = TextPrimary, fontSize = 17.sp, maxLines = 1,
+                    Text(h.name, color = TextPrimary, fontSize = 16.sp, maxLines = 1,
                         fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                    Text("›", color = TextMuted, fontSize = 16.sp)
+                    Text(m.of(evalKrw), color = TextPrimary, fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold, fontFamily = Mono, maxLines = 1)
                 }
-                Row(Modifier.fillMaxWidth().padding(top = 2.dp), verticalAlignment = Alignment.Bottom) {
-                    Text(qtyLabel(h.quantity), color = TextSecondary, fontSize = 14.sp,
+                Row(Modifier.fillMaxWidth().padding(top = 1.dp, start = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(qtyLabel(h.quantity), color = TextSecondary, fontSize = 13.sp,
                         maxLines = 1, modifier = Modifier.weight(1f))
-                    Column(horizontalAlignment = Alignment.End) {
-                        Text(m.of(evalKrw), color = TextPrimary, fontSize = 18.sp,
-                            fontWeight = FontWeight.Bold, fontFamily = Mono, maxLines = 1)
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(m.signed(pnlKrw), color = pc(pnlKrw), fontSize = 14.sp,
-                                fontWeight = FontWeight.SemiBold, fontFamily = Mono, maxLines = 1)
-                            Text("  |  ", color = TextMuted, fontSize = 13.sp)
-                            Text(signPct(rate2), color = pc(rate2), fontSize = 14.sp,
-                                fontWeight = FontWeight.SemiBold, fontFamily = Mono, maxLines = 1)
-                        }
-                    }
+                    Text(m.signed(pnlKrw), color = pc(pnlKrw), fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold, fontFamily = Mono, maxLines = 1)
+                    Text("  |  ", color = TextMuted, fontSize = 12.sp)
+                    Text(signPct(rate2), color = pc(rate2), fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold, fontFamily = Mono, maxLines = 1)
                 }
-                HDivider(Modifier.padding(top = 8.dp))
+                HDivider(Modifier.padding(top = 9.dp))
             }
         }
     }

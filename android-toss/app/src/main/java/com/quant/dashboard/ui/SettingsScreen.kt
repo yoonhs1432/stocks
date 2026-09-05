@@ -35,6 +35,11 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.foundation.layout.Box
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.quant.dashboard.data.BrokerCreds
@@ -79,12 +84,21 @@ fun SettingsScreen() {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Label("분석 기간")
                 Spacer(Modifier.weight(1f))
-                OutlinedTextField(
-                    rangeText, { rangeText = it.filter { c -> c.isDigit() }.take(2) },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    modifier = Modifier.width(84.dp),
-                )
+                // M3 OutlinedTextField 는 56dp 라 행이 커진다 → 40dp 컴팩트 입력칸
+                Box(
+                    Modifier.width(60.dp).height(40.dp).clip(RoundedCornerShape(10.dp)).background(SurfaceInput),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    BasicTextField(
+                        rangeText, { rangeText = it.filter { c -> c.isDigit() }.take(2) },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        textStyle = TextStyle(color = TextPrimary, fontSize = 15.sp, fontFamily = Mono,
+                            fontWeight = FontWeight.Bold, textAlign = TextAlign.Center),
+                        cursorBrush = SolidColor(Accent),
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp),
+                    )
+                }
                 Text("개월", color = TextSecondary, fontSize = 13.sp)
                 GhostButton("적용", color = Accent) {
                     val m = rangeText.toIntOrNull()?.coerceIn(3, Store.MAX_MONTHS) ?: Store.lookbackMonths()
@@ -92,8 +106,7 @@ fun SettingsScreen() {
                     Store.setLookbackMonths(m); Quotes.clearCache(); AppState.bump()
                 }
             }
-            Text("3 ~ ${Store.MAX_MONTHS}개월", color = TextMuted, fontSize = 11.sp)
-            HDivider()
+            HDivider(Modifier.padding(top = 4.dp))
         }
 
         // ══════════ 토스증권 ══════════
@@ -346,20 +359,10 @@ private fun IpRow() {
             GhostButton("WTS") {
                 runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.tossinvest.com"))) }
             }
-        }
-    }
-    if (cur != null) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                when {
-                    registered.isEmpty() -> "WTS 에 등록했으면 [등록함]"
-                    changed -> "등록한 IP($registered)와 다름 — WTS 에 다시 등록"
-                    else -> "등록한 IP 와 같음"
-                },
-                color = if (changed) Loss else TextMuted, fontSize = 11.sp,
-                modifier = Modifier.weight(1f),
-            )
+            // 등록해 둔 IP 와 같으면 버튼이 사라진다 = 등록 완료 표시
             if (registered != cur) GhostButton("등록함", color = Accent) { Store.setRegisteredIp(cur); registered = cur }
         }
     }
+    // 설명 문장은 두지 않는다. 문제가 있을 때(등록 IP 와 다름)만 한 줄
+    if (changed) Text("등록 IP $registered 와 다름", color = Loss, fontSize = 11.sp)
 }

@@ -8,7 +8,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -88,7 +90,7 @@ fun GhostButton(label: String, modifier: Modifier = Modifier, color: Color = Tex
     Box(
         modifier.clip(RoundedCornerShape(10.dp)).background(Ghost)
             .clickable(enabled = enabled) { onClick() }
-            .padding(horizontal = 14.dp, vertical = 8.dp),
+            .padding(horizontal = 12.dp, vertical = 6.dp),
     ) {
         Text(label, color = if (enabled) color else TextSecondary, fontSize = 13.sp,
             fontWeight = FontWeight.Bold)
@@ -110,8 +112,10 @@ fun UnderlineSegments(
     Row(modifier, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
         options.forEach { (id, label) ->
             val on = id == selected
+            // ⚠️ 폭을 글자에 맞춰 못 박아야 한다. 안 그러면 밑줄의 fillMaxWidth 가 Row 의 남은 폭을
+            // 전부 가져가 첫 항목이 줄 전체를 삼키고 나머지 항목은 화면 밖으로 밀린다 (실제 발생).
             Column(
-                Modifier.clickable { onSelect(id) }.padding(horizontal = 10.dp),
+                Modifier.width(IntrinsicSize.Max).clickable { onSelect(id) }.padding(horizontal = 10.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Text(label, color = if (on) Accent else TextSecondary, fontSize = fontSize.sp,
