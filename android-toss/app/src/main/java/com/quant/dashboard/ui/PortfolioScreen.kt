@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -23,41 +22,38 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import com.quant.dashboard.data.BrokerCreds
 import com.quant.dashboard.data.LivePrices
 import com.quant.dashboard.data.Snapshots
-import com.quant.dashboard.data.TossSync
 import com.quant.dashboard.data.Store
 import com.quant.dashboard.data.Tickers
+import com.quant.dashboard.data.TossSync
 import com.quant.dashboard.ui.theme.BgApp
-import com.quant.dashboard.ui.theme.BgCard
-import com.quant.dashboard.ui.theme.ChipOn
+import com.quant.dashboard.ui.theme.Ghost
 import com.quant.dashboard.ui.theme.Loss
 import com.quant.dashboard.ui.theme.Mono
 import com.quant.dashboard.ui.theme.Neutral
 import com.quant.dashboard.ui.theme.Profit
-import com.quant.dashboard.ui.theme.SurfaceInput
 import com.quant.dashboard.ui.theme.TextMuted
 import com.quant.dashboard.ui.theme.TextPrimary
 import com.quant.dashboard.ui.theme.TextSecondary
 import com.quant.dashboard.ui.theme.WeightPalette
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private fun pc(v: Double) = if (v > 0) Profit else if (v < 0) Loss else Neutral
 
@@ -106,6 +102,13 @@ fun PortfolioScreen(onOpenAnalysis: (String) -> Unit = {}) {
     LaunchedEffect(AppState.dataVersion) { reload(force = false) }
 
     Column(modifier = Modifier.fillMaxSize().background(BgApp)) {
+        ScreenHeader("포트폴리오") {
+            UnderlineSegments(
+                listOf("krw" to "원", "usd" to "$"),
+                selected = if (usdMode) "usd" else "krw",
+                onSelect = { usdMode = it == "usd"; Store.setPortfolioUsd(usdMode) },
+            )
+        }
         PullToRefreshBox(
             isRefreshing = refreshing,
             onRefresh = {
@@ -119,26 +122,10 @@ fun PortfolioScreen(onOpenAnalysis: (String) -> Unit = {}) {
             modifier = Modifier.fillMaxSize(),
         ) {
             Column(
-                modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(14.dp),
+                modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+                    .padding(horizontal = ScreenPad).padding(bottom = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text("포트폴리오", color = TextPrimary, fontSize = 19.sp,
-                        fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                    // 표시 통화 — 계산은 원화로 하고 표시만 바꾼다
-                    listOf(false to "원", true to "$").forEach { (isUsd, label) ->
-                        val on = usdMode == isUsd
-                        Box(
-                            Modifier.padding(start = 6.dp).clip(RoundedCornerShape(8.dp))
-                                .background(if (on) ChipOn else SurfaceInput)
-                                .clickable { usdMode = isUsd; Store.setPortfolioUsd(isUsd) }
-                                .padding(horizontal = 14.dp, vertical = 6.dp),
-                        ) {
-                            Text(label, color = if (on) TextPrimary else TextMuted,
-                                fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                        }
-                    }
-                }
 
                 val a = acct
                 when {
@@ -165,13 +152,11 @@ private fun TossBody(a: TossSync.Account, usdMode: Boolean, onOpenAnalysis: (Str
     val m = Money(usdMode, a.rate)
     // ── 총자산 히어로 (평가금액 + 예수금) ──
     Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
-            .background(Brush.linearGradient(listOf(Color(0xFF1C2330), BgCard)))
-            .padding(16.dp),
+        Modifier.fillMaxWidth().padding(top = 14.dp),
         verticalArrangement = Arrangement.spacedBy(3.dp),
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("총자산 (토스)", color = TextSecondary, fontSize = 11.sp,
+            Text("총자산", color = TextSecondary, fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
             Text(BrokerCreds.maskedAccount(), color = TextMuted, fontSize = 10.sp, fontFamily = Mono)
         }
@@ -253,6 +238,7 @@ private fun TossBody(a: TossSync.Account, usdMode: Boolean, onOpenAnalysis: (Str
                         }
                     }
                 }
+                HDivider(Modifier.padding(top = 8.dp))
             }
         }
     }
@@ -267,10 +253,9 @@ private fun TossBody(a: TossSync.Account, usdMode: Boolean, onOpenAnalysis: (Str
     val div = if (usdMode) 1.0 else 10000.0
     val unit = if (usdMode) "$" else "만원"
 
-    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(BgCard).padding(14.dp),
-        verticalArrangement = Arrangement.spacedBy(3.dp)) {
-        Text("자산", color = TextSecondary,
-            fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+    HDivider()
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        SectionLabel("자산", top = 4.dp)
         if (sr.dates.size < 2) {
             Text("기록 ${sr.dates.size}일 — 2일 이상 쌓이면 표시", color = TextMuted, fontSize = 11.sp)
         } else {
@@ -288,10 +273,9 @@ private fun TossBody(a: TossSync.Account, usdMode: Boolean, onOpenAnalysis: (Str
     }
 
     // ── 평가손익 추이 ──
-    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(BgCard).padding(14.dp),
-        verticalArrangement = Arrangement.spacedBy(3.dp)) {
-        Text("평가손익", color = TextSecondary,
-            fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+    HDivider()
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        SectionLabel("평가손익", top = 4.dp)
         if (pnlSeries.size < 2) {
             Text("기록 ${pnlSeries.size}일 — 2일 이상 쌓이면 표시", color = TextMuted, fontSize = 11.sp)
         } else {
@@ -320,12 +304,12 @@ private fun qtyLabel(q: Double): String =
 @Composable
 private fun StatChip(label: String, value: String) {
     Row(
-        Modifier.clip(RoundedCornerShape(7.dp)).background(SurfaceInput)
-            .padding(horizontal = 8.dp, vertical = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        Modifier.clip(RoundedCornerShape(8.dp)).background(Ghost)
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
     ) {
-        Text(label, color = TextMuted, fontSize = 10.sp)
-        Text(value, color = Loss, fontSize = 10.sp, fontWeight = FontWeight.Bold, fontFamily = Mono)
+        Text(label, color = TextSecondary, fontSize = 11.sp)
+        Text(value, color = TextPrimary, fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = Mono)
     }
 }
 

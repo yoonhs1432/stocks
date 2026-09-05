@@ -8,45 +8,52 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.text.font.FontFamily
 
 // ─────────────────────────────────────────────────────────────
-// 디자인 토큰 (다크 리디자인 Direction A — 퀀트 터미널)
-// 한국식: 상승/매수/이익 = 빨강, 하락/매도/손실 = 파랑
+// 디자인 토큰 — A-1 "토스 블루" (미니멀 다크)
+//  · 카드 없음. 배경 한 톤 + 1px 구분선으로만 나눈다
+//  · 액센트는 파랑 하나(버튼·선택·탭). 빨강/파랑은 손익 숫자에만
+//  · 한국식: 상승/매수/이익 = 빨강, 하락/매도/손실 = 파랑
 // ─────────────────────────────────────────────────────────────
 
 // 배경/표면
-val BgApp = Color(0xFF0C0E11)          // 화면 배경(거의 검정)
-val BgElevated = Color(0xFF0A0C0F)     // 탭바 배경
-val BgCard = Color(0xFF15181D)         // 카드·차트 컨테이너
-val SurfaceInput = Color(0xFF0C0E11)   // 입력칸·세그먼트 비활성
-val SegmentOn = Color(0xFF262B32)      // 세그먼트 활성
-val ChipOn = Color(0xFF33373F)         // 선택형 칩 활성
-val BorderColor = Color(0x0DFFFFFF)    // 카드 헤어라인 (white 5%)
-val DividerColor = Color(0x14FFFFFF)   // 구분선 (white 8%)
+val BgApp = Color(0xFF101013)          // 화면 배경
+val BgElevated = Color(0xFF101013)     // 탭바 배경 (배경과 같음 — 구분선으로만)
+val BgCard = Color(0xFF101013)         // (카드 제거) 배경과 같음. 남은 참조 호환용
+val SurfaceInput = Color(0xFF1B1B20)   // 입력칸·고스트 버튼
+val SegmentOn = Color(0xFF1F2024)      // (호환) 세그먼트 활성 배경 — 새 UI 는 밑줄 방식
+val ChipOn = Color(0xFF1F2024)         // (호환) 선택형 칩 활성
+val BorderColor = Color(0xFF24242A)    // 구분선
+val DividerColor = Color(0xFF24242A)   // 구분선
 
 // 텍스트
-val TextPrimary = Color(0xFFEEF1F4)
-val TextSecondary = Color(0xFFAEB6BF)
-val TextMuted = Color(0xFF727B85)
+val TextPrimary = Color(0xFFF2F4F6)
+val TextSecondary = Color(0xFF8B95A1)
+val TextMuted = Color(0xFF6B7684)
 
-// 시그널 컬러 (한국식)
-val Profit = Color(0xFFEF6066)         // 상승/매수/이익 (선·텍스트)
-val ProfitBtn = Color(0xFFEF4D57)      // 매수 버튼
-val Loss = Color(0xFF5B9BF2)           // 하락/매도/손실
-val LossBtn = Color(0xFF4D8DF0)        // 매도 버튼
-val Neutral = Color(0xFF9AA3AD)
+// 액센트 — UI 전용 (버튼·선택·탭·포커스)
+val Accent = Color(0xFF3182F6)
+val OnAccent = Color(0xFFFFFFFF)
+val Ghost = Color(0xFF1F2024)          // 보조 버튼 배경
 
-// 액센트
-val Gold = Color(0xFFE0A24A)           // 보유 표식·금리·M 컬럼
+// 시그널 컬러 (한국식) — 손익 숫자·차트에만
+val Profit = Color(0xFFF04452)         // 상승/매수/이익
+val ProfitBtn = Profit                 // (호환)
+val Loss = Color(0xFF3182F6)           // 하락/매도/손실
+val LossBtn = Loss                     // (호환)
+val Neutral = Color(0xFF8B95A1)
+
+// 차트 전용 액센트
+val Gold = Color(0xFFE0A24A)           // 보유 표식·M 컬럼
 val Teal = Color(0xFF37B6C4)           // RSI 선
 val Violet = Color(0xFF9B8CFF)         // MACD 선
-val SignalGrey = Color(0xFFC9C5BB)     // Signal 선·M 오실레이터
+val SignalGrey = Color(0xFFC9C5BB)     // Signal 선
 
 // 탭바
-val TabActive = Color(0xFFEF6066)
-val TabInactive = Color(0xFF5F6873)
+val TabActive = Accent
+val TabInactive = Color(0xFF6B7684)
 
-// 보유 박스 (녹색 테두리)
-val HoldingBorder = Color(0x662EA078)  // rgba(46,160,120,0.4)
-val HoldingBg = Color(0x122EA078)      // rgba(46,160,120,0.07)
+// 보유 박스 (호환)
+val HoldingBorder = Color(0x662EA078)
+val HoldingBg = Color(0x122EA078)
 
 // 포트폴리오 비중/식별 색 팔레트 (6)
 val WeightPalette = listOf(
@@ -84,11 +91,13 @@ fun mHeat(pct: Double): Color {
 }
 
 private val DarkColors = darkColorScheme(
-    primary = ProfitBtn,
+    primary = Accent,            // M3 Button·TextField 포커스 = 파랑
+    onPrimary = OnAccent,
     background = BgApp,
-    surface = BgCard,
+    surface = BgApp,
     onBackground = TextPrimary,
     onSurface = TextPrimary,
+    outline = BorderColor,
 )
 
 @Composable

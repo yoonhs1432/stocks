@@ -3,10 +3,8 @@ package com.quant.dashboard.ui
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -19,7 +17,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -48,13 +45,10 @@ import com.quant.dashboard.data.Tickers
 import com.quant.dashboard.data.TossApi
 import com.quant.dashboard.data.TossSync
 import com.quant.dashboard.data.Universe
+import com.quant.dashboard.ui.theme.Accent
 import com.quant.dashboard.ui.theme.BgApp
-import com.quant.dashboard.ui.theme.BgCard
-import com.quant.dashboard.ui.theme.BorderColor
-import com.quant.dashboard.ui.theme.ChipOn
 import com.quant.dashboard.ui.theme.Loss
 import com.quant.dashboard.ui.theme.Mono
-import com.quant.dashboard.ui.theme.Profit
 import com.quant.dashboard.ui.theme.SurfaceInput
 import com.quant.dashboard.ui.theme.TextMuted
 import com.quant.dashboard.ui.theme.TextPrimary
@@ -64,63 +58,23 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @Composable
-private fun SectionHeader(title: String) {
-    Text(title, color = Profit, fontSize = 14.sp, fontWeight = FontWeight.Bold,
-        modifier = Modifier.padding(top = 16.dp, bottom = 6.dp))
-}
-
-/** 섹션 카드 — 컨트롤 묶음을 담는 컨테이너. */
-@Composable
-private fun SettingsCard(content: @Composable () -> Unit) {
-    Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(BgCard)
-            .border(1.dp, BorderColor, RoundedCornerShape(14.dp)).padding(14.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) { content() }
-}
-
-@Composable
-private fun Label(text: String) = Text(text, color = TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-
-/** 커스텀 세그먼트 칩 (활성 = ChipOn). */
-@Composable
-private fun Seg(label: String, selected: Boolean, onClick: () -> Unit) {
-    Box(
-        Modifier.clip(RoundedCornerShape(8.dp)).background(if (selected) ChipOn else SurfaceInput)
-            .clickable { onClick() }.padding(horizontal = 14.dp, vertical = 8.dp),
-    ) {
-        Text(label, color = if (selected) TextPrimary else TextMuted, fontSize = 12.sp,
-            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal)
-    }
-}
-
-/** 작은 보조 버튼 (복사·열기·키 변경 등). */
-@Composable
-private fun SmallBtn(label: String, onClick: () -> Unit) {
-    Box(
-        Modifier.clip(RoundedCornerShape(8.dp)).background(SurfaceInput)
-            .clickable { onClick() }.padding(horizontal = 12.dp, vertical = 7.dp),
-    ) { Text(label, color = TextPrimary, fontSize = 12.sp, fontWeight = FontWeight.Bold) }
-}
-
-@Composable
-private fun Divider() = Box(Modifier.fillMaxWidth().height(1.dp).background(BorderColor))
+private fun Label(text: String) = Text(text, color = TextSecondary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
 
 @Composable
 fun SettingsScreen() {
     var tickers by remember { mutableStateOf(Store.loadTickers().toList()) }
     var input by remember { mutableStateOf("") }
 
+    Column(Modifier.fillMaxSize().background(BgApp)) {
+    ScreenHeader("설정")
     Column(
-        modifier = Modifier.fillMaxSize().background(BgApp)
-            .verticalScroll(rememberScrollState()).padding(14.dp),
+        modifier = Modifier.fillMaxSize()
+            .verticalScroll(rememberScrollState()).padding(horizontal = ScreenPad),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Text("설정", color = TextPrimary, fontSize = 19.sp, fontWeight = FontWeight.Bold)
-
         // ══════════ 분석 ══════════
-        SectionHeader("분석")
-        SettingsCard {
+        SectionLabel("분석")
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             var rangeText by remember { mutableStateOf(Store.lookbackMonths().toString()) }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Label("분석 기간")
@@ -132,18 +86,19 @@ fun SettingsScreen() {
                     modifier = Modifier.width(84.dp),
                 )
                 Text("개월", color = TextSecondary, fontSize = 13.sp)
-                Button(onClick = {
+                GhostButton("적용", color = Accent) {
                     val m = rangeText.toIntOrNull()?.coerceIn(3, Store.MAX_MONTHS) ?: Store.lookbackMonths()
                     rangeText = m.toString()
                     Store.setLookbackMonths(m); Quotes.clearCache(); AppState.bump()
-                }) { Text("적용") }
+                }
             }
             Text("3 ~ ${Store.MAX_MONTHS}개월", color = TextMuted, fontSize = 11.sp)
+            HDivider()
         }
 
         // ══════════ 토스증권 ══════════
-        SectionHeader("토스증권 (조회 전용)")
-        SettingsCard {
+        SectionLabel("토스증권")
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             var bkKey by remember { mutableStateOf(BrokerCreds.appKey()) }
             var bkSecret by remember { mutableStateOf(BrokerCreds.appSecret()) }
             var bkMsg by remember { mutableStateOf<String?>(null) }
@@ -156,7 +111,7 @@ fun SettingsScreen() {
 
             if (!BrokerCreds.available()) {
                 Text("기기 보안 저장소를 열 수 없어 연동을 쓸 수 없습니다.", color = Loss, fontSize = 12.sp)
-                return@SettingsCard
+                return@Column
             }
 
             // ── 상태 줄 ──
@@ -170,7 +125,7 @@ fun SettingsScreen() {
                     color = if (linked) TextPrimary else TextSecondary, fontSize = 13.sp,
                     fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f),
                 )
-                if (linked && !editKeys) SmallBtn("키 변경") { editKeys = true }
+                if (linked && !editKeys) GhostButton("키 변경") { editKeys = true }
             }
 
             // ── 키 입력 (미연결이거나 [키 변경]) ──
@@ -181,8 +136,10 @@ fun SettingsScreen() {
                     singleLine = true, visualTransformation = PasswordVisualTransformation(),
                     modifier = Modifier.fillMaxWidth())
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                    Button(
+                    PrimaryButton(
+                        if (bkBusy) "연결 중…" else "연결",
                         enabled = !bkBusy && bkKey.isNotBlank() && bkSecret.isNotBlank(),
+                        modifier = Modifier.weight(1f),
                         onClick = {
                             BrokerCreds.saveKeys(bkKey, bkSecret)
                             bkBusy = true; bkMsg = "연결 중…"
@@ -204,13 +161,10 @@ fun SettingsScreen() {
                                 bkMsg = msg; bkBusy = false; bkVer++; AppState.bump()
                             }
                         },
-                        modifier = Modifier.weight(1f),
-                    ) { Text(if (bkBusy) "연결 중…" else "연결") }
-                    if (BrokerCreds.hasKeys()) Button(
-                        enabled = !bkBusy,
-                        onClick = { BrokerCreds.clear(); bkKey = ""; bkSecret = ""; bkVer++; bkMsg = null; AppState.bump() },
-                        modifier = Modifier.weight(1f),
-                    ) { Text("삭제") }
+                    )
+                    if (BrokerCreds.hasKeys()) GhostButton("삭제", color = Loss, enabled = !bkBusy) {
+                        BrokerCreds.clear(); bkKey = ""; bkSecret = ""; bkVer++; bkMsg = null; AppState.bump()
+                    }
                 }
             }
             bkMsg?.let { Text(it, color = if (it.startsWith("실패") || it.contains("등록")) Loss else TextSecondary, fontSize = 12.sp) }
@@ -219,42 +173,37 @@ fun SettingsScreen() {
             IpRow()
 
             if (linked) {
-                Divider()
-                Button(
-                    enabled = !bkBusy,
-                    onClick = {
-                        bkBusy = true; bkMsg = "체결내역 가져오는 중…"
-                        scope.launch {
-                            val msg = withContext(Dispatchers.IO) {
-                                try { TossSync.importFills().summary() } catch (e: Exception) { "실패: ${e.message}" }
-                            }
-                            bkMsg = msg; bkBusy = false; AppState.bump()
+                HDivider()
+                PrimaryButton("체결내역 가져오기", enabled = !bkBusy, modifier = Modifier.padding(vertical = 4.dp)) {
+                    bkBusy = true; bkMsg = "체결내역 가져오는 중…"
+                    scope.launch {
+                        val msg = withContext(Dispatchers.IO) {
+                            try { TossSync.importFills().summary() } catch (e: Exception) { "실패: ${e.message}" }
                         }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                ) { Text("체결내역 가져오기") }
-
-                Divider()
-                var tick by remember { mutableStateOf(Store.tickSeconds()) }
-                Label("실시간 갱신 주기")
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    listOf("끔" to 0, "1초" to 1, "3초" to 3, "5초" to 5, "10초" to 10, "30초" to 30).forEach { (lab, v) ->
-                        Seg(lab, tick == v) { tick = v; Store.setTickSeconds(v); AppState.bump() }
+                        bkMsg = msg; bkBusy = false; AppState.bump()
                     }
                 }
 
-                Divider()
-                Box(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(SurfaceInput)
-                        .clickable { Quotes.clearCache(); AppState.bump() }
-                        .padding(vertical = 9.dp),
-                    contentAlignment = Alignment.Center,
-                ) { Text("일봉 다시 받기", color = TextSecondary, fontSize = 12.sp) }
+                HDivider()
+                var tick by remember { mutableStateOf(Store.tickSeconds()) }
+                Label("실시간 갱신 주기")
+                UnderlineSegments(
+                    listOf("0" to "끔", "1" to "1초", "3" to "3초", "5" to "5초", "10" to "10초", "30" to "30초"),
+                    selected = tick.toString(),
+                    onSelect = { tick = it.toInt(); Store.setTickSeconds(tick); AppState.bump() },
+                )
+
+                HDivider()
+                ListRow(Modifier.clickable { Quotes.clearCache(); AppState.bump() }) {
+                    Text("일봉 다시 받기", color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.weight(1f))
+                    Text("›", color = TextSecondary, fontSize = 16.sp)
+                }
             }
         }
 
         // ══════════ 종목 관리 ══════════
-        SectionHeader("종목 관리")
+        SectionLabel("종목 관리")
 
         // 토스 종목 유니버스 — 이름으로 티커를 찾기 위한 캐시. 하루 1회 갱신.
         val uniScope = rememberCoroutineScope()
@@ -279,7 +228,7 @@ fun SettingsScreen() {
             OutlinedTextField(input, { input = it },
                 placeholder = { Text(if (uniCount > 0) "티커 또는 이름" else "티커") },
                 singleLine = false, maxLines = 4, modifier = Modifier.weight(1f))
-            Button(onClick = {
+            GhostButton(if (bulk) "모두 추가" else "추가", color = Accent) {
                 if (input.isNotBlank()) {
                     val (added, dup) =
                         if (bulk) Store.addTickers(input) else Store.addTickers(input.trim().replace(" ", ""))
@@ -291,7 +240,7 @@ fun SettingsScreen() {
                     }
                     input = ""; AppState.bump()
                 }
-            }) { Text(if (bulk) "모두 추가" else "추가") }
+            }
         }
         addMsg?.let { Text(it, color = TextSecondary, fontSize = 11.sp) }
 
@@ -328,7 +277,7 @@ fun SettingsScreen() {
                 },
                 color = TextMuted, fontSize = 11.sp, modifier = Modifier.weight(1f),
             )
-            if (BrokerCreds.isLinked()) SmallBtn("목록 갱신") {
+            if (BrokerCreds.isLinked()) GhostButton("목록 갱신") {
                 uniScope.launch {
                     uniBusy = true
                     uniCount = withContext(Dispatchers.IO) { Universe.ensure(force = true) }
@@ -338,28 +287,21 @@ fun SettingsScreen() {
         }
 
         // ── 종목 리스트 (1열) ──
-        Column(
-            Modifier.fillMaxWidth().padding(top = 6.dp).clip(RoundedCornerShape(12.dp))
-                .background(BgCard).border(1.dp, BorderColor, RoundedCornerShape(12.dp)),
-        ) {
-            tickers.forEachIndexed { i, tk ->
-                Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 9.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(tk, color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold,
-                        fontFamily = Mono, maxLines = 1, modifier = Modifier.width(88.dp))
-                    Text(Tickers.displayName(tk).takeIf { it != tk } ?: "",
-                        color = TextSecondary, fontSize = 13.sp, maxLines = 1, modifier = Modifier.weight(1f))
-                    Text("삭제", color = Loss, fontSize = 12.sp, fontWeight = FontWeight.Bold,
-                        modifier = Modifier.clickable {
-                            Store.removeTicker(tk); tickers = Store.loadTickers().toList(); AppState.bump()
-                        }.padding(horizontal = 4.dp, vertical = 2.dp))
-                }
-                if (i < tickers.lastIndex) Divider()
+        HDivider(Modifier.padding(top = 6.dp))
+        tickers.forEach { tk ->
+            ListRow {
+                Text(tk, color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold,
+                    fontFamily = Mono, maxLines = 1, modifier = Modifier.width(88.dp))
+                Text(Tickers.displayName(tk).takeIf { it != tk } ?: "",
+                    color = TextSecondary, fontSize = 13.sp, maxLines = 1, modifier = Modifier.weight(1f))
+                Text("삭제", color = TextSecondary, fontSize = 13.sp, fontWeight = FontWeight.Bold,
+                    modifier = Modifier.clickable {
+                        Store.removeTicker(tk); tickers = Store.loadTickers().toList(); AppState.bump()
+                    }.padding(horizontal = 4.dp, vertical = 6.dp))
             }
         }
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(16.dp))
+    }
     }
 }
 
@@ -400,8 +342,8 @@ private fun IpRow() {
             modifier = Modifier.weight(1f).clickable { check() },
         )
         if (cur != null) {
-            SmallBtn(if (copied) "복사됨" else "복사") { clipboard.setText(AnnotatedString(cur)); copied = true }
-            SmallBtn("WTS") {
+            GhostButton(if (copied) "복사됨" else "복사") { clipboard.setText(AnnotatedString(cur)); copied = true }
+            GhostButton("WTS") {
                 runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.tossinvest.com"))) }
             }
         }
@@ -417,7 +359,7 @@ private fun IpRow() {
                 color = if (changed) Loss else TextMuted, fontSize = 11.sp,
                 modifier = Modifier.weight(1f),
             )
-            if (registered != cur) SmallBtn("등록함") { Store.setRegisteredIp(cur); registered = cur }
+            if (registered != cur) GhostButton("등록함", color = Accent) { Store.setRegisteredIp(cur); registered = cur }
         }
     }
 }

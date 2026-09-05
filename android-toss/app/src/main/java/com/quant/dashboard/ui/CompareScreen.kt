@@ -1,11 +1,12 @@
 package com.quant.dashboard.ui
 
-import androidx.compose.foundation.background
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.geometry.Offset
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.border
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,7 +18,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -31,7 +32,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -39,27 +43,22 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.quant.dashboard.data.LivePrices
 import com.quant.dashboard.data.MarketHours
+import com.quant.dashboard.data.Store
 import com.quant.dashboard.data.Tickers
+import com.quant.dashboard.ui.theme.Accent
 import com.quant.dashboard.ui.theme.BgApp
 import com.quant.dashboard.ui.theme.BorderColor
 import com.quant.dashboard.ui.theme.Gold
 import com.quant.dashboard.ui.theme.Loss
 import com.quant.dashboard.ui.theme.Mono
 import com.quant.dashboard.ui.theme.Profit
-import com.quant.dashboard.ui.theme.SurfaceInput
-import com.quant.dashboard.ui.theme.Teal
 import com.quant.dashboard.ui.theme.TextMuted
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
-import kotlin.math.roundToInt
 import com.quant.dashboard.ui.theme.TextPrimary
 import com.quant.dashboard.ui.theme.TextSecondary
 import com.quant.dashboard.ui.theme.pctColor
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.tween
-import androidx.compose.ui.graphics.lerp
-import com.quant.dashboard.data.Store
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 // 한국식: 상승=빨강 / 하락=파랑 / 0=회색
 private val TableGray = Color(0xFFA4ADB8)
@@ -84,15 +83,14 @@ fun CompareScreen(vm: CompareViewModel = viewModel(), onOpenAnalysis: (String) -
     }
 
     Column(modifier = Modifier.fillMaxSize().background(BgApp)) {
+        ScreenHeader("비교") { TickStatus(s.market) }
         // 표는 위, 조작 버튼은 아래 — 한 손으로 엄지가 닿는 곳에 둔다
         Box(Modifier.fillMaxWidth().weight(1f)) {
             Column(
                 modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())
-                    .padding(horizontal = 12.dp).padding(top = 8.dp, bottom = 4.dp),
+                    .padding(horizontal = ScreenPad).padding(bottom = 4.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                TickStatus(s.market)
-
                 val rows = vm.sorted()
                 val err = s.error
                 when {
@@ -103,14 +101,14 @@ fun CompareScreen(vm: CompareViewModel = viewModel(), onOpenAnalysis: (String) -
                         // 표는 **간격 없는** 안쪽 Column 에 넣는다. 바깥 Column 의 spacedBy 가
                         // 행마다·구분선마다 붙으면 행 하나당 12dp 가 더 생겨 오히려 벌어진다.
                         Column(Modifier.fillMaxWidth()) {
-                            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(6.dp)).background(SurfaceInput)
-                                .padding(vertical = 3.dp, horizontal = 2.dp)) {
+                            Row(Modifier.fillMaxWidth().padding(vertical = 8.dp, horizontal = 2.dp)) {
                                 HCell(vm, "종목", SortKey.NAME, 2.4f, TextAlign.Start)
                                 HCell(vm, "현재가", SortKey.PRICE, 2f)
                                 HCell(vm, "일", SortKey.DAY, 1.4f)
                                 HCell(vm, "Z", SortKey.Z, 1f)
                                 HCell(vm, "M", SortKey.M, 1f)
                             }
+                            HDivider()
                             if (rows.isEmpty()) {
                                 Text("표시할 종목이 없습니다", color = TextSecondary, fontSize = 13.sp,
                                     modifier = Modifier.padding(12.dp))
@@ -133,36 +131,13 @@ fun CompareScreen(vm: CompareViewModel = viewModel(), onOpenAnalysis: (String) -
 @Composable
 private fun BottomBar(vm: CompareViewModel) {
     val s = vm.state
-    Row(
-        Modifier.fillMaxWidth().background(BgApp).padding(horizontal = 12.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
+    BottomActionBar {
         // 한쪽 시장 종목만 있으면 전환 버튼이 의미가 없다
         if (vm.hasBothMarkets()) {
-            listOf("US" to "미국", "KR" to "국내").forEach { (id, label) ->
-                val on = s.market == id
-                Box(
-                    Modifier.clip(RoundedCornerShape(8.dp))
-                        .background(if (on) Teal else SurfaceInput)
-                        .clickable { vm.setMarket(id) }
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                ) {
-                    Text(label, color = if (on) Color(0xFF0C0E11) else TextSecondary,
-                        fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                }
-            }
+            UnderlineSegments(listOf("US" to "미국", "KR" to "국내"), s.market, { vm.setMarket(it) })
         }
         Spacer(Modifier.weight(1f))
-        Box(
-            Modifier.clip(RoundedCornerShape(8.dp))
-                .background(if (s.holdingsOnly) Gold else SurfaceInput)
-                .clickable { vm.toggleHoldings() }
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-        ) {
-            Text("● 보유", color = if (s.holdingsOnly) Color(0xFF0C0E11) else TextSecondary,
-                fontSize = 13.sp, fontWeight = FontWeight.Bold)
-        }
+        GhostButton("● 보유", color = if (s.holdingsOnly) Accent else TextSecondary) { vm.toggleHoldings() }
     }
 }
 
@@ -255,17 +230,14 @@ private fun TickStatus(market: String) {
     val dot = if (note != null) TextMuted else lerp(Color(0xFF2EA078), Color(0xFF7BFFCB), glow.value)
 
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(SurfaceInput)
-            .padding(horizontal = 10.dp, vertical = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Box(Modifier.size(8.dp).clip(RoundedCornerShape(50)).background(dot))
         Text(
-            (note ?: if (sec > 0) "실시간 ${sec}초" else "갱신 꺼짐") + " · $session",
-            color = if (note != null) Gold else TextSecondary, fontSize = 11.sp,
+            (note ?: if (sec > 0) "${sec}초" else "갱신 꺼짐") + " · $session",
+            color = if (note != null) Accent else TextSecondary, fontSize = 11.sp, maxLines = 1,
         )
-        Spacer(Modifier.weight(1f))
         if (at > 0) {
             Text(
                 remember(at) { SimpleDateFormat("HH:mm:ss", Locale.US).format(Date(at)) },

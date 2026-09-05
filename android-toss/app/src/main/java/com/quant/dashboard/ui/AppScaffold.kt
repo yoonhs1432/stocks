@@ -3,7 +3,6 @@ package com.quant.dashboard.ui
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,7 +12,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -34,10 +32,10 @@ import androidx.compose.ui.unit.sp
 import com.quant.dashboard.data.BrokerCreds
 import com.quant.dashboard.data.LivePrices
 import com.quant.dashboard.data.MarketHours
-import com.quant.dashboard.data.Tickers
-import com.quant.dashboard.data.Universe
-import com.quant.dashboard.data.TossSync
 import com.quant.dashboard.data.Store
+import com.quant.dashboard.data.Tickers
+import com.quant.dashboard.data.TossSync
+import com.quant.dashboard.data.Universe
 import com.quant.dashboard.ui.theme.BgApp
 import com.quant.dashboard.ui.theme.BgElevated
 import com.quant.dashboard.ui.theme.DividerColor

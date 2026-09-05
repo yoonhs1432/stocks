@@ -3,11 +3,12 @@ package com.quant.dashboard.ui
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -17,16 +18,16 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -41,6 +42,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -53,25 +55,22 @@ import com.quant.dashboard.data.Store
 import com.quant.dashboard.data.Tickers
 import com.quant.dashboard.quant.Portfolio
 import com.quant.dashboard.quant.Quant
+import com.quant.dashboard.ui.theme.Accent
 import com.quant.dashboard.ui.theme.BgApp
-import com.quant.dashboard.ui.theme.BgCard
 import com.quant.dashboard.ui.theme.BorderColor
+import com.quant.dashboard.ui.theme.Ghost
 import com.quant.dashboard.ui.theme.Loss
 import com.quant.dashboard.ui.theme.Mono
 import com.quant.dashboard.ui.theme.Neutral
 import com.quant.dashboard.ui.theme.Profit
-import com.quant.dashboard.ui.theme.SegmentOn
 import com.quant.dashboard.ui.theme.SurfaceInput
 import com.quant.dashboard.ui.theme.Teal
 import com.quant.dashboard.ui.theme.TextMuted
 import com.quant.dashboard.ui.theme.TextPrimary
 import com.quant.dashboard.ui.theme.TextSecondary
-import com.quant.dashboard.ui.theme.mHeat
 import com.quant.dashboard.ui.theme.pctColor
 import com.quant.dashboard.ui.theme.signalColor
 import java.time.LocalDate
-import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.ui.unit.Dp
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -104,33 +103,24 @@ fun AnalysisScreen(vm: AnalysisViewModel = viewModel(), onBack: () -> Unit = {})
     BackHandler { onBack() }
 
     Column(modifier = Modifier.fillMaxSize().background(BgApp)) {
-        // ── 상단 고정: 뒤로가기(비교로) + 직접입력 토글 ──
-        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Box(
-                Modifier.clip(RoundedCornerShape(8.dp)).background(SurfaceInput)
-                    .clickable { onBack() }.padding(horizontal = 12.dp, vertical = 7.dp),
-            ) { Text("← 비교", color = TextSecondary, fontSize = 13.sp, fontWeight = FontWeight.Bold) }
-            Spacer(Modifier.weight(1f))
-            Box(
-                Modifier.clip(RoundedCornerShape(8.dp))
-                    .background(if (diOpen) SegmentOn else SurfaceInput)
-                    .clickable { diOpen = !diOpen }.padding(horizontal = 12.dp, vertical = 7.dp),
-            ) { Text("⌨ 직접", color = if (diOpen) TextPrimary else TextSecondary, fontSize = 13.sp, fontWeight = FontWeight.Bold) }
+        // ── 상단 헤더: 제목 + 뒤로(비교) + 직접입력 토글 ──
+        ScreenHeader("분석") {
+            GhostButton("← 비교") { onBack() }
+            Spacer(Modifier.width(6.dp))
+            GhostButton("직접", color = if (diOpen) Accent else TextPrimary) { diOpen = !diOpen }
         }
         // ── 상단 고정: 직접입력 (열렸을 때만) ──
         if (diOpen) {
-            Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            Row(Modifier.fillMaxWidth().padding(horizontal = ScreenPad, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically) {
                 OutlinedTextField(diText, { diText = it },
                     placeholder = { Text("NVDA · 005930", fontSize = 11.sp) },
                     singleLine = true, modifier = Modifier.weight(1f))
-                Button(onClick = {
+                GhostButton("분석", color = Accent) {
                     val t = diText.trim().uppercase()
                     if (t.isNotEmpty()) { vm.select(t); diOpen = false; diText = "" }
-                }) { Text("분석") }
+                }
             }
         }
 
@@ -165,23 +155,12 @@ fun AnalysisScreen(vm: AnalysisViewModel = viewModel(), onBack: () -> Unit = {})
         }
 
         // ── 하단 고정: 차트 묶음 전환 ──
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            listOf("scatter" to "산점도", "series" to "시계열", "sub" to "보조지표").forEach { (id, label) ->
-                val on = group == id
-                Box(
-                    Modifier.clip(RoundedCornerShape(8.dp))
-                        .background(if (on) Teal else SurfaceInput)
-                        .clickable { group = id; Store.setChartGroup(id) }
-                        .padding(horizontal = 13.dp, vertical = 8.dp),
-                ) {
-                    Text(label, color = if (on) Color(0xFF0C0E11) else TextSecondary,
-                        fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                }
-            }
+        BottomActionBar {
+            UnderlineSegments(
+                listOf("scatter" to "산점도", "series" to "시계열", "sub" to "보조지표"),
+                selected = group,
+                onSelect = { group = it; Store.setChartGroup(it) },
+            )
         }
     }
 }
@@ -207,7 +186,7 @@ private fun TickerBar(
             // 보유 토글 (가장 처음)
             BarToggle("보유", holdingsOnly, Color(0xFF2EA078), onToggleHold)
             // 직접입력 토글
-            BarToggle("＋직접", diOpen, SegmentOn, onToggleDi)
+            BarToggle("＋직접", diOpen, Ghost, onToggleDi)
             tickers.forEach { tk -> TickerChipH(tk, ov[tk], tk == selected) { onSelect(tk) } }
         }
     }
@@ -228,7 +207,7 @@ private fun BarToggle(label: String, on: Boolean, onBg: Color, onClick: () -> Un
 /** 가로 종목 칩 — 전체 M 색 배경, 상태 점 + 티커 + 일간%, 선택=초록 테두리. */
 @Composable
 private fun TickerChipH(tk: String, row: com.quant.dashboard.data.OverviewRepo.Row?, selected: Boolean, onClick: () -> Unit) {
-    val bg = if (row != null) pctColor(row.mPct) else BgCard
+    val bg = if (row != null) pctColor(row.mPct) else SurfaceInput
     val dark = row != null && (row.mPct < 20 || row.mPct >= 80)
     val txt = if (dark) Color.White else Color.Black
     val day = row?.day
@@ -275,10 +254,10 @@ private fun StatusDot(state: Int) {
 private fun Accordion(title: String, content: @Composable () -> Unit) {
     var open by remember { mutableStateOf(false) }
     Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(BgCard)
-            .border(1.dp, BorderColor, RoundedCornerShape(12.dp)).padding(12.dp),
+        Modifier.fillMaxWidth().padding(vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
+        HDivider()
         Text("${if (open) "⌄" else "›"}  $title", color = TextPrimary, fontSize = 14.sp,
             fontWeight = FontWeight.SemiBold,
             modifier = Modifier.fillMaxWidth().clickable { open = !open })
@@ -563,10 +542,8 @@ private fun ChartCard(modifier: Modifier = Modifier, title: String, sub: String 
                       valueColor: Color = TextSecondary, onClick: (() -> Unit)? = null,
                       content: @Composable () -> Unit) {
     Column(
-        modifier.clip(RoundedCornerShape(12.dp)).background(BgCard)
-            .border(1.dp, BorderColor, RoundedCornerShape(12.dp))
-            .then(if (onClick != null) Modifier.clickable { onClick() } else Modifier)
-            .padding(8.dp),
+        modifier.then(if (onClick != null) Modifier.clickable { onClick() } else Modifier)
+            .padding(vertical = 4.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
