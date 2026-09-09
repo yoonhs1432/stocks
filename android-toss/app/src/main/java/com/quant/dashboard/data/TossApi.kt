@@ -368,6 +368,27 @@ object TossApi {
         return out.asReversed().distinctBy { it.t }
     }
 
+    /**
+     * 진단 — 이 봉 주기를 서버가 받아 주는지 1봉만 요청해 확인한다.
+     *
+     * 스펙에 `interval` 허용값이 적혀 있지 않아 실제로 찔러 보는 것 말고는 알 방법이 없다
+     * (랭킹의 `unsupported-ranking-duration` 도 이렇게 알아냈다).
+     * @return 성공하면 마지막 봉 시각, 실패하면 서버가 준 오류 코드
+     */
+    fun probeInterval(symbol: String, interval: String): String {
+        val q = listOf("symbol" to symbol, "interval" to interval, "count" to "1")
+        return try {
+            val r = resultObject(get("/api/v1/candles", q))
+            val o = r.optJSONArray("candles")?.optJSONObject(0)
+                ?: return "✅ (봉 없음)"
+            "✅ ${o.optString("timestamp").take(16).replace('T', ' ')}"
+        } catch (e: TossException) {
+            "❌ ${e.code}"
+        } catch (e: Exception) {
+            "❌ ${e.message?.take(30) ?: "실패"}"
+        }
+    }
+
     /** ISO 8601 offset 문자열 → epoch 초. 실패 시 null. */
     private fun epochSec(iso: String): Long? =
         runCatching { java.time.OffsetDateTime.parse(iso).toEpochSecond() }.getOrNull()

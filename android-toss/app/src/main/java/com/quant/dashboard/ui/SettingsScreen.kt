@@ -230,6 +230,33 @@ fun SettingsScreen() {
                     onSelect = { tick = it.toInt(); Store.setTickSeconds(tick); AppState.bump() },
                 )
 
+                // ── 진단: 어떤 봉 주기를 받아 주는지 ──
+                // 스펙에 허용값이 없어 실제로 1봉씩 요청해 봐야 안다. 결과를 보고 분석 탭에
+                // 붙일 주기를 정한다(지금은 일봉 고정).
+                HDivider()
+                var ivBusy by remember { mutableStateOf(false) }
+                var ivOut by remember { mutableStateOf<String?>(null) }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Label("봉 주기")
+                    Spacer(Modifier.weight(1f))
+                    GhostButton(if (ivBusy) "확인 중…" else "확인", enabled = !ivBusy) {
+                        ivBusy = true; ivOut = null
+                        scope.launch {
+                            val sym = Store.loadTickers().firstOrNull() ?: "AAPL"
+                            ivOut = withContext(Dispatchers.IO) {
+                                listOf("1m", "3m", "5m", "15m", "30m", "1h", "4h", "1d", "1w", "1M")
+                                    .joinToString("\n") { iv ->
+                                        "%-4s %s".format(iv, TossApi.probeInterval(sym, iv))
+                                    }
+                            }
+                            ivBusy = false
+                        }
+                    }
+                }
+                ivOut?.let {
+                    Text(it, color = TextSecondary, fontSize = 11.sp, fontFamily = Mono)
+                }
+
                 HDivider()
                 ListRow(Modifier.clickable { Quotes.clearCache(); AppState.bump() }) {
                     Text("일봉 다시 받기", color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,

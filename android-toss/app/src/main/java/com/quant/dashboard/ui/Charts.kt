@@ -3,6 +3,7 @@ package com.quant.dashboard.ui
 import android.graphics.Paint
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.awaitEachGesture
+import kotlinx.coroutines.withTimeoutOrNull
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
@@ -18,6 +19,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Path
@@ -141,13 +144,16 @@ fun Modifier.chartGestures(
     onTap: () -> Unit = {},
     xOnly: Boolean = false,
     onTapAt: (Float) -> Unit = {},
+    onInspect: (Float?) -> Unit = {},
 ): Modifier {
     val cur = rememberUpdatedState(view)
     val change = rememberUpdatedState(onChange)
     val tap = rememberUpdatedState(onTap)
     val tapAt = rememberUpdatedState(onTapAt)
+    val inspect = rememberUpdatedState(onInspect)
     return this.pointerInput(xOnly) {
         val slop = viewConfiguration.touchSlop
+        val holdMs = viewConfiguration.longPressTimeoutMillis
         // 차트가 우측 축 라벨용으로 비워 두는 폭. 제스처 좌표를 차트와 같은 '플롯 폭' 기준으로
         // 맞춰야 확대 중심이 어긋나지 않는다 (다르면 배율이 커질수록 그림이 밀린다)
         val axisPx = 13.sp.toPx() * 3.6f
@@ -158,11 +164,34 @@ fun Modifier.chartGestures(
             var prevSpanY = -1f
             var prevC = first.position
             var prevCount = 1
+            var inspecting = false
+            var held = 0L
             // 제스처 동안은 로컬 값을 기준으로 누적 — 리컴포지션 지연으로 갱신을 놓치지 않게
             var live = cur.value
             while (true) {
-                val ptrs = awaitPointerEvent().changes.filter { it.pressed }
+                // 한 손가락으로 가만히 누르고 있으면 포인터 이벤트가 오지 않는다. 그래서
+                // 남은 시간만큼 기다려 보고, 그 사이 아무 일도 없으면 **조회 모드**로 들어간다
+                val ev = if (!inspecting && prevCount == 1 && travel <= slop) {
+                    val t0 = System.currentTimeMillis()
+                    val e = withTimeoutOrNull((holdMs - held).coerceAtLeast(1L)) { awaitPointerEvent() }
+                    held += System.currentTimeMillis() - t0
+                    if (e == null) { inspecting = true; inspect.value(prevC.x); continue }
+                    e
+                } else awaitPointerEvent()
+
+                val ptrs = ev.changes.filter { it.pressed }
                 if (ptrs.isEmpty()) break
+                // 조회 중에는 확대·이동을 멈추고 이벤트를 삼킨다 —
+                // 안 그러면 위쪽 세로 스크롤과 당겨서 새로고침이 손가락을 가져간다
+                if (inspecting) {
+                    if (ptrs.size >= 2) { inspecting = false; inspect.value(null) }
+                    else {
+                        inspect.value(ptrs[0].position.x)
+                        ptrs.forEach { it.consume() }
+                        prevC = ptrs[0].position; prevCount = 1
+                        continue
+                    }
+                }
                 val w = (size.width.toFloat() - axisPx).coerceAtLeast(1f)   // = 차트의 plotW
                 val h = size.height.toFloat().coerceAtLeast(1f)
                 val c = Offset(
@@ -192,7 +221,9 @@ fun Modifier.chartGestures(
                 prevCount = ptrs.size
                 if (v != live) { live = v; change.value(v); ptrs.forEach { it.consume() } }
             }
-            if (travel <= slop) {
+            if (inspecting) {
+                inspect.value(null)
+            } else if (travel <= slop) {
                 tap.value()
                 // 확대·이동을 되돌려 콘텐츠 좌표(0~1)로 환산 — 어느 시점을 눌렀는지 알려준다
                 val w = (size.width.toFloat() - axisPx).coerceAtLeast(1f)
@@ -273,6 +304,60 @@ private val DASH = PathEffect.dashPathEffect(floatArrayOf(8f, 8f))
 /** 점선. */
 private fun DrawScope.dline(color: Color, x1: Float, y1: Float, x2: Float, y2: Float, w: Float) {
     drawLine(color, Offset(x1, y1), Offset(x2, y2), w, pathEffect = DASH)
+}
+
+/** 조회 십자선 색 — 매매 마커·현재값선과 구분되게 흐린 흰색. */
+private val CROSS = Color(0xCCEEF1F4)
+
+/**
+ * 길게 눌러 조회할 때 터치 x(px) → 봉 번호.
+ *
+ * ⚠️ 화면 쪽에서 0~1 로 환산해 넘기면 오른쪽 끝에서 반 칸 어긋난다(제스처는 plotW,
+ * 차트는 마지막 봉이 잘리지 않게 `barInset` 을 뺀 xw 를 쓰기 때문). 차트가 직접 역산한다.
+ */
+private fun inspectIdx(x: Float, xw: Float, n: Int, view: ChartView): Int =
+    ((((x - view.nx * xw) / view.sx) / xw) * (n - 1)).roundToInt().coerceIn(0, n - 1)
+
+/** 세로 십자선만 (지표 차트용) — 같은 날짜를 가격 차트와 나란히 읽으라고. */
+private fun DrawScope.inspectLine(x: Float, plotW: Float) {
+    if (x in 0f..plotW) dotline(CROSS, x, 0f, x, size.height, 1.2f)
+}
+
+/**
+ * 캔들 정보 상자 — 날짜 · 등락률 / 시·고 / 저·종.
+ *
+ * 손가락 반대쪽 위 구석에 붙인다(가리지 않게). 증권사 앱과 같은 배치.
+ */
+private fun DrawScope.ohlcBox(
+    onLeft: Boolean, date: String, o: Double, h: Double, l: Double, c: Double,
+    chgPct: Double, currency: String, plotW: Float,
+) {
+    val fs = AX_SIZE * 0.92f
+    val pctText = if (chgPct.isNaN()) "" else "${if (chgPct >= 0) "+" else ""}${"%.2f".format(chgPct)}%"
+    val rows = listOf(
+        date to pctText,
+        "시 $currency${priceFmt(o)}" to "고 $currency${priceFmt(h)}",
+        "저 $currency${priceFmt(l)}" to "종 $currency${priceFmt(c)}",
+    )
+    val meter = Paint().apply { textSize = fs }
+    val colW = rows.maxOf { meter.measureText(it.first) }
+    val col2W = rows.maxOf { meter.measureText(it.second) }
+    val pad = fs * 0.5f
+    val gap = fs * 0.8f
+    val w = pad * 2 + colW + gap + col2W
+    val lineH = fs * 1.35f
+    val boxH = pad * 2 + lineH * rows.size
+    val x0 = if (onLeft) 4f else (plotW - w - 4f).coerceAtLeast(0f)
+    drawRoundRect(Color(0xF01A1A1F), Offset(x0, 4f), Size(w, boxH), CornerRadius(7f, 7f))
+    drawRoundRect(Color(0x33FFFFFF), Offset(x0, 4f), Size(w, boxH), CornerRadius(7f, 7f),
+        style = Stroke(1f))
+    val chgArgb = (if (chgPct >= 0) Color(0xFFEF6066) else Color(0xFF5B9BF2)).toArgb()
+    rows.forEachIndexed { i, (a, b) ->
+        val ty = 4f + pad + lineH * (i + 0.78f)
+        label(a, x0 + pad, ty, if (i == 0) 0xFFADBAC7.toInt() else 0xFFE6EDF3.toInt(), fs)
+        label(b, x0 + pad + colW + gap, ty,
+            if (i == 0) chgArgb else 0xFFE6EDF3.toInt(), fs)
+    }
 }
 
 /** 원금선 색 — 평가금액(빨강)·예수금(파랑)·총자산(흰)과 겹치지 않는 금색. */
@@ -659,6 +744,7 @@ fun PriceChart(
     height: Dp = 110.dp,
     view: ChartView = ChartView(),
     zoomed: Boolean = false,
+    inspectX: Float? = null,
     modifier: Modifier = Modifier,
 ) {
     val n = priceDollar.size
@@ -688,6 +774,7 @@ fun PriceChart(
                 currentCross(xAt(ci), listOf(yAt(priceDollar[ci]) to MAGENTA), plotW)
             }
         }
+        inspectX?.let { inspectLine(xAt(inspectIdx(it, xw, n, view)), plotW) }
     }
 }
 
@@ -704,6 +791,7 @@ fun CandleChart(
     height: Dp = 110.dp,
     view: ChartView = ChartView(),
     zoomed: Boolean = false,
+    inspectX: Float? = null,      // 길게 누른 지점(px) — 십자선 + 시고저종 상자
     modifier: Modifier = Modifier,
 ) {
     val n = closes.size
@@ -767,6 +855,21 @@ fun CandleChart(
                 currentCross(xAt(ci), listOf(yAt(cur) to MAGENTA), plotW)
             }
         }
+        // 길게 눌러 조회 — 그 봉의 십자선 + 시고저종
+        val ins = inspectX?.let { inspectIdx(it, xw, n, view) }
+        if (ins != null && !closes[ins].isNaN() && !opens[ins].isNaN()) {
+            val cx = xAt(ins).coerceIn(0f, plotW)
+            val cy = yAt(closes[ins])
+            dotline(CROSS, cx, 0f, cx, size.height, 1.2f)
+            dotline(CROSS, 0f, cy, plotW, cy, 1.2f)
+            drawCircle(CROSS, 4.5f, Offset(cx, cy))
+            // 등락률은 전일 종가 대비. 첫 봉(또는 앞이 비었으면)은 그 봉의 시가 대비
+            val prev = (ins - 1 downTo 0).firstOrNull { !closes[it].isNaN() }
+            val base = if (prev != null) closes[prev] else opens[ins]
+            val chg = if (base > 0) (closes[ins] / base - 1) * 100 else Double.NaN
+            ohlcBox(cx > plotW / 2, dlbl(ins), opens[ins], highs[ins], lows[ins], closes[ins],
+                chg, currency, plotW)
+        }
     }
 }
 
@@ -775,7 +878,7 @@ fun CandleChart(
 fun ZmChart(zPct: DoubleArray, mPct: DoubleArray, markers: List<Mark> = emptyList(),
             topLabel: String = "", height: Dp = 90.dp,
             view: ChartView = ChartView(), zoomed: Boolean = false,
-            modifier: Modifier = Modifier) {
+            inspectX: Float? = null, modifier: Modifier = Modifier) {
     val n = zPct.size
     if (n < 2) return
     // x축만 확대/이동. y는 보이는 구간의 값에 맞춘다
@@ -813,6 +916,7 @@ fun ZmChart(zPct: DoubleArray, mPct: DoubleArray, markers: List<Mark> = emptyLis
             if (mi >= 0) lines.add(yAt(mPct[mi]) to Color(0xFFFFD24D))
             if (lines.isNotEmpty()) currentCross(xAt(maxOf(zi, mi)), lines, plotW)
         }
+        inspectX?.let { inspectLine(xAt(inspectIdx(it, xw, n, view)), plotW) }
     }
 }
 
@@ -872,7 +976,7 @@ fun ZmScatter(
 @Composable
 fun RsiChart(rsi: DoubleArray, topLabel: String = "", height: Dp = 90.dp,
              view: ChartView = ChartView(), zoomed: Boolean = false,
-             modifier: Modifier = Modifier) {
+             inspectX: Float? = null, modifier: Modifier = Modifier) {
     val n = rsi.size
     if (n < 2) return
     // x축만 확대/이동. y는 보이는 구간의 값에 맞춘다 (0~100 고정이면 데이터가 가운데 눌려 보인다)
@@ -904,6 +1008,7 @@ fun RsiChart(rsi: DoubleArray, topLabel: String = "", height: Dp = 90.dp,
                 currentCross(xAt(ci), listOf(yAt(rsi[ci]) to Color(0xFF37B6C4)), plotW)
             }
         }
+        inspectX?.let { inspectLine(xAt(inspectIdx(it, xw, n, view)), plotW) }
     }
 }
 
@@ -1215,7 +1320,7 @@ private fun amountText(v: Double, unit: String): String {
 @Composable
 fun MacdChart(macd: DoubleArray, signal: DoubleArray, topLabel: String = "", height: Dp = 90.dp,
               view: ChartView = ChartView(), zoomed: Boolean = false,
-              modifier: Modifier = Modifier) {
+              inspectX: Float? = null, modifier: Modifier = Modifier) {
     val n = macd.size
     if (n < 2) return
     // x축만 확대/이동. y는 보이는 구간의 최대 진폭에 맞춤 (0선이 가운데 오도록 대칭 유지)
@@ -1250,6 +1355,7 @@ fun MacdChart(macd: DoubleArray, signal: DoubleArray, topLabel: String = "", hei
             if (si >= 0) lines.add(yAt(signal[si]) to Color(0xFFC9C5BB))
             if (lines.isNotEmpty()) currentCross(xAt(maxOf(mi, si)), lines, plotW)
         }
+        inspectX?.let { inspectLine(xAt(inspectIdx(it, xw, n, view)), plotW) }
     }
 }
 

@@ -368,6 +368,8 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
     var zoom by remember(ticker) { mutableStateOf(-1) }
     // 확대 다이얼로그의 축 확대/이동 상태 — 차트를 바꾸면 원본 배율로 리셋
     var view by remember(ticker, zoom) { mutableStateOf(ChartView()) }
+    // 길게 누른 지점(px). 떼면 null — 십자선과 시고저종 상자가 사라진다
+    var insX by remember(ticker, zoom) { mutableStateOf<Float?>(null) }
     // 인덱스→확대 차트 렌더 (h=차트 높이, m=제스처 modifier). 0회귀 1Z·M궤적 2일봉 3Z·M 4MACD 5RSI
     val renderChart: @Composable (Int, androidx.compose.ui.unit.Dp, Modifier) -> Unit = { idx, h, m ->
         when (idx) {
@@ -378,15 +380,16 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
                 if (closes.any { !it.isNaN() })
                     CandleChart(opens, highs, lows, closes, segDollar(r.predicted), segDollar(r.bandUpper), segDollar(r.bandLower),
                         markers = priceMarks, currency = Tickers.currencySymbol(ticker), dates = dates,
-                        dailyChgPct = dayPct ?: Double.NaN, height = h, view = view, zoomed = true, modifier = m)
+                        dailyChgPct = dayPct ?: Double.NaN, height = h, view = view, zoomed = true,
+                        inspectX = insX, modifier = m)
                 else PriceChart(segDollar(r.tickerNorm), segDollar(r.predicted), segDollar(r.bandUpper), segDollar(r.bandLower),
                     markers = priceMarks, currency = Tickers.currencySymbol(ticker),
-                    height = h, view = view, zoomed = true, modifier = m)
+                    height = h, view = view, zoomed = true, inspectX = insX, modifier = m)
                 DateAxis(dates, view, zoomed = true)
             }
-            3 -> { ZmChart(seg(r.zPct), seg(r.mPct), zmMarks, height = h, view = view, zoomed = true, modifier = m); DateAxis(dates, view, zoomed = true) }
-            4 -> { MacdChart(macdW, sigW, height = h, view = view, zoomed = true, modifier = m); DateAxis(dates, view, zoomed = true) }
-            else -> { RsiChart(seg(r.rsi), height = h, view = view, zoomed = true, modifier = m); DateAxis(dates, view, zoomed = true) }
+            3 -> { ZmChart(seg(r.zPct), seg(r.mPct), zmMarks, height = h, view = view, zoomed = true, inspectX = insX, modifier = m); DateAxis(dates, view, zoomed = true) }
+            4 -> { MacdChart(macdW, sigW, height = h, view = view, zoomed = true, inspectX = insX, modifier = m); DateAxis(dates, view, zoomed = true) }
+            else -> { RsiChart(seg(r.rsi), height = h, view = view, zoomed = true, inspectX = insX, modifier = m); DateAxis(dates, view, zoomed = true) }
         }
     }
 
@@ -429,7 +432,8 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
         val body = (avail - chromeDp(120.dp)).coerceAtLeast(200.dp)
         val sh = (body / 2f).coerceAtLeast(100.dp)
         charts.total = sh * 2
-        val gest = Modifier.chartGestures(sView, { pushView(it) }, xOnly = true)
+        val gest = Modifier.chartGestures(sView, { pushView(it) }, xOnly = true,
+            onInspect = { insX = it })
 
         // 간격 없는 Column — 바깥 Column 의 spacedBy(8dp) 가 항목마다 붙으면
         // 제목줄·차트 사이가 벌어져 한 화면에 안 들어간다
@@ -441,22 +445,23 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
                         segDollar(r.predicted), segDollar(r.bandUpper), segDollar(r.bandLower),
                         markers = priceMarks, currency = Tickers.currencySymbol(ticker), topLabel = "",
                         dates = dates, dailyChgPct = dayPct ?: Double.NaN,
-                        height = sh, view = sView, zoomed = true, modifier = gest)
+                        height = sh, view = sView, zoomed = true, inspectX = insX, modifier = gest)
                 } else {
                     PriceChart(segDollar(r.tickerNorm), segDollar(r.predicted), segDollar(r.bandUpper),
                         segDollar(r.bandLower), markers = priceMarks,
                         currency = Tickers.currencySymbol(ticker),
-                        height = sh, view = sView, zoomed = true, modifier = gest)
+                        height = sh, view = sView, zoomed = true, inspectX = insX, modifier = gest)
                 }
 
                 SeriesHeader("Z·M", "Z${"%.0f".format(r.lastZpct)}·M${"%.0f".format(r.lastMpct)}", TextPrimary) { zoom = 3 }
-                ZmChart(seg(r.zPct), seg(r.mPct), zmMarks, height = sh, view = sView, zoomed = true, modifier = gest)
+                ZmChart(seg(r.zPct), seg(r.mPct), zmMarks, height = sh, view = sView, zoomed = true,
+                    inspectX = insX, modifier = gest)
             } else {
                 SeriesHeader("MACD", "${"%.2f".format(macdLast)}(${"%+.2f".format(macdLast - sigLast)})", TextPrimary) { zoom = 4 }
-                MacdChart(macdW, sigW, height = sh, view = sView, zoomed = true, modifier = gest)
+                MacdChart(macdW, sigW, height = sh, view = sView, zoomed = true, inspectX = insX, modifier = gest)
 
                 SeriesHeader("RSI", "%.1f".format(rsiLast), Teal) { zoom = 5 }
-                RsiChart(seg(r.rsi), height = sh, view = sView, zoomed = true, modifier = gest)
+                RsiChart(seg(r.rsi), height = sh, view = sView, zoomed = true, inspectX = insX, modifier = gest)
             }
 
             DateAxis(dates, sView, zoomed = true)
@@ -505,7 +510,8 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
                     Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
                         Column(Modifier.fillMaxWidth()) {
                             renderChart(zoom, if (zoom <= 1) 420.dp else 340.dp,
-                                Modifier.chartGestures(view, { view = it }, onTap = { zoom = -1 }, xOnly = xOnly))
+                                Modifier.chartGestures(view, { view = it }, onTap = { zoom = -1 }, xOnly = xOnly,
+                                    onInspect = { insX = it }))
                         }
                     }
                     Text(
