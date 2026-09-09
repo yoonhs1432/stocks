@@ -26,6 +26,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -114,7 +115,9 @@ fun CompareScreen(vm: CompareViewModel = viewModel(), onOpenAnalysis: (String) -
                                     modifier = Modifier.padding(12.dp))
                             }
                             rows.forEachIndexed { idx, r ->
-                                QuoteRow(vm, r, onOpenAnalysis)
+                                // key 가 없으면 상태(체결 플래시)가 종목이 아니라 **위치**에
+                                // 묶여, 등락률 정렬이 바뀔 때 다른 종목 행에 색이 옮겨붙는다
+                                key(r.ticker) { QuoteRow(vm, r, onOpenAnalysis) }
                                 if (idx < rows.lastIndex)
                                     Box(Modifier.fillMaxWidth().height(1.dp).background(BorderColor))
                             }
@@ -261,8 +264,12 @@ private fun QuoteRow(vm: CompareViewModel, r: CompareRow, onOpenAnalysis: (Strin
     // 가격이 바뀐 틱에서만 배경을 깔았다 지운다
     val flash = remember { Animatable(0f) }
     val seq = LivePrices.tickSeq
+    // ⚠️ 매 틱마다 이 효과가 **재시작**되며 진행 중이던 animateTo 가 취소된다. 예전에는
+    // 그 종목이 안 바뀐 틱이면 아무것도 안 하고 끝나서 flash 가 중간값(예: 0.5)에 얼어붙어
+    // 배경색이 지워지지 않았다(탭을 나갔다 와야 사라짐). 그래서 **항상** 0으로 내린다.
     LaunchedEffect(seq) {
-        if (r.ticker in LivePrices.changed) { flash.snapTo(1f); flash.animateTo(0f, tween(600)) }
+        if (r.ticker in LivePrices.changed) flash.snapTo(1f)
+        flash.animateTo(0f, tween(600))   // 이미 0이면 즉시 끝난다
     }
     val flashBg = (if (day >= 0) Profit else Loss).copy(alpha = 0.22f * flash.value)
     val alpha = if (stale) 0.45f else 1f

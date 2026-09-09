@@ -122,6 +122,7 @@ object Snapshots {
         val eval: DoubleArray,   // 평가금액 (원화 환산)
         val cash: DoubleArray,   // 예수금 (원화 환산)
         val total: DoubleArray,  // 총자산 = 평가 + 예수금
+        val rate: DoubleArray,   // 그날 환율 — 원금선을 같은 기준으로 환산할 때 쓴다
     )
 
     /**
@@ -136,12 +137,16 @@ object Snapshots {
             DoubleArray(l.size) { conv(l[it].evalKrw(), l[it].rate) },
             DoubleArray(l.size) { conv(l[it].cashKrw(), l[it].rate) },
             DoubleArray(l.size) { conv(l[it].totalKrw(), l[it].rate) },
+            DoubleArray(l.size) { l[it].rate },
         )
     }
 
     /** 평가손익 시계열. 손익이 기록된 날만 — 옛 스냅샷에는 없다. */
     fun pnls(usd: Boolean = false): List<Pair<String, Double>> =
         load().filter { it.hasPnl }.map { it.date to (if (usd) it.pnlKrw() / it.rate else it.pnlKrw()) }
+
+    /** [pnls] 와 같은 날짜들의 환율 — 원금선을 그날 환율로 환산할 때 쓴다. */
+    fun pnlRates(): DoubleArray = load().filter { it.hasPnl }.map { it.rate }.toDoubleArray()
 
     fun clear() { Store.fileIn(FILE)?.delete() }
 }

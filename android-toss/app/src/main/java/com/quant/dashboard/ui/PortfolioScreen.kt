@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -36,6 +35,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.quant.dashboard.data.BrokerCreds
+import com.quant.dashboard.data.Deposits
 import com.quant.dashboard.data.LivePrices
 import com.quant.dashboard.data.Snapshots
 import com.quant.dashboard.data.Store
@@ -186,16 +186,11 @@ private fun TossBody(a: TossSync.Account, usdMode: Boolean, onOpenAnalysis: (Str
         fun krwOf(h: com.quant.dashboard.data.TossApi.Holding) = m.krwOf(h.evalAmount, h.currency)
         val items = remember(a) { a.holdings.items.sortedByDescending { krwOf(it) } }
 
-        // 보유 비중 100% 스택바
+        // 보유 비중 파이 — 아래 목록의 색 점이 그대로 범례
         val evalSum = items.sumOf { krwOf(it) }
         if (evalSum > 0 && items.isNotEmpty()) {
-            Spacer(Modifier.height(10.dp))
-            Row(Modifier.fillMaxWidth().height(10.dp).clip(RoundedCornerShape(5.dp))) {
-                items.forEachIndexed { i, h ->
-                    Box(Modifier.weight((krwOf(h) / evalSum).toFloat().coerceAtLeast(0.001f))
-                        .fillMaxHeight().background(ident(i)))
-                }
-            }
+            Spacer(Modifier.height(8.dp))
+            WeightPie(items.map { krwOf(it) / evalSum }, items.indices.map { ident(it) })
         }
 
         // 보유 목록 — 행 탭 시 분석 이동
@@ -209,7 +204,7 @@ private fun TossBody(a: TossSync.Account, usdMode: Boolean, onOpenAnalysis: (Str
             // 증권사 앱처럼 딱 2줄 — 1줄: 이름 · 평가금액 / 2줄: 수량 · 손익 | 수익률
             // (평가금액을 오른쪽 Column 에 세로로 쌓았더니 3줄이 되어 행이 73dp 까지 커졌었다)
             Column(
-                Modifier.fillMaxWidth().clickable { onOpenAnalysis(h.symbol) }.padding(top = 9.dp),
+                Modifier.fillMaxWidth().clickable { onOpenAnalysis(h.symbol) }.padding(top = 6.dp),
             ) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.size(8.dp).clip(RoundedCornerShape(50)).background(ident(i)))
@@ -228,7 +223,7 @@ private fun TossBody(a: TossSync.Account, usdMode: Boolean, onOpenAnalysis: (Str
                     Text(signPct(rate2), color = pc(rate2), fontSize = 13.sp,
                         fontWeight = FontWeight.SemiBold, fontFamily = Mono, maxLines = 1)
                 }
-                HDivider(Modifier.padding(top = 9.dp))
+                HDivider(Modifier.padding(top = 6.dp))
             }
         }
     }
@@ -239,6 +234,13 @@ private fun TossBody(a: TossSync.Account, usdMode: Boolean, onOpenAnalysis: (Str
     // 매매기록이 불완전하면 값이 어긋나서 걷어냈다.
     val sr = remember(AppState.dataVersion, usdMode) { Snapshots.series(usdMode) }
     val pnlSeries = remember(AppState.dataVersion, usdMode) { Snapshots.pnls(usdMode) }
+    // 원금 = 설정에 적어 둔 입금 누적. 기록이 없으면 전부 NaN 이라 선도 수익률도 안 나온다
+    val principal = remember(AppState.dataVersion, usdMode) {
+        Deposits.seriesFor(sr.dates, usdMode, sr.rate)
+    }
+    val pnlPrincipal = remember(AppState.dataVersion, usdMode) {
+        Deposits.seriesFor(pnlSeries.map { it.first }, usdMode, Snapshots.pnlRates())
+    }
     // 원화는 만원 단위로 접어야 축이 읽힌다. 달러는 그대로
     val div = if (usdMode) 1.0 else 10000.0
     val unit = if (usdMode) "$" else "만원"
@@ -253,6 +255,7 @@ private fun TossBody(a: TossSync.Account, usdMode: Boolean, onOpenAnalysis: (Str
                 eval = DoubleArray(sr.eval.size) { sr.eval[it] / div },
                 cash = DoubleArray(sr.cash.size) { sr.cash[it] / div },
                 unit = unit, labels = sr.dates,
+                principal = DoubleArray(principal.size) { principal[it] / div },
             )
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text(sr.dates.first(), color = TextSecondary, fontSize = 10.sp)
@@ -273,6 +276,7 @@ private fun TossBody(a: TossSync.Account, usdMode: Boolean, onOpenAnalysis: (Str
                 pnlSeries.map { it.second / div }.toDoubleArray(),
                 unit = unit, labels = pnlSeries.map { it.first },
                 baseZero = true,   // 손익은 0선이 기준
+                pctBase = DoubleArray(pnlPrincipal.size) { pnlPrincipal[it] / div },
             )
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text(pnlSeries.first().first, color = TextSecondary, fontSize = 10.sp)

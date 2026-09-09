@@ -275,6 +275,21 @@ private fun DrawScope.dline(color: Color, x1: Float, y1: Float, x2: Float, y2: F
     drawLine(color, Offset(x1, y1), Offset(x2, y2), w, pathEffect = DASH)
 }
 
+/** 원금선 색 — 평가금액(빨강)·예수금(파랑)·총자산(흰)과 겹치지 않는 금색. */
+private val PRINCIPAL = Color(0xFFE0A24A)
+
+/** 꺾은선을 점선으로. [poly] 와 같되 NaN 구간은 끊는다. */
+private fun DrawScope.dashPoly(data: DoubleArray, xAt: (Int) -> Float, yAt: (Double) -> Float,
+                               color: Color, stroke: Float) {
+    var prev = -1
+    for (i in data.indices) {
+        if (data[i].isNaN()) { prev = -1; continue }
+        if (prev >= 0) drawLine(color, Offset(xAt(prev), yAt(data[prev])),
+            Offset(xAt(i), yAt(data[i])), stroke, pathEffect = DASH)
+        prev = i
+    }
+}
+
 private val DOT = PathEffect.dashPathEffect(floatArrayOf(2f, 5f))
 
 /** 촘촘한 점선(dot, app.py dash='dot'). */
@@ -899,6 +914,7 @@ fun EquityChart(
     unit: String = "$",
     labels: List<String> = emptyList(),   // 각 점의 날짜 라벨 (탭했을 때 표시)
     baseZero: Boolean = false,            // 누적손익처럼 0이 기준선인 계열
+    pctBase: DoubleArray? = null,         // 날짜별 원금 — 주면 수익률을 원금 대비로 낸다
     height: Dp = 190.dp,
     modifier: Modifier = Modifier,
 ) {
@@ -926,7 +942,10 @@ fun EquityChart(
     // 선택 중이면 "현재 대비", 아니면 "표시 구간 시작 대비"
     val refIdx = if (selIdx >= 0) curIdx else base
     val diff = values[shown] - values[refIdx]
-    val diffPct = if (values[refIdx] != 0.0) diff / abs(values[refIdx]) * 100 else Double.NaN
+    // 예전엔 "구간 첫 손익 대비" 증가율을 %로 냈는데, 시작값이 0에 가까우면 +575% 같은
+    // 수익률로 읽히는 숫자가 나왔다. 원금 기록이 있을 때만 **원금 대비 수익률**을 보여준다.
+    val base0 = pctBase?.takeIf { it.size == n }?.getOrNull(shown)?.takeIf { !it.isNaN() && it != 0.0 }
+    val roi = if (base0 != null) values[shown] / base0 * 100 else Double.NaN
 
     Column(modifier.fillMaxWidth()) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
@@ -947,10 +966,16 @@ fun EquityChart(
                 )
                 val col = if (diff >= 0) Profit else Loss   // 한국식: 상승 빨강 / 하락 파랑
                 androidx.compose.material3.Text(
-                    (if (diff >= 0) "+" else "") + amountText(diff, unit) +
-                        (if (diffPct.isNaN()) "" else "  (${if (diff >= 0) "+" else ""}${"%.1f".format(diffPct)}%)"),
+                    (if (diff >= 0) "+" else "") + amountText(diff, unit),
                     color = col, fontSize = 13.sp, fontWeight = FontWeight.Bold, fontFamily = Mono,
                 )
+                if (!roi.isNaN()) {
+                    androidx.compose.material3.Text(
+                        "원금 대비 ${if (roi >= 0) "+" else ""}${"%.2f".format(roi)}%",
+                        color = if (roi >= 0) Profit else Loss, fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold, fontFamily = Mono,
+                    )
+                }
             }
             if (!view.isIdentity || selIdx >= 0) {
                 androidx.compose.material3.Text(
@@ -1014,17 +1039,21 @@ fun AssetStackChart(
     cash: DoubleArray,          // 예수금 (원화 환산)
     unit: String = "만원",
     labels: List<String> = emptyList(),
+    principal: DoubleArray? = null,   // 날짜별 누적 원금 (입금 기록이 있을 때만)
     height: Dp = 190.dp,
     modifier: Modifier = Modifier,
 ) {
     val n = eval.size
     if (n < 2 || cash.size != n) return
+    val prin = principal?.takeIf { it.size == n }
     var view by remember(n) { mutableStateOf(ChartView()) }
     var sel by remember(n) { mutableStateOf(-1) }
 
     val total = DoubleArray(n) { eval[it] + cash[it] }
     val (i0, i1) = visibleRange(n, view)
-    val hiRaw = total.maxNaN(i0, i1)
+    // 원금이 총자산보다 큰 구간(손실)에서도 원금선이 잘리지 않게 같이 본다
+    val prinHi = prin?.maxNaN(i0, i1) ?: Double.NaN
+    val hiRaw = if (prinHi.isNaN()) total.maxNaN(i0, i1) else max(total.maxNaN(i0, i1), prinHi)
     if (hiRaw.isNaN()) return
     val lo = 0.0
     val hi = hiRaw * 1.06 + 1e-9
@@ -1044,10 +1073,22 @@ fun AssetStackChart(
                     amountText(total[shown], unit), color = TextPrimary,
                     fontSize = 21.sp, fontWeight = FontWeight.Bold, fontFamily = Mono,
                 )
+                // 총손익 = 총자산 − 원금. 실현손익·배당·수수료까지 다 들어간 실제 수익이다
+                val p0 = prin?.getOrNull(shown)?.takeIf { !it.isNaN() && it != 0.0 }
+                if (p0 != null) {
+                    val gain = total[shown] - p0
+                    androidx.compose.material3.Text(
+                        "원금 ${amountText(p0, unit)} · ${if (gain >= 0) "+" else ""}" +
+                            "${amountText(gain, unit)} (${if (gain >= 0) "+" else ""}${"%.2f".format(gain / p0 * 100)}%)",
+                        color = if (gain >= 0) Profit else Loss, fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold, fontFamily = Mono,
+                    )
+                }
             }
             Column(horizontalAlignment = Alignment.End) {
                 LegendDot("평가금액", Color(0xFFEF6066), amountText(eval[shown], unit))
                 LegendDot("예수금", Color(0xFF4F9EE8), amountText(cash[shown], unit))
+                if (prin != null) LegendDot("원금", PRINCIPAL, amountText(prin[shown], unit))
             }
             if (!view.isIdentity || selIdx >= 0) {
                 androidx.compose.material3.Text(
@@ -1086,6 +1127,8 @@ fun AssetStackChart(
                 stack({ eval[it] }, { total[it] }, Color(0x594F9EE8))
                 poly(eval, ::xAt, ::yAt, Color(0xFFEF6066), 1.6f)
                 poly(total, ::xAt, ::yAt, Color(0xFFEEF1F4), 2.4f)   // 윗면 = 총자산
+                // 원금 — 입금일마다 계단으로 오른다. 총자산선과의 간격이 곧 총손익
+                if (prin != null) dashPoly(prin, ::xAt, ::yAt, PRINCIPAL, 2f)
             }
             val yCur = yAt(total[curIdx])
             dline(Color(0x99EEF1F4), 0f, yCur, plotW, yCur, 1.2f)
@@ -1094,6 +1137,48 @@ fun AssetStackChart(
                 val cx = xAt(selIdx).coerceIn(0f, plotW)
                 dotline(MAGENTA, cx, 0f, cx, size.height, 1.2f)
                 currentMarker(cx, yAt(total[selIdx]), 12f)
+            }
+        }
+    }
+}
+
+/**
+ * 보유 비중 파이 — 금액 내림차순으로 12시 방향부터 시계 방향.
+ *
+ * 예전엔 100% 가로 스택바였는데 조각이 얇아 비중이 안 읽혔다. 색은 목록의 색 점과 같은
+ * 팔레트라 **아래 보유 목록이 그대로 범례**가 된다(별도 범례를 두지 않는 이유).
+ *
+ * @param weights 각 조각의 비중(합 1.0). 내림차순 정렬된 상태로 넘긴다
+ */
+@Composable
+fun WeightPie(weights: List<Double>, colors: List<Color>, diameter: Dp = 150.dp) {
+    if (weights.isEmpty() || colors.isEmpty()) return
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+        Canvas(Modifier.size(diameter)) {
+            val d = size.minDimension
+            val topLeft = Offset((size.width - d) / 2f, (size.height - d) / 2f)
+            val gap = 1.5f          // 조각 사이 틈 — 어두운 배경에서 경계가 보이게
+            var start = -90f
+            weights.forEachIndexed { i, w ->
+                val full = (w * 360.0).toFloat()
+                val sweep = full - gap
+                if (sweep > 0.3f) {
+                    drawArc(colors[i % colors.size], start + gap / 2, sweep, useCenter = true,
+                        topLeft = topLeft, size = Size(d, d))
+                    // 좁은 조각에 숫자를 넣으면 서로 겹친다 → 8% 이상만
+                    if (w >= 0.08) {
+                        val mid = Math.toRadians((start + full / 2).toDouble())
+                        val fs = d * 0.075f
+                        val px = center.x + (d * 0.31f * cos(mid)).toFloat()
+                        val py = center.y + (d * 0.31f * sin(mid)).toFloat() + fs * 0.36f
+                        val paint = Paint().apply {
+                            color = 0xFFFFFFFF.toInt(); textSize = fs
+                            textAlign = Paint.Align.CENTER; isAntiAlias = true; isFakeBoldText = true
+                        }
+                        drawContext.canvas.nativeCanvas.drawText("%.0f%%".format(w * 100), px, py, paint)
+                    }
+                }
+                start += full
             }
         }
     }

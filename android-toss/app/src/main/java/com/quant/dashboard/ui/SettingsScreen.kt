@@ -40,6 +40,9 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.unit.Dp
+import com.quant.dashboard.data.Deposits
+import java.time.LocalDate
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.quant.dashboard.data.BrokerCreds
@@ -61,6 +64,41 @@ import com.quant.dashboard.ui.theme.TextSecondary
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+/** 컴팩트 입력칸 — M3 OutlinedTextField 는 56dp 라 행이 커진다. */
+@Composable
+private fun NumBox(value: String, onValue: (String) -> Unit, width: Dp,
+                   modifier: Modifier = Modifier, hint: String = "",
+                   keyboard: KeyboardType = KeyboardType.Number) {
+    Box(
+        (if (width > 0.dp) modifier.width(width) else modifier)
+            .height(40.dp).clip(RoundedCornerShape(10.dp)).background(SurfaceInput),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (value.isEmpty() && hint.isNotEmpty()) {
+            Text(hint, color = TextMuted, fontSize = 14.sp)
+        }
+        BasicTextField(
+            value, onValue, singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = keyboard),
+            textStyle = TextStyle(color = TextPrimary, fontSize = 15.sp, fontFamily = Mono,
+                fontWeight = FontWeight.Bold, textAlign = TextAlign.Center),
+            cursorBrush = SolidColor(Accent),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp),
+        )
+    }
+}
+
+/** "2026-09-09" 또는 "20260909" → "2026-09-09". 형식이 아니면 null. */
+private fun normDate(s: String): String? {
+    val d = s.filter { it.isDigit() }
+    if (d.length != 8) return null
+    val m = d.substring(4, 6).toInt(); val day = d.substring(6, 8).toInt()
+    if (m !in 1..12 || day !in 1..31) return null
+    return "${d.substring(0, 4)}-${d.substring(4, 6)}-${d.substring(6, 8)}"
+}
+
+private fun won(v: Double): String = "%,.0f원".format(v)
 
 @Composable
 private fun Label(text: String) = Text(text, color = TextSecondary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
@@ -84,21 +122,7 @@ fun SettingsScreen() {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Label("분석 기간")
                 Spacer(Modifier.weight(1f))
-                // M3 OutlinedTextField 는 56dp 라 행이 커진다 → 40dp 컴팩트 입력칸
-                Box(
-                    Modifier.width(60.dp).height(40.dp).clip(RoundedCornerShape(10.dp)).background(SurfaceInput),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    BasicTextField(
-                        rangeText, { rangeText = it.filter { c -> c.isDigit() }.take(2) },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        textStyle = TextStyle(color = TextPrimary, fontSize = 15.sp, fontFamily = Mono,
-                            fontWeight = FontWeight.Bold, textAlign = TextAlign.Center),
-                        cursorBrush = SolidColor(Accent),
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp),
-                    )
-                }
+                NumBox(rangeText, { rangeText = it.filter { c -> c.isDigit() }.take(2) }, 60.dp)
                 Text("개월", color = TextSecondary, fontSize = 13.sp)
                 GhostButton("적용", color = Accent) {
                     val m = rangeText.toIntOrNull()?.coerceIn(3, Store.MAX_MONTHS) ?: Store.lookbackMonths()
@@ -211,6 +235,54 @@ fun SettingsScreen() {
                     Text("일봉 다시 받기", color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
                         modifier = Modifier.weight(1f))
                     Text("›", color = TextSecondary, fontSize = 16.sp)
+                }
+            }
+        }
+
+        // ══════════ 원금 ══════════
+        //
+        // 토스 API 에 입출금 내역이 없어 앱이 원금을 알 방법이 없다. 여기 적어 둔 값이
+        // 포트폴리오 탭 자산 그래프의 원금선과 수익률 기준이 된다.
+        SectionLabel("원금")
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            var deps by remember { mutableStateOf(Deposits.load()) }
+            var dpDate by remember { mutableStateOf(LocalDate.now().toString()) }
+            var dpAmt by remember { mutableStateOf("") }
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Label("입금 합계")
+                Spacer(Modifier.weight(1f))
+                Text(won(deps.sumOf { it.krw }), color = TextPrimary, fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold, fontFamily = Mono)
+            }
+            Row(verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                // 숫자 키패드에는 '-' 가 없는 기기가 있어 전화 키패드를 쓴다(출금 = 음수 입력)
+                NumBox(dpDate, { dpDate = it.filter { c -> c.isDigit() || c == '-' }.take(10) },
+                    108.dp, keyboard = KeyboardType.Phone)
+                NumBox(dpAmt, { dpAmt = it.filter { c -> c.isDigit() || c == '-' }.take(12) },
+                    0.dp, Modifier.weight(1f), "금액", KeyboardType.Phone)
+                GhostButton("추가", color = Accent) {
+                    val d = normDate(dpDate)
+                    val v = dpAmt.toDoubleOrNull()
+                    if (d != null && v != null && v != 0.0) {
+                        Deposits.add(d, v)
+                        deps = Deposits.load(); dpAmt = ""; AppState.bump()
+                    }
+                }
+            }
+            // 출금은 금액에 - 를 붙인다
+            deps.forEachIndexed { i, d ->
+                ListRow(minHeight = 38.dp) {
+                    Text(d.date, color = TextSecondary, fontSize = 13.sp, fontFamily = Mono)
+                    Text((if (d.krw >= 0) "+" else "") + won(d.krw),
+                        color = if (d.krw >= 0) TextPrimary else Loss, fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold, fontFamily = Mono,
+                        modifier = Modifier.weight(1f), textAlign = TextAlign.End)
+                    Text("삭제", color = TextSecondary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.clickable {
+                            Deposits.removeAt(i); deps = Deposits.load(); AppState.bump()
+                        }.padding(horizontal = 4.dp, vertical = 6.dp))
                 }
             }
         }
