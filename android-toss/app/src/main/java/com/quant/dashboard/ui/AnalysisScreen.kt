@@ -596,8 +596,6 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
     }   // 측정 Column 끝
 }
 
-/** 시계열 스택용 얇은 제목줄 — 카드 테두리 없이 제목·값·확대(⤢)만. 세로 공간을 아낀다. */
-@Composable
 /** 가격 차트 헤더 — 제목 자리에 봉 주기 세그먼트(일봉/1분). 우측은 현재가 + 확대. */
 @Composable
 private fun BarHeader(bar: String, onBar: (String) -> Unit, value: String, onZoom: () -> Unit) {
@@ -613,6 +611,7 @@ private fun BarHeader(bar: String, onBar: (String) -> Unit, value: String, onZoo
     }
 }
 
+/** 시계열 스택용 얇은 제목줄 — 카드 테두리 없이 제목·값·확대(⤢)만. 세로 공간을 아낀다. */
 @Composable
 private fun SeriesHeader(title: String, value: String, valueColor: Color, onZoom: () -> Unit) {
     Row(
