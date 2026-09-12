@@ -181,6 +181,22 @@ object Quant {
     }
 
     /** ewm adjust=false: out[0]=x[0], out[i]=a*x[i]+(1-a)*out[i-1]. */
+    /**
+     * 종가 배열만으로 MACD·Signal — **봉 주기와 무관**하게 쓸 수 있다(1분봉 모드에서 재계산).
+     *
+     * 일봉 분석([analyze])은 SPY 와 날짜 교집합을 맞춘 뒤 계산하지만, MACD·RSI 는
+     * 그 종목 종가만 있으면 되는 값이라 이렇게 따로 낼 수 있다. Z·M·회귀는 그렇지 않다.
+     */
+    fun macdOf(close: DoubleArray): Pair<DoubleArray, DoubleArray> {
+        val e12 = ema(close, 12)
+        val e26 = ema(close, 26)
+        val macd = DoubleArray(close.size) { e12[it] - e26[it] }
+        return macd to ema(macd, 9)
+    }
+
+    /** 종가 배열만으로 RSI(14). [macdOf] 와 같은 이유로 봉 주기와 무관. */
+    fun rsiOf(close: DoubleArray): DoubleArray = computeRsi(close)
+
     private fun ewm(x: DoubleArray, alpha: Double): DoubleArray {
         val out = DoubleArray(x.size)
         if (x.isEmpty()) return out

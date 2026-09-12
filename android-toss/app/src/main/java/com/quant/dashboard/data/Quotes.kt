@@ -47,7 +47,47 @@ object Quotes {
     private const val TTL = 6 * 3600_000L
 
     /** 받아 둔 일봉을 모두 버린다 (조회기간을 늘렸거나 손으로 다시 받을 때). */
-    fun clearCache() { cache.clear(); todayCache.clear() }
+    fun clearCache() { cache.clear(); todayCache.clear(); minCache.clear() }
+
+    // ── 1분봉 (분석 탭 전용) ──
+    // 토스가 받아 주는 주기는 1d 와 1m 뿐이다. 1분봉은 계속 바뀌므로 캐시를 짧게 두되,
+    // **분석 탭에서 그 종목을 볼 때만** 받는다(비교 탭 20종목이 이걸 같이 받으면 429 가 난다).
+    private class Minutes(val at: Long, val bars: List<Candle>)
+
+    private val minCache = java.util.concurrent.ConcurrentHashMap<String, Minutes>()
+    private const val MIN_TTL = 60_000L
+
+    /** 미국 정규장 하루 = 390분. 요청당 200봉이라 2페이지. */
+    const val MINUTE_BARS = 390
+
+    /**
+     * 1분봉. 장 마감 뒤에는 마지막 세션의 봉이 그대로 온다. 실패하면 빈 리스트.
+     */
+    fun minuteOhlc(symbol: String, count: Int = MINUTE_BARS, force: Boolean = false): List<Candle> {
+        val c = minCache[symbol]
+        if (!force && c != null && System.currentTimeMillis() - c.at < MIN_TTL) return c.bars
+        if (!BrokerCreds.isLinked()) return emptyList()
+
+        var out: List<Candle> = emptyList()
+        chartGate.acquire()
+        try {
+            var attempt = 0
+            while (attempt < 3) {
+                try {
+                    out = TossApi.ohlc(symbol, "1m", count, adjusted = false); break
+                } catch (e: TossException) {
+                    if (e.http == 429) { Thread.sleep(1200L * (attempt + 1)); attempt++ } else break
+                } catch (e: Exception) {
+                    break
+                }
+            }
+        } finally {
+            chartGate.release()
+        }
+        if (out.size < 2) return c?.bars ?: emptyList()   // 실패하면 직전 것을 계속 보여준다
+        minCache[symbol] = Minutes(System.currentTimeMillis(), out)
+        return out
+    }
 
     // ── 당일 캔들 (비교 탭 미니 캔들용) ──
     // 분석용 일봉은 2년치라 종목당 3페이지 + 6시간 캐시다. 장중에 그걸 자주 받으면

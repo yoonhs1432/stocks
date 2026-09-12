@@ -330,14 +330,21 @@ object TossApi {
      *
      * @param count 필요한 봉 수 (2년 ≈ 500 거래일 → 3페이지)
      */
-    fun dailyOhlc(symbol: String, count: Int = 520, adjusted: Boolean = true): List<Candle> {
+    fun dailyOhlc(symbol: String, count: Int = 520, adjusted: Boolean = true): List<Candle> =
+        ohlc(symbol, "1d", count, adjusted)
+
+    /**
+     * 같은 엔드포인트의 봉 주기 일반화. **서버가 받아 주는 주기는 `1d` 와 `1m` 뿐이다**
+     * (2026-09 `probeInterval` 로 전수 확인 — 5m·1h·4h·1w 는 전부 거절).
+     */
+    fun ohlc(symbol: String, interval: String, count: Int, adjusted: Boolean = true): List<Candle> {
         val out = ArrayList<Candle>(count)
         var before: String? = null
         var guard = 0
         while (out.size < count && guard < 10) {
             val q = ArrayList<Pair<String, String>>()
             q.add("symbol" to symbol)
-            q.add("interval" to "1d")
+            q.add("interval" to interval)
             q.add("count" to minOf(200, count - out.size).coerceAtLeast(1).toString())
             q.add("adjusted" to adjusted.toString())
             // '+' 는 URLEncoder 가 %2B 로 인코딩해 주므로 그대로 전달한다

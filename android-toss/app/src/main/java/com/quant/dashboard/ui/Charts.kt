@@ -1465,6 +1465,7 @@ fun DateAxis(
     datesEpochSec: LongArray,
     view: ChartView = ChartView(),
     zoomed: Boolean = false,
+    timeOfDay: Boolean = false,   // 1분봉이면 날짜 대신 시:분
     modifier: Modifier = Modifier,
 ) {
     val n = datesEpochSec.size
@@ -1473,7 +1474,14 @@ fun DateAxis(
     val i0 = ((n - 1) * u0).roundToInt().coerceIn(0, n - 1)
     val i1 = ((n - 1) * u1).roundToInt().coerceIn(i0, n - 1)
     // 확대 배율이 크면 yy/MM만으로는 구분이 안 되므로 일자까지
-    val fmt = SimpleDateFormat(if (view.sx >= 3f) "yy/MM/dd" else "yy/MM", Locale.US)
+    val fmt = SimpleDateFormat(
+        when {
+            timeOfDay -> "HH:mm"
+            view.sx >= 3f -> "yy/MM/dd"
+            else -> "yy/MM"
+        },
+        Locale.US,
+    )
     fun d(i: Int) = fmt.format(Date(datesEpochSec[i] * 1000L))
     val ticks = if (zoomed) 5 else 3
     Row(

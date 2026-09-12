@@ -254,6 +254,13 @@ object Store {
     fun chartGroup(): String = settings().optString("chart_group", "series")
     fun setChartGroup(v: String) { saveSettings(settings().put("chart_group", v)) }
 
+    /**
+     * 분석 탭 시계열의 봉 주기: "1d" | "1m". 토스가 받아 주는 주기는 이 둘뿐이다.
+     * 1분 모드에서는 Z·M 을 숨긴다 — 일봉 회귀로 만든 값이라 분봉에 의미가 없다.
+     */
+    fun barMode(): String = settings().optString("bar_mode", "1d")
+    fun setBarMode(v: String) { saveSettings(settings().put("bar_mode", v)) }
+
     /** 비교 탭에서 보고 있는 시장: "US" | "KR". 한 번에 한쪽만 보여준다. */
     fun compareMarket(): String = settings().optString("compare_market", "US")
     fun setCompareMarket(v: String) { saveSettings(settings().put("compare_market", v)) }

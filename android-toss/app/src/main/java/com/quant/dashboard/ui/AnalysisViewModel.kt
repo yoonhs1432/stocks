@@ -22,6 +22,9 @@ data class UiState(
     val error: String? = null,
     val result: Quant.Result? = null,
     val ohlc: List<Candle> = emptyList(),
+    /** 1분봉 — 봉 주기를 1분으로 놓았을 때만 받는다(일봉 분석과 완전히 별개). */
+    val minutes: List<Candle> = emptyList(),
+    val minLoading: Boolean = false,
 )
 
 class AnalysisViewModel : ViewModel() {
@@ -64,7 +67,8 @@ class AnalysisViewModel : ViewModel() {
     fun select(ticker: String) {
         // 종목이 바뀌면 이전 종목 결과를 즉시 비움 — 로드 중 이전 종목 차트가 남아 보이는 문제 방지
         if (ticker != state.ticker) {
-            state = state.copy(ticker = ticker, result = null, ohlc = emptyList(), error = null)
+            state = state.copy(ticker = ticker, result = null, ohlc = emptyList(),
+                minutes = emptyList(), error = null)
         }
         load(ticker)
     }
@@ -86,6 +90,23 @@ class AnalysisViewModel : ViewModel() {
         spyCache = emptyList()
         load(force = true)
         loadOverview(force = true)
+        if (state.minutes.isNotEmpty()) loadMinutes(force = true)
+    }
+
+    private var minJob: Job? = null
+
+    /**
+     * 1분봉 로드 — 분석 탭에서 봉 주기를 1분으로 놨을 때만 부른다.
+     * 비교 탭처럼 여러 종목을 한꺼번에 받으면 429 가 나므로 **보고 있는 종목만** 받는다.
+     */
+    fun loadMinutes(ticker: String = state.ticker, force: Boolean = false) {
+        minJob?.cancel()
+        minJob = viewModelScope.launch {
+            state = state.copy(minLoading = true)
+            val bars = withContext(Dispatchers.IO) { Quotes.minuteOhlc(ticker, force = force) }
+            if (ticker != state.ticker) return@launch   // 그 사이 종목이 바뀌었으면 버린다
+            state = state.copy(minutes = bars, minLoading = false)
+        }
     }
 
     fun load(ticker: String = state.ticker, quiet: Boolean = false, force: Boolean = false) {

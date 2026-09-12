@@ -143,7 +143,8 @@ fun AnalysisScreen(vm: AnalysisViewModel = viewModel(), onBack: () -> Unit = {})
                             .padding(horizontal = 8.dp, vertical = BODY_PAD),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        ResultView(s.result, s.ticker, s.ohlc, ov[s.ticker]?.day, group, avail)
+                        ResultView(s.result, s.ticker, s.ohlc, ov[s.ticker]?.day, group, avail,
+                            s.minutes) { vm.loadMinutes() }
                     }
                 }
                 s.loading -> Row(Modifier.fillMaxWidth().padding(24.dp), Arrangement.Center) {
@@ -273,7 +274,8 @@ private class ChartsHeight(var total: Dp = 0.dp)
 
 @Composable
 private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayPct: Double?,
-                       group: String, avail: Dp) {
+                       group: String, avail: Dp, minutes: List<Candle> = emptyList(),
+                       onNeedMinutes: () -> Unit = {}) {
     // ── 차트가 화면에 딱 맞게 — 여백을 **추정하지 않고 잰다** ──
     //
     // 종목 헤더·제목줄·날짜축·안내문의 높이를 dp 로 추정해 빼고 있었는데, 글꼴 크기나 줄바꿈으로
@@ -364,6 +366,23 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
     val rsiLast = r.rsi.lastOrNull { !it.isNaN() } ?: 50.0
     val gh = 106.dp   // 그리드 차트 높이
 
+    // ── 1분봉 ──
+    // 토스가 받아 주는 주기는 1d·1m 뿐이다. 1분 모드에서는 Z·M 을 숨기고 가격 차트를 크게 쓴다
+    // (Z·M·회귀·σ·β 는 SPY 대비 일봉 회귀라 분봉에 얹으면 숫자만 나오고 의미가 없다).
+    var bar by remember { mutableStateOf(Store.barMode()) }
+    LaunchedEffect(ticker, bar) { if (bar == "1m") onNeedMinutes() }
+    val mN = minutes.size
+    val mCloses = remember(minutes) { DoubleArray(mN) { minutes[it].close } }
+    val mOpens = remember(minutes) { DoubleArray(mN) { minutes[it].open } }
+    val mHighs = remember(minutes) { DoubleArray(mN) { minutes[it].high } }
+    val mLows = remember(minutes) { DoubleArray(mN) { minutes[it].low } }
+    val mDates = remember(minutes) { LongArray(mN) { minutes[it].t } }
+    // MACD·RSI 는 종가만 있으면 되는 값이라 봉 주기대로 다시 계산한다
+    val mMacd = remember(minutes) { Quant.macdOf(mCloses) }
+    val mRsi = remember(minutes) { Quant.rsiOf(mCloses) }
+    val minMode = bar == "1m" && mN >= 2
+    val empty = remember { DoubleArray(0) }
+
     // 확대 다이얼로그로 넘길 선택 차트 인덱스(-1=닫힘). 그리드/확대에서 동일 렌더 재사용.
     var zoom by remember(ticker) { mutableStateOf(-1) }
     // 확대 다이얼로그의 축 확대/이동 상태 — 차트를 바꾸면 원본 배율로 리셋
@@ -376,7 +395,12 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
             0 -> RegressionScatter(r.spyNorm, r.tickerNorm, r.predicted, r.bandUpper, r.bandLower, r.beta,
                 markIdx = scatterIdx, height = h, view = view, zoomed = true, modifier = m)
             1 -> ZmScatter(r.zPct, r.mPct, scatterIdx, height = h, view = view, zoomed = true, modifier = m)
-            2 -> {
+            2 -> if (minMode) {
+                CandleChart(mOpens, mHighs, mLows, mCloses, empty, empty, empty,
+                    currency = Tickers.currencySymbol(ticker), dates = mDates,
+                    height = h, view = view, zoomed = true, inspectX = insX, modifier = m)
+                DateAxis(mDates, view, zoomed = true, timeOfDay = true)
+            } else {
                 if (closes.any { !it.isNaN() })
                     CandleChart(opens, highs, lows, closes, segDollar(r.predicted), segDollar(r.bandUpper), segDollar(r.bandLower),
                         markers = priceMarks, currency = Tickers.currencySymbol(ticker), dates = dates,
@@ -388,8 +412,21 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
                 DateAxis(dates, view, zoomed = true)
             }
             3 -> { ZmChart(seg(r.zPct), seg(r.mPct), zmMarks, height = h, view = view, zoomed = true, inspectX = insX, modifier = m); DateAxis(dates, view, zoomed = true) }
-            4 -> { MacdChart(macdW, sigW, height = h, view = view, zoomed = true, inspectX = insX, modifier = m); DateAxis(dates, view, zoomed = true) }
-            else -> { RsiChart(seg(r.rsi), height = h, view = view, zoomed = true, inspectX = insX, modifier = m); DateAxis(dates, view, zoomed = true) }
+            4 -> if (minMode) {
+                MacdChart(mMacd.first, mMacd.second, height = h, view = view, zoomed = true,
+                    inspectX = insX, modifier = m)
+                DateAxis(mDates, view, zoomed = true, timeOfDay = true)
+            } else {
+                MacdChart(macdW, sigW, height = h, view = view, zoomed = true, inspectX = insX, modifier = m)
+                DateAxis(dates, view, zoomed = true)
+            }
+            else -> if (minMode) {
+                RsiChart(mRsi, height = h, view = view, zoomed = true, inspectX = insX, modifier = m)
+                DateAxis(mDates, view, zoomed = true, timeOfDay = true)
+            } else {
+                RsiChart(seg(r.rsi), height = h, view = view, zoomed = true, inspectX = insX, modifier = m)
+                DateAxis(dates, view, zoomed = true)
+            }
         }
     }
 
@@ -434,13 +471,29 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
         charts.total = sh * 2
         val gest = Modifier.chartGestures(sView, { pushView(it) }, xOnly = true,
             onInspect = { insX = it })
+        // 1분봉은 구간 저장(개월 단위)과 기준이 달라 뷰를 따로 둔다 — 처음엔 전체(최근 390봉)
+        var mView by remember(ticker) { mutableStateOf(ChartView()) }
+        val mGest = Modifier.chartGestures(mView, { mView = it }, xOnly = true,
+            onInspect = { insX = it })
 
         // 간격 없는 Column — 바깥 Column 의 spacedBy(8dp) 가 항목마다 붙으면
         // 제목줄·차트 사이가 벌어져 한 화면에 안 들어간다
         Column(Modifier.fillMaxWidth()) {
             if (!sub) {
-                SeriesHeader("가격·일봉", Tickers.priceLabel(ticker, r.lastPrice), TextPrimary) { zoom = 2 }
-                if (closes.any { !it.isNaN() }) {
+                BarHeader(bar, { bar = it; Store.setBarMode(it) },
+                    Tickers.priceLabel(ticker, LivePrices.price(ticker) ?: r.lastPrice)) { zoom = 2 }
+                if (minMode) {
+                    // Z·M 을 숨긴 만큼 가격 차트가 본문 전체를 쓴다
+                    CandleChart(mOpens, mHighs, mLows, mCloses, empty, empty, empty,
+                        currency = Tickers.currencySymbol(ticker), dates = mDates,
+                        height = sh * 2, view = mView, zoomed = true, inspectX = insX, modifier = mGest)
+                } else if (bar == "1m") {
+                    // 아직 안 받았거나 받지 못한 상태 — 일봉을 대신 보여주면 더 헷갈린다
+                    Box(Modifier.fillMaxWidth().height(sh * 2), contentAlignment = Alignment.Center) {
+                        Text(if (minutes.isEmpty()) "1분봉 불러오는 중…" else "1분봉이 없습니다",
+                            color = TextMuted, fontSize = 12.sp)
+                    }
+                } else if (closes.any { !it.isNaN() }) {
                     CandleChart(opens, highs, lows, closes,
                         segDollar(r.predicted), segDollar(r.bandUpper), segDollar(r.bandLower),
                         markers = priceMarks, currency = Tickers.currencySymbol(ticker), topLabel = "",
@@ -453,9 +506,18 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
                         height = sh, view = sView, zoomed = true, inspectX = insX, modifier = gest)
                 }
 
-                SeriesHeader("Z·M", "Z${"%.0f".format(r.lastZpct)}·M${"%.0f".format(r.lastMpct)}", TextPrimary) { zoom = 3 }
-                ZmChart(seg(r.zPct), seg(r.mPct), zmMarks, height = sh, view = sView, zoomed = true,
-                    inspectX = insX, modifier = gest)
+                if (!minMode) {
+                    SeriesHeader("Z·M", "Z${"%.0f".format(r.lastZpct)}·M${"%.0f".format(r.lastMpct)}", TextPrimary) { zoom = 3 }
+                    ZmChart(seg(r.zPct), seg(r.mPct), zmMarks, height = sh, view = sView, zoomed = true,
+                        inspectX = insX, modifier = gest)
+                }
+            } else if (minMode) {
+                SeriesHeader("MACD · 1분", "%.2f".format(mMacd.first.lastOrNull() ?: 0.0), TextPrimary) { zoom = 4 }
+                MacdChart(mMacd.first, mMacd.second, height = sh, view = mView, zoomed = true,
+                    inspectX = insX, modifier = mGest)
+
+                SeriesHeader("RSI · 1분", "%.1f".format(mRsi.lastOrNull { !it.isNaN() } ?: 50.0), Teal) { zoom = 5 }
+                RsiChart(mRsi, height = sh, view = mView, zoomed = true, inspectX = insX, modifier = mGest)
             } else {
                 SeriesHeader("MACD", "${"%.2f".format(macdLast)}(${"%+.2f".format(macdLast - sigLast)})", TextPrimary) { zoom = 4 }
                 MacdChart(macdW, sigW, height = sh, view = sView, zoomed = true, inspectX = insX, modifier = gest)
@@ -464,13 +526,22 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
                 RsiChart(seg(r.rsi), height = sh, view = sView, zoomed = true, inspectX = insX, modifier = gest)
             }
 
-            DateAxis(dates, sView, zoomed = true)
-            Text(
-                if (sView.isIdentity) "전체 ${"%.1f".format(totalMonths)}개월"
-                else "${"%.1f".format(totalMonths / sView.sx)}개월 — 탭하면 전체",
-                color = TextMuted, fontSize = 11.sp,
-                modifier = Modifier.fillMaxWidth().clickable { pushView(ChartView()) },
-            )
+            if (minMode) {
+                DateAxis(mDates, mView, zoomed = true, timeOfDay = true)
+                Text(
+                    if (mView.isIdentity) "1분봉 ${mN}개" else "1분봉 ${(mN / mView.sx).toInt()}개 — 탭하면 전체",
+                    color = TextMuted, fontSize = 11.sp,
+                    modifier = Modifier.fillMaxWidth().clickable { mView = ChartView() },
+                )
+            } else {
+                DateAxis(dates, sView, zoomed = true)
+                Text(
+                    if (sView.isIdentity) "전체 ${"%.1f".format(totalMonths)}개월"
+                    else "${"%.1f".format(totalMonths / sView.sx)}개월 — 탭하면 전체",
+                    color = TextMuted, fontSize = 11.sp,
+                    modifier = Modifier.fillMaxWidth().clickable { pushView(ChartView()) },
+                )
+            }
         }
     }
 
@@ -526,6 +597,22 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
 }
 
 /** 시계열 스택용 얇은 제목줄 — 카드 테두리 없이 제목·값·확대(⤢)만. 세로 공간을 아낀다. */
+@Composable
+/** 가격 차트 헤더 — 제목 자리에 봉 주기 세그먼트(일봉/1분). 우측은 현재가 + 확대. */
+@Composable
+private fun BarHeader(bar: String, onBar: (String) -> Unit, value: String, onZoom: () -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+        UnderlineSegments(
+            listOf("1d" to "일봉", "1m" to "1분"),
+            selected = bar, onSelect = onBar, fontSize = 11,
+        )
+        Spacer(Modifier.weight(1f))
+        Text(value, color = TextPrimary, fontSize = 11.sp, fontWeight = FontWeight.Bold,
+            fontFamily = Mono, maxLines = 1)
+        Text(" ⤢", color = TextMuted, fontSize = 11.sp, modifier = Modifier.clickable { onZoom() })
+    }
+}
+
 @Composable
 private fun SeriesHeader(title: String, value: String, valueColor: Color, onZoom: () -> Unit) {
     Row(
