@@ -1,0 +1,227 @@
+"""토스증권 Open API 클라이언트 — **조회 전용**.
+
+`android-toss` 의 `data/TossApi.kt` 를 파이썬으로 옮긴 것. 규칙은 그대로다.
+
+- base: ``https://openapi.tossinvest.com``
+- 인증: OAuth2 Client Credentials — ``POST /oauth2/token`` (form-urlencoded).
+  refresh token 없음. client 당 유효 토큰은 1개이며 재발급하면 이전 토큰이 즉시 무효화된다.
+- 계좌 컨텍스트가 필요한 API 는 ``X-Tossinvest-Account: {accountSeq}`` 헤더 필요.
+- 응답 봉투: 성공 ``{"result": ...}`` / 실패 ``{"error": {code, message}}``.
+  단 ``/oauth2/token`` 만 OAuth2 표준 형식이다.
+- **모든 수치는 문자열(decimal)로 내려온다.** 반드시 float 로 바꿔 쓸 것.
+
+⚠️ 주문·정정·취소는 **의도적으로 구현하지 않는다.** 이 프로그램은 계좌를 읽기만 한다.
+"""
+
+from __future__ import annotations
+
+import json
+import threading
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+
+BASE = "https://openapi.tossinvest.com"
+TIMEOUT = 10
+
+
+class TossError(Exception):
+    """토스 API 호출 실패. code 는 스펙의 에러 코드(`invalid-token`, `access_denied` 등)."""
+
+    def __init__(self, code: str, http: int, message: str):
+        super().__init__(message)
+        self.code = code
+        self.http = http
+        self.message = message
+
+
+def _dec(obj: dict | None, key: str, default: float = 0.0) -> float:
+    """문자열 decimal → float. null/빈값/파싱실패는 기본값."""
+    if not obj:
+        return default
+    v = obj.get(key)
+    if v is None or v == "":
+        return default
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return default
+
+
+def _request(method: str, url: str, *, body: bytes | None = None,
+             headers: dict[str, str] | None = None) -> tuple[int, str]:
+    req = urllib.request.Request(url, data=body, method=method)
+    for k, v in (headers or {}).items():
+        req.add_header(k, v)
+    try:
+        with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
+            return r.status, r.read().decode("utf-8")
+    except urllib.error.HTTPError as e:  # 4xx·5xx 는 본문에 에러 코드가 들어 있다
+        return e.code, e.read().decode("utf-8", "replace")
+    except urllib.error.URLError as e:
+        raise TossError("network", 0, f"연결 실패: {e.reason}") from e
+
+
+_TOKEN_MSG = {
+    "invalid_client": "App Key 또는 Secret이 올바르지 않습니다",
+    # 허용 IP 목록 밖에서 호출한 경우. 이 프로그램을 PC에서 돌리는 이유가 바로 이것이다.
+    "access_denied": "허용되지 않은 IP입니다. 토스증권 WTS → 설정 → Open API → "
+                     "허용 IP 관리에서 이 PC의 공인 IP를 등록하세요",
+    "unsupported_grant_type": "지원하지 않는 인증 방식입니다",
+}
+
+
+class Toss:
+    """앱 키 한 쌍에 대한 클라이언트. 토큰은 메모리에만 둔다(파일로 남기지 않는다)."""
+
+    def __init__(self, app_key: str, app_secret: str):
+        self._key = app_key
+        self._secret = app_secret
+        self._token: str | None = None
+        self._expires_at = 0.0
+        self._lock = threading.Lock()
+
+    # ── 인증 ──
+
+    def _access_token(self) -> str:
+        """유효한 access token. 만료 60초 전이면 재발급."""
+        with self._lock:
+            if self._token and time.time() < self._expires_at - 60:
+                return self._token
+            if not self._key or not self._secret:
+                raise TossError("no-credentials", 0, "App Key/Secret이 설정되지 않았습니다")
+
+            body = urllib.parse.urlencode({
+                "grant_type": "client_credentials",
+                "client_id": self._key,
+                "client_secret": self._secret,
+            }).encode()
+            status, text = _request("POST", f"{BASE}/oauth2/token", body=body, headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Accept": "application/json",
+            })
+            try:
+                o = json.loads(text)
+            except ValueError:
+                o = {}
+            if status < 200 or status >= 300:
+                code = o.get("error") or f"http-{status}"
+                msg = _TOKEN_MSG.get(code) or o.get("error_description") or f"인증 실패 ({code})"
+                raise TossError(code, status, msg)
+
+            self._token = o["access_token"]
+            self._expires_at = time.time() + float(o.get("expires_in", 86400))
+            return self._token
+
+    def clear_token(self) -> None:
+        with self._lock:
+            self._token = None
+            self._expires_at = 0.0
+
+    # ── 공통 GET ──
+
+    def _get(self, path: str, query: dict[str, str] | None = None,
+             account_seq: int | None = None):
+        """성공하면 봉투의 ``result`` 를 반환. 실패하면 TossError."""
+        qs = ("?" + urllib.parse.urlencode(query)) if query else ""
+        headers = {
+            "Authorization": f"Bearer {self._access_token()}",
+            "Accept": "application/json",
+        }
+        if account_seq is not None:
+            headers["X-Tossinvest-Account"] = str(account_seq)
+
+        status, text = _request("GET", f"{BASE}{path}{qs}", headers=headers)
+        try:
+            o = json.loads(text)
+        except ValueError:
+            o = {}
+        if status < 200 or status >= 300:
+            err = o.get("error") or {}
+            code = err.get("code") or f"http-{status}"
+            if status == 401:  # 토큰 만료/무효 → 다음 호출에서 재발급되게
+                self.clear_token()
+            msg = err.get("message") or (
+                "요청 한도를 초과했습니다" if status == 429 else f"요청 실패 ({code})")
+            raise TossError(code, status, msg)
+        return o.get("result")
+
+    # ── 계좌 ──
+
+    def accounts(self) -> list[dict]:
+        """``GET /api/v1/accounts`` — 정상 상태 계좌 목록.
+
+        여기서 얻은 ``accountSeq`` 가 다른 계좌 API 의 헤더 값이다.
+        """
+        arr = self._get("/api/v1/accounts") or []
+        return [{
+            "accountNo": a.get("accountNo", ""),
+            "accountSeq": int(a.get("accountSeq", 0)),
+            "accountType": a.get("accountType", ""),
+        } for a in arr]
+
+    def holdings(self, account_seq: int) -> dict:
+        """``GET /api/v1/holdings`` — 계좌 요약 + 보유 종목.
+
+        금액은 전부 **거래 통화 기준**(KR=KRW, US=USD)이고, 합계도 통화별로만 온다.
+        원화 환산은 호출한 쪽에서 환율을 곱해 한다.
+        """
+        r = self._get("/api/v1/holdings", account_seq=account_seq) or {}
+
+        def pair(o):
+            return _dec(o, "krw"), _dec(o, "usd")
+
+        kp, up = pair(r.get("totalPurchaseAmount"))
+        ke, ue = pair((r.get("marketValue") or {}).get("amount"))
+        pl = r.get("profitLoss") or {}
+        kl, ul = pair(pl.get("amount"))
+        dpl = r.get("dailyProfitLoss") or {}
+        kd, ud = pair(dpl.get("amount"))
+
+        items = []
+        for o in r.get("items") or []:
+            mv = o.get("marketValue") or {}
+            p = o.get("profitLoss") or {}
+            d = o.get("dailyProfitLoss") or {}
+            items.append({
+                "symbol": o.get("symbol", ""),
+                "name": o.get("name", ""),
+                "marketCountry": o.get("marketCountry", ""),
+                "currency": o.get("currency", "KRW"),
+                "quantity": _dec(o, "quantity"),
+                "lastPrice": _dec(o, "lastPrice"),
+                "avgPrice": _dec(o, "averagePurchasePrice"),
+                "purchaseAmount": _dec(mv, "purchaseAmount"),
+                "evalAmount": _dec(mv, "amount"),
+                "pnlAmount": _dec(p, "amount"),
+                # 소수비율(0.1077 = 10.77%). = lastPrice/avgPrice - 1
+                "pnlRate": _dec(p, "rate"),
+                "dailyPnlAmount": _dec(d, "amount"),
+                "dailyPnlRate": _dec(d, "rate"),
+            })
+
+        return {
+            "krwPurchase": kp, "usdPurchase": up,
+            "krwEval": ke, "usdEval": ue,
+            "krwPnl": kl, "usdPnl": ul,
+            "pnlRate": _dec(pl, "rate"),
+            "krwDailyPnl": kd, "usdDailyPnl": ud,
+            "dailyPnlRate": _dec(dpl, "rate"),
+            "items": items,
+        }
+
+    def buying_power(self, account_seq: int, currency: str) -> float:
+        """``GET /api/v1/buying-power`` — 통화별 매수 가능 금액.
+
+        ⚠️ 엄밀한 "예수금"이 아니라 매수 가능 금액이다. 미결제 대금 등이 반영되면 실제
+        예수금과 다를 수 있는데, 토스가 주는 유일한 현금 지표라 총자산 계산에 이 값을 쓴다.
+        """
+        r = self._get("/api/v1/buying-power", {"currency": currency}, account_seq) or {}
+        return _dec(r, "cashBuyingPower")
+
+    def usd_krw(self) -> float:
+        """``GET /api/v1/exchange-rate`` — USD→KRW. 1분 주기로 갱신되는 표시용 환율."""
+        r = self._get("/api/v1/exchange-rate",
+                      {"baseCurrency": "USD", "quoteCurrency": "KRW"}) or {}
+        return _dec(r, "rate", float("nan"))
