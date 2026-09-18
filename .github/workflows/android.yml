@@ -28,8 +28,13 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      # packages: '' 가 중요하다. 이 액션은 기본으로 `sdkmanager tools` 를 부르는데,
+      # 구글이 SDK 저장소에서 obsolete `tools` 패키지를 내려서 2026-09 부터 실패한다
+      # (Failed to find package 'tools'). 필요한 패키지는 아래 스텝에서 직접 받는다.
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          packages: ''
 
       - name: Install SDK packages
         run: yes | sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools"
