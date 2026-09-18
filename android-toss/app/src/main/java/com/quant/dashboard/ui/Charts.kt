@@ -306,6 +306,12 @@ private fun DrawScope.dline(color: Color, x1: Float, y1: Float, x2: Float, y2: F
     drawLine(color, Offset(x1, y1), Offset(x2, y2), w, pathEffect = DASH)
 }
 
+/**
+ * 평단가 선 색 — 금색. 이 차트에서 빨강은 최고가·상승봉, 파랑은 최저가·하락봉,
+ * 흰색은 종가선, 마젠타는 현재가 십자선이라 남는 색이 이것뿐이다.
+ */
+private val AVG_LINE = Color(0xFFE0A24A)
+
 /** 조회 십자선 색 — 매매 마커·현재값선과 구분되게 흐린 흰색. */
 private val CROSS = Color(0xCCEEF1F4)
 
@@ -792,6 +798,7 @@ fun CandleChart(
     view: ChartView = ChartView(),
     zoomed: Boolean = false,
     inspectX: Float? = null,      // 길게 누른 지점(px) — 십자선 + 시고저종 상자
+    avgPrice: Double = Double.NaN,   // 평단가 — 보유 중일 때만
     modifier: Modifier = Modifier,
 ) {
     val n = closes.size
@@ -847,6 +854,17 @@ fun CandleChart(
             val lp = (cur / loV - 1) * 100
             hCallout(xAt(loI), yAt(loV), "$currency${priceFmt(loV)} ${dlbl(loI)} +${"%.1f".format(lp)}%",
                 0xFF5B9BF2.toInt(), textRight = xAt(loI) < plotW / 2, plotW = plotW)
+        }
+        // 평단가 — 가로 점선 + 좌측 라벨.
+        // 보이는 구간의 고·저 범위를 벗어나면 그리지 않는다. 가장자리에 붙여 두면
+        // 평단이 거기 있는 것처럼 읽혀서 오히려 오해를 부른다.
+        if (avgPrice.isFinite() && avgPrice > 0 && avgPrice in lo..hi) {
+            val ay = yAt(avgPrice)
+            dline(AVG_LINE, 0f, ay, plotW, ay, 1.6f)
+            val roi = (cur / avgPrice - 1) * 100
+            val sign = if (roi >= 0) "+" else ""
+            label("평단 $currency${priceFmt(avgPrice)}  $sign${"%.1f".format(roi)}%",
+                2f, ay - AX_SIZE * 0.35f, AVG_LINE.toArgb(), AX_SIZE * 0.88f)
         }
         // 현재값 십자선 (확대 시)
         if (zoomed) {

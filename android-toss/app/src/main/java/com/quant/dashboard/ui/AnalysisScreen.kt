@@ -53,6 +53,7 @@ import com.quant.dashboard.data.LivePrices
 import com.quant.dashboard.data.MarketHours
 import com.quant.dashboard.data.Store
 import com.quant.dashboard.data.Tickers
+import com.quant.dashboard.data.TossSync
 import com.quant.dashboard.quant.Portfolio
 import com.quant.dashboard.quant.Quant
 import com.quant.dashboard.ui.theme.Accent
@@ -299,6 +300,15 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
     // ── 종목명 + σ·β + (우측) 현재가/평단/수량 — 한 줄, 넘치면 가로 스크롤 ──
     val trades = remember(ticker) { Store.visibleTrades()[ticker].orEmpty() }
     val pos = remember(ticker) { Portfolio.position(trades) }
+    // 평단가 — **토스가 계산해 준 값이 우선**이다. 체결내역으로 역산한 pos.avg 는
+    // 기록이 불완전하면 어긋나고, 그러면 헤더 숫자와 차트 평단선이 서로 달라진다.
+    val avgPrice = remember(ticker, AppState.dataVersion) {
+        TossSync.cachedAccount()?.holdings?.items
+            ?.firstOrNull { it.symbol == ticker && it.avgPrice > 0 }?.avgPrice
+            ?: pos?.avg?.takeIf { it > 0 }
+            ?: Double.NaN
+    }
+    val held = avgPrice.isFinite() && avgPrice > 0
     Row(
         verticalAlignment = Alignment.Bottom,
         horizontalArrangement = Arrangement.spacedBy(7.dp),
@@ -314,14 +324,12 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
         Text("σ±%.0f%% · β %.1f".format(r.sigmaPct, r.beta), color = TextSecondary, fontSize = 10.sp, fontFamily = Mono)
         // 우측: 현재가/평단/수량 (작게)
         val livePx = LivePrices.price(ticker) ?: r.lastPrice
-        val chgPct = if (pos != null && pos.avg > 0) (livePx / pos.avg - 1.0) * 100.0 else null
+        val chgPct = if (held) (livePx / avgPrice - 1.0) * 100.0 else null
         Mini("현재가", Tickers.priceLabel(ticker, livePx),
             extra = chgPct?.let { "${if (it >= 0) "+" else ""}${"%.1f%%".format(it)}" },
             extraColor = chgPct?.let { if (it >= 0) Profit else Loss } ?: TextMuted)
-        if (pos != null) {
-            Mini("평단", Tickers.priceLabel(ticker, pos.avg))
-            Mini("보유", "${pos.qty}주")
-        }
+        if (held) Mini("평단", Tickers.priceLabel(ticker, avgPrice))
+        if (pos != null) Mini("보유", "${pos.qty}주")
     }
 
     // ── 차트 데이터 — 분석 기간 전체를 넘긴다 ──
@@ -398,14 +406,15 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
             2 -> if (minMode) {
                 CandleChart(mOpens, mHighs, mLows, mCloses, empty, empty, empty,
                     currency = Tickers.currencySymbol(ticker), dates = mDates,
-                    height = h, view = view, zoomed = true, inspectX = insX, modifier = m)
+                    height = h, view = view, zoomed = true, inspectX = insX,
+                    avgPrice = avgPrice, modifier = m)
                 DateAxis(mDates, view, zoomed = true, timeOfDay = true)
             } else {
                 if (closes.any { !it.isNaN() })
                     CandleChart(opens, highs, lows, closes, segDollar(r.predicted), segDollar(r.bandUpper), segDollar(r.bandLower),
                         markers = priceMarks, currency = Tickers.currencySymbol(ticker), dates = dates,
                         dailyChgPct = dayPct ?: Double.NaN, height = h, view = view, zoomed = true,
-                        inspectX = insX, modifier = m)
+                        inspectX = insX, avgPrice = avgPrice, modifier = m)
                 else PriceChart(segDollar(r.tickerNorm), segDollar(r.predicted), segDollar(r.bandUpper), segDollar(r.bandLower),
                     markers = priceMarks, currency = Tickers.currencySymbol(ticker),
                     height = h, view = view, zoomed = true, inspectX = insX, modifier = m)
@@ -486,7 +495,8 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
                     // Z·M 을 숨긴 만큼 가격 차트가 본문 전체를 쓴다
                     CandleChart(mOpens, mHighs, mLows, mCloses, empty, empty, empty,
                         currency = Tickers.currencySymbol(ticker), dates = mDates,
-                        height = sh * 2, view = mView, zoomed = true, inspectX = insX, modifier = mGest)
+                        height = sh * 2, view = mView, zoomed = true, inspectX = insX,
+                        avgPrice = avgPrice, modifier = mGest)
                 } else if (bar == "1m") {
                     // 아직 안 받았거나 받지 못한 상태 — 일봉을 대신 보여주면 더 헷갈린다
                     Box(Modifier.fillMaxWidth().height(sh * 2), contentAlignment = Alignment.Center) {
@@ -498,7 +508,8 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
                         segDollar(r.predicted), segDollar(r.bandUpper), segDollar(r.bandLower),
                         markers = priceMarks, currency = Tickers.currencySymbol(ticker), topLabel = "",
                         dates = dates, dailyChgPct = dayPct ?: Double.NaN,
-                        height = sh, view = sView, zoomed = true, inspectX = insX, modifier = gest)
+                        height = sh, view = sView, zoomed = true, inspectX = insX,
+                        avgPrice = avgPrice, modifier = gest)
                 } else {
                     PriceChart(segDollar(r.tickerNorm), segDollar(r.predicted), segDollar(r.bandUpper),
                         segDollar(r.bandLower), markers = priceMarks,
