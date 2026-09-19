@@ -1,4 +1,4 @@
-# 서버 실행 (+ 외부 접속용 Cloudflare 터널).
+﻿# 서버 실행 (+ 외부 접속용 Cloudflare 터널).
 #
 #   .\run.ps1              집·PC 에서만 (같은 와이파이)
 #   .\run.ps1 -Tunnel      외부에서도 접속 (https 주소가 만들어진다)
@@ -29,16 +29,29 @@ try {
     if ($lan) { Write-Host "  같은 와이파이: http://${lan}:8000" }
 
     if ($Tunnel) {
-        if (-not (Get-Command cloudflared -ErrorAction SilentlyContinue)) {
+        # winget 으로 막 설치했으면 PATH 가 아직 이 창에 반영되지 않았다.
+        # 그래서 PATH 를 다시 읽고, 그래도 없으면 설치 위치를 직접 찾는다.
+        $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" +
+                    [Environment]::GetEnvironmentVariable("Path", "User")
+        $cf = (Get-Command cloudflared -ErrorAction SilentlyContinue).Source
+        if (-not $cf) {
+            $cf = @(
+                "$env:LOCALAPPDATA\Microsoft\WinGet\Links\cloudflared.exe",
+                "$env:ProgramFiles\cloudflared\cloudflared.exe",
+                "${env:ProgramFiles(x86)}\cloudflared\cloudflared.exe"
+            ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+        }
+        if (-not $cf) {
             Write-Host ""
-            Write-Host "  cloudflared 가 없습니다. 설치 후 다시 실행하세요:" -ForegroundColor Yellow
+            Write-Host "  cloudflared 를 찾지 못했습니다." -ForegroundColor Yellow
             Write-Host "    winget install --id Cloudflare.cloudflared"
+            Write-Host "  설치했는데도 이 메시지가 나오면 PowerShell 창을 새로 열어 주세요."
         } else {
             Write-Host ""
             Write-Host "  터널을 엽니다. 아래 trycloudflare.com 주소를 폰에서 열면 됩니다." -ForegroundColor Cyan
             Write-Host "  (주소는 껐다 켤 때마다 바뀝니다. 고정하려면 README 의 '고정 주소' 참고)"
             Write-Host ""
-            cloudflared tunnel --url http://localhost:8000
+            & $cf tunnel --url http://localhost:8000
         }
     }
     Wait-Process -Id $server.Id

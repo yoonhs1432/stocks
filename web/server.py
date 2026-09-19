@@ -209,14 +209,28 @@ def api_compare(market: str = "US", force: bool = False):
     return _clean({"rows": rows, "market": market, "at": time.time()})
 
 
+_px_cache: dict[str, tuple[float, dict]] = {}
+PX_TTL = 3.0
+
+
 @app.get("/api/prices")
 def api_prices(symbols: str = ""):
-    """실시간 현재가 — 비교/분석 화면이 주기적으로 부른다."""
+    """실시간 현재가 — 비교/분석 화면이 주기적으로 부른다.
+
+    기기마다 따로 부르므로(PC + 폰 + 탭 여러 개) 짧게라도 캐시를 둔다.
+    같은 목록을 3초 안에 다시 물으면 토스를 또 부르지 않는다.
+    """
     syms = [s for s in symbols.split(",") if s]
     if not syms:
         return {}
+    key = ",".join(syms)
+    hit = _px_cache.get(key)
+    if hit and time.time() - hit[0] < PX_TTL:
+        return hit[1]
     try:
-        return _toss.prices(syms)
+        out = _toss.prices(syms)
+        _px_cache[key] = (time.time(), out)
+        return out
     except TossError as e:
         return JSONResponse({"error": e.message, "code": e.code}, status_code=502)
 
