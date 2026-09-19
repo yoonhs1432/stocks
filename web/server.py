@@ -416,7 +416,22 @@ def api_health():
     return {"ok": True, "hasCreds": bool(_key and _secret)}
 
 
-app.mount("/", StaticFiles(directory=HERE / "static", html=True), name="static")
+class NoCacheStatic(StaticFiles):
+    """화면 파일은 항상 서버에 한 번 물어보고 쓰게 한다.
+
+    코드를 고쳐 서버를 다시 켰는데도 폰에는 예전 화면이 그대로 뜨는 일이 있었다.
+    캐시 지시가 없으면 브라우저가 알아서 "이 정도면 신선하겠지" 하고 예전 파일을
+    그냥 쓰기 때문이다. no-cache 는 **받아 두되 쓰기 전에 확인**하라는 뜻이라,
+    안 바뀌었으면 304 로 끝나고 바뀌었으면 바로 새 파일이 온다.
+    """
+
+    async def get_response(self, path: str, scope):
+        r = await super().get_response(path, scope)
+        r.headers["Cache-Control"] = "no-cache"
+        return r
+
+
+app.mount("/", NoCacheStatic(directory=HERE / "static", html=True), name="static")
 
 
 if __name__ == "__main__":
