@@ -25,6 +25,9 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+import quant
+import repo
+import store
 from toss import Toss, TossError
 
 HERE = Path(__file__).parent
@@ -47,6 +50,22 @@ def _load_creds() -> tuple[str, str]:
         except (ValueError, OSError):
             pass
     return "", ""
+
+
+def _clean(v):
+    """NaN·Inf 를 None 으로.
+
+    ⚠️ 파이썬 json 은 NaN 을 그대로 흘려보내는데 그건 **유효한 JSON 이 아니라서**
+    브라우저의 JSON.parse 가 통째로 거부한다. Z·M·RSI 는 warmup 구간이 NaN 이므로
+    분석 화면이 전부 안 뜨게 된다. 내보내기 직전에 반드시 거른다.
+    """
+    if isinstance(v, float):
+        return None if (v != v or v in (float("inf"), float("-inf"))) else v
+    if isinstance(v, list):
+        return [_clean(x) for x in v]
+    if isinstance(v, dict):
+        return {k: _clean(x) for k, x in v.items()}
+    return v
 
 
 app = FastAPI(title="Quant Portfolio")
@@ -112,15 +131,199 @@ def api_account(force: bool = False):
     global _cache, _cache_at
     with _lock:
         if not force and _cache and time.time() - _cache_at < CACHE_TTL:
-            return _cache
+            return _clean(_cache)
         try:
             _cache = _fetch_account()
             _cache_at = time.time()
-            return _cache
+            return _clean(_cache)
         except TossError as e:
             # 값을 지어내지 않는다. 화면에 실패를 그대로 드러내는 편이 낫다
             return JSONResponse(
                 {"error": e.message, "code": e.code}, status_code=502)
+
+
+# ── 비교 ──
+
+_ov_lock = threading.Lock()
+_ov_cache: dict[str, tuple[float, list]] = {}
+OV_TTL = 300.0
+
+
+@app.get("/api/compare")
+def api_compare(market: str = "US", force: bool = False):
+    """비교 화면 — 종목별 현재가·등락률·Z·M.
+
+    첫 호출은 종목 수만큼 일봉을 받느라 20~30초 걸린다. 그 다음부터는 캐시가 받쳐 준다.
+    """
+    tickers = [t for t in store.tickers()
+               if (store.is_krw(t) if market == "KR" else not store.is_krw(t))]
+    if not tickers:
+        return {"rows": [], "market": market}
+
+    key = f"{market}:{store.lookback_months()}"
+    with _ov_lock:
+        hit = _ov_cache.get(key)
+        if not force and hit and time.time() - hit[0] < OV_TTL:
+            rows = hit[1]
+        else:
+            try:
+                rows = repo.overview(_toss, tickers, force)
+            except TossError as e:
+                return JSONResponse({"error": e.message, "code": e.code}, status_code=502)
+            except Exception as e:
+                return JSONResponse({"error": str(e) or "조회 실패"}, status_code=502)
+            _ov_cache[key] = (time.time(), rows)
+
+    # 이름·보유 여부는 계좌에서 덧입힌다 (국내는 코드만 보면 무슨 종목인지 모른다)
+    acc = _cache
+    if acc:
+        by = {h["symbol"]: h for h in acc["items"]}
+        for r in rows:
+            h = by.get(r["ticker"])
+            if h:
+                r["name"] = h["name"] or r["ticker"]
+                r["holding"] = True
+                r["avgPrice"] = h["avgPrice"]
+    return _clean({"rows": rows, "market": market, "at": time.time()})
+
+
+@app.get("/api/prices")
+def api_prices(symbols: str = ""):
+    """실시간 현재가 — 비교/분석 화면이 주기적으로 부른다."""
+    syms = [s for s in symbols.split(",") if s]
+    if not syms:
+        return {}
+    try:
+        return _toss.prices(syms)
+    except TossError as e:
+        return JSONResponse({"error": e.message, "code": e.code}, status_code=502)
+
+
+# ── 분석 ──
+
+@app.get("/api/analysis")
+def api_analysis(ticker: str, force: bool = False):
+    """한 종목 분석 — 회귀·Z·M·MACD·RSI + 일봉 + 매매 마커."""
+    try:
+        r, bars = repo.analyze(_toss, ticker, force=force)
+    except TossError as e:
+        return JSONResponse({"error": e.message, "code": e.code}, status_code=502)
+    if not bars:
+        return JSONResponse({"error": f"{ticker} 시세를 가져오지 못했습니다"}, status_code=502)
+
+    tr = store.trades().get(ticker, [])
+    pos = store.position(tr)
+    # 평단은 토스 보유 정보를 우선한다 — 체결내역 역산은 기록이 빠지면 어긋난다
+    avg = None
+    if _cache:
+        h = next((x for x in _cache["items"] if x["symbol"] == ticker), None)
+        if h and h["avgPrice"] > 0:
+            avg = h["avgPrice"]
+    if avg is None and pos:
+        avg = pos["avg"]
+
+    return _clean({
+        "ticker": ticker,
+        "krw": store.is_krw(ticker),
+        "candles": bars,
+        "avgPrice": avg,
+        "qty": pos["qty"] if pos else None,
+        "trades": tr,
+        "result": None if r is None else {
+            "dates": r.dates, "zPct": r.zPct, "mPct": r.mPct, "rsi": r.rsi,
+            "macd": r.macd, "macdSignal": r.macdSignal,
+            "predicted": r.predicted, "bandUpper": r.bandUpper, "bandLower": r.bandLower,
+            "spyNorm": r.spyNorm, "tickerNorm": r.tickerNorm,
+            "beta": r.beta, "sigmaPct": r.sigmaPct, "lastPrice": r.lastPrice,
+            "lastZpct": r.lastZpct, "lastMpct": r.lastMpct, "signal": r.signal,
+        },
+    })
+
+
+@app.get("/api/minutes")
+def api_minutes(ticker: str, force: bool = False):
+    """1분봉 — 토스가 받아 주는 주기는 1d·1m 뿐이다."""
+    try:
+        bars = repo.minutes(_toss, ticker, force)
+    except TossError as e:
+        return JSONResponse({"error": e.message, "code": e.code}, status_code=502)
+    closes = [b["close"] for b in bars]
+    macd, sig = quant.macd_of(closes) if len(closes) >= 2 else ([], [])
+    return _clean({
+        "ticker": ticker, "candles": bars,
+        "macd": macd, "macdSignal": sig,
+        "rsi": quant.rsi_of(closes) if len(closes) >= 2 else [],
+    })
+
+
+# ── 설정 ──
+
+@app.get("/api/settings")
+def api_settings():
+    return {
+        "months": store.lookback_months(),
+        "maxMonths": store.MAX_MONTHS,
+        "tickers": [{"ticker": t, "krw": store.is_krw(t)} for t in store.tickers()],
+        "deposits": store.deposits(),
+        "principal": store.principal_total(),
+        "trades": sum(len(v) for v in store.trades().values()),
+    }
+
+
+@app.post("/api/settings/months")
+def api_set_months(body: dict):
+    m = max(3, min(store.MAX_MONTHS, int(body.get("months", store.MAX_MONTHS))))
+    store.put("lookback_months", m)
+    repo.clear_cache()           # 기간이 바뀌면 받아 둔 일봉을 다시 받아야 한다
+    _ov_cache.clear()
+    return {"months": m}
+
+
+@app.post("/api/tickers")
+def api_add_ticker(body: dict):
+    store.add_ticker(str(body.get("ticker", "")))
+    _ov_cache.clear()
+    return {"tickers": store.tickers()}
+
+
+@app.delete("/api/tickers/{ticker}")
+def api_remove_ticker(ticker: str):
+    store.remove_ticker(ticker)
+    _ov_cache.clear()
+    return {"tickers": store.tickers()}
+
+
+@app.post("/api/deposits")
+def api_add_deposit(body: dict):
+    store.add_deposit(str(body.get("date", "")), float(body.get("krw", 0)))
+    return {"deposits": store.deposits(), "principal": store.principal_total()}
+
+
+@app.delete("/api/deposits/{index}")
+def api_remove_deposit(index: int):
+    store.remove_deposit(index)
+    return {"deposits": store.deposits(), "principal": store.principal_total()}
+
+
+@app.post("/api/fills")
+def api_fills():
+    """체결내역 가져오기 — 매매 마커와 평단(대체값)의 출처."""
+    try:
+        accounts = _toss.accounts()
+        if not accounts:
+            raise TossError("no-account", 0, "조회 가능한 계좌가 없습니다")
+        fills = _toss.fills(accounts[0]["accountSeq"])
+    except TossError as e:
+        return JSONResponse({"error": e.message, "code": e.code}, status_code=502)
+    total = store.save_fills(fills)
+    return {"fetched": len(fills), "total": total}
+
+
+@app.post("/api/cache/clear")
+def api_clear_cache():
+    repo.clear_cache()
+    _ov_cache.clear()
+    return {"ok": True}
 
 
 @app.get("/api/health")

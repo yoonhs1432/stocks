@@ -21,6 +21,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from datetime import datetime
 
 BASE = "https://openapi.tossinvest.com"
 TIMEOUT = 10
@@ -47,6 +48,16 @@ def _dec(obj: dict | None, key: str, default: float = 0.0) -> float:
         return float(v)
     except (TypeError, ValueError):
         return default
+
+
+def _epoch(iso: str | None) -> int | None:
+    """ISO 8601 offset 문자열 → epoch 초. 실패하면 None."""
+    if not iso:
+        return None
+    try:
+        return int(datetime.fromisoformat(iso.replace("Z", "+00:00")).timestamp())
+    except (ValueError, TypeError):
+        return None
 
 
 def _request(method: str, url: str, *, body: bytes | None = None,
@@ -219,6 +230,115 @@ class Toss:
         """
         r = self._get("/api/v1/buying-power", {"currency": currency}, account_seq) or {}
         return _dec(r, "cashBuyingPower")
+
+    # ── 시세 ──
+
+    def prices(self, symbols: list[str]) -> dict[str, dict]:
+        """``GET /api/v1/prices`` — 현재가. 조회 실패 종목은 결과에서 빠진다.
+
+        ``at`` 은 **체결 시각**이라 None 이면 이번 세션에 아직 체결이 없다는 뜻
+        (= price 가 직전 종가다).
+        """
+        out: dict[str, dict] = {}
+        for i in range(0, len(symbols), 200):
+            chunk = symbols[i:i + 200]
+            arr = self._get("/api/v1/prices", {"symbols": ",".join(chunk)}) or []
+            for o in arr:
+                v = _dec(o, "lastPrice", float("nan"))
+                if v != v:
+                    continue
+                out[o.get("symbol", "")] = {"price": v, "at": o.get("timestamp")}
+        return out
+
+    def ohlc(self, symbol: str, interval: str = "1d", count: int = 520,
+             adjusted: bool = True) -> list[dict]:
+        """``GET /api/v1/candles`` — 요청당 200봉 상한이라 ``nextBefore`` 로 이어 받는다.
+
+        응답이 최신순이므로 마지막에 **오래된→최신** 으로 뒤집는다.
+        서버가 받아 주는 주기는 ``1d`` 와 ``1m`` 뿐이다(2026-09 전수 확인).
+        """
+        out: list[dict] = []
+        before: str | None = None
+        guard = 0
+        while len(out) < count and guard < 10:
+            q = {
+                "symbol": symbol,
+                "interval": interval,
+                "count": str(max(1, min(200, count - len(out)))),
+                "adjusted": str(adjusted).lower(),
+            }
+            if before:
+                q["before"] = before
+            r = self._get("/api/v1/candles", q) or {}
+            arr = r.get("candles") or []
+            if not arr:
+                break
+            for o in arr:
+                t = _epoch(o.get("timestamp"))
+                c = _dec(o, "closePrice", float("nan"))
+                if t is None or c != c:
+                    continue
+                out.append({
+                    "t": t,
+                    "open": _dec(o, "openPrice", c),
+                    "high": _dec(o, "highPrice", c),
+                    "low": _dec(o, "lowPrice", c),
+                    "close": c,
+                })
+            before = r.get("nextBefore") or None
+            if not before:
+                break
+            guard += 1
+
+        # 페이지 경계가 inclusive 라 겹칠 수 있다 → timestamp 중복 제거
+        seen = set()
+        uniq = []
+        for c in reversed(out):
+            if c["t"] in seen:
+                continue
+            seen.add(c["t"])
+            uniq.append(c)
+        return uniq
+
+    # ── 체결 내역 ──
+
+    def fills(self, account_seq: int, max_pages: int = 20) -> list[dict]:
+        """``GET /api/v1/orders?status=CLOSED`` — 커서 페이징으로 모아 **실제 체결분만**.
+
+        취소·거부된 주문도 부분 체결이 있었다면 그 수량은 실제 매매라 포함한다.
+        """
+        out: list[dict] = []
+        cursor: str | None = None
+        for _ in range(max_pages):
+            q = {"status": "CLOSED", "limit": "100"}
+            if cursor:
+                q["cursor"] = cursor
+            r = self._get("/api/v1/orders", q, account_seq) or {}
+            for o in r.get("orders") or []:
+                ex = o.get("execution") or {}
+                qty = _dec(ex, "filledQuantity")
+                price = _dec(ex, "averageFilledPrice", float("nan"))
+                if qty <= 0 or price != price or price <= 0:
+                    continue
+                stamp = ex.get("filledAt") or o.get("orderedAt") or ""
+                date = stamp[:10]
+                if len(date) != 10:
+                    continue
+                out.append({
+                    "orderId": o.get("orderId", ""),
+                    "symbol": o.get("symbol", ""),
+                    "buy": o.get("side") == "BUY",
+                    "date": date,
+                    "quantity": qty,
+                    "price": price,
+                    "currency": o.get("currency", "KRW"),
+                })
+            if not r.get("hasNext"):
+                break
+            cursor = r.get("nextCursor") or None
+            if not cursor:
+                break
+        return out
 
     def usd_krw(self) -> float:
         """``GET /api/v1/exchange-rate`` — USD→KRW. 1분 주기로 갱신되는 표시용 환율."""
