@@ -166,12 +166,14 @@ function startTicks() {
   if (!sec) return;                  // 0 = 끔
   tickTimer = setInterval(async () => {
     const syms = S.tab === 'compare' ? (S.rows || []).map(r => r.ticker)
-      : S.tab === 'analysis' && S.ticker ? [S.ticker] : [];
+      : S.tab === 'analysis' && S.ticker ? [S.ticker]
+      : S.tab === 'portfolio' && S.account ? S.account.items.map(h => h.symbol) : [];
     if (!syms.length) return;
     try {
       const o = await api('/api/prices?symbols=' + syms.join(','));
       Object.entries(o).forEach(([k, v]) => { live[k] = v.price; });
       if (S.tab === 'compare') renderCompare();
+      else if (S.tab === 'portfolio') renderPortfolio();
     } catch (e) { /* 틱 실패는 조용히 넘긴다 — 다음 주기에 다시 시도 */ }
   }, sec * 1000);
 }
@@ -368,6 +370,44 @@ async function loadAnalysis() {
 
 // ══════════════════════════ 포트폴리오 ══════════════════════════
 
+/**
+ * 실시간 현재가를 덮어써 계좌를 다시 계산한다 (안드로이드 PortfolioScreen 과 같은 규칙).
+ *
+ * 계좌 전체를 다시 부르면 토스 호출이 4번(계좌·보유·예수금·환율)이라 무겁다.
+ * 현재가 1번만 받아 **평가금액·손익을 여기서 다시 계산**하면 틱마다 갱신할 수 있다.
+ * 기준은 API 와 동일 — 누적 손익률 = 현재가/평단 − 1. 안 맞추면 증권사 앱과 숫자가 어긋난다.
+ *
+ * ⚠️ 정렬은 서버가 준 순서(조회 시점 평가금액)를 그대로 쓴다. 틱마다 다시 정렬하면
+ * 행이 위아래로 튀어서 읽을 수가 없다.
+ */
+function liveAccount() {
+  const a = S.account;
+  if (!a) return null;
+  let ev = 0, pnl = 0, buy = 0, daily = 0, baseSum = 0;
+  const items = a.items.map(h => {
+    const k = h.currency === 'USD' ? a.rate : 1;
+    const p = live[h.symbol];
+    // 전일 기준가 — 당일 손익률에서 역산 (토스가 기준가를 따로 주지 않는다)
+    const base = (h.dailyPnlRate > -1 && h.dailyPnlRate !== 0)
+      ? h.lastPrice / (1 + h.dailyPnlRate) : h.lastPrice;
+    buy += h.avgPrice * h.quantity * k;
+    baseSum += base * h.quantity * k;
+    if (p == null) {
+      ev += h.evalKrw; pnl += h.pnlKrw; daily += h.dailyPnlAmount * k;
+      return h;
+    }
+    const evalKrw = p * h.quantity * k;
+    const pnlKrw = (p - h.avgPrice) * h.quantity * k;
+    ev += evalKrw; pnl += pnlKrw; daily += (p - base) * h.quantity * k;
+    return { ...h, evalKrw, pnlKrw,
+             pnlRate: h.avgPrice > 0 ? p / h.avgPrice - 1 : h.pnlRate };
+  });
+  return { ...a, items,
+    evalKrw: ev, totalKrw: ev + a.cashKrw, pnlKrw: pnl,
+    pnlRate: buy > 0 ? pnl / buy : a.pnlRate,
+    dailyPnlKrw: daily, dailyPnlRate: baseSum > 0 ? daily / baseSum : a.dailyPnlRate };
+}
+
 const money = krw => S.usdMode
   ? '$' + (krw / S.account.rate).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
   : Math.round(krw).toLocaleString('ko-KR') + '원';
@@ -378,7 +418,7 @@ const qtyLabel = q => (Number.isInteger(q) ? q.toLocaleString('ko-KR')
 function renderPortfolio() {
   const body = $('#body');
   body.innerHTML = '';
-  const a = S.account;
+  const a = liveAccount();
   if (!a) { body.appendChild(el('p', 'muted pad', '불러오는 중…')); return; }
 
   const wrap = el('div');
@@ -516,13 +556,34 @@ function renderPortfolio() {
   body.appendChild(wrap);
 }
 
+let acctTimer = null;
+
 async function loadPortfolio(force) {
   try {
     S.account = await api('/api/account' + (force ? '?force=true' : ''));
     if (!S.settings) S.settings = await api('/api/settings');
     S.snaps = await api('/api/snapshots' + (S.usdMode ? '?usd=true' : ''));
     renderPortfolio();
+    startTicks();
+    startAccountRefresh();
   } catch (e) { fail(e); }
+}
+
+/**
+ * 계좌 전체 재조회 — 60초. 현재가는 틱이 맡고, 여기서는 **예수금·환율·보유 종목 변동**
+ * 처럼 현재가로 알 수 없는 것만 따라잡는다. 호출이 4번이라 자주 부를 수 없다.
+ */
+function startAccountRefresh() {
+  clearInterval(acctTimer);
+  const sec = S.settings ? (S.settings.tickSeconds ?? 10) : 10;
+  if (!sec) return;                  // 갱신 끔이면 계좌도 자동으로 다시 받지 않는다
+  acctTimer = setInterval(async () => {
+    if (S.tab !== 'portfolio') return;
+    try {
+      S.account = await api('/api/account');
+      renderPortfolio();
+    } catch (e) { /* 조용히 넘긴다 */ }
+  }, 60000);
 }
 
 // ══════════════════════════ 설정 ══════════════════════════
@@ -747,6 +808,7 @@ function go(tab) {
   document.querySelectorAll('#tabs button').forEach(b =>
     b.classList.toggle('on', b.dataset.tab === tab));
   clearCharts();
+  if (tab !== 'portfolio') clearInterval(acctTimer);
   header();
   if (tab === 'compare') { S.rows ? renderCompare() : loadCompare(false); if (S.rows) startTicks(); }
   else if (tab === 'analysis') loadAnalysis();
