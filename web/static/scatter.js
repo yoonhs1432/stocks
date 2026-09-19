@@ -92,7 +92,7 @@ function regressionScatter(host, r, height = 240) {
     axisLabel(g, v.toFixed(2), w - PAD_R + 4, sy(v) + 3);
   });
   axisLabel(g, 'SPY →', PAD_L, h - 4, '#ffffff88');
-  axisLabel(g, `β ${r.beta.toFixed(2)}`, w - PAD_R, PAD_T + 8, '#ADBAC7', 'right');
+  axisLabel(g, `β ${r.beta.toFixed(2)}`, PAD_L, PAD_T + 10, '#ADBAC7');
 }
 
 /** ② Z·M 궤적. X=Z 백분위, Y=M 백분위, 둘 다 0~100. 임계 20/40/60/80. */
@@ -128,7 +128,7 @@ function zmScatter(host, r, height = 240) {
   if (last >= 0) star(g, sx(r.zPct[last]), sy(r.mPct[last]), 8);
 
   axisLabel(g, 'Z(저평가 ←) →', PAD_L, h - 4, '#ffffff88');
-  axisLabel(g, 'M', w - PAD_R + 4, PAD_T + 10, '#8B95A1');
+  axisLabel(g, 'M ↑', PAD_L, PAD_T + 10, '#8B95A1');
   [0, 50, 100].forEach(v => axisLabel(g, String(v), w - PAD_R + 4, sy(v) + 3));
 }
 

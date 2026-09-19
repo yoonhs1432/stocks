@@ -132,11 +132,13 @@ def analyze(toss: Toss, ticker: str, months: int | None = None,
     return quant.analyze(_closes(spy), _closes(tk)), tk
 
 
-def overview(toss: Toss, tickers: list[str], force: bool = False) -> list[dict]:
+def overview(toss: Toss, tickers: list[str], force: bool = False,
+             held: set[str] | None = None) -> list[dict]:
     """비교 화면 한 줄씩. 종목을 **병렬로** 분석하되 동시 요청은 게이트가 막는다."""
     months = store.lookback_months()
     candles(toss, store.BASE, months, force)      # 기준 자산을 먼저 받아 캐시에 올린다
     all_trades = store.trades()
+    held = held or set()
 
     errors: list[Exception] = []
 
@@ -147,8 +149,13 @@ def overview(toss: Toss, tickers: list[str], force: bool = False) -> list[dict]:
             errors.append(e)
             return None
         if not bars:
+            # 행을 버리면 종목이 소리 없이 사라져 빠진 줄도 모른다 → 행은 남기고 값만 비운다
             errors.append(TossError("no-data", 0, f"{tk} 시세를 가져오지 못했습니다"))
-            return None
+            return {"ticker": tk, "name": tk, "price": None, "prevClose": None,
+                    "day": None, "open": None, "high": None, "low": None,
+                    "zPct": None, "mPct": None, "beta": None, "sigmaPct": None,
+                    "signal": "hold", "holding": tk in held,
+                    "hasHistory": bool(all_trades.get(tk)), "krw": store.is_krw(tk)}
         last = bars[-1]
         prev = bars[-2]["close"] if len(bars) >= 2 else last["close"]
         day = (last["close"] / prev - 1) * 100 if prev else 0.0
@@ -167,7 +174,7 @@ def overview(toss: Toss, tickers: list[str], force: bool = False) -> list[dict]:
             "beta": r.beta if r else None,
             "sigmaPct": r.sigmaPct if r else None,
             "signal": r.signal if r else "hold",
-            "holding": pos is not None,
+            "holding": pos is not None or tk in held,
             "hasHistory": bool(tr),
             "krw": store.is_krw(tk),
         }
@@ -175,8 +182,8 @@ def overview(toss: Toss, tickers: list[str], force: bool = False) -> list[dict]:
     with ThreadPoolExecutor(max_workers=6) as ex:
         rows = [r for r in ex.map(one, tickers) if r]
 
-    # 전부 실패했으면 빈 표를 내놓지 않고 이유를 올린다 — 화면에 원인이 보여야 한다
-    # (키 없음·허용 IP 밖·한도 초과가 전부 "종목 0개"로 보이면 손쓸 수가 없다)
-    if not rows and errors:
+    # 한 종목도 시세를 못 받았으면 대시만 늘어선 표 대신 이유를 올린다 —
+    # 키 없음·허용 IP 밖·한도 초과가 전부 "값 없음"으로 보이면 손쓸 수가 없다
+    if errors and not any(r["price"] is not None for r in rows):
         raise errors[0]
     return rows

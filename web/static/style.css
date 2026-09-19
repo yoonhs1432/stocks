@@ -24,7 +24,7 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo",
                "Noto Sans KR", "Malgun Gothic", sans-serif;
   font-size: 14px;
-  padding-bottom: 64px;   /* 하단 고정 바 자리 */
+  padding-bottom: 96px;   /* 하단 탭바 + 마지막 차트 날짜축 자리 */
 }
 
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
@@ -142,13 +142,17 @@ table.cmp canvas { vertical-align: middle; }
 .nodot { display: inline-block; width: 6px; margin-right: 5px; }
 
 /* ── 분석 ── */
-.chips { display: flex; gap: 6px; overflow-x: auto; padding: 10px 0 4px;
-         -webkit-overflow-scrolling: touch; }
-.chips button {
+/* 분석 탭 종목 칩 — 가로 한 줄 스크롤.
+   ⚠️ 포트폴리오 통계 칩(.chips, flex-wrap:wrap)과 **이름이 같으면 안 된다.**
+   같은 이름을 쓰다가 wrap 이 새어 들어와 칩이 3줄로 쌓였다. */
+.tchips { display: flex; flex-wrap: nowrap; gap: 6px; overflow-x: auto;
+          padding: 10px 0 4px; -webkit-overflow-scrolling: touch; }
+.tchips button {
   background: var(--ghost); color: var(--text2); border: 0; border-radius: 8px;
-  padding: 6px 11px; font-size: 13px; font-weight: 700; white-space: nowrap; cursor: pointer;
+  padding: 6px 11px; font-size: 13px; font-weight: 700; white-space: nowrap;
+  cursor: pointer; flex: none;
 }
-.chips button.on { background: var(--accent); color: #fff; }
+.tchips button.on { background: var(--accent); color: #fff; }
 .anl-head { display: flex; align-items: baseline; gap: 8px; padding: 4px 0 2px; flex-wrap: wrap; }
 .anl-head .tk { font-size: 19px; font-weight: 800; }
 .anl-head .sub { color: var(--text2); font-size: 11px; }

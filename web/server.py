@@ -72,7 +72,15 @@ def _clean(v):
 
 app = FastAPI(title="Quant Portfolio")
 _key, _secret = _load_creds()
-_toss = Toss(_key, _secret)
+
+# QUANT_MOCK=1 이면 가짜 시세로 띄운다 — 화면을 직접 열어 확인하기 위한 개발용.
+# 실제 사용에는 영향이 없고, 켜져 있으면 콘솔에 분명히 찍는다.
+if os.environ.get("QUANT_MOCK") == "1":
+    from mock import MockToss
+    _toss = MockToss()
+    print("⚠️  가짜 시세로 실행 중입니다 (QUANT_MOCK=1). 숫자는 진짜가 아닙니다.")
+else:
+    _toss = Toss(_key, _secret)
 
 # ── 접속 인증 ──
 # 이 서버는 계좌를 그대로 보여준다. 외부에 열면 주소를 아는 사람은 누구나 볼 수 있으므로
@@ -179,19 +187,33 @@ def api_compare(market: str = "US", force: bool = False):
 
     첫 호출은 종목 수만큼 일봉을 받느라 20~30초 걸린다. 그 다음부터는 캐시가 받쳐 준다.
     """
-    tickers = [t for t in store.tickers()
-               if (store.is_krw(t) if market == "KR" else not store.is_krw(t))]
+    # 보유 종목은 설정 목록에 없어도 **항상** 표에 넣는다.
+    # 안드로이드에서 이걸 안 하니 보유 중인 종목이 비교 탭에서 통째로 빠졌다.
+    held: set[str] = set()
+    try:
+        acc = api_account()          # 20초 캐시라 부담이 없다
+        if isinstance(acc, dict):
+            held = {h["symbol"] for h in acc.get("items", [])}
+    except Exception:
+        pass
+
+    def mine(t: str) -> bool:
+        return store.is_krw(t) if market == "KR" else not store.is_krw(t)
+
+    watch = store.tickers()
+    tickers = [t for t in watch if mine(t)]
+    tickers += [t for t in sorted(held) if mine(t) and t not in tickers]
     if not tickers:
         return {"rows": [], "market": market}
 
-    key = f"{market}:{store.lookback_months()}"
+    key = f"{market}:{store.lookback_months()}:{len(tickers)}"
     with _ov_lock:
         hit = _ov_cache.get(key)
         if not force and hit and time.time() - hit[0] < OV_TTL:
             rows = hit[1]
         else:
             try:
-                rows = repo.overview(_toss, tickers, force)
+                rows = repo.overview(_toss, tickers, force, held)
             except TossError as e:
                 return JSONResponse({"error": e.message, "code": e.code}, status_code=502)
             except Exception as e:

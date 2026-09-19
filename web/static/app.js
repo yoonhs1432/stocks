@@ -1,7 +1,8 @@
 // 퀀트 대시보드 — 비교 · 분석 · 포트폴리오 · 설정.
 // 안드로이드 앱(android-toss)을 옮긴 것. 계산은 전부 서버에서 끝내고 여기서는 그리기만 한다.
 
-const PALETTE = ['#E0A24A', '#D9694E', '#CF5D7F', '#8A6FD0', '#4D8DF0', '#37A48C'];
+const PALETTE = ['#E0A24A', '#D9694E', '#CF5D7F', '#8A6FD0', '#4D8DF0', '#37A48C',
+                 '#B5843A', '#7FA8D9', '#C98BB8', '#5FBF8F'];
 const UP = '#EF6066', DOWN = '#5B9BF2', GOLD = '#E0A24A', TEAL = '#37B6C4', VIOLET = '#9B8CFF';
 
 const $ = (s, r = document) => r.querySelector(s);
@@ -185,7 +186,10 @@ function clearCharts() { charts.forEach(c => { try { c.remove(); } catch (e) {} 
 
 function mkChart(host, height, opts = {}) {
   const c = LightweightCharts.createChart(host, {
-    width: host.clientWidth, height,
+    // ⚠️ autoSize 가 필요하다. 차트를 만드는 시점에 host 가 아직 문서에 붙기 전이면
+    // clientWidth 가 0 이고, 그 0 을 기준으로 잡힌 구간이 그대로 남아 데이터가 한 줄로
+    // 뭉쳐 버린다(포트폴리오 차트가 실제로 그랬다). autoSize 는 붙은 뒤 스스로 맞춘다.
+    autoSize: true, height,
     layout: { background: { color: 'transparent' }, textColor: '#8B95A1', fontSize: 10 },
     grid: { vertLines: { visible: false }, horzLines: { color: '#ffffff0d' } },
     rightPriceScale: { borderColor: '#24242A', scaleMargins: { top: .12, bottom: .08 } },
@@ -194,11 +198,42 @@ function mkChart(host, height, opts = {}) {
       vertLine: { color: '#8B95A1', width: 1, style: 2, labelBackgroundColor: '#3182F6' },
       horzLine: { color: '#8B95A1', width: 1, style: 2, labelBackgroundColor: '#3182F6' } },
     handleScale: { axisPressedMouseMove: false },
+    localization: { locale: 'ko-KR' },
     ...opts,
   });
   charts.push(c);
-  new ResizeObserver(() => c.applyOptions({ width: host.clientWidth })).observe(host);
   return c;
+}
+
+/**
+ * 처음 보여 줄 구간. 점이 적으면 꽉 채우고, 많으면 **최근 N개**만.
+ *
+ * 그냥 두면 lightweight-charts 가 기본 간격으로 오른쪽에 붙여 그려서, 스냅샷처럼
+ * 점이 20개쯤이면 화면 왼쪽 절반이 텅 빈다. 반대로 일봉 500개를 다 채우면 너무 촘촘하다
+ * (안드로이드도 기본 2개월만 보여 줬다).
+ */
+function fitRange(chart, count, recent = 45) {
+  // 폭이 잡힌 다음 프레임에 적용한다 — 붙기 전에 계산하면 0 폭 기준이 된다
+  requestAnimationFrame(() => {
+    const ts = chart.timeScale();
+    if (count <= recent) ts.fitContent();
+    else ts.setVisibleLogicalRange({ from: count - recent, to: count - 1 });
+  });
+}
+
+/**
+ * 여러 차트의 시간축을 묶는다 — 하나를 확대·이동하면 나머지도 따라간다.
+ * 안 묶으면 캔들을 확대했을 때 아래 Z·M·MACD 가 그대로라 **날짜가 서로 어긋난다**
+ * (안드로이드에서는 네 차트가 ChartView 하나를 공유했다).
+ */
+function linkTime(list) {
+  let busy = false;
+  list.forEach(c => c.timeScale().subscribeVisibleLogicalRangeChange(r => {
+    if (!r || busy) return;
+    busy = true;
+    list.forEach(o => { if (o !== c) o.timeScale().setVisibleLogicalRange(r); });
+    busy = false;
+  }));
 }
 
 function chartBox(parent, title, valueEl) {
@@ -222,7 +257,7 @@ function renderAnalysis() {
   wrap.style.padding = '0 var(--pad) 12px';
 
   // 종목 칩
-  const chips = el('div', 'chips');
+  const chips = el('div', 'tchips');
   (S.rows || []).forEach(r => {
     const b = el('button', r.ticker === S.ticker ? 'on' : '', r.name || r.ticker);
     b.onclick = () => { S.ticker = r.ticker; localStorage.setItem('ticker', r.ticker); loadAnalysis(); };
@@ -237,6 +272,7 @@ function renderAnalysis() {
   const r = a.result;
   const minMode = S.bar === '1m';
   const m = S.minutes;
+  const linked = [];          // 시간축을 함께 움직일 차트들
 
   // 헤더 — 종목 · σ·β · 현재가 · 평단
   const head = el('div', 'anl-head');
@@ -268,6 +304,8 @@ function renderAnalysis() {
       wickUpColor: UP, wickDownColor: DOWN,
     });
     cs.setData(bars.map(b => ({ time: b.t, open: b.open, high: b.high, low: b.low, close: b.close })));
+    fitRange(ch, bars.length, minMode ? 120 : 45);
+    linked.push(ch);
 
     // 평단선 — 보유 중일 때만
     if (a.avgPrice) {
@@ -330,19 +368,20 @@ function renderAnalysis() {
   // ── 지표 ──
   if (minMode && m && m.candles.length) {
     lineChart(wrap, 'MACD · 1분', m.candles.map(b => b.t),
-      [[m.macd, VIOLET], [m.macdSignal, '#C9C5BB']]);
-    lineChart(wrap, 'RSI · 1분', m.candles.map(b => b.t), [[m.rsi, TEAL]], [30, 70]);
+      [[m.macd, VIOLET], [m.macdSignal, '#C9C5BB']], [], linked, 120);
+    lineChart(wrap, 'RSI · 1분', m.candles.map(b => b.t), [[m.rsi, TEAL]], [30, 70], linked, 120);
   } else if (r) {
-    lineChart(wrap, 'Z · M', r.dates, [[r.zPct, UP], [r.mPct, '#FFD24D']], [20, 40, 60, 80]);
-    lineChart(wrap, 'MACD', r.dates, [[r.macd, VIOLET], [r.macdSignal, '#C9C5BB']]);
-    lineChart(wrap, 'RSI', r.dates, [[r.rsi, TEAL]], [30, 70]);
+    lineChart(wrap, 'Z · M', r.dates, [[r.zPct, UP], [r.mPct, '#FFD24D']], [20, 40, 60, 80], linked);
+    lineChart(wrap, 'MACD', r.dates, [[r.macd, VIOLET], [r.macdSignal, '#C9C5BB']], [], linked);
+    lineChart(wrap, 'RSI', r.dates, [[r.rsi, TEAL]], [30, 70], linked);
   } else {
     wrap.appendChild(el('p', 'muted', '분석 데이터 부족 — 상장 후 기간이 짧은 종목입니다'));
   }
+  if (linked.length > 1) linkTime(linked);
 }
 
 /** 선 차트 한 판. series = [[값배열, 색], …], guides = 임계 가로선. */
-function lineChart(parent, title, times, series, guides = []) {
+function lineChart(parent, title, times, series, guides = [], linked = null, recent = 45) {
   const { host } = chartBox(parent, title);
   const ch = mkChart(host, 120);
   series.forEach(([vals, color], idx) => {
@@ -353,11 +392,25 @@ function lineChart(parent, title, times, series, guides = []) {
       price: g, color: '#ffffff22', lineWidth: 1, lineStyle: 2, axisLabelVisible: false,
     }));
   });
+  fitRange(ch, times.length, recent);
+  if (linked) linked.push(ch);
+  return ch;
 }
 
 async function loadAnalysis() {
-  if (!S.ticker && S.rows && S.rows.length) S.ticker = S.rows[0].ticker;
-  if (!S.ticker) { $('#body').innerHTML = '<p class="muted pad">비교 탭에서 종목을 고르세요</p>'; return; }
+  // 종목 칩과 기본 종목이 비교 데이터에서 나온다. 분석 탭을 열어 둔 채 새로고침하면
+  // 그게 없어서 화면이 통째로 비었다 → 없으면 여기서 직접 받아 온다.
+  if (!S.rows) {
+    $('#body').innerHTML = '<p class="muted pad">종목 목록 불러오는 중…</p>';
+    try {
+      const o = await api(`/api/compare?market=${S.market}`);
+      S.rows = o.rows;
+    } catch (e) { fail(e); return; }
+  }
+  if (!S.ticker || !S.rows.some(r => r.ticker === S.ticker)) {
+    S.ticker = S.rows.length ? S.rows[0].ticker : null;
+  }
+  if (!S.ticker) { $('#body').innerHTML = '<p class="muted pad">설정에서 종목을 추가하세요</p>'; return; }
   S.analysis = null;
   renderAnalysis();
   try {
@@ -510,14 +563,17 @@ function renderPortfolio() {
       pS.setData(t.map((d, i) => ({ time: d, value: sn.principal[i] == null ? undefined : sn.principal[i] / div }))
         .filter(x => x.value !== undefined));
     }
-    wrap.appendChild(el('p', 'muted', `${sn.dates.length}일 기록 · 단위 ${unit} · ` +
-      `흰 선 총자산 / 빨강 평가금액${sn.principal.some(v => v != null) ? ' / 금색 원금' : ''}`));
+    fitRange(c1, t.length, t.length);
+    wrap.appendChild(el('p', 'muted',
+      `${sn.dates.length}일 · ${unit} · 흰=총자산 빨강=평가금액` +
+      (sn.principal.some(v => v != null) ? ' 금색=원금' : '')));
 
     const a2 = chartBox(wrap, '평가손익');
     const c2 = mkChart(a2.host, 140, { timeScale: { borderColor: '#24242A', timeVisible: false } });
     const pnlS = c2.addAreaSeries({ lineColor: UP, topColor: 'rgba(239,96,102,.35)',
       bottomColor: 'rgba(239,96,102,0)', lineWidth: 2, priceLineVisible: false });
     pnlS.setData(t.map((d, i) => ({ time: d, value: sn.pnl[i] / div })));
+    fitRange(c2, t.length, t.length);
   } else if (sn) {
     wrap.appendChild(el('p', 'muted', `기록 ${sn.dates.length}일 — 2일 이상 쌓이면 자산 추이가 표시됩니다`));
   }

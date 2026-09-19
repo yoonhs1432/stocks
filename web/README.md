@@ -131,6 +131,18 @@ cloudflared tunnel run --url http://localhost:8000 quant
 > 조회할 때마다 그날 값을 `web/data/snapshots.json` 에 남기는 방식이다(하루 1회 덮어쓰기).
 > 서버를 켜 두면 자동으로 쌓인다.
 
+## 개발 중 화면 확인
+
+토스 API 는 허용 IP 밖에서 막히고 개발 환경에는 앱 키도 없다. 그래서 **가짜 시세**로
+띄워 화면을 직접 볼 수 있게 해 뒀다.
+
+```powershell
+$env:QUANT_MOCK = "1"; py server.py      # 숫자는 가짜, 레이아웃 확인용
+```
+
+`shot.py` 는 폰 크기(412×915)로 각 탭을 캡처한다(헤드리스 크로미움 필요).
+칩이 줄바꿈되거나 차트가 탭바에 가리는 문제를 이걸로 잡았다.
+
 ## 구성
 
 | 파일 | 하는 일 |
@@ -144,6 +156,7 @@ cloudflared tunnel run --url http://localhost:8000 quant
 | `static/` | 화면. 안드로이드와 같은 A-1 토스 블루 토큰. 차트는 lightweight-charts |
 | `static/scatter.js` | 산점도 2종 — lightweight-charts 가 산점도를 지원하지 않아 캔버스로 |
 | `run.ps1` / `install-task.ps1` | 실행 / 자동 실행 등록 |
+| `mock.py` / `shot.py` | **개발용** — 가짜 시세, 화면 캡처 |
 
 `web/data/` 는 이 PC 안에만 있는 것이라 커밋되지 않는다.
 
@@ -152,4 +165,4 @@ cloudflared tunnel run --url http://localhost:8000 quant
 - **비교 탭 첫 조회는 20~30초** 걸린다. 종목 수만큼 2년치 일봉을 받기 때문이다.
   받은 일봉은 파일로 캐시(6시간)하므로 그 다음부터, 그리고 서버를 껐다 켜도 빠르다.
 - 분석 화면의 **평단선**은 토스 보유 정보를 우선 쓰고, 없으면 체결내역에서 역산한다.
-- **차트 라이브러리는 CDN 에서 받는다**(jsdelivr). PC 가 인터넷에 연결돼 있어야 한다.
+- 차트 라이브러리는 `static/vendor/` 에 같이 두었다. 인터넷이 끊겨도 차트가 뜬다.
