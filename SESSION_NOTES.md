@@ -1,7 +1,87 @@
 # SESSION_NOTES — 최근 작업 핸드오프
 
 > 새 세션 시작 시 이 파일을 읽으면 직전 세션의 맥락을 이어받을 수 있음.
-> 마지막 업데이트: 2026-09-05 (토스 앱: Yahoo 제거 · x구간 영속 · 자산 차트 토스값 · A-1 UI 통일 · 릴리스 분리)
+> 마지막 업데이트: 2026-09-19 (**웹으로 전환** — 집 PC FastAPI 서버 + 인증 + 터널. 안드로이드는 보류)
+
+## 2026-09-09~19 웹 전환 (`web/`) — **현재 주력**
+
+> **안드로이드는 잠시 접어 뒀다.** `android-toss/` 는 그대로 두고 손대지 않는다.
+> 되살리려면 `TossApi.kt:50,95` 의 `openConnection` 에 프록시만 물리면 된다.
+
+### 왜 옮겼나 — IP
+
+토스 Open API 는 **허용 IP 밖 호출을 `access_denied` 로 막는다.** 폰이 5G 면 IP 가 매일
+바뀌어 그때마다 WTS 에 다시 등록해야 했다. 검토한 안:
+
+| 안 | 폰에 설치 | 결론 |
+|---|---|---|
+| Tailscale exit node / 앱 프록시 | 필요 | 사용자가 앱 설치를 원치 않음 |
+| 포트포워딩 + 프록시 | 없음 | CGNAT 이면 불가, 평문 |
+| **집 PC 웹 + Cloudflare 터널** | **없음** | 채택. https 자동, 포트포워딩 불필요 |
+
+⚠️ **클라우드(Streamlit Cloud 등)에 올리는 건 불가.** 나가는 IP 가 고정이 아니라 WTS 에
+등록할 수 없다. 반드시 IP 고정된 집 PC 에서 돌려야 한다.
+
+### 구성
+
+| 파일 | 대응 (안드로이드) |
+|---|---|
+| `web/toss.py` | `data/TossApi.kt` — 조회 전용. 주문은 구현 안 함 |
+| `web/quant.py` | `quant/Quant.kt` — 회귀·Z·M·MACD·RSI |
+| `web/repo.py` | `data/Quotes.kt` + `OverviewRepo.kt` |
+| `web/store.py` | `data/Store.kt` (`web/data/` JSON) |
+| `web/auth.py` | (신규) 접속 인증 |
+| `web/static/` | 4개 화면. 차트는 lightweight-charts |
+
+> ⚠️ **수식은 `Quant.kt` · `quant.py` · `app.py` 세 곳에 있다.** 하나를 고치면 나머지도.
+> `app.py` 를 import 하지 않은 이유 — streamlit·FinanceDataReader·plotly 가 딸려 온다.
+
+### 이 전환에서 실제로 문제였던 것들
+
+| 증상 | 원인 |
+|---|---|
+| 분석 화면이 통째로 안 뜸 | 파이썬 json 은 **NaN 을 그대로 쓰는데 유효한 JSON 이 아니다** → 브라우저 JSON.parse 가 응답 전체를 거부. Z·M warmup 이 NaN. `_clean()` 으로 내보내기 직전에 null 로 |
+| 비교 탭이 빈 표 | 종목별 예외를 전부 삼켜서 "0개"로만 보였다 → 전부 실패하면 첫 예외를 502 로 올린다 |
+| `.ps1` 한글 깨짐 | Windows PowerShell 5.1 은 **BOM 없는 .ps1 을 코드페이지 949 로 읽는다** → UTF-8 **BOM** 으로 저장 |
+| winget 직후 cloudflared 못 찾음 | 이미 열린 창은 PATH 가 갱신되지 않는다 → PATH 재로드 + 설치 위치 직접 탐색 |
+| 스토어 껍데기 python | `WindowsApps\python.exe` 버전 `0.0.0.0` 은 진짜 파이썬이 아니다 |
+
+### 인증 — 외부 공개 전에 반드시
+
+`web/auth.py`. **인증 없이 인터넷에 열면 주소를 아는 사람이 계좌를 본다.**
+- 토큰은 `config.json` 의 `access_token`, 없으면 **첫 실행 때 무작위 생성**(기본 암호 없음)
+- 쿠키 1년 · `?key=<토큰>` 으로도 통과(주소에서 key 는 지운다) · `127.0.0.1` 은 통과
+- `secrets.compare_digest` 비교, 같은 IP 5분 10회 실패면 차단
+- API 는 401 JSON, 화면은 로그인 폼
+
+### 실행
+
+```powershell
+cd web; .\run.ps1 -Tunnel      # https://xxx.trycloudflare.com (재시작마다 주소 변경)
+```
+
+### 남은 것
+
+- **Z·M 값이 안드로이드와 같은지 실제 시세로 대조** — 파이썬 이식분이라 제일 틀리기 쉽다
+  (합성 데이터 y=x² 로 beta=2.0 은 확인)
+- 산점도 2종(회귀 산점도, Z·M 궤적) 미이식
+- 고정 주소(도메인) · PC 부팅 시 자동 실행
+
+---
+
+## 2026-09-12~18 안드로이드 (웹 전환 직전까지)
+
+- **1분봉 모드** — 토스가 받아 주는 주기는 **`1d` 와 `1m` 뿐**(`probeInterval` 전수 확인).
+  1분 모드에선 Z·M 을 숨긴다(SPY 대비 일봉 회귀라 분봉에 의미 없음). MACD·RSI 만 재계산
+- **캔들 꾹 눌러 시고저종** — `chartGestures` 에 `withTimeoutOrNull` 로 길게누르기 판정.
+  조회 중 이벤트를 **소비**해야 세로 스크롤·당겨서 새로고침에 안 뺏긴다
+- **평단가 선** — 토스 보유 정보 우선, 없으면 체결내역 역산. 헤더 칩도 같은 값
+- **입금 장부(`Deposits`)** — 총자산−평가손익 추정은 실현손익이 예수금에 섞여 원금이 부푼다
+- ⚠️ **CI**: 구글이 SDK 에서 obsolete `tools` 를 내려 `setup-android` 기본값이 죽는다
+  → `packages: ''`
+- 빌드 실패 원인 하나: 기존 주석과 `@Composable` 사이에 함수를 끼워 넣어 **어노테이션 중복**
+
+---
 
 ## 2026-09-03~05 토스 앱 세션 (Yahoo 제거 · 차트 구간 영속 · A-1 UI 통일)
 
