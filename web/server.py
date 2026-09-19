@@ -21,10 +21,11 @@ import threading
 import time
 from pathlib import Path
 
-from fastapi import FastAPI
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, Form, Request
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
+import auth
 import quant
 import repo
 import store
@@ -71,6 +72,27 @@ def _clean(v):
 app = FastAPI(title="Quant Portfolio")
 _key, _secret = _load_creds()
 _toss = Toss(_key, _secret)
+
+# ── 접속 인증 ──
+# 이 서버는 계좌를 그대로 보여준다. 외부에 열면 주소를 아는 사람은 누구나 볼 수 있으므로
+# 암호가 먼저다. 토큰은 config.json 에 저장되고, 없으면 처음 실행할 때 만들어진다.
+ACCESS_TOKEN = auth.load_or_create_token(CONFIG)
+app.middleware("http")(auth.make_guard(ACCESS_TOKEN))
+
+
+@app.post("/login")
+def login(request: Request, token: str = Form("")):
+    ip = request.client.host if request.client else ""
+    if auth._too_many(ip):
+        return auth.login_page("시도가 너무 잦습니다. 잠시 후 다시 해 주세요.")
+    import secrets as _s
+    if not _s.compare_digest(token, ACCESS_TOKEN):
+        auth._note_fail(ip)
+        return auth.login_page("암호가 맞지 않습니다.")
+    secure = request.headers.get("x-forwarded-proto", request.url.scheme) == "https"
+    resp = RedirectResponse("/", status_code=303)
+    auth._set_cookie(resp, ACCESS_TOKEN, secure)
+    return resp
 
 _lock = threading.Lock()
 _cache: dict | None = None
@@ -340,5 +362,10 @@ if __name__ == "__main__":
     if not (_key and _secret):
         print("⚠️  앱 키가 없습니다. web/config.json 을 만들거나 "
               "TOSS_APP_KEY/TOSS_APP_SECRET 환경변수를 설정하세요.")
+    print()
+    print("  PC 에서:     http://localhost:8000   (암호 없이 열립니다)")
+    print("  다른 기기에서: 접속 암호  " + ACCESS_TOKEN)
+    print("  즐겨찾기용:   <주소>/?key=" + ACCESS_TOKEN)
+    print()
     # 0.0.0.0 으로 열어야 같은 네트워크의 폰에서 붙을 수 있다
     uvicorn.run(app, host="0.0.0.0", port=8000)

@@ -29,12 +29,68 @@ PC 브라우저에서 <http://localhost:8000> 을 연다.
 처음 켤 때 `허용되지 않은 IP입니다` 가 나오면, 토스증권 WTS → 설정 → Open API →
 허용 IP 관리에 **이 PC 의 공인 IP** 를 등록한다(<https://ifconfig.me> 에서 확인).
 
-## 3. 폰에서 보기
+## 3. 접속 암호
 
-같은 와이파이라면 `http://<PC의 사설 IP>:8000` 으로 바로 열린다
-(`ipconfig` 로 확인. 윈도우 방화벽에서 8000 포트 허용이 필요할 수 있다).
+**이 서버는 계좌를 그대로 보여준다.** 그래서 PC 자신(`localhost`)이 아닌 곳에서 오는
+요청은 전부 암호를 묻는다. 암호는 처음 실행할 때 `config.json` 에 자동으로 만들어지고
+콘솔에 찍힌다.
 
-밖에서 보려면 포트포워딩이나 터널이 필요하다 — 3단계에서 정한다.
+```
+  PC 에서:     http://localhost:8000   (암호 없이 열립니다)
+  다른 기기에서: 접속 암호  xxxxxxxxxxxxxxxxxxxx
+  즐겨찾기용:   <주소>/?key=xxxxxxxxxxxxxxxxxxxx
+```
+
+한 번 로그인하면 쿠키가 남아 다시 묻지 않는다. 폰에서는 `?key=...` 가 붙은 주소를
+한 번 열면 그걸로 끝이다(주소창에서 key 는 바로 지워진다).
+
+암호를 바꾸려면 `config.json` 의 `access_token` 을 고치고 서버를 다시 켜면 된다.
+
+## 4. 폰에서 보기
+
+**같은 와이파이** — `http://<PC 사설 IP>:8000`. 주소는 이렇게 확인한다.
+
+```powershell
+(Get-NetIPAddress -AddressFamily IPv4 |
+  Where-Object { $_.IPAddress -like "192.168.*" -or $_.IPAddress -like "10.*" }).IPAddress
+```
+
+윈도우 방화벽이 물어보면 허용한다. 크롬 메뉴 → 홈 화면에 추가를 하면 앱처럼 쓸 수 있다.
+
+**집 밖에서** — Cloudflare 터널이 제일 쉽다. 공유기 설정도, 폰에 앱 설치도 필요 없고
+https 도 자동으로 붙는다.
+
+```powershell
+winget install --id Cloudflare.cloudflared
+.\run.ps1 -Tunnel
+```
+
+콘솔에 `https://xxxx-xxxx.trycloudflare.com` 같은 주소가 뜬다. 폰에서 그 주소 뒤에
+`/?key=<접속 암호>` 를 붙여 한 번 열면 그 뒤로는 암호를 묻지 않는다.
+
+> ⚠️ 이 주소는 **서버를 껐다 켤 때마다 바뀐다.** Cloudflare 가 임시용이라고 못 박아 둔
+> 기능이라 그렇다.
+
+### 고정 주소로 쓰려면
+
+도메인이 하나 필요하다(Cloudflare 에서 사면 원가, 연 몇천 원짜리도 있다).
+도메인을 Cloudflare 에 올린 뒤:
+
+```powershell
+cloudflared tunnel login
+cloudflared tunnel create quant
+cloudflared tunnel route dns quant quant.내도메인.com
+cloudflared tunnel run --url http://localhost:8000 quant
+```
+
+이제 `https://quant.내도메인.com` 이 계속 같은 주소로 열린다.
+
+### 포트포워딩으로 하려면
+
+공유기에서 외부 8000 → 이 PC 8000 으로 열면 `http://<공인IP>:8000` 으로 붙는다.
+
+> ⚠️ 이 경우 **암호가 암호화되지 않은 채로 오간다.** 같은 네트워크를 지나는 누군가가
+> 들여다볼 수 있다. 계좌를 보는 화면이니 터널(https)을 쓰는 편이 낫다.
 
 ## 화면
 
