@@ -30,24 +30,54 @@ LOCAL = {"127.0.0.1", "::1", "localhost"}
 _fails: dict[str, list[float]] = {}
 
 
-def load_or_create_token(config_path: Path) -> str:
-    """`config.json` 의 access_token. 없으면 만들어 넣는다."""
-    o: dict = {}
+# 지금 유효한 암호. 설정 화면에서 바꿀 수 있어야 하므로 **값이 아니라 여기를** 본다.
+_token = ""
+
+
+def token() -> str:
+    return _token
+
+
+def _read(config_path: Path) -> dict:
     if config_path.exists():
         try:
-            o = json.loads(config_path.read_text(encoding="utf-8"))
+            v = json.loads(config_path.read_text(encoding="utf-8"))
+            if isinstance(v, dict):
+                return v
         except (ValueError, OSError):
-            o = {}
+            pass
+    return {}
+
+
+def load_or_create_token(config_path: Path) -> str:
+    """`config.json` 의 access_token. 없으면 만들어 넣는다."""
+    global _token
+    o = _read(config_path)
     tok = str(o.get("access_token") or "").strip()
-    if tok:
-        return tok
-    tok = secrets.token_urlsafe(24)
-    o["access_token"] = tok
-    try:
-        config_path.write_text(json.dumps(o, ensure_ascii=False, indent=2), encoding="utf-8")
-    except OSError:
-        pass
+    if not tok:
+        tok = secrets.token_urlsafe(24)
+        o["access_token"] = tok
+        try:
+            config_path.write_text(json.dumps(o, ensure_ascii=False, indent=2), encoding="utf-8")
+        except OSError:
+            pass
+    _token = tok
     return tok
+
+
+def rotate(config_path: Path) -> str:
+    """암호를 새로 만든다. 앱 키 같은 다른 항목은 그대로 둔다.
+
+    쓴 뒤에야 메모리 값을 바꾼다 — 파일에 못 썼는데 암호만 바뀌면 서버를 껐다 켰을 때
+    아무도 못 들어오는 상태가 된다.
+    """
+    global _token
+    o = _read(config_path)
+    new = secrets.token_urlsafe(24)
+    o["access_token"] = new
+    config_path.write_text(json.dumps(o, ensure_ascii=False, indent=2), encoding="utf-8")
+    _token = new
+    return new
 
 
 def _too_many(ip: str) -> bool:
@@ -92,10 +122,15 @@ def login_page(error: str = "") -> HTMLResponse:
     return HTMLResponse(html, status_code=200 if not error else 401)
 
 
-def make_guard(token: str):
-    """FastAPI 미들웨어 — 인증되지 않은 요청을 로그인 화면/401 로 돌린다."""
+def make_guard(_initial: str = ""):
+    """FastAPI 미들웨어 — 인증되지 않은 요청을 로그인 화면/401 로 돌린다.
+
+    암호는 호출 시점의 `_token` 을 본다. 값을 잡아 두면 설정에서 바꾼 뒤에도 옛 암호가
+    계속 통과한다.
+    """
 
     async def guard(request: Request, call_next):
+        tok = _token
         ip = request.client.host if request.client else ""
         path = request.url.path
 
@@ -109,14 +144,14 @@ def make_guard(token: str):
 
         # ?key=... 로 들어오면 쿠키를 심고 주소에서 지운다
         key = request.query_params.get("key")
-        if key and secrets.compare_digest(key, token):
+        if key and secrets.compare_digest(key, tok):
             clean = str(request.url.remove_query_params("key"))
             resp = RedirectResponse(clean, status_code=303)
-            _set_cookie(resp, token, secure)
+            _set_cookie(resp, tok, secure)
             return resp
 
         cookie = request.cookies.get(COOKIE)
-        if cookie and secrets.compare_digest(cookie, token):
+        if cookie and secrets.compare_digest(cookie, tok):
             return await call_next(request)
 
         if path.startswith("/api/"):

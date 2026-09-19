@@ -42,7 +42,8 @@ header h1 { flex: 1; margin: 0; font-size: 20px; font-weight: 800; }
 .seg { display: flex; gap: 2px; }
 .seg button {
   background: none; border: 0; color: var(--text2);
-  font-size: 13px; font-weight: 600; padding: 8px 10px;
+  font-size: 13px; font-weight: 600; padding: 12px 12px;
+  min-height: 44px;            /* 손가락 기준. 8px 이던 시절엔 옆 버튼이 눌렸다 */
   border-bottom: 2px solid transparent; cursor: pointer;
 }
 .seg button.on { color: var(--accent); font-weight: 800; border-bottom-color: var(--accent); }
@@ -118,7 +119,7 @@ footer button {
 
 header button#hdr-btn {
   background: var(--ghost); color: var(--text); border: 0; border-radius: 10px;
-  padding: 6px 12px; font-size: 13px; font-weight: 700; cursor: pointer;
+  padding: 10px 14px; min-height: 40px; font-size: 13px; font-weight: 700; cursor: pointer;
 }
 .pad { padding: 16px var(--pad); }
 
@@ -126,13 +127,13 @@ header button#hdr-btn {
 table.cmp { width: 100%; border-collapse: collapse; }
 table.cmp th {
   color: var(--text2); font-size: 12px; font-weight: 600; text-align: right;
-  padding: 8px 2px; border-bottom: 1px solid var(--line); cursor: pointer;
+  padding: 12px 2px; border-bottom: 1px solid var(--line); cursor: pointer;  /* 정렬 버튼이기도 하다 */
   white-space: nowrap;
 }
 table.cmp th.l, table.cmp td.l { text-align: left; }
 table.cmp th.on { color: var(--text); }
 table.cmp td {
-  padding: 5px 2px; font-size: 14px; text-align: right;
+  padding: 9px 2px; font-size: 14px; text-align: right;   /* 행 높이 40px — 옆 종목 오탭 방지 */
   border-bottom: 1px solid var(--line); white-space: nowrap;
 }
 table.cmp tr { cursor: pointer; }
@@ -153,8 +154,8 @@ table.cmp canvas { vertical-align: middle; }
           padding: 10px 0 4px; -webkit-overflow-scrolling: touch; }
 .tchips button {
   background: var(--ghost); color: var(--text2); border: 0; border-radius: 8px;
-  padding: 6px 11px; font-size: 13px; font-weight: 700; white-space: nowrap;
-  cursor: pointer; flex: none;
+  padding: 10px 13px; min-height: 40px; font-size: 13px; font-weight: 700;
+  white-space: nowrap; cursor: pointer; flex: none;
 }
 .tchips button.on { background: var(--accent); color: #fff; }
 .anl-head { display: flex; align-items: baseline; gap: 8px; padding: 4px 0 2px; flex-wrap: wrap; }
@@ -176,14 +177,16 @@ table.cmp canvas { vertical-align: middle; }
 .row2 { display: flex; align-items: center; gap: 8px; padding: 6px 0;
         border-bottom: 1px solid var(--line); }
 .row2 .g { flex: 1; }
-input.box {
+input.box, select.box {
   background: var(--surface); color: var(--text); border: 0; border-radius: 10px;
-  padding: 9px 10px; font-size: 15px; font-family: inherit; width: 100%;
+  padding: 11px 10px; min-height: 44px; font-size: 15px; font-family: inherit; width: 100%;
 }
 input.box.num { font-family: ui-monospace, monospace; text-align: center; }
-button.gh {
+button.gh, a.gh {
+  display: inline-flex; align-items: center; justify-content: center;
   background: var(--ghost); color: var(--text); border: 0; border-radius: 10px;
-  padding: 9px 14px; font-size: 13px; font-weight: 700; cursor: pointer; white-space: nowrap;
+  padding: 12px 14px; min-height: 44px; font-size: 13px; font-weight: 700;
+  cursor: pointer; white-space: nowrap;
 }
 button.gh.acc { color: var(--accent); }
 button.gh.del { color: var(--profit); }
@@ -193,3 +196,4 @@ button.pri {
 }
 button:disabled { opacity: .5; cursor: default; }
 .msg { font-size: 12px; color: var(--text2); padding: 6px 0; }
+.stamp { font-size: 11px; padding: 8px 0 0; margin: 0; }

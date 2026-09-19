@@ -69,7 +69,10 @@ def seed(data: str) -> None:
 
 
 def start_server(port: int, data: str) -> subprocess.Popen:
-    env = {**os.environ, "QUANT_MOCK": "1", "QUANT_DATA": data}
+    # QUANT_CONFIG 도 임시 파일로 — 암호 교체 검사가 진짜 config.json 을 갈아 치우면
+    # 폰에서 갑자기 못 들어오게 된다.
+    env = {**os.environ, "QUANT_MOCK": "1", "QUANT_DATA": data,
+           "QUANT_CONFIG": os.path.join(data, "config.json")}
     p = subprocess.Popen([sys.executable, "-m", "uvicorn", "server:app",
                           "--host", "127.0.0.1", "--port", str(port), "--log-level", "warning"],
                          cwd=HERE, env=env)
@@ -187,6 +190,7 @@ def run(pg, base: str, errs: list[str]) -> None:
     pg.wait_for_timeout(1500)
     added = check("종목을 추가하면 목록에 들어간다", "AAPL" in pg.inner_text("#body"))
     if added:
+        pg.once("dialog", lambda d: d.accept())
         pg.click("#body .row2:has(span:text-is('AAPL')) button:has-text('삭제')")
         pg.wait_for_timeout(1500)
         check("종목을 삭제하면 목록에서 빠진다", "AAPL" not in pg.inner_text("#body"))
@@ -226,6 +230,148 @@ def run(pg, base: str, errs: list[str]) -> None:
                 bad = pg.evaluate(probe, sel)
                 check(f"{title} {int(frac * 100)}% 지점 — {what}를 덮는 것 없음",
                       not bad, " / ".join(bad))
+
+    # ── 오류가 났을 때 되살아날 수 있는가 ──
+    print("\n[오류] 막히지 않고 다시 시도할 수 있는가")
+    pg.route("**/api/analysis*", lambda r: r.fulfill(
+        status=502, content_type="application/json",
+        body='{"error": "허용되지 않은 IP 입니다 (access_denied)"}'))
+    pg.evaluate("localStorage.setItem('tab','analysis')")
+    pg.goto(base + "/", wait_until="networkidle")
+    pg.wait_for_timeout(3000)
+    check("분석 오류에 서버가 준 이유가 보인다", "허용되지 않은 IP" in pg.inner_text("#body"),
+          pg.inner_text("#body")[:60])
+    check("분석 오류에도 종목 칩이 남는다", len(pg.query_selector_all("#body .tchips button")) > 3,
+          f"칩 {len(pg.query_selector_all('#body .tchips button'))}개")
+    check("분석 오류에 다시 시도 버튼이 있다",
+          bool(pg.query_selector("#body button:has-text('다시 시도')")))
+    pg.unroute("**/api/analysis*")
+    pg.click("#body button:has-text('다시 시도')")
+    pg.wait_for_timeout(3500)
+    check("다시 시도를 누르면 복구된다", bool(pg.query_selector("#body .ch-wrap canvas")),
+          pg.inner_text("#body")[:60])
+
+    pg.route("**/api/compare*", lambda r: r.abort())
+    pg.evaluate("localStorage.setItem('tab','compare')")
+    pg.goto(base + "/")
+    pg.wait_for_timeout(2500)
+    txt = pg.inner_text("#body")
+    check("서버가 안 잡히면 한국어로 알려 준다", "연결할 수 없습니다" in txt and "Failed to fetch" not in txt,
+          txt[:60])
+    pg.unroute("**/api/compare*")
+
+    errs.clear()        # 위에서 일부러 낸 502·연결 끊김은 콘솔에 남는 게 정상이다
+
+    # ── 실수로 지워지지 않는가 ──
+    print("\n[삭제] 확인 없이 지워지지 않는가")
+    pg.goto(base + "/", wait_until="networkidle")
+    pg.click("#tabs button[data-tab='settings']")
+    pg.wait_for_timeout(2500)
+    before = pg.inner_text("#body")
+    pg.once("dialog", lambda d: d.dismiss())          # 취소를 누른 상황
+    pg.click("#body .row2:has-text('+12,000,000원') button:has-text('삭제')")
+    pg.wait_for_timeout(1500)
+    check("입금 삭제는 확인을 먼저 묻는다(취소하면 남는다)",
+          "12,000,000원" in pg.inner_text("#body"))
+    pg.once("dialog", lambda d: d.accept())
+    pg.click("#body .row2:has-text('+12,000,000원') button:has-text('삭제')")
+    pg.wait_for_timeout(1500)
+    check("확인을 누르면 지워진다", "+12,000,000원" not in pg.inner_text("#body"))
+
+    # ── 화면이 기억하는 것들 ──
+    print("\n[기억] 확대 구간·기준 시각·정렬")
+    pg.evaluate("localStorage.setItem('tab','analysis'); localStorage.removeItem('range-1d')")
+    pg.goto(base + "/", wait_until="networkidle")
+    pg.wait_for_timeout(3500)
+    pg.mouse.move(200, 400)
+    pg.mouse.wheel(0, -400)
+    pg.wait_for_timeout(1200)
+    saved = pg.evaluate("localStorage.getItem('range-1d')")
+    check("확대하면 구간이 저장된다", bool(saved), str(saved))
+    pg.click("#body .tchips button:nth-child(3)")
+    pg.wait_for_timeout(3500)
+    after = pg.evaluate("localStorage.getItem('range-1d')")
+    check("종목을 바꿔도 같은 구간으로 열린다", saved == after, f"{saved} → {after}")
+    pg.reload(wait_until="networkidle")
+    pg.wait_for_timeout(3500)
+    check("앱을 껐다 켜도 구간이 남는다",
+          pg.evaluate("localStorage.getItem('range-1d')") == saved)
+
+    pg.click("#tabs button[data-tab='compare']")
+    pg.wait_for_timeout(3000)
+    check("비교에 언제 기준 숫자인지 적혀 있다", "조회" in pg.inner_text("#body .stamp"),
+          pg.inner_text("#body").splitlines()[-1] if pg.inner_text("#body") else "")
+    pg.evaluate("document.querySelectorAll('#body table th')[0].click()")
+    pg.wait_for_timeout(600)
+    first = pg.inner_text("#body table tr:nth-child(2)").split("\t")[0]
+    check("이름 정렬은 첫 클릭에 ㄱ→ㅎ", first.startswith("AVXX") or first < "F",
+          f"1등={first}")
+
+    # ── 잘못 눌리지 않는가 ──
+    print("\n[조작]")
+    small = pg.evaluate("""() => [...document.querySelectorAll('#hdr-seg button, #hdr-btn, #body table tr, #body .tchips button')]
+        .map(e => e.getBoundingClientRect())
+        .filter(r => r.height > 2 && r.height < 38).length""")
+    check("누르는 것들이 손가락 크기(38px 이상)", small == 0, f"작은 것 {small}개")
+
+    reqs = []
+    pg.on("request", lambda r: reqs.append(r.url) if "/api/compare" in r.url else None)
+    for _ in range(4):
+        pg.click("#hdr-btn", force=True)
+        pg.wait_for_timeout(120)
+    pg.wait_for_timeout(3000)
+    check("새로고침을 연타해도 요청은 한 번", len(reqs) <= 1, f"{len(reqs)}번")
+
+    pg.click("#tabs button[data-tab='settings']")
+    pg.wait_for_timeout(2000)
+    pg.evaluate("window.scrollTo(0, 600)")
+    pg.wait_for_timeout(400)
+    pg.click("#tabs button[data-tab='compare']")
+    pg.wait_for_timeout(2000)
+    check("탭을 바꾸면 맨 위부터 보인다", pg.evaluate("Math.round(scrollY)") == 0,
+          f"scrollY={pg.evaluate('Math.round(scrollY)')}")
+
+    pg.click("#tabs button[data-tab='analysis']")
+    pg.wait_for_timeout(3000)
+    chip = pg.evaluate("""() => {
+      const on = document.querySelector('#body .tchips button.on');
+      if (!on) return null;
+      const box = on.closest('.tchips').getBoundingClientRect(), r = on.getBoundingClientRect();
+      return r.left >= box.left - 2 && r.right <= box.right + 2;
+    }""")
+    check("고른 종목 칩이 화면 안에 보인다", chip is True, str(chip))
+
+    # ── 포트폴리오·설정에 새로 넣은 것들 ──
+    print("\n[추가된 정보]")
+    pg.click("#tabs button[data-tab='portfolio']")
+    pg.wait_for_timeout(3500)
+    body = pg.inner_text("#body")
+    check("보유 종목에 비중 %가 보인다", "%" in body and "비중" in body, body[:60])
+
+    pg.click("#tabs button[data-tab='settings']")
+    pg.wait_for_timeout(2500)
+    check("입금 날짜가 달력 입력이다",
+          pg.eval_on_selector("#body input[type='date']", "e => e.type") == "date")
+    check("접속 암호 칸이 있다", "접속 암호" in pg.inner_text("#body"))
+    pg.click("#body button:has-text('보기')")
+    pg.wait_for_timeout(400)
+    shown = pg.inner_text("#body")
+    check("보기를 누르면 암호가 나온다", "•••" not in shown.split("접속 암호")[1][:40],
+          shown.split("접속 암호")[1][:40])
+    old_tok = pg.evaluate("S.settings.accessToken")
+    ok_all = lambda d: d.accept()
+    pg.on("dialog", ok_all)             # 확인 → 새 암호 알림, 두 번 뜬다
+    pg.click("#body button:has-text('새로 만들기')")
+    pg.wait_for_timeout(2500)
+    pg.remove_listener("dialog", ok_all)
+    check("암호를 새로 만들 수 있다", pg.evaluate("S.settings.accessToken") != old_tok,
+          "그대로였다")
+    dl = pg.evaluate("""async () => {
+      const r = await fetch('/api/backup');
+      const o = await r.json();
+      return o && o.files ? Object.keys(o.files).length : 0;
+    }""")
+    check("백업 파일을 내려받을 수 있다", dl >= 5, f"파일 {dl}개")
 
     print("\n[콘솔]")
     check("자바스크립트 오류 없음", not errs, " / ".join(errs[:5]))

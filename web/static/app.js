@@ -50,15 +50,30 @@ function pctColor(p) {
 }
 
 async function api(path, opts) {
-  const res = await fetch(path, opts);
+  let res;
+  try {
+    res = await fetch(path, opts);
+  } catch (e) {
+    // fetch 자체가 실패하면 브라우저는 "Failed to fetch" 만 던진다. 실제로는 PC 가
+    // 꺼졌거나 터널 주소가 바뀐 경우라, 그대로 보여 주면 뭘 해야 할지 알 수 없다.
+    throw new Error('PC 서버에 연결할 수 없습니다. PC 가 켜져 있는지, 터널 주소가 바뀌지 않았는지 확인하세요.');
+  }
   const o = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(o.error || `요청 실패 (${res.status})`);
   return o;
 }
 
-function fail(e) {
-  $('#body').innerHTML = '';
-  $('#body').appendChild(el('p', 'err pad', '⚠️ ' + e.message));
+/** 오류 화면. **항상 다시 시도 버튼을 같이 둔다** — 없으면 탭을 나갔다 와야 했다. */
+function fail(e, retry) {
+  const body = $('#body');
+  body.innerHTML = '';
+  const box = el('div', 'pad');
+  box.appendChild(el('p', 'err', '⚠️ ' + e.message));
+  const b = el('button', 'gh', '다시 시도');
+  b.style.marginTop = '10px';
+  b.onclick = () => (retry || (() => go(S.tab)))();
+  box.appendChild(b);
+  body.appendChild(box);
 }
 
 // ══════════════════════════ 비교 ══════════════════════════
@@ -116,7 +131,8 @@ function renderCompare() {
       label + (S.sortKey === k ? (S.sortDesc ? ' ▼' : ' ▲') : ''));
     th.onclick = () => {
       if (S.sortKey === k) S.sortDesc = !S.sortDesc;
-      else { S.sortKey = k; S.sortDesc = true; }
+      // 숫자는 큰 값부터가 자연스럽지만 이름은 ㄱ→ㅎ 이 자연스럽다
+      else { S.sortKey = k; S.sortDesc = k !== 'name'; }
       renderCompare();
     };
     head.appendChild(th);
@@ -148,6 +164,15 @@ function renderCompare() {
   });
 
   wrap.appendChild(t);
+
+  // 언제 기준 숫자인지 — 일봉은 최대 6시간 캐시라 "지금"이 아닐 수 있다
+  const hhmm = ms => new Date(ms).toLocaleTimeString('ko-KR',
+    { hour: '2-digit', minute: '2-digit' });
+  const stamp = el('p', 'muted stamp');
+  stamp.textContent = (S.rowsAt ? `조회 ${hhmm(S.rowsAt)}` : '') +
+    (S.tickAt ? ` · 현재가 ${hhmm(S.tickAt)}` : '') + ' · 일봉은 최대 6시간 캐시';
+  wrap.appendChild(stamp);
+
   body.appendChild(wrap);
 }
 
@@ -155,9 +180,10 @@ async function loadCompare(force) {
   try {
     const o = await api(`/api/compare?market=${S.market}` + (force ? '&force=true' : ''));
     S.rows = o.rows;
+    S.rowsAt = (o.asOf ? o.asOf * 1000 : Date.now());
     renderCompare();
     startTicks();
-  } catch (e) { fail(e); }
+  } catch (e) { fail(e, () => loadCompare(force)); }
 }
 
 /** 실시간 현재가 — 화면에 보이는 종목만 주기적으로 갱신. */
@@ -173,6 +199,7 @@ function startTicks() {
     try {
       const o = await api('/api/prices?symbols=' + syms.join(','));
       Object.entries(o).forEach(([k, v]) => { live[k] = v.price; });
+      S.tickAt = Date.now();
       if (S.tab === 'compare') renderCompare();
       else if (S.tab === 'portfolio') renderPortfolio();
     } catch (e) { /* 틱 실패는 조용히 넘긴다 — 다음 주기에 다시 시도 */ }
@@ -192,7 +219,8 @@ function mkChart(host, height, opts = {}) {
     autoSize: true, height,
     layout: { background: { color: 'transparent' }, textColor: '#8B95A1', fontSize: 10 },
     grid: { vertLines: { visible: false }, horzLines: { color: '#ffffff0d' } },
-    rightPriceScale: { borderColor: '#24242A', scaleMargins: { top: .12, bottom: .08 } },
+    // 위아래 여백이 좁으면 축의 맨 위·맨 아래 숫자가 화면 경계에서 잘린다(작은 폰에서 확인)
+    rightPriceScale: { borderColor: '#24242A', scaleMargins: { top: .16, bottom: .13 } },
     timeScale: { borderColor: '#24242A', timeVisible: S.bar === '1m', secondsVisible: false },
     crosshair: { mode: LightweightCharts.CrosshairMode.Normal,
       vertLine: { color: '#8B95A1', width: 1, style: 2, labelBackgroundColor: '#3182F6' },
@@ -212,12 +240,43 @@ function mkChart(host, height, opts = {}) {
  * 점이 20개쯤이면 화면 왼쪽 절반이 텅 빈다. 반대로 일봉 500개를 다 채우면 너무 촘촘하다
  * (안드로이드도 기본 2개월만 보여 줬다).
  */
-function fitRange(chart, count, recent = 45) {
+const rangeKey = () => 'range-' + S.bar;      // 일봉과 1분봉은 따로 기억한다
+function savedRange() {
+  try {
+    const v = JSON.parse(localStorage.getItem(rangeKey()) || 'null');
+    return (v && v.span > 2) ? v : null;
+  } catch (e) { return null; }
+}
+
+/**
+ * @param mode null=기억 안 씀(포트폴리오) · 'apply'=기억한 구간 적용 · 'remember'=적용+저장
+ *
+ * 봉 개수는 종목마다 다르므로 절대 위치를 저장하면 엉뚱한 곳이 열린다. 그래서
+ * **오른쪽 끝에서 몇 칸 떨어졌는지(fromEnd) + 몇 칸을 보고 있는지(span)** 를 남긴다.
+ * 그러면 종목을 바꿔도, 앱을 껐다 켜도 같은 배율·같은 위치로 열린다.
+ */
+function fitRange(chart, count, recent = 45, mode = null) {
   // 폭이 잡힌 다음 프레임에 적용한다 — 붙기 전에 계산하면 0 폭 기준이 된다
   requestAnimationFrame(() => {
     const ts = chart.timeScale();
-    if (count <= recent) ts.fitContent();
-    else ts.setVisibleLogicalRange({ from: count - recent, to: count - 1 });
+    const saved = mode ? savedRange() : null;
+    if (saved && count > 3) {
+      const span = Math.min(saved.span, count - 1);
+      const to = count - 1 - Math.max(0, Math.min(saved.fromEnd, count - span - 1));
+      ts.setVisibleLogicalRange({ from: to - span, to });
+    } else if (count <= recent) {
+      ts.fitContent();
+    } else {
+      ts.setVisibleLogicalRange({ from: count - recent, to: count - 1 });
+    }
+    if (mode === 'remember') {
+      ts.subscribeVisibleLogicalRangeChange(r => {
+        if (!r) return;
+        localStorage.setItem(rangeKey(), JSON.stringify({
+          span: Math.round(r.to - r.from), fromEnd: Math.round(count - 1 - r.to),
+        }));
+      });
+    }
   });
 }
 
@@ -248,7 +307,7 @@ function chartBox(parent, title, valueEl) {
   return { host, wrap };
 }
 
-function renderAnalysis() {
+function renderAnalysis(err) {
   const body = $('#body');
   body.innerHTML = '';
   clearCharts();
@@ -265,6 +324,21 @@ function renderAnalysis() {
   });
   wrap.appendChild(chips);
   body.appendChild(wrap);
+  // 뒤쪽 종목을 고르면 칩이 화면 밖에 있어 뭘 보는지 알 수 없었다 → 가운데로 당겨 온다
+  requestAnimationFrame(() => {
+    const on = chips.querySelector('button.on');
+    if (on) chips.scrollLeft = on.offsetLeft - chips.clientWidth / 2 + on.offsetWidth / 2;
+  });
+
+  // 오류가 나도 칩은 남겨 둔다 — 칩까지 지우면 다른 종목으로 갈 수도, 다시 받을 수도 없다
+  if (err) {
+    wrap.appendChild(el('p', 'err', '⚠️ ' + err.message));
+    const rb = el('button', 'gh', '다시 시도');
+    rb.style.marginTop = '10px';
+    rb.onclick = () => loadAnalysis();
+    wrap.appendChild(rb);
+    return;
+  }
 
   const a = S.analysis;
   if (!a) { wrap.appendChild(el('p', 'muted', '불러오는 중…')); return; }
@@ -304,7 +378,7 @@ function renderAnalysis() {
       wickUpColor: UP, wickDownColor: DOWN,
     });
     cs.setData(bars.map(b => ({ time: b.t, open: b.open, high: b.high, low: b.low, close: b.close })));
-    fitRange(ch, bars.length, minMode ? 120 : 45);
+    fitRange(ch, bars.length, minMode ? 120 : 45, 'remember');
     linked.push(ch);
 
     // 평단선 — 보유 중일 때만
@@ -392,7 +466,7 @@ function lineChart(parent, title, times, series, guides = [], linked = null, rec
       price: g, color: '#ffffff22', lineWidth: 1, lineStyle: 2, axisLabelVisible: false,
     }));
   });
-  fitRange(ch, times.length, recent);
+  fitRange(ch, times.length, recent, 'apply');
   if (linked) linked.push(ch);
   return ch;
 }
@@ -405,6 +479,7 @@ async function loadAnalysis() {
     try {
       const o = await api(`/api/compare?market=${S.market}`);
       S.rows = o.rows;
+      S.rowsAt = (o.asOf ? o.asOf * 1000 : Date.now());
     } catch (e) { fail(e); return; }
   }
   if (!S.ticker || !S.rows.some(r => r.ticker === S.ticker)) {
@@ -418,7 +493,7 @@ async function loadAnalysis() {
     if (S.bar === '1m') S.minutes = await api('/api/minutes?ticker=' + encodeURIComponent(S.ticker));
     renderAnalysis();
     startTicks();
-  } catch (e) { fail(e); }
+  } catch (e) { S.analysis = null; renderAnalysis(e); }
 }
 
 // ══════════════════════════ 포트폴리오 ══════════════════════════
@@ -519,6 +594,10 @@ function renderPortfolio() {
     }).join(',') + ')';
     pw.appendChild(pie);
     wrap.appendChild(pw);
+    const cap = el('p', 'muted', '보유 종목 비중 · 예수금은 빠져 있습니다');
+    cap.style.textAlign = 'center';
+    cap.style.margin = '2px 0 6px';
+    wrap.appendChild(cap);
   }
 
   a.items.forEach((h, i) => {
@@ -531,7 +610,9 @@ function renderPortfolio() {
     r1.appendChild(el('span', 'eval mono', money(h.evalKrw)));
     art.appendChild(r1);
     const r2 = el('div', 'r2');
-    r2.appendChild(el('span', 'qty', qtyLabel(h.quantity)));
+    const w = sum > 0 ? (h.evalKrw / sum * 100) : null;
+    r2.appendChild(el('span', 'qty', qtyLabel(h.quantity) +
+      (w == null ? '' : ` · ${w.toFixed(1)}%`)));
     r2.appendChild(el('span', 'gain mono ' + cls(h.pnlKrw), signedMoney(h.pnlKrw)));
     r2.appendChild(el('span', 'sep', '|'));
     r2.appendChild(el('span', 'rate mono ' + cls(h.pnlRate), pct(h.pnlRate * 100)));
@@ -622,7 +703,7 @@ async function loadPortfolio(force) {
     renderPortfolio();
     startTicks();
     startAccountRefresh();
-  } catch (e) { fail(e); }
+  } catch (e) { fail(e, () => loadPortfolio(force)); }
 }
 
 /**
@@ -708,7 +789,8 @@ function renderSettings() {
 
   const dr = el('div', 'row2');
   const dd = el('input', 'box num');
-  dd.style.width = '120px';
+  dd.type = 'date';           // 손으로 2026-09-19 를 치게 두지 않는다
+  dd.style.width = '150px';
   dd.value = new Date().toISOString().slice(0, 10);
   const da = el('input', 'box num');
   da.placeholder = '금액'; da.inputMode = 'numeric';
@@ -738,8 +820,11 @@ function renderSettings() {
     amt.style.textAlign = 'right';
     if (d.krw < 0) amt.classList.add('down');
     row.appendChild(amt);
-    const x = el('button', 'gh', '삭제');
+    const x = el('button', 'gh del', '삭제');
     x.onclick = async () => {
+      // 입금 기록은 토스에서 다시 받아올 수 없다. 실수로 지우면 원금이 통째로 틀어진다.
+      if (!confirm(`${d.date} ${Math.round(d.krw).toLocaleString('ko-KR')}원 기록을 지울까요?\n` +
+                   '입금 기록은 되돌릴 수 없습니다.')) return;
       const o = await api('/api/deposits/' + i, { method: 'DELETE' });
       S.settings.deposits = o.deposits; S.settings.principal = o.principal;
       renderSettings();
@@ -748,40 +833,57 @@ function renderSettings() {
     wrap.appendChild(row);
   });
 
-  // ── 종목 관리 ──
-  wrap.appendChild(el('div', 'sec', '종목 관리'));
-  const ar = el('div', 'row2');
-  const ai = el('input', 'box');
-  ai.placeholder = '티커 또는 6자리 코드';
-  const ag = el('span', 'g'); ag.appendChild(ai); ar.appendChild(ag);
-  const ab = el('button', 'gh acc', '추가');
-  ab.onclick = async () => {
-    if (!ai.value.trim()) return;
-    await api('/api/tickers', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ticker: ai.value.trim() }),
-    });
-    S.rows = null; S.settings = await api('/api/settings');
-    renderSettings();
+  // ── 접속 ──
+  wrap.appendChild(el('div', 'sec', '접속'));
+  const kr = el('div', 'row2');
+  kr.appendChild(el('span', 'g', '접속 암호'));
+  const kv = el('span', 'mono');
+  kv.style.fontSize = '12px';
+  const mask = () => { kv.textContent = '•'.repeat(12); };
+  mask();
+  const show = el('button', 'gh', '보기');
+  show.onclick = () => {
+    if (show.textContent === '보기') { kv.textContent = s.accessToken || '–'; show.textContent = '숨기기'; }
+    else { mask(); show.textContent = '보기'; }
   };
-  ar.appendChild(ab);
-  wrap.appendChild(ar);
+  kr.appendChild(kv);
+  kr.appendChild(show);
+  wrap.appendChild(kr);
 
-  s.tickers.forEach(t => {
-    const row = el('div', 'row2');
-    row.appendChild(el('span', 'g mono', t.ticker));
-    const x = el('button', 'gh', '삭제');
-    x.onclick = async () => {
-      await api('/api/tickers/' + encodeURIComponent(t.ticker), { method: 'DELETE' });
-      S.rows = null; S.settings = await api('/api/settings');
+  const kr2 = el('div', 'row2');
+  kr2.appendChild(el('span', 'g muted', '암호가 새어 나갔다면 새로 만드세요'));
+  const kb = el('button', 'gh del', '새로 만들기');
+  kb.onclick = async () => {
+    if (!confirm('접속 암호를 새로 만들까요?\n' +
+                 '지금 접속 중인 다른 기기(폰 등)는 새 암호로 다시 들어가야 합니다.')) return;
+    kb.disabled = true;
+    try {
+      const o = await api('/api/auth/rotate', { method: 'POST' });
+      S.settings.accessToken = o.token;
       renderSettings();
-    };
-    row.appendChild(x);
-    wrap.appendChild(row);
-  });
+      // 폰에서 다시 들어갈 주소를 바로 알려 준다
+      alert('새 암호: ' + o.token + '\n\n폰에서는 주소 뒤에 ?key=' + o.token + ' 를 붙여 한 번 열면 됩니다.');
+    } catch (e) { msg.textContent = '⚠️ ' + e.message; }
+    kb.disabled = false;
+  };
+  kr2.appendChild(kb);
+  wrap.appendChild(kr2);
 
   // ── 데이터 ──
   wrap.appendChild(el('div', 'sec', '데이터'));
+
+  const bk = el('div', 'row2');
+  bk.appendChild(el('span', 'g', '기록 내려받기'));
+  const bl = el('a', 'gh', '백업 파일');
+  bl.href = '/api/backup';
+  bl.setAttribute('download', '');
+  bl.style.textDecoration = 'none';
+  bk.appendChild(bl);
+  wrap.appendChild(bk);
+  const bn = el('p', 'muted');
+  bn.textContent = '입금·매매·자산 추이 기록은 토스에서 다시 못 받습니다. ' +
+    'PC 에도 하루 한 번 data/backup 에 복사본이 쌓입니다.';
+  wrap.appendChild(bn);
   const fb = el('button', 'pri', `체결내역 가져오기 (${s.trades}건 저장됨)`);
   fb.onclick = async () => {
     fb.disabled = true; msg.textContent = '가져오는 중…';
@@ -806,10 +908,51 @@ function renderSettings() {
   cb.appendChild(cbtn);
   wrap.appendChild(cb);
 
+  // ── 종목 관리 ──
+  wrap.appendChild(el('div', 'sec', '종목 관리'));
+  const ar = el('div', 'row2');
+  const ai = el('input', 'box');
+  ai.placeholder = '티커 또는 6자리 코드';
+  const ag = el('span', 'g'); ag.appendChild(ai); ar.appendChild(ag);
+  const ab = el('button', 'gh acc', '추가');
+  ab.onclick = async () => {
+    if (!ai.value.trim()) return;
+    await api('/api/tickers', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ticker: ai.value.trim() }),
+    });
+    S.rows = null; S.settings = await api('/api/settings');
+    renderSettings();
+  };
+  ar.appendChild(ab);
+  wrap.appendChild(ar);
+
+  s.tickers.forEach(t => {
+    const row = el('div', 'row2');
+    row.appendChild(el('span', 'g mono', t.ticker));
+    const x = el('button', 'gh del', '삭제');
+    x.onclick = async () => {
+      if (!confirm(`${t.ticker} 를 목록에서 뺄까요?`)) return;
+      await api('/api/tickers/' + encodeURIComponent(t.ticker), { method: 'DELETE' });
+      S.rows = null; S.settings = await api('/api/settings');
+      renderSettings();
+    };
+    row.appendChild(x);
+    wrap.appendChild(row);
+  });
+
   body.appendChild(wrap);
 }
 
 // ══════════════════════════ 탭 ══════════════════════════
+
+/** 버튼을 잠그고 끝날 때까지 "받는 중…" 으로 바꾼다. */
+async function busyBtn(btn, fn) {
+  if (btn.disabled) return;
+  const label = btn.textContent;
+  btn.disabled = true; btn.textContent = '받는 중…';
+  try { await fn(); } finally { btn.disabled = false; btn.textContent = label; }
+}
 
 function header() {
   const seg = $('#hdr-seg'), btn = $('#hdr-btn');
@@ -832,7 +975,9 @@ function header() {
       renderCompare(); loadCompare(false);
     });
     btn.hidden = false; btn.textContent = '새로고침';
-    btn.onclick = () => { S.rows = null; renderCompare(); loadCompare(true); };
+    // 비교 새로고침은 20~30초짜리 작업이다. 잠그지 않으면 반응이 없어 또 누르게 되고
+    // 그만큼 요청이 겹쳐 더 느려진다.
+    btn.onclick = () => busyBtn(btn, () => { S.rows = null; renderCompare(); return loadCompare(true); });
   } else if (S.tab === 'analysis') {
     $('#title').textContent = '분석';
     if (S.group === 'series') {
@@ -857,7 +1002,7 @@ function header() {
       renderPortfolio();
     });
     btn.hidden = false; btn.textContent = '새로고침';
-    btn.onclick = () => loadPortfolio(true);
+    btn.onclick = () => busyBtn(btn, () => loadPortfolio(true));
   } else {
     $('#title').textContent = '설정';
   }
@@ -866,6 +1011,7 @@ function header() {
 function go(tab) {
   S.tab = tab;
   localStorage.setItem('tab', tab);
+  window.scrollTo(0, 0);      // 탭을 바꿨는데 이전 탭의 스크롤 위치에서 시작하면 헷갈린다
   document.querySelectorAll('#tabs button').forEach(b =>
     b.classList.toggle('on', b.dataset.tab === tab));
   clearCharts();

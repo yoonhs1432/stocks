@@ -175,3 +175,36 @@ def remove_deposit(index: int) -> list[dict]:
 
 def principal_total() -> float:
     return sum(d.get("krw", 0.0) for d in deposits())
+
+
+# ── 백업 ──
+# 입금·매매·자산 추이는 **토스에서 다시 받아올 수 없다.** PC 가 고장 나거나 폴더를
+# 잘못 지우면 그걸로 끝이라, ① 화면에서 받아 갈 수 있는 파일 ② PC 안의 하루 한 벌
+# 복사본 두 가지를 둔다. 시세 캐시(candles/)는 다시 받으면 되므로 뺀다.
+BACKUP_FILES = ("settings.json", "tickers.json", "trades.json",
+                "deposits.json", "snapshots.json")
+BACKUP_KEEP = 14          # 최근 14일치만 남긴다
+
+
+def backup_payload() -> dict:
+    """백업 파일 한 벌의 내용."""
+    import time as _t
+
+    return {"savedAt": _t.strftime("%Y-%m-%d %H:%M:%S"),
+            "files": {n: _read(n, None) for n in BACKUP_FILES}}
+
+
+def backup_daily(day: str) -> None:
+    """하루 한 벌 `data/backup/<날짜>.json`. 같은 날 다시 불러도 한 번만 쓴다."""
+    d = DATA / "backup"
+    f = d / f"{day}.json"
+    if f.exists():
+        return
+    try:
+        d.mkdir(parents=True, exist_ok=True)
+        f.write_text(json.dumps(backup_payload(), ensure_ascii=False), encoding="utf-8")
+        old = sorted(d.glob("*.json"))[:-BACKUP_KEEP]
+        for x in old:
+            x.unlink(missing_ok=True)
+    except OSError:
+        pass          # 백업이 실패해도 화면은 계속 떠야 한다

@@ -34,7 +34,9 @@ import store
 from toss import Toss, TossError
 
 HERE = Path(__file__).parent
-CONFIG = HERE / "config.json"
+# 앱 키와 접속 암호가 든 파일. QUANT_CONFIG 로 바꿀 수 있는 건 검사용이다 —
+# 검사가 진짜 config.json 의 암호를 갈아 치우면 폰이 갑자기 안 들어가진다.
+CONFIG = Path(os.environ.get("QUANT_CONFIG") or HERE / "config.json")
 
 # 계좌 조회 캐시. 화면을 새로 그릴 때마다 토스를 부르면 한도(429)에 걸린다.
 CACHE_TTL = 20.0
@@ -96,12 +98,12 @@ def login(request: Request, token: str = Form("")):
     if auth._too_many(ip):
         return auth.login_page("시도가 너무 잦습니다. 잠시 후 다시 해 주세요.")
     import secrets as _s
-    if not _s.compare_digest(token, ACCESS_TOKEN):
+    if not _s.compare_digest(token, auth.token()):
         auth._note_fail(ip)
         return auth.login_page("암호가 맞지 않습니다.")
     secure = request.headers.get("x-forwarded-proto", request.url.scheme) == "https"
     resp = RedirectResponse("/", status_code=303)
-    auth._set_cookie(resp, ACCESS_TOKEN, secure)
+    auth._set_cookie(resp, auth.token(), secure)
     return resp
 
 _lock = threading.Lock()
@@ -168,6 +170,7 @@ def api_account(force: bool = False):
             _cache = _fetch_account()
             _cache_at = time.time()
             snapshots.record(_cache)     # 토스에 과거 잔고 API 가 없어 직접 쌓는다
+            store.backup_daily(snapshots.today())   # 기록은 되살릴 수 없으니 하루 한 벌 복사
             return _clean(_cache)
         except TossError as e:
             # 값을 지어내지 않는다. 화면에 실패를 그대로 드러내는 편이 낫다
@@ -210,8 +213,9 @@ def api_compare(market: str = "US", force: bool = False):
     key = f"{market}:{store.lookback_months()}:{len(tickers)}"
     with _ov_lock:
         hit = _ov_cache.get(key)
+        rows_at = time.time()
         if not force and hit and time.time() - hit[0] < OV_TTL:
-            rows = hit[1]
+            rows, rows_at = hit[1], hit[0]
         else:
             try:
                 rows = repo.overview(_toss, tickers, force, held)
@@ -231,7 +235,7 @@ def api_compare(market: str = "US", force: bool = False):
                 r["name"] = h["name"] or r["ticker"]
                 r["holding"] = True
                 r["avgPrice"] = h["avgPrice"]
-    return _clean({"rows": rows, "market": market, "at": time.time()})
+    return _clean({"rows": rows, "market": market, "at": time.time(), "asOf": rows_at})
 
 
 _px_cache: dict[str, tuple[float, dict]] = {}
@@ -346,7 +350,37 @@ def api_settings():
         "principal": store.principal_total(),
         "trades": sum(len(v) for v in store.trades().values()),
         "tickSeconds": store.settings().get("tick_seconds", 10),
+        # 이 응답은 이미 인증을 통과한 사람만 받는다(미들웨어). 암호를 잊었을 때
+        # config.json 을 열어 보지 않아도 되게 화면에서 확인·교체할 수 있게 한다.
+        "accessToken": auth.token(),
     }
+
+
+@app.post("/api/auth/rotate")
+def api_rotate(request: Request):
+    """접속 암호를 새로 만든다. 요청한 기기만 쿠키를 새로 받아 그대로 쓸 수 있다."""
+    try:
+        new = auth.rotate(CONFIG)
+    except OSError as e:
+        return JSONResponse({"error": f"config.json 에 쓰지 못했습니다 ({e})"}, status_code=500)
+    secure = request.headers.get("x-forwarded-proto", request.url.scheme) == "https"
+    resp = JSONResponse({"token": new})
+    auth._set_cookie(resp, new, secure)
+    return resp
+
+
+@app.get("/api/backup")
+def api_backup():
+    """기록 전부를 파일 하나로 내려 준다 — 폰에서도 받을 수 있게.
+
+    입금·매매·자산 추이는 **토스에서 다시 못 받는다.** PC 가 고장 나면 끝이라
+    사용자가 직접 챙길 수단이 있어야 한다.
+    """
+    day = snapshots.today()
+    return JSONResponse(
+        store.backup_payload(),
+        headers={"Content-Disposition": f'attachment; filename="quant-backup-{day}.json"',
+                 "Cache-Control": "no-store"})
 
 
 @app.post("/api/settings/tick")
