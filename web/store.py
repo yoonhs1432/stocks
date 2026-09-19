@@ -7,10 +7,13 @@
 from __future__ import annotations
 
 import json
+import os
 import threading
 from pathlib import Path
 
-DATA = Path(__file__).parent / "data"
+# 기본은 web/data. QUANT_DATA 로 바꿀 수 있는데, 이건 테스트가 진짜 기록(입금·매매·
+# 스냅샷)을 건드리지 않게 하려는 것이다. 평소에는 설정하지 않는다.
+DATA = Path(os.environ.get("QUANT_DATA") or Path(__file__).parent / "data")
 _lock = threading.Lock()
 
 # 기본 종목 — Tickers.kt DEFAULT 와 같은 목록

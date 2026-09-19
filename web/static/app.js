@@ -816,7 +816,12 @@ function header() {
   seg.innerHTML = ''; btn.hidden = true;
   const mkSeg = (opts, sel, on) => opts.forEach(([id, label]) => {
     const b = el('button', id === sel ? 'on' : '', label);
-    b.onclick = () => on(id);
+    b.onclick = () => {
+      // 칠은 여기서 직접 옮긴다. 콜백이 header() 를 다시 불러 주기를 기대하면
+      // 하나만 빠뜨려도 "눌렀는데 색이 그대로다"가 된다(비교 탭 미국/한국이 그랬다).
+      seg.querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
+      on(id);
+    };
     seg.appendChild(b);
   });
 

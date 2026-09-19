@@ -9,11 +9,12 @@
 from __future__ import annotations
 
 import json
+import os
 import threading
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
-FILE = Path(__file__).parent / "data" / "snapshots.json"
+FILE = Path(os.environ.get("QUANT_DATA") or Path(__file__).parent / "data") / "snapshots.json"
 MAX = 1500          # 약 4년치
 _lock = threading.Lock()
 

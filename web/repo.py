@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import json
+import os
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -18,7 +19,7 @@ import quant
 import store
 from toss import Toss, TossError
 
-CACHE = Path(__file__).parent / "data" / "candles"
+CACHE = Path(os.environ.get("QUANT_DATA") or Path(__file__).parent / "data") / "candles"
 DAILY_TTL = 6 * 3600        # 일봉은 하루 한 번만 바뀐다
 MINUTE_TTL = 60             # 1분봉은 계속 바뀐다
 MINUTE_BARS = 390           # 미국 정규장 하루
