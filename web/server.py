@@ -28,6 +28,7 @@ from fastapi.staticfiles import StaticFiles
 import auth
 import quant
 import repo
+import snapshots
 import store
 from toss import Toss, TossError
 
@@ -157,6 +158,7 @@ def api_account(force: bool = False):
         try:
             _cache = _fetch_account()
             _cache_at = time.time()
+            snapshots.record(_cache)     # 토스에 과거 잔고 API 가 없어 직접 쌓는다
             return _clean(_cache)
         except TossError as e:
             # 값을 지어내지 않는다. 화면에 실패를 그대로 드러내는 편이 낫다
@@ -294,6 +296,23 @@ def api_minutes(ticker: str, force: bool = False):
 
 # ── 설정 ──
 
+@app.get("/api/snapshots")
+def api_snapshots(usd: bool = False):
+    """자산 추이 — 평가금액·예수금·총자산·평가손익·원금."""
+    return _clean(snapshots.series(store.deposits(), usd))
+
+
+@app.get("/api/journal")
+def api_journal(limit: int = 200):
+    """매매 일지 — 전 종목 체결 기록을 최신순으로."""
+    out = []
+    for tk, lst in store.trades().items():
+        for t in lst:
+            out.append({**t, "ticker": tk, "krw": store.is_krw(tk)})
+    out.sort(key=lambda x: x["date"], reverse=True)
+    return _clean({"trades": out[:limit], "total": len(out)})
+
+
 @app.get("/api/settings")
 def api_settings():
     return {
@@ -303,7 +322,15 @@ def api_settings():
         "deposits": store.deposits(),
         "principal": store.principal_total(),
         "trades": sum(len(v) for v in store.trades().values()),
+        "tickSeconds": store.settings().get("tick_seconds", 10),
     }
+
+
+@app.post("/api/settings/tick")
+def api_set_tick(body: dict):
+    v = max(0, min(60, int(body.get("seconds", 10))))
+    store.put("tick_seconds", v)
+    return {"tickSeconds": v}
 
 
 @app.post("/api/settings/months")

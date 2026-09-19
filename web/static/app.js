@@ -19,7 +19,9 @@ const S = {
   sortKey: 'day', sortDesc: true,
   ticker: localStorage.getItem('ticker') || null,
   bar: localStorage.getItem('bar') || '1d',
+  group: localStorage.getItem('group') || 'series',
   account: null, rows: null, analysis: null, minutes: null, settings: null,
+  snaps: null, journal: null, journalOpen: false,
 };
 
 let tickTimer = null;
@@ -160,6 +162,8 @@ async function loadCompare(force) {
 /** 실시간 현재가 — 화면에 보이는 종목만 주기적으로 갱신. */
 function startTicks() {
   clearInterval(tickTimer);
+  const sec = S.settings ? (S.settings.tickSeconds ?? 10) : 10;
+  if (!sec) return;                  // 0 = 끔
   tickTimer = setInterval(async () => {
     const syms = S.tab === 'compare' ? (S.rows || []).map(r => r.ticker)
       : S.tab === 'analysis' && S.ticker ? [S.ticker] : [];
@@ -169,7 +173,7 @@ function startTicks() {
       Object.entries(o).forEach(([k, v]) => { live[k] = v.price; });
       if (S.tab === 'compare') renderCompare();
     } catch (e) { /* 틱 실패는 조용히 넘긴다 — 다음 주기에 다시 시도 */ }
-  }, 10000);
+  }, sec * 1000);
 }
 
 // ══════════════════════════ 분석 ══════════════════════════
@@ -248,9 +252,11 @@ function renderAnalysis() {
   }
   wrap.appendChild(head);
 
-  // ── 가격 차트 ──
-  const bars = minMode ? (m ? m.candles : []) : a.candles;
-  if (!bars.length) {
+  // ── 가격 차트 (산점도 묶음이면 건너뛴다) ──
+  const bars = S.group === 'scatter' ? [] : (minMode ? (m ? m.candles : []) : a.candles);
+  if (S.group === 'scatter') {
+    // 아래 산점도 블록에서 그린다
+  } else if (!bars.length) {
     wrap.appendChild(el('p', 'muted', minMode ? '1분봉 불러오는 중…' : '일봉이 없습니다'));
   } else {
     const { host, wrap: cw } = chartBox(wrap, minMode ? '가격 · 1분' : '가격 · 일봉');
@@ -301,6 +307,22 @@ function renderAnalysis() {
       tip.appendChild(el('div', null, `저 ${num(d.low, 2)}   종 ${num(d.close, 2)}`));
       tip.hidden = false;
     });
+  }
+
+  // ── 산점도 묶음 ──
+  if (S.group === 'scatter') {
+    if (!r) {
+      wrap.appendChild(el('p', 'muted', '분석 데이터 부족 — 상장 후 기간이 짧은 종목입니다'));
+      return;
+    }
+    const a1 = chartBox(wrap, '회귀 산점도 (SPY 대비)');
+    regressionScatter(a1.host, r);
+    const a2 = chartBox(wrap, 'Z·M 궤적');
+    zmScatter(a2.host, r);
+    // 폭이 바뀌면(회전 등) 다시 그린다 — 캔버스는 알아서 늘어나지 않는다
+    new ResizeObserver(() => { regressionScatter(a1.host, r); zmScatter(a2.host, r); })
+      .observe(wrap);
+    return;
   }
 
   // ── 지표 ──
@@ -425,6 +447,72 @@ function renderPortfolio() {
     wrap.appendChild(art);
   });
 
+  // ── 자산 추이 ──
+  // 토스에 과거 잔고 API 가 없어 서버가 날마다 남긴 스냅샷으로 그린다.
+  // 기록이 시작된 날부터만 쌓이고, 앱을 안 연 날은 비어 있다.
+  const sn = S.snaps;
+  if (sn && sn.dates.length >= 2) {
+    const div = S.usdMode ? 1 : 10000;      // 원화는 만원 단위라야 축이 읽힌다
+    const unit = S.usdMode ? '$' : '만원';
+    const t = sn.dates.map(d => d);
+
+    const a1 = chartBox(wrap, '자산');
+    const c1 = mkChart(a1.host, 170, { timeScale: { borderColor: '#24242A', timeVisible: false } });
+    // 평가금액 위에 예수금을 쌓아 윗면이 총자산이 되게 (안드로이드 AssetStackChart 와 같은 규칙)
+    const evalS = c1.addAreaSeries({ lineColor: UP, topColor: 'rgba(239,96,102,.45)',
+      bottomColor: 'rgba(239,96,102,.05)', lineWidth: 2, priceLineVisible: false });
+    evalS.setData(t.map((d, i) => ({ time: d, value: sn.eval[i] / div })));
+    const totS = c1.addLineSeries({ color: '#EEF1F4', lineWidth: 2, priceLineVisible: false });
+    totS.setData(t.map((d, i) => ({ time: d, value: sn.total[i] / div })));
+    if (sn.principal.some(v => v != null)) {
+      const pS = c1.addLineSeries({ color: GOLD, lineWidth: 2, lineStyle: 2,
+        priceLineVisible: false });
+      pS.setData(t.map((d, i) => ({ time: d, value: sn.principal[i] == null ? undefined : sn.principal[i] / div }))
+        .filter(x => x.value !== undefined));
+    }
+    wrap.appendChild(el('p', 'muted', `${sn.dates.length}일 기록 · 단위 ${unit} · ` +
+      `흰 선 총자산 / 빨강 평가금액${sn.principal.some(v => v != null) ? ' / 금색 원금' : ''}`));
+
+    const a2 = chartBox(wrap, '평가손익');
+    const c2 = mkChart(a2.host, 140, { timeScale: { borderColor: '#24242A', timeVisible: false } });
+    const pnlS = c2.addAreaSeries({ lineColor: UP, topColor: 'rgba(239,96,102,.35)',
+      bottomColor: 'rgba(239,96,102,0)', lineWidth: 2, priceLineVisible: false });
+    pnlS.setData(t.map((d, i) => ({ time: d, value: sn.pnl[i] / div })));
+  } else if (sn) {
+    wrap.appendChild(el('p', 'muted', `기록 ${sn.dates.length}일 — 2일 이상 쌓이면 자산 추이가 표시됩니다`));
+  }
+
+  // ── 매매 일지 ──
+  const jw = el('div');
+  const jh = el('div', 'ch-title');
+  jh.style.cursor = 'pointer';
+  jh.appendChild(el('span', null, `매매 일지${S.journal ? ` (${S.journal.total}건)` : ''}`));
+  jh.appendChild(el('span', 'v muted', S.journalOpen ? '▲' : '▼'));
+  jh.onclick = async () => {
+    S.journalOpen = !S.journalOpen;
+    if (S.journalOpen && !S.journal) {
+      try { S.journal = await api('/api/journal'); } catch (e) { /* 없으면 비워 둔다 */ }
+    }
+    renderPortfolio();
+  };
+  jw.appendChild(jh);
+  if (S.journalOpen && S.journal) {
+    S.journal.trades.forEach(tr => {
+      const row = el('div', 'row2');
+      row.appendChild(el('span', 'mono', tr.date));
+      const nm = el('span', 'g mono', tr.ticker);
+      row.appendChild(nm);
+      row.appendChild(el('span', 'mono ' + (tr.type === 'buy' ? 'up' : 'down'),
+        (tr.type === 'buy' ? '매수 ' : '매도 ') + qtyLabel(tr.qty)));
+      row.appendChild(el('span', 'mono', price(tr.krw, tr.price)));
+      jw.appendChild(row);
+    });
+    if (!S.journal.trades.length) {
+      jw.appendChild(el('p', 'muted', '설정에서 체결내역을 가져오면 표시됩니다'));
+    }
+  }
+  wrap.appendChild(jw);
+
   body.appendChild(wrap);
 }
 
@@ -432,6 +520,7 @@ async function loadPortfolio(force) {
   try {
     S.account = await api('/api/account' + (force ? '?force=true' : ''));
     if (!S.settings) S.settings = await api('/api/settings');
+    S.snaps = await api('/api/snapshots' + (S.usdMode ? '?usd=true' : ''));
     renderPortfolio();
   } catch (e) { fail(e); }
 }
@@ -471,6 +560,27 @@ function renderSettings() {
   };
   r1.appendChild(mb);
   wrap.appendChild(r1);
+
+  const tr2 = el('div', 'row2');
+  tr2.appendChild(el('span', 'g', '실시간 갱신'));
+  const tsel = el('select', 'box');
+  tsel.style.width = '110px';
+  [[0, '끔'], [5, '5초'], [10, '10초'], [30, '30초'], [60, '60초']].forEach(([v, lab]) => {
+    const o = el('option', null, lab);
+    o.value = v;
+    if (v === (s.tickSeconds ?? 10)) o.selected = true;
+    tsel.appendChild(o);
+  });
+  tsel.onchange = async () => {
+    await api('/api/settings/tick', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ seconds: parseInt(tsel.value, 10) }),
+    });
+    S.settings.tickSeconds = parseInt(tsel.value, 10);
+    startTicks();
+  };
+  tr2.appendChild(tsel);
+  wrap.appendChild(tr2);
 
   // ── 원금 ──
   wrap.appendChild(el('div', 'sec', '원금'));
@@ -603,14 +713,26 @@ function header() {
     btn.onclick = () => { S.rows = null; renderCompare(); loadCompare(true); };
   } else if (S.tab === 'analysis') {
     $('#title').textContent = '분석';
-    mkSeg([['1d', '일봉'], ['1m', '1분']], S.bar, b => {
-      S.bar = b; localStorage.setItem('bar', b); loadAnalysis();
-    });
+    if (S.group === 'series') {
+      mkSeg([['1d', '일봉'], ['1m', '1분']], S.bar, b => {
+        S.bar = b; localStorage.setItem('bar', b); loadAnalysis();
+      });
+    }
+    btn.hidden = false;
+    btn.textContent = S.group === 'series' ? '산점도' : '시계열';
+    btn.onclick = () => {
+      S.group = S.group === 'series' ? 'scatter' : 'series';
+      localStorage.setItem('group', S.group);
+      header(); renderAnalysis();
+    };
   } else if (S.tab === 'portfolio') {
     $('#title').textContent = '포트폴리오';
-    mkSeg([['krw', '원'], ['usd', '$']], S.usdMode ? 'usd' : 'krw', c => {
+    mkSeg([['krw', '원'], ['usd', '$']], S.usdMode ? 'usd' : 'krw', async c => {
       S.usdMode = c === 'usd'; localStorage.setItem('cur', c);
-      renderPortfolio(); header();
+      header(); renderPortfolio();
+      // 과거 금액은 **그날 환율**로 환산해야 해서 서버에서 다시 받는다
+      try { S.snaps = await api('/api/snapshots' + (S.usdMode ? '?usd=true' : '')); } catch (e) {}
+      renderPortfolio();
     });
     btn.hidden = false; btn.textContent = '새로고침';
     btn.onclick = () => loadPortfolio(true);
