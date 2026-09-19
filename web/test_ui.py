@@ -46,6 +46,28 @@ def chromium() -> str | None:
     return hit[-1] if hit else None
 
 
+def seed(data: str) -> None:
+    """자산 추이 차트가 그려지도록 스냅샷·입금을 심는다.
+
+    빈 폴더로 띄우면 기록이 1일뿐이라 차트가 아예 안 그려지고, 그러면 "그래프가 탭바에
+    겹친다" 같은 문제를 못 본다. 실제 PC 에는 기록이 쌓여 있다.
+    """
+    import json, math
+    from datetime import date, timedelta
+
+    d0 = date.today() - timedelta(days=60)
+    rows = [{"date": str(d0 + timedelta(days=i)),
+             "krwEval": 35000 + i * 50, "usdEval": 8000 + i * 40 + math.sin(i / 6) * 300,
+             "krwCash": 9770.0, "usdCash": 1841.0,
+             "rate": 1350 + math.sin(i / 9) * 20, "pnlKrw": (i - 30) * 90000}
+            for i in range(60)]
+    os.makedirs(data, exist_ok=True)
+    with open(os.path.join(data, "snapshots.json"), "w", encoding="utf-8") as f:
+        json.dump(rows, f)
+    with open(os.path.join(data, "deposits.json"), "w", encoding="utf-8") as f:
+        json.dump([{"date": str(d0), "krw": 12_000_000}], f)
+
+
 def start_server(port: int, data: str) -> subprocess.Popen:
     env = {**os.environ, "QUANT_MOCK": "1", "QUANT_DATA": data}
     p = subprocess.Popen([sys.executable, "-m", "uvicorn", "server:app",
@@ -179,6 +201,32 @@ def run(pg, base: str, errs: list[str]) -> None:
               pg.eval_on_selector("#tabs button.on", "b => b.dataset.tab") == tab
               and title in pg.inner_text("#title"))
 
+    # ── 고정 막대(헤더·탭바)를 그래프가 덮지 않는가 ──
+    # 차트 라이브러리가 캔버스에 z-index 를 박아 둬서, 막대에 z-index 가 없으면 스크롤
+    # 중인 그래프가 막대 **위에** 그려진다. 바닥까지 내리면 안 보이므로 중간에서 본다.
+    print("\n[겹침] 스크롤 중 헤더·탭바를 덮는 것이 없는가")
+    probe = """(sel) => {
+      const r = document.querySelector(sel).getBoundingClientRect();
+      const y = Math.round(r.top + r.height / 2);
+      const bad = [];
+      for (const x of [40, 140, 250, 360]) {
+        const e = document.elementFromPoint(x, y);
+        if (e && !e.closest(sel)) bad.push(`${x}px=${e.tagName}.${(e.className || '')}`.slice(0, 40));
+      }
+      return bad;
+    }"""
+    for tab, title in [("analysis", "분석"), ("portfolio", "포트폴리오")]:
+        pg.click(f"#tabs button[data-tab='{tab}']")
+        pg.wait_for_timeout(3500)
+        top = pg.evaluate("document.scrollingElement.scrollHeight - innerHeight")
+        for frac in (0.35, 0.7, 1.0):
+            pg.evaluate(f"window.scrollTo(0, {int(top * frac)})")
+            pg.wait_for_timeout(600)
+            for sel, what in [("#tabs", "탭바"), ("header", "헤더")]:
+                bad = pg.evaluate(probe, sel)
+                check(f"{title} {int(frac * 100)}% 지점 — {what}를 덮는 것 없음",
+                      not bad, " / ".join(bad))
+
     print("\n[콘솔]")
     check("자바스크립트 오류 없음", not errs, " / ".join(errs[:5]))
 
@@ -186,6 +234,7 @@ def run(pg, base: str, errs: list[str]) -> None:
 def main() -> int:
     port = free_port()
     data = tempfile.mkdtemp(prefix="quant-test-")
+    seed(data)
     srv = start_server(port, data)
     base = f"http://127.0.0.1:{port}"
     try:

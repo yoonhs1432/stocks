@@ -17,12 +17,13 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import threading
 import time
 from pathlib import Path
 
 from fastapi import FastAPI, Form, Request
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 import auth
@@ -414,6 +415,29 @@ def api_clear_cache():
 @app.get("/api/health")
 def api_health():
     return {"ok": True, "hasCreds": bool(_key and _secret)}
+
+
+def _static_version() -> str:
+    """화면 파일들 중 가장 최근에 바뀐 시각. 주소 뒤에 붙일 꼬리표로 쓴다."""
+    try:
+        return str(int(max(f.stat().st_mtime for f in (HERE / "static").rglob("*") if f.is_file())))
+    except (OSError, ValueError):
+        return "0"
+
+
+@app.get("/")
+def index():
+    """첫 화면만 서버가 직접 만들어 준다 — app.js 주소에 버전 꼬리표를 붙이려고.
+
+    코드를 고쳐 서버를 다시 켰는데도 브라우저가 예전 app.js 를 계속 쓰는 일이 있었다.
+    캐시 지시(아래 NoCacheStatic)만으로는 **이미 캐시에 들어앉은 예전 파일**을 확실히
+    밀어내지 못한다. 주소 자체가 `app.js?v=...` 로 바뀌면 브라우저에는 처음 보는
+    파일이라 무조건 새로 받는다. 이 문서 자체는 매번 새로 받게 no-store 를 준다.
+    """
+    html = (HERE / "static" / "index.html").read_text(encoding="utf-8")
+    html = re.sub(r'\b(src|href)="(?!https?:|data:)([^"]+\.(?:js|css))"',
+                  rf'\1="\2?v={_static_version()}"', html)
+    return HTMLResponse(html, headers={"Cache-Control": "no-store"})
 
 
 class NoCacheStatic(StaticFiles):

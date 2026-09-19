@@ -34,7 +34,7 @@ header {
   display: flex; align-items: center; gap: 8px;
   height: 52px; padding: 0 var(--pad);
   border-bottom: 1px solid var(--line);
-  position: sticky; top: 0; background: var(--bg); z-index: 2;
+  position: sticky; top: 0; background: var(--bg); z-index: 10;
 }
 header h1 { flex: 1; margin: 0; font-size: 20px; font-weight: 800; }
 
@@ -88,7 +88,7 @@ main { padding: 0 var(--pad); }
 .err { color: var(--profit); font-size: 13px; line-height: 1.5; }
 
 footer {
-  position: fixed; left: 0; right: 0; bottom: 0;
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
   display: flex; align-items: center; gap: 10px;
   height: 48px; padding: 0 var(--pad);
   background: var(--bg); border-top: 1px solid var(--line);
@@ -101,8 +101,12 @@ footer button {
 }
 
 /* ── 하단 탭바 ── */
+/* ⚠️ z-index 가 꼭 필요하다. 차트 라이브러리가 캔버스에 z-index:1~2 를 직접 박아 두기
+   때문에, 탭바에 아무것도 안 주면(=auto, 0 취급) 스크롤 중인 그래프가 탭바 **위에**
+   그려진다. 글자와 선이 겹쳐 보이던 게 이것이다. 헤더도 2 였어서 같은 값끼리 붙으면
+   뒤에 오는 캔버스가 이겼다 — 둘 다 10 으로 올려 확실히 위에 둔다. */
 #tabs {
-  position: fixed; left: 0; right: 0; bottom: 0; display: flex;
+  position: fixed; left: 0; right: 0; bottom: 0; display: flex; z-index: 10;
   background: var(--bg); border-top: 1px solid var(--line);
   padding-bottom: env(safe-area-inset-bottom);
 }
