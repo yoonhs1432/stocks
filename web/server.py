@@ -181,6 +181,7 @@ def api_account(force: bool = False):
             _cache = _fetch_account()
             _cache_at = time.time()
             snapshots.record(_cache)     # 토스에 과거 잔고 API 가 없어 직접 쌓는다
+            store.learn_markets(_cache["items"])   # 어느 시장 종목인지 배워 둔다
             store.backup_daily(snapshots.today())   # 기록은 되살릴 수 없으니 하루 한 벌 복사
             return _clean(_cache)
         except TossError as e:

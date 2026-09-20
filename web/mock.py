@@ -20,7 +20,7 @@ import time
 NAMES = {
     "SPY": "SPDR S&P 500", "FNGU": "FNGU", "TQQQ": "TQQQ", "SOXL": "SOXL",
     "005930": "삼성전자", "BITU": "BITU", "NAIL": "NAIL",
-    "473460": "SOL AI반도체TOP2플러스",
+    "473460": "국내 ETF A", "SOLKR": "국내 ETF B",
 }
 
 
@@ -59,6 +59,8 @@ class MockToss:
             ("BITU", "USD", 99, 14.1, 13.0), ("QPUX", "USD", 112, 12.7, 13.5),
             ("SOXL", "USD", 8, 123.0, 103.0), ("DFEN", "USD", 11, 52.3, 57.0),
             ("NAIL", "USD", 8, 28.7, 28.8), ("473460", "KRW", 2, 17660.0, 16900.0),
+            # 6자리 숫자가 아닌 국내 종목 — 코드 모양만 보고 미장으로 분류하던 문제 재현용
+            ("SOLKR", "KRW", 3, 17660.0, 16900.0),
         ]
         items, ke, ue, kp, up, kl, ul = [], 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
         for sym, cur, qty, last, avg in spec:

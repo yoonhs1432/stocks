@@ -200,6 +200,7 @@ async function loadCompare(force) {
     S.rowsAt = (o.asOf ? o.asOf * 1000 : Date.now());
     renderCompare();
     startTicks();
+    prefetchAll();          // 분석을 미리 받아 둔다 — 종목을 눌렀을 때 기다리지 않게
   } catch (e) { fail(e, () => loadCompare(force)); }
 }
 
@@ -514,7 +515,7 @@ async function loadAnalysis() {
   S.analysis = hit;
   S.minutes = S.bar === '1m' ? cacheGet(minCache, S.ticker, MIN_FRESH) : null;
   renderAnalysis();
-  if (hit && (S.bar !== '1m' || S.minutes)) { startTicks(); prefetchNear(); return; }
+  if (hit && (S.bar !== '1m' || S.minutes)) { startTicks(); prefetchAll(); return; }
   try {
     let a = hit;
     if (!a) {
@@ -531,7 +532,7 @@ async function loadAnalysis() {
     }
     renderAnalysis();
     startTicks();
-    prefetchNear();
+    prefetchAll();
   } catch (e) {
     if (seq !== analysisSeq) return;
     S.analysis = null; renderAnalysis(e);
@@ -539,24 +540,31 @@ async function loadAnalysis() {
 }
 
 /**
- * 지금 보는 종목 근처를 미리 받아 둔다 — 다음 칩을 누르면 기다림이 없게.
- * 화면이 다 그려진 뒤(한가할 때) 하나씩만 받는다.
+ * **목록 전체를 미리 받아 둔다.** 서버는 이미 계산을 끝내 놓았으므로 남은 건 오가는
+ * 시간뿐인데, 그것마저 미리 치러 두면 종목을 눌렀을 때 기다림이 없다.
+ *
+ * 비교를 받은 직후부터 시작해 지금 보는 종목 다음 것들부터 하나씩(겹치지 않게) 받는다.
+ * 데이터 절약 모드이거나 2G 면 하지 않는다.
  */
-function prefetchNear(n = 4) {
-  const list = (S.rows || []).map(r => r.ticker);
-  const i = list.indexOf(S.ticker);
-  const near = [...list.slice(i + 1, i + 1 + n), ...list.slice(Math.max(0, i - 2), i)];
-  const todo = near.filter(t => !cacheGet(anCache, t, AN_FRESH));
+let preTimer = null;
+function prefetchAll(delay = 600) {
+  const c = navigator.connection;
+  if (c && (c.saveData || /(^|-)2g$/.test(c.effectiveType || ''))) return;
+  clearTimeout(preTimer);
+  const all = (S.rows || []).map(r => r.ticker);
+  const i = Math.max(0, all.indexOf(S.ticker));
+  const order = [...all.slice(i), ...all.slice(0, i)];
+  const todo = order.filter(t => !cacheGet(anCache, t, AN_FRESH));
   let k = 0;
-  const next = () => {
-    if (k >= todo.length || S.tab !== 'analysis') return;
+  const step = () => {
+    if (k >= todo.length) return;
     const t = todo[k++];
     api('/api/analysis?ticker=' + encodeURIComponent(t))
       .then(a => cachePut(anCache, t, a))
       .catch(() => {})
-      .finally(() => setTimeout(next, 150));
+      .finally(() => { preTimer = setTimeout(step, 120); });
   };
-  setTimeout(next, 400);
+  preTimer = setTimeout(step, delay);
 }
 
 // ══════════════════════════ 포트폴리오 ══════════════════════════
@@ -1242,6 +1250,14 @@ function go(tab) {
   clearCharts();
   if (tab !== 'portfolio') clearInterval(acctTimer);
   header();
+
+  // 받아 둔 게 없으면 **먼저 비운다.** 안 그러면 이전 탭 화면이 그대로 남아 있어
+  // 제목만 바뀐 것처럼 보인다(분석인데 비교 표가 깔려 있는 식).
+  const ready = tab === 'compare' ? S.rows
+    : tab === 'analysis' ? (S.rows && S.analysis)
+    : tab === 'portfolio' ? S.account : S.settings;
+  if (!ready) $('#body').innerHTML = '<p class="muted pad">불러오는 중…</p>';
+
   if (tab === 'compare') { S.rows ? renderCompare() : loadCompare(false); if (S.rows) startTicks(); }
   else if (tab === 'analysis') loadAnalysis();
   else if (tab === 'portfolio') { S.account ? renderPortfolio() : loadPortfolio(false); }

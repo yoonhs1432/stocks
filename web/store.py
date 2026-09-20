@@ -108,9 +108,38 @@ def remove_ticker(t: str) -> list[str]:
 
 
 def is_krw(ticker: str) -> bool:
-    """원화로 표시할 종목인가 — 6자리 숫자 코드면 국내."""
-    t = ticker.split(".")[0]
+    """원화로 표시할 종목인가.
+
+    기본 규칙은 "6자리 숫자면 국내" 지만, 토스가 주는 종목 코드가 늘 그 모양이라는
+    보장이 없다. 그래서 **계좌에서 알게 된 시장을 저장해 두고 그걸 먼저 본다** —
+    국내 ETF 가 미장으로 분류되던 문제가 실제로 있었다.
+    """
+    t = ticker.split(".")[0].upper()
+    m = markets().get(t)
+    if m is not None:
+        return bool(m)
     return len(t) == 6 and t.isdigit()
+
+
+def markets() -> dict[str, bool]:
+    v = _read("markets.json", {})
+    return v if isinstance(v, dict) else {}
+
+
+def learn_markets(items: list[dict]) -> None:
+    """보유 종목에서 시장을 배워 둔다 (계좌를 볼 때마다 호출)."""
+    cur = markets()
+    add = {}
+    for h in items:
+        t = str(h.get("symbol", "")).upper()
+        if not t:
+            continue
+        krw = (h.get("currency") == "KRW") or (h.get("marketCountry") == "KR")
+        if cur.get(t) != krw:
+            add[t] = krw
+    if add:
+        cur.update(add)
+        _write("markets.json", cur)
 
 
 # ── 매매 기록 (체결내역에서 가져온 것) ──

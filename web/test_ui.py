@@ -138,16 +138,20 @@ def run(pg, base: str, errs: list[str]) -> None:
     pg.click("#hdr-seg button:has-text('한국')")
     pg.wait_for_timeout(1500)
     check("한국을 누르면 칠이 한국으로 옮겨간다", seg_on(pg) == "한국", f"칠={seg_on(pg)}")
+    kr_list = state(pg, "(S.rows||[]).map(r=>r.ticker)")
     check("한국을 누르면 한국 종목이 뜬다",
-          state(pg, "S.market") == "KR"
-          and state(pg, "S.rows.length > 0 && S.rows.every(r => /^\\d{6}$/.test(r.ticker))") is True,
-          f"market={state(pg, 'S.market')} tickers={state(pg, '(S.rows||[]).map(r=>r.ticker)')}")
+          state(pg, "S.market") == "KR" and "005930" in kr_list
+          and not any(t in kr_list for t in ("TQQQ", "SOXL", "FNGU")),
+          f"market={state(pg, 'S.market')} tickers={kr_list}")
+    check("6자리 코드가 아니어도 보유 시장을 보고 국내로 분류한다",
+          "SOLKR" in kr_list, f"국내 목록={kr_list}")
     pg.click("#hdr-seg button:has-text('미국')")
     pg.wait_for_timeout(1500)
     check("미국으로 되돌리면 칠도 같이 돌아온다", seg_on(pg) == "미국", f"칠={seg_on(pg)}")
+    us_list = state(pg, "(S.rows||[]).map(r=>r.ticker)")
     check("미국 종목이 다시 뜬다",
-          state(pg, "S.rows.length > 5 && S.rows.every(r => !/^\\d{6}$/.test(r.ticker))") is True,
-          f"tickers={state(pg, '(S.rows||[]).map(r=>r.ticker)')}")
+          len(us_list) > 5 and not any(t in us_list for t in ("005930", "SOLKR")),
+          f"tickers={us_list}")
 
     # ── 비교 → 분석: 행을 누르면 그 종목으로 ──
     print("\n[비교→분석] 행 누르기")
@@ -314,6 +318,41 @@ def run(pg, base: str, errs: list[str]) -> None:
                       not bad, " / ".join(bad))
 
     # ── 오류가 났을 때 되살아날 수 있는가 ──
+    # ── 탭을 옮겼을 때 이전 탭 화면이 남지 않는가 ──
+    print("\n[탭] 옮기면 이전 내용이 지워지는가")
+    pg.evaluate("S.analysis = null; S.account = null; S.settings = null")
+    pg.click("#tabs button[data-tab='compare']")
+    pg.wait_for_timeout(2000)
+    for tab, title in [("analysis", "분석"), ("portfolio", "포트폴리오"), ("settings", "설정")]:
+        pg.evaluate("S.analysis = null; S.account = null; S.settings = null")
+        pg.click("#tabs button[data-tab='compare']")
+        pg.wait_for_timeout(1200)
+        pg.click(f"#tabs button[data-tab='{tab}']")
+        pg.wait_for_timeout(120)
+        check(f"{title} 으로 옮기면 비교 표가 바로 사라진다",
+              pg.query_selector("#body table.cmp") is None,
+              pg.inner_text("#body")[:40])
+        pg.wait_for_timeout(3000)
+
+    # ── 분석을 미리 받아 두는가 ──
+    print("\n[미리받기] 종목을 누르기 전에 받아 두는가")
+    pg.evaluate("anCache.clear()")
+    pg.click("#tabs button[data-tab='compare']")
+    pg.wait_for_timeout(1500)
+    pg.click("#hdr-btn")          # 새로고침 → 비교를 다시 받으면 미리받기가 돈다
+    pg.wait_for_timeout(9000)
+    n = pg.evaluate("anCache.size")
+    total = pg.evaluate("(S.rows||[]).length")
+    check("목록 종목 대부분을 미리 받아 둔다", n >= max(3, total - 1), f"{n}/{total}개")
+
+    pg.click("#tabs button[data-tab='analysis']")
+    pg.wait_for_timeout(2500)
+    t0 = time.time()
+    pg.evaluate("document.querySelectorAll('#body .tchips button')[4].click()")
+    pg.wait_for_function("document.querySelectorAll('#body .ch-wrap canvas').length > 0", timeout=15000)
+    dt = time.time() - t0
+    check("미리 받아 둔 종목은 기다림 없이 뜬다(1초 이내)", dt < 1.0, f"{dt:.2f}초")
+
     print("\n[오류] 막히지 않고 다시 시도할 수 있는가")
     pg.route("**/api/analysis*", lambda r: r.fulfill(
         status=502, content_type="application/json",
