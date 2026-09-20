@@ -123,7 +123,39 @@ cloudflared tunnel run --url http://localhost:8000 quant
 접속 암호도 같은 탭(**설정 → 접속**)에서 보고 바꿀 수 있다. 바꾼 기기는 그대로 쓰던
 대로 쓰고, 다른 기기만 새 암호로 다시 들어가면 된다.
 
-## 6. 부팅할 때 자동 실행
+## 6. PC 를 폰에서 직접 조종하기 (선택)
+
+업데이트 버튼으로 안 되는 상황 — 서버가 아예 안 뜨거나, 파이썬·터널이 깨졌거나, 로그를
+봐야 할 때 — 는 PC 의 셸이 필요하다. Claude Code 의 **Remote Control** 을 쓰면 폰에서
+이 PC 의 Claude Code 를 그대로 쓸 수 있다. 실행은 전부 이 PC 에서 일어난다.
+
+PC 에 한 번만:
+
+```powershell
+irm https://claude.ai/install.ps1 | iex   # Claude Code 설치
+# PowerShell 창을 새로 연 뒤
+claude                                    # 한 번 실행해 로그인 (Pro/Max 계정 필요)
+```
+
+그 다음부터는 이것만:
+
+```powershell
+.\rc.ps1            # 세션 이름 quant-pc 로 원격 조종 서버를 띄운다
+```
+
+주소가 뜨면 폰에서 열거나(스페이스바를 누르면 QR 이 나온다), Claude 앱·claude.ai/code 의
+세션 목록에서 `quant-pc` 를 고르면 된다. 끝낼 때는 그 창에서 Ctrl+C.
+
+> 이 창이 떠 있는 동안에만 연결된다. PC 가 잠자기에서 깨면 알아서 다시 붙는다.
+> 접근 권한은 **본인 claude.ai 계정 하나**뿐이고, 이 웹앱의 접속 암호와는 무관하다.
+
+| 상황 | 쓸 것 |
+|---|---|
+| 고친 코드 받기 | 설정 탭 → 앱 → 업데이트 받기 |
+| 접속 암호 확인·교체 | 설정 탭 → 접속 |
+| 서버가 안 뜸 · 로그 확인 · 그 밖의 PC 작업 | `rc.ps1` (Remote Control) |
+
+## 7. 부팅할 때 자동 실행
 
 작업 스케줄러에 등록하면 로그인할 때 숨겨진 창으로 알아서 뜬다. 관리자 권한은 필요 없다.
 
@@ -206,6 +238,7 @@ py test_ui.py        # 실패가 있으면 종료코드 1
 | `static/` | 화면. 안드로이드와 같은 A-1 토스 블루 토큰. 차트는 lightweight-charts |
 | `static/scatter.js` | 산점도 2종 — lightweight-charts 가 산점도를 지원하지 않아 캔버스로 |
 | `run.ps1` / `serve-loop.ps1` | 실행(+터널) / 서버 감시 루프 — 업데이트 뒤 다시 띄운다 |
+| `rc.ps1` | 폰에서 이 PC 를 조종 (Claude Code Remote Control) |
 | `install-task.ps1` | 부팅 시 자동 실행 등록 |
 | `mock.py` / `shot.py` / `test_ui.py` | **개발용** — 가짜 시세, 화면 캡처, 눌러 보는 검사 |
 
