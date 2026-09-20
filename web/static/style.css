@@ -71,6 +71,10 @@ main { padding: 0; }
 .legend .v { color: var(--text); font-weight: 700; margin-left: auto; }
 
 /* 차트 아래 축 한 줄 */
+/* 기록 표 — 비교 표보다 촘촘하고 글자도 작게 */
+table.cmp.hist td, table.cmp.hist th { font-size: 12px; padding: 5px 2px; }
+table.cmp.hist { table-layout: auto; }
+
 .axrow { display: flex; justify-content: space-between; font-size: 11px;
          color: var(--text2); padding: 2px 0 10px; }
 

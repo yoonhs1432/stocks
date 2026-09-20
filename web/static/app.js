@@ -23,6 +23,7 @@ const S = {
   group: localStorage.getItem('group') || 'series',
   account: null, rows: null, analysis: null, minutes: null, settings: null,
   snaps: null, journal: null, journalOpen: false,
+  hist: null, histOpen: false, histDate: null,
 };
 
 let tickTimer = null;
@@ -822,6 +823,25 @@ function renderPortfolio() {
     wrap.appendChild(el('p', 'muted', `기록 ${sn.dates.length}일 — 2일 이상 쌓이면 자산 추이가 표시됩니다`));
   }
 
+  // ── 기록 ── 그날 무엇을 얼마나 들고 있었는지. 시세는 다시 받을 수 있지만
+  // 보유 구성은 그때 남겨 두지 않으면 어디에도 없다.
+  const hw = el('div');
+  const hh = el('div', 'ch-title');
+  hh.style.cursor = 'pointer';
+  hh.appendChild(el('span', null, `기록${S.hist ? ` (${S.hist.dates.length}일)` : ''}`));
+  hh.appendChild(el('span', 'v muted', S.histOpen ? '▲' : '▼'));
+  hh.onclick = async () => {
+    S.histOpen = !S.histOpen;
+    if (S.histOpen && !S.hist) {
+      try { S.hist = await api('/api/history?days=180'); } catch (e) { /* 없으면 비워 둔다 */ }
+      if (S.hist && S.hist.dates.length) S.histDate = S.hist.dates.at(-1);
+    }
+    renderPortfolio();
+  };
+  hw.appendChild(hh);
+  if (S.histOpen) renderHistory(hw);
+  wrap.appendChild(hw);
+
   // ── 매매 일지 ──
   const jw = el('div');
   const jh = el('div', 'ch-title');
@@ -856,11 +876,81 @@ function renderPortfolio() {
   body.appendChild(wrap);
 }
 
+/** 기록 섹션 본문 — 종목별 평가금액 추이(쌓은 그래프) + 고른 날짜의 보유 내역. */
+function renderHistory(parent) {
+  const h = S.hist;
+  if (!h || !h.dates.length) {
+    parent.appendChild(el('p', 'muted', '아직 기록이 없습니다. 하루에 한 번씩 쌓입니다.'));
+    return;
+  }
+  const div = S.usdMode ? 1 : 10000;
+  const rate = S.account ? S.account.rate : 1400;
+
+  if (h.dates.length >= 2) {
+    const { host } = chartBox(parent, '종목별 평가금액');
+    const c = mkChart(host, 170, { timeScale: { visible: false } });
+    // 쌓아 그린다 — 누적이 큰 것부터 깔고 작은 것을 위에 덮으면 띠가 종목별 몫이 된다
+    const syms = h.symbols.map(x => x.symbol);
+    const cum = syms.map((_, k) => h.dates.map((_, i) =>
+      syms.slice(k).reduce((x, sm) => x + ((h.eval[sm] || [])[i] || 0), 0)));
+    syms.forEach((sm, k) => {
+      const color = PALETTE[k % PALETTE.length];
+      const a = c.addAreaSeries({ lineColor: color, topColor: color, bottomColor: color,
+        lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
+      a.setData(h.dates.map((d, i) => ({ time: d, value: cum[k][i] / (S.usdMode ? rate : div) })));
+    });
+    fitRange(c, h.dates.length, h.dates.length);
+    parent.appendChild(axisRow(h.dates[0], `${h.dates.length}일 기록`, h.dates.at(-1)));
+  }
+
+  // 날짜 고르기
+  const pick = el('div', 'row2');
+  pick.appendChild(el('span', 'g', '날짜'));
+  const sel = el('select', 'box hist-date');
+  sel.style.width = '150px';
+  [...h.dates].reverse().forEach(d => {
+    const o = el('option', null, d);
+    o.value = d;
+    if (d === S.histDate) o.selected = true;
+    sel.appendChild(o);
+  });
+  sel.onchange = () => { S.histDate = sel.value; renderPortfolio(); };
+  pick.appendChild(sel);
+  parent.appendChild(pick);
+
+  const items = h.byDate[S.histDate] || [];
+  if (!items.length) {
+    parent.appendChild(el('p', 'muted', '그날 기록이 없습니다.'));
+    return;
+  }
+  const t = el('table', 'cmp hist');
+  const head = el('tr', 'head');
+  [['종목', 'l'], ['수량', ''], ['평단', ''], ['평가금액', ''], ['손익', '']]
+    .forEach(([label, c]) => head.appendChild(el('th', c, label)));
+  t.appendChild(head);
+  items.forEach(it => {
+    const tr = el('tr', 'row');
+    tr.appendChild(el('td', 'l', it.n || it.s));
+    tr.appendChild(el('td', 'mono', qtyLabel(it.q)));
+    tr.appendChild(el('td', 'mono', num(it.a, it.a >= 1000 ? 0 : 2)));
+    tr.appendChild(el('td', 'mono', short(it.e)));
+    tr.appendChild(el('td', 'mono ' + cls(it.g), signedShort(it.g)));
+    t.appendChild(tr);
+  });
+  parent.appendChild(t);
+  const sum = items.reduce((x, it) => x + it.e, 0);
+  const gain = items.reduce((x, it) => x + it.g, 0);
+  const cap = el('p', 'muted');
+  cap.textContent = `${S.histDate} 합계 ${short(sum)} · 평가손익 ${signedShort(gain)}`;
+  parent.appendChild(cap);
+}
+
 let acctTimer = null;
 
 async function loadPortfolio(force) {
   try {
     S.account = await api('/api/account' + (force ? '?force=true' : ''));
+    if (force) S.hist = null;
     if (!S.settings) S.settings = await api('/api/settings');
     S.snaps = await api('/api/snapshots' + (S.usdMode ? '?usd=true' : ''));
     renderPortfolio();

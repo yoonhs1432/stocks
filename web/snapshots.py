@@ -36,7 +36,12 @@ def load() -> list[dict]:
 
 
 def record(acc: dict) -> None:
-    """계좌 조회에 성공했을 때 호출. 같은 날짜가 있으면 덮어쓴다."""
+    """계좌 조회에 성공했을 때 호출. 같은 날짜가 있으면 덮어쓴다.
+
+    ⚠️ **보유 내역도 같이 남긴다.** 시세는 나중에 토스에서 다시 받을 수 있지만
+    "그날 무엇을 얼마나, 평단 얼마에 들고 있었는가" 는 지나가면 어디에도 없다.
+    하루 한 줄에 종목당 40바이트 남짓이라 4년을 모아도 1MB 가 안 된다.
+    """
     row = {
         "date": today(),
         "krwEval": acc["krwEval"], "usdEval": acc["usdEval"],
@@ -44,6 +49,11 @@ def record(acc: dict) -> None:
         "rate": acc["rate"],
         # 평가손익은 통화별로 받아 두면 나중에 그날 환율로 되돌릴 수 있다
         "pnlKrw": acc["pnlKrw"],
+        # s=종목 n=이름 q=수량 a=평단 p=현재가 e=평가금액(원) g=평가손익(원)
+        "items": [{"s": h["symbol"], "n": h.get("name") or h["symbol"],
+                   "q": h["quantity"], "a": h["avgPrice"], "p": h["lastPrice"],
+                   "e": h["evalKrw"], "g": h["pnlKrw"]}
+                  for h in acc.get("items", [])],
     }
     with _lock:
         rows = [r for r in load() if r.get("date") != row["date"]] + [row]
@@ -86,3 +96,30 @@ def series(deposits: list[dict], usd: bool = False) -> dict:
 
     return {"dates": dates, "eval": ev, "cash": cash, "total": total,
             "pnl": pnl, "principal": prin}
+
+
+def history(days: int = 120) -> dict:
+    """최근 N일의 보유 내역. 화면에서 날짜를 고르면 그날 표를 보여 주려고.
+
+    종목별 평가금액 추이(쌓은 그래프)와 날짜별 표를 한 번에 그릴 수 있게 함께 낸다.
+    """
+    rows = [r for r in load() if r.get("items")][-max(1, days):]
+    dates = [r["date"] for r in rows]
+
+    names: dict[str, str] = {}
+    series: dict[str, list] = {}
+    by_date: dict[str, list] = {}
+    for i, r in enumerate(rows):
+        by_date[r["date"]] = r["items"]
+        for it in r["items"]:
+            sym = it["s"]
+            names.setdefault(sym, it.get("n") or sym)
+            series.setdefault(sym, [None] * len(rows))
+            series[sym][i] = it["e"]
+
+    # 마지막 날 평가금액이 큰 종목부터 — 그래프를 쌓는 순서이기도 하다
+    order = sorted(series, key=lambda k: -(series[k][-1] or 0))
+    return {"dates": dates,
+            "symbols": [{"symbol": k, "name": names[k]} for k in order],
+            "eval": {k: series[k] for k in order},
+            "byDate": by_date}

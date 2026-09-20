@@ -400,6 +400,12 @@ def api_minutes(ticker: str, force: bool = False):
 
 # ── 설정 ──
 
+@app.get("/api/history")
+def api_history(days: int = 120):
+    """지난 날들의 보유 내역 — 그날 무엇을 얼마나 들고 있었는지."""
+    return _clean(snapshots.history(max(2, min(1000, days))))
+
+
 @app.get("/api/snapshots")
 def api_snapshots(usd: bool = False):
     """자산 추이 — 평가금액·예수금·총자산·평가손익·원금."""
@@ -729,6 +735,23 @@ class NoCacheStatic(StaticFiles):
         r.headers["Cache-Control"] = "no-cache"
         return r
 
+
+def _recorder() -> None:
+    """앱을 안 열어도 기록이 빠지지 않게, 서버가 주기적으로 계좌를 조회해 남긴다.
+
+    같은 날짜는 덮어쓰므로 그날의 **마지막 조회값**이 남는다. 30분에 한 번이라
+    토스 호출량도 무시할 만하다(조회 4번). 실패는 조용히 넘긴다 — 장 마감이든
+    인터넷이 끊겼든 다음 차례에 다시 한다.
+    """
+    while True:
+        try:
+            api_account()
+        except Exception:
+            pass
+        time.sleep(1800)
+
+
+threading.Thread(target=_recorder, daemon=True).start()
 
 app.mount("/", NoCacheStatic(directory=HERE / "static", html=True), name="static")
 

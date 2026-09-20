@@ -59,10 +59,17 @@ def seed(data: str) -> None:
     from datetime import date, timedelta
 
     d0 = date.today() - timedelta(days=60)
+    def items(i):
+        return [{"s": "GDXU", "n": "GDXU", "q": 17, "a": 148.0, "p": 140 + i * 0.2,
+                 "e": (140 + i * 0.2) * 17 * 1350, "g": (140 + i * 0.2 - 148) * 17 * 1350},
+                {"s": "KORU", "n": "KORU", "q": 90, "a": 19.1, "p": 19 + i * 0.02,
+                 "e": (19 + i * 0.02) * 90 * 1350, "g": (19 + i * 0.02 - 19.1) * 90 * 1350}]
+
     rows = [{"date": str(d0 + timedelta(days=i)),
              "krwEval": 35000 + i * 50, "usdEval": 8000 + i * 40 + math.sin(i / 6) * 300,
              "krwCash": 9770.0, "usdCash": 1841.0,
-             "rate": 1350 + math.sin(i / 9) * 20, "pnlKrw": (i - 30) * 90000}
+             "rate": 1350 + math.sin(i / 9) * 20, "pnlKrw": (i - 30) * 90000,
+             "items": items(i)}
             for i in range(60)]
     os.makedirs(data, exist_ok=True)
     with open(os.path.join(data, "snapshots.json"), "w", encoding="utf-8") as f:
@@ -532,6 +539,26 @@ def run(pg, base: str, errs: list[str]) -> None:
     pg.wait_for_timeout(3000)
 
     # ── 포트폴리오·설정에 새로 넣은 것들 ──
+    # ── 지난 날의 보유 내역이 남아 있는가 ──
+    print("\n[기록] 그날 무엇을 들고 있었는지 볼 수 있는가")
+    pg.click("#tabs button[data-tab='portfolio']")
+    pg.wait_for_timeout(3000)
+    pg.click("#body .ch-title:has-text('기록')")
+    pg.wait_for_timeout(2500)
+    check("기록 표가 열린다", pg.query_selector("#body table.hist") is not None,
+          pg.inner_text("#body")[-80:].replace("\n", " "))
+    dates = pg.evaluate("[...document.querySelectorAll('#body .hist-date option')].map(o => o.value)")
+    check("날짜를 고를 수 있다", len(dates) > 10, f"{len(dates)}일")
+    first_rows = pg.evaluate("[...document.querySelectorAll('#body table.hist tr.row')].map(r => r.innerText.replace(/\\n/g,' '))")
+    check("그날 보유 종목이 표에 나온다", len(first_rows) >= 2, str(first_rows[:2]))
+    pg.select_option("#body .hist-date", dates[-1])      # 가장 오래된 날
+    pg.wait_for_timeout(2000)
+    old_rows = pg.evaluate("[...document.querySelectorAll('#body table.hist tr.row')].map(r => r.innerText.replace(/\\n/g,' '))")
+    check("날짜를 바꾸면 그날 값으로 바뀐다", old_rows and old_rows != first_rows,
+          f"{first_rows[:1]} vs {old_rows[:1]}")
+    check("종목별 평가금액 추이 그래프가 있다",
+          pg.evaluate("document.querySelectorAll('#body .ch-wrap canvas').length") >= 2)
+
     print("\n[추가된 정보]")
     pg.click("#tabs button[data-tab='portfolio']")
     pg.wait_for_timeout(3500)
