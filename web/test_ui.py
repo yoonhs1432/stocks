@@ -397,6 +397,24 @@ def run(pg, base: str, errs: list[str]) -> None:
     dt = time.time() - t0
     check("미리 받아 둔 종목은 기다림 없이 뜬다(1초 이내)", dt < 1.0, f"{dt:.2f}초")
 
+    # ── 시장 전환이 빠른가 ──
+    print("\n[전환] 미국↔한국이 기다림 없이 바뀌는가")
+    pg.click("#tabs button[data-tab='compare']")
+    pg.wait_for_timeout(2000)
+    times = []
+    for target in ("한국", "미국", "한국"):
+        t0 = time.time()
+        pg.click(f"#hdr-seg button:has-text('{target}')")
+        pg.wait_for_function("(S.rows||[]).length > 0", timeout=20000)
+        times.append(time.time() - t0)
+        pg.wait_for_timeout(600)
+    check("한 번 본 시장은 즉시 바뀐다(0.5초 이내)", max(times[1:]) < 0.5,
+          " / ".join(f"{t:.2f}초" for t in times))
+    check("전환 뒤 그 시장 종목이 보인다",
+          pg.query_selector("#body table tr.row") is not None)
+    pg.click("#hdr-seg button:has-text('미국')")      # 뒤 검사들은 미국 목록을 쓴다
+    pg.wait_for_timeout(1500)
+
     print("\n[오류] 막히지 않고 다시 시도할 수 있는가")
     pg.route("**/api/analysis*", lambda r: r.fulfill(
         status=502, content_type="application/json",
@@ -491,7 +509,8 @@ def run(pg, base: str, errs: list[str]) -> None:
     check("비교 표 행 간격이 촘촘하다(24~36px)", 24 <= rowh <= 36, f"{rowh}px")
 
     reqs = []
-    pg.on("request", lambda r: reqs.append(r.url) if "/api/compare" in r.url else None)
+    # force=true 는 새로고침이 보내는 것뿐이다. 반대 시장 미리받기는 세지 않는다.
+    pg.on("request", lambda r: reqs.append(r.url) if "/api/compare" in r.url and "force=true" in r.url else None)
     for _ in range(4):
         pg.click("#hdr-btn", force=True)
         pg.wait_for_timeout(120)

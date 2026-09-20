@@ -33,6 +33,7 @@ const live = {};          // symbol → 실시간 현재가
 // 두 번째부터는 아예 안 받는 편이 빠르다.
 const anCache = new Map();      // ticker → {at, data}
 const minCache = new Map();
+const rowCache = new Map();     // 'US'/'KR' → {at, data} — 시장 전환을 기다리지 않게
 const AN_FRESH = 5 * 60 * 1000;
 const MIN_FRESH = 60 * 1000;
 
@@ -194,15 +195,39 @@ function renderCompare() {
   body.appendChild(wrap);
 }
 
+const ROWS_FRESH = 3 * 60 * 1000;
+
 async function loadCompare(force) {
+  stopPrefetch();           // 미리받기가 회선을 물고 있으면 화면이 늦게 뜬다
+  const mk = S.market;
+  const hit = force ? null : cacheGet(rowCache, mk, ROWS_FRESH);
+  if (hit) {                // 한 번 본 시장은 곧바로 그린다 (현재가는 틱이 갱신한다)
+    S.rows = hit.rows;
+    S.rowsAt = hit.at;
+    renderCompare();
+    startTicks();
+    prefetchAll();
+    return;
+  }
   try {
-    const o = await api(`/api/compare?market=${S.market}` + (force ? '&force=true' : ''));
+    const o = await api(`/api/compare?market=${mk}` + (force ? '&force=true' : ''));
+    if (mk !== S.market) return;        // 그 사이 다른 시장을 눌렀다
     S.rows = o.rows;
     S.rowsAt = (o.asOf ? o.asOf * 1000 : Date.now());
+    cachePut(rowCache, mk, { rows: o.rows, at: S.rowsAt });
     renderCompare();
     startTicks();
     prefetchAll();          // 분석을 미리 받아 둔다 — 종목을 눌렀을 때 기다리지 않게
   } catch (e) { fail(e, () => loadCompare(force)); }
+}
+
+/** 반대쪽 시장 표를 미리 받아 둔다 — 미국↔한국 전환을 기다리지 않게. */
+function prefetchMarket() {
+  const other = S.market === 'US' ? 'KR' : 'US';
+  if (cacheGet(rowCache, other, ROWS_FRESH)) return;
+  api(`/api/compare?market=${other}`)
+    .then(o => cachePut(rowCache, other, { rows: o.rows, at: (o.asOf ? o.asOf * 1000 : Date.now()) }))
+    .catch(() => {});
 }
 
 /** 실시간 현재가 — 화면에 보이는 종목만 주기적으로 갱신. */
@@ -496,6 +521,7 @@ let analysisSeq = 0;
 
 async function loadAnalysis() {
   const seq = ++analysisSeq;
+  stopPrefetch();
   // 종목 칩과 기본 종목이 비교 데이터에서 나온다. 분석 탭을 열어 둔 채 새로고침하면
   // 그게 없어서 화면이 통째로 비었다 → 없으면 여기서 직접 받아 온다.
   if (!S.rows) {
@@ -548,6 +574,14 @@ async function loadAnalysis() {
  * 데이터 절약 모드이거나 2G 면 하지 않는다.
  */
 let preTimer = null;
+let preGen = 0;
+
+/** 미리받기를 멈춘다. 사용자가 누른 요청이 먼저 가야 한다(회선은 하나다). */
+function stopPrefetch() {
+  preGen++;
+  clearTimeout(preTimer);
+}
+
 function prefetchAll(delay = 600) {
   const c = navigator.connection;
   if (c && (c.saveData || /(^|-)2g$/.test(c.effectiveType || ''))) return;
@@ -556,14 +590,16 @@ function prefetchAll(delay = 600) {
   const i = Math.max(0, all.indexOf(S.ticker));
   const order = [...all.slice(i), ...all.slice(0, i)];
   const todo = order.filter(t => !cacheGet(anCache, t, AN_FRESH));
+  const gen = ++preGen;
   let k = 0;
   const step = () => {
-    if (k >= todo.length) return;
+    if (gen !== preGen) return;         // 그 사이 사용자가 뭔가 눌렀다
+    if (k >= todo.length) { prefetchMarket(); return; }
     const t = todo[k++];
     api('/api/analysis?ticker=' + encodeURIComponent(t))
       .then(a => cachePut(anCache, t, a))
       .catch(() => {})
-      .finally(() => { preTimer = setTimeout(step, 120); });
+      .finally(() => { if (gen === preGen) preTimer = setTimeout(step, 120); });
   };
   preTimer = setTimeout(step, delay);
 }
@@ -1202,7 +1238,7 @@ function renderSettings() {
   const cbtn = el('button', 'gh', '실행');
   cbtn.onclick = async () => {
     await api('/api/cache/clear', { method: 'POST' });
-    S.rows = null; anCache.clear(); minCache.clear();
+    S.rows = null; anCache.clear(); rowCache.clear(); minCache.clear();
     say('캐시를 비웠습니다. 비교 탭에서 다시 받습니다.');
   };
   cb.appendChild(cbtn);
@@ -1221,7 +1257,7 @@ function renderSettings() {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ticker: ai.value.trim() }),
     });
-    S.rows = null; anCache.clear(); S.settings = await api('/api/settings');
+    S.rows = null; anCache.clear(); rowCache.clear(); S.settings = await api('/api/settings');
     renderSettings();
   };
   ar.appendChild(ab);
@@ -1237,7 +1273,7 @@ function renderSettings() {
     x.onclick = async () => {
       if (!confirm(`${t.ticker} 를 목록에서 뺄까요?`)) return;
       await api('/api/tickers/' + encodeURIComponent(t.ticker), { method: 'DELETE' });
-      S.rows = null; anCache.clear(); S.settings = await api('/api/settings');
+      S.rows = null; anCache.clear(); rowCache.clear(); S.settings = await api('/api/settings');
       renderSettings();
     };
     c.appendChild(x);
@@ -1265,7 +1301,7 @@ function renderSettings() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: ta.value }),
       });
-      S.rows = null; anCache.clear(); S.settings = await api('/api/settings');
+      S.rows = null; anCache.clear(); rowCache.clear(); S.settings = await api('/api/settings');
       say(`${n}개로 바꿨습니다.`);
       renderSettings();
     } catch (e) { say('⚠️ ' + e.message); }

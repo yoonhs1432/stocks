@@ -260,6 +260,9 @@ def api_compare(market: str = "US", force: bool = False):
 
     # 국내 종목 목록을 하루 1회 받아 둔다 — 코드만 뜨던 국내 종목에 이름을 붙이려고
     threading.Thread(target=lambda: universe.ensure(_toss), daemon=True).start()
+    # 반대쪽 시장도 미리 계산해 둔다 — 미국↔한국 전환에서 기다리지 않게
+    threading.Thread(target=_warm_market, args=("KR" if market == "US" else "US",),
+                     daemon=True).start()
     # 일봉이 캐시에 올라온 김에 분석도 미리 계산해 둔다. 폰에서 종목을 누르는 순간
     # 계산이 시작되는 게 아니라 이미 끝나 있게.
     threading.Thread(target=_warm_analysis, args=(tickers,), daemon=True).start()
@@ -355,6 +358,33 @@ def _warm_analysis(tickers: list[str]) -> None:
     finally:
         with _an_lock:
             _warming = False
+
+
+def _warm_market(market: str) -> None:
+    """반대쪽 시장 표를 캐시에 올려 둔다. 이미 최신이면 아무것도 하지 않는다."""
+    try:
+        held: set[str] = set()
+        acc = _cache
+        if acc:
+            held = {h["symbol"] for h in acc.get("items", [])}
+
+        def mine(t: str) -> bool:
+            return store.is_krw(t) if market == "KR" else not store.is_krw(t)
+
+        tickers = [t for t in store.tickers() if mine(t)]
+        tickers += [t for t in sorted(held) if mine(t) and t not in tickers]
+        if not tickers:
+            return
+        key = f"{market}:{store.lookback_months()}:{len(tickers)}"
+        with _ov_lock:
+            hit = _ov_cache.get(key)
+            if hit and time.time() - hit[0] < OV_TTL:
+                return
+        rows = repo.overview(_toss, tickers, False, held)
+        with _ov_lock:
+            _ov_cache[key] = (time.time(), rows)
+    except Exception:
+        pass          # 미리 해 두는 일이라 실패해도 그만이다
 
 
 @app.get("/api/analysis")
