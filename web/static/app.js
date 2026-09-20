@@ -315,6 +315,11 @@ function mkChart(host, height, opts = {}) {
       vertLine: { color: '#8B95A1', width: 1, style: 2, labelBackgroundColor: '#3182F6' },
       horzLine: { color: '#8B95A1', width: 1, style: 2, labelBackgroundColor: '#3182F6' } },
     handleScale: { axisPressedMouseMove: false },
+    // ⚠️ 세로로 끄는 것은 차트가 먹지 않게 한다. 안 그러면 그래프 위에서 위아래로 쓸 때
+    // 화면이 안 내려가고 차트만 움직인다(폰에서 실제로 걸렸다).
+    // 가로로 끄는 것은 그대로 차트 이동 — 봉을 훑어보는 동작은 살아 있다.
+    handleScroll: { mouseWheel: true, pressedMouseMove: true,
+                    horzTouchDrag: true, vertTouchDrag: false },
     localization: { locale: 'ko-KR' },
     ...opts,
   });

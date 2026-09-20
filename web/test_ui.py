@@ -760,6 +760,50 @@ def run(pg, base: str, errs: list[str]) -> None:
     check("PC 자신에서 여는 것은 그대로 통과한다", pg.evaluate(probe_auth, {}) == 200)
     errs.clear()        # 위 401 세 번은 일부러 낸 것이다
 
+    # ── 그래프 위에서 화면이 스크롤되는가 ──
+    # 진짜 터치라야 차트 라이브러리가 반응한다 → CDP 로 터치를 넣는다.
+    print("\n[터치] 그래프 위에서 위아래로 쓸면 화면이 내려가는가")
+    tp = pg.context.browser.new_context(viewport={"width": 412, "height": 780},
+                                        has_touch=True, is_mobile=True)
+    tpg = tp.new_page()
+    cdp = tp.new_cdp_session(tpg)
+
+    def swipe(box, dy, dx=0):
+        x = int(box["x"] + box["width"] / 2)
+        y = int(box["y"] + box["height"] * 0.6)
+        cdp.send("Input.dispatchTouchEvent", {"type": "touchStart", "touchPoints": [{"x": x, "y": y}]})
+        for i in range(1, 9):
+            cdp.send("Input.dispatchTouchEvent", {"type": "touchMove",
+                     "touchPoints": [{"x": x + int(dx * i / 8), "y": y + int(dy * i / 8)}]})
+            time.sleep(0.02)
+        cdp.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
+        time.sleep(0.6)
+
+    try:
+        tpg.goto(base + "/", wait_until="networkidle")
+        for tab, title in [("analysis", "분석"), ("portfolio", "포트폴리오")]:
+            tpg.click(f"#tabs button[data-tab='{tab}']")
+            tpg.wait_for_timeout(4500)
+            tpg.evaluate("window.scrollTo(0, 120)")
+            tpg.wait_for_timeout(400)
+            box = tpg.query_selector("#body .chart").bounding_box()
+            y0 = tpg.evaluate("Math.round(scrollY)")
+            swipe(box, -160)
+            y1 = tpg.evaluate("Math.round(scrollY)")
+            check(f"{title} 그래프 위에서 위아래로 쓸면 화면이 내려간다", abs(y1 - y0) > 20,
+                  f"스크롤 {y0} → {y1}")
+            if tab == "analysis":
+                # 위에서 화면이 내려갔으므로 차트 위치를 다시 잡는다(옛 좌표는 빗나간다)
+                box = tpg.query_selector("#body .chart").bounding_box()
+                r0 = tpg.evaluate("charts[0].timeScale().getVisibleLogicalRange()")
+                swipe(box, 0, 110)
+                r1 = tpg.evaluate("charts[0].timeScale().getVisibleLogicalRange()")
+                check("가로로 쓸면 차트는 그대로 움직인다",
+                      bool(r0 and r1 and abs(r1["from"] - r0["from"]) > 0.5),
+                      f"{r0} → {r1}")
+    finally:
+        tp.close()
+
     print("\n[콘솔]")
     check("자바스크립트 오류 없음", not errs, " / ".join(errs[:5]))
 
