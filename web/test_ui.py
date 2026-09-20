@@ -171,35 +171,45 @@ def run(pg, base: str, errs: list[str]) -> None:
           pg.eval_on_selector("#tabs button.on", "b => b.dataset.tab") == "analysis")
     check("누른 종목이 열린다", (state(pg, "S.ticker") or "") in name, f"{state(pg, 'S.ticker')} / {name}")
 
-    # ── 분석: 일봉/1분 세그먼트 ──
+    # ── 분석: 묶음(시계열·보조·산점도)과 봉 주기 ──
     print("\n[분석] 봉 주기 세그먼트")
-    check("처음엔 일봉이 칠해져 있다", seg_on(pg) == "일봉", f"칠={seg_on(pg)}")
+    check("처음엔 시계열이 칠해져 있다", seg_on(pg) == "시계열", f"칠={seg_on(pg)}")
+    check("봉 주기 버튼이 일봉으로 보인다", pg.inner_text("#hdr-btn").strip() == "일봉",
+          pg.inner_text("#hdr-btn"))
     got_min = []
     pg.on("request", lambda r: got_min.append(r.url) if "/api/minutes" in r.url else None)
-    pg.click("#hdr-seg button:has-text('1분')")
+    pg.click("#hdr-btn")                      # 일봉 → 1분
     pg.wait_for_timeout(3000)
-    check("1분을 누르면 칠이 옮겨간다", seg_on(pg) == "1분", f"칠={seg_on(pg)}")
+    check("누르면 1분으로 바뀐다", pg.inner_text("#hdr-btn").strip() == "1분",
+          pg.inner_text("#hdr-btn"))
     # 미리 받아 뒀으면 이 순간 요청이 없을 수도 있다 — 중요한 건 분봉이 그려졌는가다
     check("1분을 누르면 분봉이 그려진다",
           state(pg, "S.bar") == "1m" and state(pg, "!!(S.minutes && S.minutes.candles.length)") is True,
           f"bar={state(pg, 'S.bar')} 분봉={state(pg, '(S.minutes||{}).candles ? S.minutes.candles.length : 0')}")
-    pg.click("#hdr-seg button:has-text('일봉')")
+    pg.click("#hdr-btn")                      # 1분 → 일봉
     pg.wait_for_timeout(2500)
-    check("일봉으로 되돌아온다", seg_on(pg) == "일봉" and state(pg, "S.bar") == "1d",
-          f"칠={seg_on(pg)} bar={state(pg, 'S.bar')}")
+    check("일봉으로 되돌아온다",
+          pg.inner_text("#hdr-btn").strip() == "일봉" and state(pg, "S.bar") == "1d",
+          f"버튼={pg.inner_text('#hdr-btn')} bar={state(pg, 'S.bar')}")
 
-    # ── 분석: 시계열 ↔ 산점도 ──
-    print("\n[분석] 산점도 전환")
-    pg.click("#hdr-btn")
+    # ── 분석: 시계열 / 보조 / 산점도 ──
+    # 넷을 한 화면에 넣으면 하나하나가 너무 낮아 읽기 어렵다 → 둘씩 나눠 놓았다
+    print("\n[분석] 묶음 전환")
+    titles = lambda: [e.inner_text().split("\n")[0] for e in pg.query_selector_all("#body .ch-title")]
+    check("시계열은 가격과 Z·M 둘", titles() == ["가격 · 일봉", "Z · M"], str(titles()))
+    pg.click("#hdr-seg button:has-text('보조')")
+    pg.wait_for_timeout(2500)
+    check("보조는 MACD 와 RSI 둘", titles() == ["MACD", "RSI"], str(titles()))
+    check("보조에서도 봉 주기를 고를 수 있다",
+          pg.query_selector("#hdr-btn") is not None and not pg.eval_on_selector("#hdr-btn", "e => e.hidden"))
+    pg.click("#hdr-seg button:has-text('산점도')")
     pg.wait_for_timeout(2500)
     check("산점도를 누르면 캔버스가 그려진다", len(pg.query_selector_all("#body canvas")) >= 2,
           f"canvas={len(pg.query_selector_all('#body canvas'))}")
-    check("버튼 글자가 시계열로 바뀐다", pg.inner_text("#hdr-btn").strip() == "시계열",
-          pg.inner_text("#hdr-btn"))
-    pg.click("#hdr-btn")
+    check("산점도에서는 봉 주기 버튼이 없다", pg.eval_on_selector("#hdr-btn", "e => e.hidden"))
+    pg.click("#hdr-seg button:has-text('시계열')")
     pg.wait_for_timeout(2500)
-    check("시계열로 돌아오면 봉 주기 세그먼트가 다시 보인다", seg_on(pg) in ("일봉", "1분"),
-          f"칠={seg_on(pg)}")
+    check("시계열로 돌아온다", titles() == ["가격 · 일봉", "Z · M"], str(titles()))
 
     # ── 포트폴리오: 원/$ 토글 ──
     print("\n[포트폴리오] 통화 토글")
@@ -654,12 +664,12 @@ def run(pg, base: str, errs: list[str]) -> None:
     pg.wait_for_timeout(3500)
     pg.wait_for_timeout(6000)          # 미리받기가 분봉까지 받을 시간
     t0 = time.time()
-    pg.click("#hdr-seg button:has-text('1분')")
+    pg.click("#hdr-btn")
     pg.wait_for_function("S.bar === '1m' && document.querySelectorAll('#body .ch-wrap canvas').length > 0",
                          timeout=20000)
     dt = time.time() - t0
     check("1분봉 전환이 1초 이내", dt < 1.0, f"{dt:.2f}초")
-    pg.click("#hdr-seg button:has-text('일봉')")
+    pg.click("#hdr-btn")
     pg.wait_for_timeout(2500)
 
     print("\n[연타] 늦게 온 옛 응답이 화면을 덮지 않는가")
@@ -835,7 +845,8 @@ def run(pg, base: str, errs: list[str]) -> None:
     # ── 그래프 위에서 화면이 스크롤되는가 ──
     # 진짜 터치라야 차트 라이브러리가 반응한다 → CDP 로 터치를 넣는다.
     print("\n[터치] 그래프 위에서 위아래로 쓸면 화면이 내려가는가")
-    tp = pg.context.browser.new_context(viewport={"width": 412, "height": 780},
+    # 화면을 낮게 잡는다 — 분석 묶음이 둘씩이라 큰 화면에서는 스크롤할 것이 없다
+    tp = pg.context.browser.new_context(viewport={"width": 412, "height": 560},
                                         has_touch=True, is_mobile=True)
     tpg = tp.new_page()
     cdp = tp.new_cdp_session(tpg)

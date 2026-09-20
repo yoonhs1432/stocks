@@ -480,10 +480,10 @@ function renderAnalysis(err) {
   }
   wrap.appendChild(head);
 
-  // ── 가격 차트 (산점도 묶음이면 건너뛴다) ──
-  const bars = S.group === 'scatter' ? [] : (minMode ? (m ? m.candles : []) : a.candles);
-  if (S.group === 'scatter') {
-    // 아래 산점도 블록에서 그린다
+  // ── 가격 차트 (시계열 묶음에서만) ──
+  const bars = S.group !== 'series' ? [] : (minMode ? (m ? m.candles : []) : a.candles);
+  if (S.group !== 'series') {
+    // 보조지표·산점도 묶음은 아래에서 그린다
   } else if (!bars.length) {
     wrap.appendChild(el('p', 'muted', minMode ? '1분봉 불러오는 중…' : '일봉이 없습니다'));
   } else {
@@ -555,15 +555,23 @@ function renderAnalysis(err) {
     return;
   }
 
-  // ── 지표 ──
+  // ── 지표 ── 묶음에 따라 둘씩만 그린다
+  const sub = S.group === 'sub';
   if (minMode && m && m.candles.length) {
-    lineChart(wrap, 'MACD · 1분', m.candles.map(b => b.t),
-      [[m.macd, VIOLET], [m.macdSignal, '#C9C5BB']], [], linked, 120);
-    lineChart(wrap, 'RSI · 1분', m.candles.map(b => b.t), [[m.rsi, TEAL]], [30, 70], linked, 120);
+    const t = m.candles.map(b => b.t);
+    if (sub) {
+      lineChart(wrap, 'MACD · 1분', t, [[m.macd, VIOLET], [m.macdSignal, '#C9C5BB']], [], linked, 120, 200);
+      lineChart(wrap, 'RSI · 1분', t, [[m.rsi, TEAL]], [30, 70], linked, 120, 200);
+    } else if (r) {
+      lineChart(wrap, 'Z · M', r.dates, [[r.zPct, UP], [r.mPct, '#FFD24D']], [20, 40, 60, 80], linked, 45, 170);
+    }
   } else if (r) {
-    lineChart(wrap, 'Z · M', r.dates, [[r.zPct, UP], [r.mPct, '#FFD24D']], [20, 40, 60, 80], linked);
-    lineChart(wrap, 'MACD', r.dates, [[r.macd, VIOLET], [r.macdSignal, '#C9C5BB']], [], linked);
-    lineChart(wrap, 'RSI', r.dates, [[r.rsi, TEAL]], [30, 70], linked);
+    if (sub) {
+      lineChart(wrap, 'MACD', r.dates, [[r.macd, VIOLET], [r.macdSignal, '#C9C5BB']], [], linked, 45, 200);
+      lineChart(wrap, 'RSI', r.dates, [[r.rsi, TEAL]], [30, 70], linked, 45, 200);
+    } else {
+      lineChart(wrap, 'Z · M', r.dates, [[r.zPct, UP], [r.mPct, '#FFD24D']], [20, 40, 60, 80], linked, 45, 170);
+    }
   } else {
     wrap.appendChild(el('p', 'muted', '분석 데이터 부족 — 상장 후 기간이 짧은 종목입니다'));
   }
@@ -571,9 +579,10 @@ function renderAnalysis(err) {
 }
 
 /** 선 차트 한 판. series = [[값배열, 색], …], guides = 임계 가로선. */
-function lineChart(parent, title, times, series, guides = [], linked = null, recent = 45) {
+function lineChart(parent, title, times, series, guides = [], linked = null, recent = 45,
+                   height = 120) {
   const { host } = chartBox(parent, title);
-  const ch = mkChart(host, 120);
+  const ch = mkChart(host, height);
   series.forEach(([vals, color], idx) => {
     const s = ch.addLineSeries({ color, lineWidth: 2, priceLineVisible: false, lastValueVisible: idx === 0 });
     s.setData(times.map((t, i) => ({ time: t, value: vals[i] }))
@@ -582,7 +591,7 @@ function lineChart(parent, title, times, series, guides = [], linked = null, rec
       price: g, color: '#ffffff22', lineWidth: 1, lineStyle: 2, axisLabelVisible: false,
     }));
   });
-  fitRange(ch, times.length, recent, 'apply');
+  fitRange(ch, times.length, recent, linked && !linked.length ? 'remember' : 'apply');
   if (linked) linked.push(ch);
   return ch;
 }
@@ -1594,18 +1603,21 @@ function header() {
     btn.onclick = () => busyBtn(btn, () => { S.rows = null; renderCompare(); return loadCompare(true); });
   } else if (S.tab === 'analysis') {
     $('#title').textContent = '분석';
-    if (S.group === 'series') {
-      mkSeg([['1d', '일봉'], ['1m', '1분']], S.bar, b => {
-        S.bar = b; localStorage.setItem('bar', b); loadAnalysis();
-      });
-    }
-    btn.hidden = false;
-    btn.textContent = S.group === 'series' ? '산점도' : '시계열';
-    btn.onclick = () => {
-      S.group = S.group === 'series' ? 'scatter' : 'series';
-      localStorage.setItem('group', S.group);
+    // 넷을 한 화면에 넣으면 하나하나가 너무 낮아 읽기 어렵다 → 둘씩 나눈다
+    // (안드로이드와 같은 구성: 시계열 = 가격·Z·M / 보조 = MACD·RSI / 산점도)
+    mkSeg([['series', '시계열'], ['sub', '보조'], ['scatter', '산점도']], S.group, g => {
+      S.group = g; localStorage.setItem('group', g);
       header(); renderAnalysis();
-    };
+    });
+    if (S.group !== 'scatter') {          // 봉 주기는 시계열·보조에만 해당
+      btn.hidden = false;
+      btn.textContent = S.bar === '1m' ? '1분' : '일봉';
+      btn.onclick = () => {
+        S.bar = S.bar === '1m' ? '1d' : '1m';
+        localStorage.setItem('bar', S.bar);
+        header(); loadAnalysis();
+      };
+    }
   } else if (S.tab === 'portfolio') {
     $('#title').textContent = '포트폴리오';
     mkSeg([['krw', '원'], ['usd', '$']], S.usdMode ? 'usd' : 'krw', async c => {
