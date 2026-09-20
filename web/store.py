@@ -44,11 +44,28 @@ def _read(name: str, default):
         return default
 
 
+def _write_now(name: str, value) -> None:
+    DATA.mkdir(parents=True, exist_ok=True)
+    (DATA / name).write_text(
+        json.dumps(value, ensure_ascii=False, indent=1), encoding="utf-8")
+
+
 def _write(name: str, value) -> None:
     with _lock:
-        DATA.mkdir(parents=True, exist_ok=True)
-        (DATA / name).write_text(
-            json.dumps(value, ensure_ascii=False, indent=1), encoding="utf-8")
+        _write_now(name, value)
+
+
+def _mutate(name: str, default, fn):
+    """읽고-고치고-쓰기를 **한 덩어리로** 한다.
+
+    읽기와 쓰기 사이에 다른 요청이 끼어들면 한쪽 변경이 통째로 사라진다. 종목을
+    빠르게 두 번 추가하거나 설정 두 가지를 잇달아 바꿀 때 실제로 그럴 수 있다.
+    """
+    with _lock:
+        cur = _read(name, default)
+        new = fn(cur)
+        _write_now(name, new)
+        return new
 
 
 # ── 설정 ──
@@ -58,9 +75,11 @@ def settings() -> dict:
 
 
 def put(key: str, value) -> None:
-    s = settings()
-    s[key] = value
-    _write("settings.json", s)
+    def go(cur):
+        cur = dict(cur) if isinstance(cur, dict) else {}
+        cur[key] = value
+        return cur
+    _mutate("settings.json", {}, go)
 
 
 def lookback_months() -> int:
@@ -94,17 +113,21 @@ def set_tickers(v: list[str]) -> None:
 
 def add_ticker(t: str) -> list[str]:
     t = t.strip().upper()
-    cur = tickers()
-    if t and t not in cur:
-        cur.append(t)
-        set_tickers(cur)
-    return cur
+    base = tickers()          # 기본 목록 이관까지 끝난 값
+    def go(cur):
+        cur = list(cur) if isinstance(cur, list) and cur else base
+        if t and t not in cur:
+            cur.append(t)
+        return cur
+    return _mutate("tickers.json", base, go)
 
 
 def remove_ticker(t: str) -> list[str]:
-    cur = [x for x in tickers() if x != t]
-    set_tickers(cur)
-    return cur
+    base = tickers()
+    def go(cur):
+        cur = list(cur) if isinstance(cur, list) and cur else base
+        return [x for x in cur if x != t]
+    return _mutate("tickers.json", base, go)
 
 
 def is_krw(ticker: str) -> bool:
@@ -131,18 +154,19 @@ def markets() -> dict[str, bool]:
 
 def learn_markets(items: list[dict]) -> None:
     """보유 종목에서 시장을 배워 둔다 (계좌를 볼 때마다 호출)."""
-    cur = markets()
     add = {}
     for h in items:
         t = str(h.get("symbol", "")).upper()
         if not t:
             continue
-        krw = (h.get("currency") == "KRW") or (h.get("marketCountry") == "KR")
-        if cur.get(t) != krw:
-            add[t] = krw
-    if add:
-        cur.update(add)
-        _write("markets.json", cur)
+        add[t] = (h.get("currency") == "KRW") or (h.get("marketCountry") == "KR")
+    if not add:
+        return
+    def go(cur):
+        v = dict(cur) if isinstance(cur, dict) else {}
+        v.update(add)
+        return v
+    _mutate("markets.json", {}, go)
 
 
 # ── 매매 기록 (체결내역에서 가져온 것) ──
@@ -205,9 +229,11 @@ def deposits() -> list[dict]:
 
 
 def add_deposit(date: str, krw: float) -> list[dict]:
-    v = deposits() + [{"date": date, "krw": krw}]
-    _write("deposits.json", sorted(v, key=lambda x: x["date"]))
-    return deposits()
+    def go(cur):
+        rows = list(cur) if isinstance(cur, list) else []
+        rows.append({"date": date, "krw": krw})
+        return sorted(rows, key=lambda x: x.get("date", ""))
+    return _mutate("deposits.json", [], go)
 
 
 def set_deposits(rows: list[dict]) -> list[dict]:
@@ -217,11 +243,12 @@ def set_deposits(rows: list[dict]) -> list[dict]:
 
 
 def remove_deposit(index: int) -> list[dict]:
-    v = deposits()
-    if 0 <= index < len(v):
-        del v[index]
-        _write("deposits.json", v)
-    return deposits()
+    def go(cur):
+        rows = sorted(cur, key=lambda x: x.get("date", "")) if isinstance(cur, list) else []
+        if 0 <= index < len(rows):
+            del rows[index]
+        return rows
+    return _mutate("deposits.json", [], go)
 
 
 def principal_total() -> float:
@@ -274,22 +301,25 @@ def names() -> dict[str, str]:
 
 
 def set_name(ticker: str, name: str) -> None:
-    v = names()
     t = ticker.strip().upper()
-    if name.strip():
-        v[t] = name.strip()
-    else:
-        v.pop(t, None)
-    _write("names.json", v)
+    def go(cur):
+        v = dict(cur) if isinstance(cur, dict) else {}
+        if name.strip():
+            v[t] = name.strip()
+        else:
+            v.pop(t, None)
+        return v
+    _mutate("names.json", {}, go)
 
 
 def set_names(m: dict[str, str]) -> None:
-    v = names()
-    for t, n in m.items():
-        t = t.strip().upper()
-        if n.strip():
-            v[t] = n.strip()
-    _write("names.json", v)
+    def go(cur):
+        v = dict(cur) if isinstance(cur, dict) else {}
+        for t, n in m.items():
+            if n.strip():
+                v[t.strip().upper()] = n.strip()
+        return v
+    _mutate("names.json", {}, go)
 
 
 def name_of(ticker: str) -> str:

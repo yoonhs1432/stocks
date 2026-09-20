@@ -1108,13 +1108,14 @@ let acctTimer = null;
 async function loadPortfolio(force) {
   try {
     // 차례로 기다리면 집 밖에서는 왕복만 3번이다. 서로 필요 없으니 같이 보낸다.
+    const usd = S.usdMode;
     const [acc, snaps, settings] = await Promise.all([
       api('/api/account' + (force ? '?force=true' : '')),
-      api('/api/snapshots' + (S.usdMode ? '?usd=true' : '')),
+      api('/api/snapshots' + (usd ? '?usd=true' : '')),
       S.settings ? Promise.resolve(S.settings) : api('/api/settings'),
     ]);
     S.account = acc;
-    S.snaps = snaps;
+    if (usd === S.usdMode) S.snaps = snaps;   // 그 사이 통화를 바꿨으면 그 값이 맞다
     S.settings = settings;
     if (force) S.hist = null;
     if (!onTab('portfolio')) return;    // 그 사이 다른 탭으로 갔다
@@ -1143,6 +1144,10 @@ function startAccountRefresh() {
 }
 
 // ══════════════════════════ 설정 ══════════════════════════
+
+/** 저장을 마친 뒤 다시 그리기 — **아직 설정 탭일 때만.**
+    저장하고 곧바로 탭을 옮기면 설정 화면이 딴 탭 위에 그려졌다. */
+function reSettings() { if (onTab('settings')) renderSettings(); }
 
 function renderSettings() {
   const body = $('#body');
@@ -1252,7 +1257,7 @@ function renderSettings() {
         body: JSON.stringify({ date: dd.value, krw: v }),
       });
       S.settings.deposits = o.deposits; S.settings.principal = o.principal;
-      renderSettings();
+      reSettings();
     } catch (e) { say('⚠️ ' + e.message); }
   };
   dr.appendChild(db);
@@ -1280,7 +1285,7 @@ function renderSettings() {
       S.snaps = null;                       // 원금 선이 바뀐다
       say(`${o.added}건 적용했습니다.`);
       dta.value = '';
-      renderSettings();
+      reSettings();
     } catch (e) { say('⚠️ ' + e.message); }
     dadd.disabled = drep.disabled = false;
   };
@@ -1305,7 +1310,7 @@ function renderSettings() {
                    '입금 기록은 되돌릴 수 없습니다.')) return;
       const o = await api('/api/deposits/' + i, { method: 'DELETE' });
       S.settings.deposits = o.deposits; S.settings.principal = o.principal;
-      renderSettings();
+      reSettings();
     };
     row.appendChild(x);
     wrap.appendChild(row);
@@ -1338,7 +1343,7 @@ function renderSettings() {
     try {
       const o = await api('/api/auth/rotate', { method: 'POST' });
       S.settings.accessToken = o.token;
-      renderSettings();
+      reSettings();
       // 폰에서 다시 들어갈 주소를 바로 알려 준다
       alert('새 암호: ' + o.token + '\n\n폰에서는 주소 뒤에 ?key=' + o.token + ' 를 붙여 한 번 열면 됩니다.');
     } catch (e) { say('⚠️ ' + e.message); }
@@ -1412,7 +1417,7 @@ function renderSettings() {
       body: JSON.stringify({ ticker: ai.value.trim() }),
     });
     S.rows = null; anCache.clear(); rowCache.clear(); S.settings = await api('/api/settings');
-    renderSettings();
+    reSettings();
   };
   ar.appendChild(ab);
   wrap.appendChild(ar);
@@ -1428,7 +1433,7 @@ function renderSettings() {
       if (!confirm(`${t.ticker} 를 목록에서 뺄까요?`)) return;
       await api('/api/tickers/' + encodeURIComponent(t.ticker), { method: 'DELETE' });
       S.rows = null; anCache.clear(); rowCache.clear(); S.settings = await api('/api/settings');
-      renderSettings();
+      reSettings();
     };
     c.appendChild(x);
     list.appendChild(c);
@@ -1457,7 +1462,7 @@ function renderSettings() {
       });
       S.rows = null; anCache.clear(); rowCache.clear(); S.settings = await api('/api/settings');
       say(`${n}개로 바꿨습니다.`);
-      renderSettings();
+      reSettings();
     } catch (e) { say('⚠️ ' + e.message); }
     bb.disabled = false;
   };
@@ -1593,8 +1598,15 @@ function header() {
     mkSeg([['krw', '원'], ['usd', '$']], S.usdMode ? 'usd' : 'krw', async c => {
       S.usdMode = c === 'usd'; localStorage.setItem('cur', c);
       header(); renderPortfolio();
-      // 과거 금액은 **그날 환율**로 환산해야 해서 서버에서 다시 받는다
-      try { S.snaps = await api('/api/snapshots' + (S.usdMode ? '?usd=true' : '')); } catch (e) {}
+      // 과거 금액은 **그날 환율**로 환산해야 해서 서버에서 다시 받는다.
+      // 원/$ 를 연달아 누르면 늦게 온 쪽이 나중에 도착해 **화면은 원인데 그래프는 달러**가
+      // 됐다. 요청을 보낼 때의 통화를 기억해 두고, 그 사이 바뀌었으면 버린다.
+      const usd = S.usdMode;
+      try {
+        const sn = await api('/api/snapshots' + (usd ? '?usd=true' : ''));
+        if (usd !== S.usdMode || !onTab('portfolio')) return;
+        S.snaps = sn;
+      } catch (e) { return; }
       renderPortfolio();
     });
     btn.hidden = false; btn.textContent = '새로고침';

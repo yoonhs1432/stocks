@@ -405,6 +405,43 @@ def run(pg, base: str, errs: list[str]) -> None:
     pg.reload(wait_until="networkidle")             # fetch 를 원래대로
     pg.wait_for_timeout(3000)
 
+    # ── 늦게 온 응답이 지금 화면과 어긋나지 않는가 (같은 유형 전수) ──
+    print("\n[늦은 응답] 지금 화면과 어긋나지 않는가")
+    pg.click("#tabs button[data-tab='portfolio']")
+    pg.wait_for_timeout(3500)
+    pg.evaluate("""() => {
+      const f = window.__of || window.fetch; window.__of = f;    // 달러 쪽만 늦춘다
+      window.fetch = (u, o) => new Promise(r =>
+        setTimeout(() => r(f(u, o)), String(u).includes('usd=true') ? 1800 : 0));
+    }""")
+    pg.click("#hdr-seg button:has-text('$')")
+    pg.wait_for_timeout(250)
+    pg.click("#hdr-seg button:has-text('원')")
+    pg.wait_for_timeout(3500)
+    st = pg.evaluate("({usd: S.usdMode, first: S.snaps ? Math.round(S.snaps.total[0]) : 0})")
+    check("원/$ 를 연달아 눌러도 그래프가 지금 통화와 맞는다",
+          st["usd"] is False and st["first"] > 1_000_000, str(st))
+    pg.evaluate("window.fetch = window.__of")
+
+    pg.click("#tabs button[data-tab='settings']")
+    pg.wait_for_timeout(2500)
+    pg.evaluate("""() => {
+      const f = window.__of || window.fetch; window.__of = f;    // 설정 다시 읽기를 늦춘다
+      window.fetch = (u, o) => new Promise(r =>
+        setTimeout(() => r(f(u, o)), String(u).endsWith('/api/settings') ? 1800 : 0));
+    }""")
+    pg.once("dialog", lambda d: d.accept())
+    pg.click("#body .tk button")                  # 종목 하나 삭제 → 설정 다시 읽기
+    pg.wait_for_timeout(200)
+    pg.click("#tabs button[data-tab='compare']")
+    pg.wait_for_timeout(3500)
+    check("설정에서 저장하고 바로 탭을 옮겨도 설정 화면이 덮지 않는다",
+          "종목 관리" not in pg.inner_text("#body"),
+          pg.inner_text("#body")[:40].replace("\n", " "))
+    pg.evaluate("window.fetch = window.__of")
+    pg.click("#tabs button[data-tab='settings']")
+    pg.wait_for_timeout(2000)
+
     print("\n[미리받기] 종목을 누르기 전에 받아 두는가")
     pg.evaluate("anCache.clear()")
     pg.click("#tabs button[data-tab='compare']")
