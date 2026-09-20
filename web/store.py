@@ -210,6 +210,12 @@ def add_deposit(date: str, krw: float) -> list[dict]:
     return deposits()
 
 
+def set_deposits(rows: list[dict]) -> list[dict]:
+    """입금 기록을 통째로 바꾼다 (한 번에 옮겨 적을 때)."""
+    _write("deposits.json", sorted(rows, key=lambda x: x.get("date", "")))
+    return deposits()
+
+
 def remove_deposit(index: int) -> list[dict]:
     v = deposits()
     if 0 <= index < len(v):

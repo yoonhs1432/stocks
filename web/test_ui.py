@@ -230,7 +230,7 @@ def run(pg, base: str, errs: list[str]) -> None:
 
     # 목록 통째로 바꾸기 — 다른 앱에서 쓰던 목록을 한 번에 옮기는 길
     before_n = len(pg.query_selector_all("#body .tk"))
-    pg.fill("#body textarea", "AAA, BBB\nCCC 005930")
+    pg.fill("#body .tk-in", "AAA, BBB\nCCC 005930")
     pg.once("dialog", lambda d: d.accept())
     pg.click("#body button:has-text('통째로 저장')")
     pg.wait_for_timeout(2500)
@@ -242,14 +242,14 @@ def run(pg, base: str, errs: list[str]) -> None:
           pg.query_selector("#body .tk.kr b") is not None)
 
     # 코드=이름 으로 이름까지 한 번에
-    pg.fill("#body textarea", "005930=내가붙인이름, TQQQ")
+    pg.fill("#body .tk-in", "005930=내가붙인이름, TQQQ")
     pg.once("dialog", lambda d: d.accept())
     pg.click("#body button:has-text('통째로 저장')")
     pg.wait_for_timeout(2500)
     check("코드=이름 으로 이름도 같이 저장된다",
           "내가붙인이름" in pg.inner_text("#body"), pg.inner_text("#body .tklist"))
     # 뒤 검사들이 기본 종목을 쓰므로 목록을 되돌려 놓는다
-    pg.fill("#body textarea", ", ".join(DEFAULT_TICKERS))
+    pg.fill("#body .tk-in", ", ".join(DEFAULT_TICKERS))
     pg.once("dialog", lambda d: d.accept())
     pg.click("#body button:has-text('통째로 저장')")
     pg.wait_for_timeout(2500)
@@ -435,6 +435,11 @@ def run(pg, base: str, errs: list[str]) -> None:
     pg.click("#body .row2:has-text('+12,000,000원') button:has-text('삭제')")
     pg.wait_for_timeout(1500)
     check("확인을 누르면 지워진다", "+12,000,000원" not in pg.inner_text("#body"))
+    # 뒤 검사(원금 선·범례)가 입금 기록을 쓰므로 되돌려 둔다
+    pg.fill("#body .dep-in", "2026-07-22 12,000,000")
+    pg.click("#body .dep-row button:has-text('추가')")
+    pg.wait_for_timeout(2000)
+    check("되돌려 놓았다", "12,000,000" in pg.inner_text("#body"))
 
     # ── 화면이 기억하는 것들 ──
     print("\n[기억] 확대 구간·기준 시각·정렬")
@@ -532,6 +537,15 @@ def run(pg, base: str, errs: list[str]) -> None:
     pg.wait_for_timeout(3500)
     body = pg.inner_text("#body")
     check("보유 종목에 비중 %가 보인다", "%" in body and "비중" in body, body[:60])
+    leg = pg.inner_text("#body .legend")
+    check("총자산 옆에 색 범례가 있다",
+          all(k in leg for k in ("평가금액", "예수금", "원금")), leg.replace("\n", " ")[:60])
+    ax = pg.evaluate("[...document.querySelectorAll('#body .axrow')].map(e => e.innerText.replace(/\\n/g, ' '))")
+    check("자산 그래프 아래 시작일·기록일수·끝일이 있다",
+          len(ax) >= 2 and "기록" in ax[0], str(ax[:2]))
+    pnl = pg.inner_text("#body .pnl-big")
+    check("평가손익에 현재값과 원금 대비가 있다",
+          "현재" in pnl and "원금 대비" in pnl, pnl.replace("\n", " "))
     pie = pg.evaluate("""() => {
       const t = [...document.querySelectorAll('#body .pie-wrap text')].map(e => e.textContent);
       return t;
@@ -543,6 +557,26 @@ def run(pg, base: str, errs: list[str]) -> None:
 
     pg.click("#tabs button[data-tab='settings']")
     pg.wait_for_timeout(2500)
+    # 입금 여러 건을 한 번에
+    pg.fill("#body .dep-in", "2026-09-01 13,789,303\n2026-09-04 10,728,849")
+    pg.click("#body .dep-row button:has-text('추가')")
+    pg.wait_for_timeout(2500)
+    body2 = pg.inner_text("#body")
+    check("입금을 여러 건 한 번에 넣을 수 있다",
+          "13,789,303" in body2 and "10,728,849" in body2, body2[:120].replace("\n", " "))
+    sums = pg.evaluate("""() => {
+      const d = S.settings.deposits || [];
+      return {합계: Math.round(S.settings.principal),
+              더한값: Math.round(d.reduce((x, r) => x + r.krw, 0)), 건수: d.length};
+    }""")
+    check("입금 합계가 기록의 합과 같다",
+          sums["합계"] == sums["더한값"] and sums["건수"] >= 3, str(sums))
+    pg.fill("#body .dep-in", "엉터리 줄")
+    pg.click("#body .dep-row button:has-text('추가')")
+    pg.wait_for_timeout(1500)
+    check("형식이 틀리면 알려 준다", "이렇게 적어 주세요" in pg.inner_text("#body"),
+          pg.inner_text("#body .msg"))
+
     check("입금 날짜가 달력 입력이다",
           pg.eval_on_selector("#body input[type='date']", "e => e.type") == "date")
     check("접속 암호 칸이 있다", "접속 암호" in pg.inner_text("#body"))

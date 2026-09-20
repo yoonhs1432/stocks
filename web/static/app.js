@@ -611,6 +611,14 @@ const money = krw => S.usdMode
   ? '$' + (krw / S.account.rate).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
   : Math.round(krw).toLocaleString('ko-KR') + '원';
 const signedMoney = krw => (krw >= 0 ? '+' : '-') + money(Math.abs(krw));
+
+/** 큰 금액은 만원 단위로 — 2,506만원 / 작은 값은 소수 2자리 11.50만원. */
+const manwon = krw => {
+  const v = krw / 10000;
+  return (Math.abs(v) < 100 ? v.toFixed(2) : Math.round(v).toLocaleString('ko-KR')) + '만원';
+};
+const short = krw => S.usdMode ? money(krw) : manwon(krw);
+const signedShort = krw => (krw >= 0 ? '+' : '-') + short(Math.abs(krw));
 const qtyLabel = q => (Number.isInteger(q) ? q.toLocaleString('ko-KR')
   : String(parseFloat(q.toFixed(4)))) + '주';
 
@@ -660,6 +668,15 @@ function pieSvg(items, sum, size = 186) {
   return svg;
 }
 
+/** 차트 아래 한 줄 — 시작일 · 기록 일수 · 끝일. 차트 자체 시간축보다 읽기 쉽다. */
+function axisRow(from, mid, to) {
+  const r = el('div', 'axrow');
+  r.appendChild(el('span', null, from));
+  r.appendChild(el('span', 'muted', mid));
+  r.appendChild(el('span', null, to));
+  return r;
+}
+
 function renderPortfolio() {
   const body = $('#body');
   body.innerHTML = '';
@@ -669,34 +686,45 @@ function renderPortfolio() {
   const wrap = el('div');
   wrap.style.padding = '0 var(--pad) 12px';
 
+  // 왼쪽에 총자산, 오른쪽에 색 범례 — 아래 자산 그래프의 색과 짝이 맞는다
   const hero = el('section', 'hero');
+  const top = el('div', 'hero-top');
+
+  const left = el('div');
   const row = el('div', 'row');
-  row.appendChild(el('span', 'label', '총자산'));
-  row.appendChild(el('span', 'acct', a.accountNo ? '•••••' + a.accountNo.slice(-4) : ''));
-  hero.appendChild(row);
-  hero.appendChild(el('div', 'total mono', money(a.totalKrw)));
-  hero.appendChild(el('div', 'today mono ' + cls(a.dailyPnlKrw),
-    `오늘 ${signedMoney(a.dailyPnlKrw)} (${pct(a.dailyPnlRate * 100)})`));
-  hero.appendChild(el('div', 'pnl mono ' + cls(a.pnlKrw),
-    `평가손익 ${signedMoney(a.pnlKrw)} (${pct(a.pnlRate * 100)})`));
-
-  // 원금이 적혀 있으면 총손익(총자산 − 원금)까지
-  if (S.settings && S.settings.principal > 0) {
-    const p = S.settings.principal;
-    const gain = a.totalKrw - p;
-    hero.appendChild(el('div', 'pnl mono ' + cls(gain),
-      `원금 ${money(p)} · ${signedMoney(gain)} (${pct(gain / p * 100)})`));
+  row.appendChild(el('span', 'label', '현재 총자산'));
+  left.appendChild(row);
+  left.appendChild(el('div', 'total mono', short(a.totalKrw)));
+  left.appendChild(el('div', 'today mono ' + cls(a.dailyPnlKrw),
+    `오늘 ${signedShort(a.dailyPnlKrw)} (${pct(a.dailyPnlRate * 100)})`));
+  const prin = S.settings ? S.settings.principal : 0;
+  if (prin > 0) {
+    const gain = a.totalKrw - (S.usdMode ? prin / a.rate * a.rate : prin);
+    left.appendChild(el('div', 'pnl mono ' + cls(gain),
+      `원금 ${short(prin)} · ${signedShort(gain)} (${pct(gain / prin * 100)})`));
   }
+  top.appendChild(left);
 
-  const chips = el('div', 'chips');
-  chips.style.overflow = 'visible';
-  [['평가금액', money(a.evalKrw)], ['예수금', money(a.cashKrw)],
-   ['환율', num(a.rate, 1)]].forEach(([k, v]) => {
-    const c = el('span', 'chip', k + ' ');
-    c.appendChild(el('b', 'mono', v));
-    chips.appendChild(c);
+  const leg = el('div', 'legend');
+  const legend = [['평가금액', UP, a.evalKrw], ['예수금', '#5B9BF2', a.cashKrw]];
+  if (prin > 0) legend.push(['원금', GOLD, prin]);
+  legend.forEach(([k, color, v]) => {
+    const r = el('div', 'lg');
+    const d = el('span', 'dot');
+    d.style.background = color;
+    r.appendChild(d);
+    r.appendChild(el('span', 'k', k));
+    r.appendChild(el('span', 'v mono', short(v)));
+    leg.appendChild(r);
   });
-  hero.appendChild(chips);
+  const fx = el('div', 'lg');
+  fx.appendChild(el('span', 'k muted', '환율'));
+  fx.appendChild(el('span', 'v mono muted', num(a.rate, 1)));
+  leg.appendChild(fx);
+  top.appendChild(leg);
+
+  hero.appendChild(top);
+  row.appendChild(el('span', 'acct', a.accountNo ? '•••••' + a.accountNo.slice(-4) : ''));
   wrap.appendChild(hero);
 
   // 비중 파이 — 조각 위에 종목과 % 를 얹으려면 SVG 라야 한다(conic-gradient 는 글자를 못 얹는다)
@@ -738,34 +766,58 @@ function renderPortfolio() {
   const sn = S.snaps;
   if (sn && sn.dates.length >= 2) {
     const div = S.usdMode ? 1 : 10000;      // 원화는 만원 단위라야 축이 읽힌다
-    const unit = S.usdMode ? '$' : '만원';
-    const t = sn.dates.map(d => d);
+    const t = sn.dates;
 
+    // ── 자산 ── 평가금액(빨강) 위에 예수금을 쌓아 **윗면이 총자산**이 되게 그린다.
+    // 총자산 영역(파랑)을 먼저 깔고 평가금액을 그 위에 덮으면 사이 띠가 예수금이 된다.
     const a1 = chartBox(wrap, '자산');
-    const c1 = mkChart(a1.host, 170, { timeScale: { borderColor: '#24242A', timeVisible: false } });
-    // 평가금액 위에 예수금을 쌓아 윗면이 총자산이 되게 (안드로이드 AssetStackChart 와 같은 규칙)
-    const evalS = c1.addAreaSeries({ lineColor: UP, topColor: 'rgba(239,96,102,.45)',
-      bottomColor: 'rgba(239,96,102,.05)', lineWidth: 2, priceLineVisible: false });
-    evalS.setData(t.map((d, i) => ({ time: d, value: sn.eval[i] / div })));
-    const totS = c1.addLineSeries({ color: '#EEF1F4', lineWidth: 2, priceLineVisible: false });
+    const c1 = mkChart(a1.host, 190, { timeScale: { visible: false } });
+    const totS = c1.addAreaSeries({ lineColor: '#EEF1F4', topColor: 'rgba(58,110,165,.75)',
+      bottomColor: 'rgba(58,110,165,.35)', lineWidth: 2, priceLineVisible: false,
+      lastValueVisible: false });
     totS.setData(t.map((d, i) => ({ time: d, value: sn.total[i] / div })));
+    const evalS = c1.addAreaSeries({ lineColor: UP, topColor: 'rgba(138,42,48,.95)',
+      bottomColor: 'rgba(138,42,48,.75)', lineWidth: 2, priceLineVisible: false,
+      lastValueVisible: false });
+    evalS.setData(t.map((d, i) => ({ time: d, value: sn.eval[i] / div })));
     if (sn.principal.some(v => v != null)) {
-      const pS = c1.addLineSeries({ color: GOLD, lineWidth: 2, lineStyle: 2,
-        priceLineVisible: false });
+      const pS = c1.addLineSeries({ color: GOLD, lineWidth: 1, lineStyle: 2,
+        priceLineVisible: false, lastValueVisible: false });
       pS.setData(t.map((d, i) => ({ time: d, value: sn.principal[i] == null ? undefined : sn.principal[i] / div }))
         .filter(x => x.value !== undefined));
     }
     fitRange(c1, t.length, t.length);
-    wrap.appendChild(el('p', 'muted',
-      `${sn.dates.length}일 · ${unit} · 흰=총자산 빨강=평가금액` +
-      (sn.principal.some(v => v != null) ? ' 금색=원금' : '')));
+    wrap.appendChild(axisRow(t[0], `${t.length}일 기록`, t.at(-1)));
 
-    const a2 = chartBox(wrap, '평가손익');
-    const c2 = mkChart(a2.host, 140, { timeScale: { borderColor: '#24242A', timeVisible: false } });
+    // ── 평가손익 ── 지금 값과, 보고 있는 구간에서 얼마나 움직였는지
+    const pnlNow = sn.pnl.at(-1), pnlFrom = sn.pnl[0];
+    const head = el('div', 'ch-title');
+    head.appendChild(el('span', null, '평가손익'));
+    const rt = el('span', 'v');
+    rt.appendChild(el('span', 'muted', '표시 구간 '));
+    rt.appendChild(el('b', cls(pnlNow - pnlFrom), signedShort(pnlNow - pnlFrom)));
+    head.appendChild(rt);
+    wrap.appendChild(head);
+
+    const big = el('div', 'pnl-big');
+    big.appendChild(el('span', 'k muted', '현재'));
+    big.appendChild(el('span', 'v mono ' + cls(pnlNow), short(pnlNow)));
+    if (prin > 0) {
+      big.appendChild(el('span', 'r mono ' + cls(pnlNow),
+        `원금 대비 ${pct(pnlNow / prin * 100)}`));
+    }
+    wrap.appendChild(big);
+
+    const a2 = chartBox(wrap, '');
+    const c2 = mkChart(a2.host, 150, { timeScale: { visible: false } });
     const pnlS = c2.addAreaSeries({ lineColor: UP, topColor: 'rgba(239,96,102,.35)',
-      bottomColor: 'rgba(239,96,102,0)', lineWidth: 2, priceLineVisible: false });
+      bottomColor: 'rgba(239,96,102,0)', lineWidth: 2, priceLineVisible: false,
+      lastValueVisible: false });
     pnlS.setData(t.map((d, i) => ({ time: d, value: sn.pnl[i] / div })));
+    pnlS.createPriceLine({ price: 0, color: '#ffffff33', lineWidth: 1, lineStyle: 2,
+      axisLabelVisible: false });
     fitRange(c2, t.length, t.length);
+    wrap.appendChild(axisRow(t[0], `${t.length}일 기록`, t.at(-1)));
   } else if (sn) {
     wrap.appendChild(el('p', 'muted', `기록 ${sn.dates.length}일 — 2일 이상 쌓이면 자산 추이가 표시됩니다`));
   }
@@ -926,6 +978,38 @@ function renderSettings() {
   dr.appendChild(db);
   wrap.appendChild(dr);
 
+  // 여러 건 한 번에 — 다른 곳에 적어 둔 기록을 그대로 옮겨 붙일 수 있게
+  const dta = el('textarea', 'box dep-in');
+  dta.rows = 3;
+  dta.placeholder = '2026-09-01 13,789,303\n2026-09-04 10,728,849   (한 줄에 한 건)';
+  wrap.appendChild(dta);
+  const dbr = el('div', 'row2 dep-row');
+  dbr.appendChild(el('span', 'g muted', '한 줄에 “날짜 금액”'));
+  const drep = el('button', 'gh', '통째로 바꾸기');
+  const dadd = el('button', 'gh acc', '추가');
+  const bulk = async (replace) => {
+    if (!dta.value.trim()) return;
+    if (replace && !confirm('지금 입금 기록을 모두 지우고 적힌 것으로 바꿉니다.')) return;
+    dadd.disabled = drep.disabled = true;
+    try {
+      const o = await api('/api/deposits/bulk', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: dta.value, replace: !!replace }),
+      });
+      S.settings.deposits = o.deposits; S.settings.principal = o.principal;
+      S.snaps = null;                       // 원금 선이 바뀐다
+      say(`${o.added}건 적용했습니다.`);
+      dta.value = '';
+      renderSettings();
+    } catch (e) { say('⚠️ ' + e.message); }
+    dadd.disabled = drep.disabled = false;
+  };
+  dadd.onclick = () => bulk(false);
+  drep.onclick = () => bulk(true);
+  dbr.appendChild(drep);
+  dbr.appendChild(dadd);
+  wrap.appendChild(dbr);
+
   s.deposits.forEach((d, i) => {
     const row = el('div', 'row2');
     row.appendChild(el('span', 'mono', d.date));
@@ -1074,12 +1158,12 @@ function renderSettings() {
   // 목록 통째로 바꾸기 — 다른 앱에서 쓰던 목록을 한 번에 옮길 수 있게
   const bt = el('div', 'sec2', '목록 통째로 바꾸기');
   wrap.appendChild(bt);
-  const ta = el('textarea', 'box');
+  const ta = el('textarea', 'box tk-in');
   ta.rows = 4;
   ta.placeholder = 'FNGU, TQQQ, 005930=이름 …  (쉼표·줄바꿈으로 구분, 이름은 선택)';
   ta.value = s.tickers.map(t => t.ticker + (t.name ? '=' + t.name : '')).join(', ');
   wrap.appendChild(ta);
-  const br = el('div', 'row2');
+  const br = el('div', 'row2 tk-row');
   br.appendChild(el('span', 'g muted', '적힌 것만 남습니다 · 코드=이름 으로 이름도 지정'));
   const bb = el('button', 'gh acc', '통째로 저장');
   bb.onclick = async () => {

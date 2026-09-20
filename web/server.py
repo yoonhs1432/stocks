@@ -541,6 +541,39 @@ def api_backup():
                  "Cache-Control": "no-store"})
 
 
+@app.post("/api/deposits/bulk")
+def api_deposits_bulk(body: dict):
+    """입금 기록을 한 번에 여러 건 — 한 줄에 `날짜 금액`.
+
+    한 건씩 넣으려면 날짜를 고르고 금액을 치고 추가를 누르길 반복해야 한다.
+    다른 곳에 적어 둔 기록을 그대로 옮겨 붙일 수 있게 한다.
+    쉼표는 금액의 자릿점일 수 있으므로 **줄 단위**로만 나눈다.
+    """
+    text = str(body.get("text", ""))
+    rows, bad = [], []
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        m = re.match(r"^(\d{4}-\d{2}-\d{2})\s+([+-]?[\d,]+(?:\.\d+)?)\s*원?$", line)
+        if not m:
+            bad.append(line[:24])
+            continue
+        rows.append({"date": m.group(1), "krw": float(m.group(2).replace(",", ""))})
+    if bad:
+        return JSONResponse(
+            {"error": "이렇게 적어 주세요: 2026-09-01 13,789,303\n읽지 못한 줄: "
+                      + " / ".join(bad[:3])}, status_code=400)
+    if not rows:
+        return JSONResponse({"error": "입금 기록이 하나도 없습니다"}, status_code=400)
+    if body.get("replace"):
+        store.set_deposits(rows)
+    else:
+        for r in rows:
+            store.add_deposit(r["date"], r["krw"])
+    return {"deposits": store.deposits(), "principal": store.principal_total(), "added": len(rows)}
+
+
 @app.post("/api/tickers/bulk")
 def api_tickers_bulk(body: dict):
     """목록 전체를 한 번에 저장한다 — 쉼표·줄바꿈·공백 아무거나로 구분.

@@ -61,6 +61,25 @@ main { padding: 0; }
 .hero .today { font-size: 15px; font-weight: 700; }
 .hero .pnl { font-size: 12px; font-weight: 600; margin-top: 3px; }
 
+/* 총자산 머리 — 왼쪽 금액, 오른쪽 색 범례(아래 자산 그래프 색과 짝) */
+.hero-top { display: flex; align-items: flex-start; gap: 10px; }
+.hero-top > div:first-child { flex: 1; min-width: 0; }
+.legend { display: flex; flex-direction: column; gap: 3px; padding-top: 2px; }
+.legend .lg { display: flex; align-items: center; gap: 5px; font-size: 11px; }
+.legend .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.legend .k { color: var(--text2); }
+.legend .v { color: var(--text); font-weight: 700; margin-left: auto; }
+
+/* 차트 아래 축 한 줄 */
+.axrow { display: flex; justify-content: space-between; font-size: 11px;
+         color: var(--text2); padding: 2px 0 10px; }
+
+/* 평가손익 큰 숫자 줄 */
+.pnl-big { display: flex; align-items: baseline; gap: 8px; padding: 2px 0 0; }
+.pnl-big .k { font-size: 12px; }
+.pnl-big .v { font-size: 26px; font-weight: 700; }
+.pnl-big .r { margin-left: auto; font-size: 12px; font-weight: 700; }
+
 .chips { display: flex; gap: 6px; margin-top: 12px; flex-wrap: wrap; }
 .chip {
   background: var(--ghost); border-radius: 8px; padding: 6px 10px;
