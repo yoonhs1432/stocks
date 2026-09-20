@@ -16,12 +16,29 @@ from __future__ import annotations
 import math
 import random
 import time
+from datetime import datetime, timedelta, timezone
 
 NAMES = {
     "SPY": "SPDR S&P 500", "FNGU": "FNGU", "TQQQ": "TQQQ", "SOXL": "SOXL",
     "005930": "삼성전자", "BITU": "BITU", "NAIL": "NAIL",
     "473460": "국내 ETF A", "SOLKR": "국내 ETF B",
 }
+
+
+def _daily_times(n: int, krw: bool) -> list[int]:
+    """일봉 시각을 **진짜와 같은 모양**으로 만든다.
+
+    토스는 그 시장의 자정을 준다 — 미국은 04:00 UTC, 국내는 15:00 UTC(= 다음날 한국 자정).
+    국내 쪽이 하루 밀려 보이는 게 실제로 문제였으므로, 검사도 같은 모양이라야 잡힌다.
+    """
+    out: list[int] = []
+    d = datetime.now(timezone.utc).date()
+    while len(out) < n:
+        if d.weekday() < 5:                     # 주말 제외
+            base = int(datetime(d.year, d.month, d.day, tzinfo=timezone.utc).timestamp())
+            out.append(base - 9 * 3600 if krw else base + 4 * 3600)
+        d -= timedelta(days=1)
+    return sorted(out)
 
 
 def _walk(symbol: str, n: int, start: float, step: float, seed_extra: int = 0):
@@ -107,6 +124,10 @@ class MockToss:
         step = 60 if interval == "1m" else 86400
         n = min(count, 390 if interval == "1m" else 500)
         bars = _walk(symbol, n, 30 if symbol != "GLD" else 400, step)
+        if interval == "1d":
+            krw = symbol.isdigit() and len(symbol) == 6 or symbol == "SOLKR"
+            for b, t in zip(bars, _daily_times(len(bars), krw)):
+                b["t"] = t
         self._base[symbol] = bars[-1]["close"]
         return bars
 

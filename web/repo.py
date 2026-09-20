@@ -20,6 +20,9 @@ import store
 from toss import Toss, TossError
 
 CACHE = Path(os.environ.get("QUANT_DATA") or Path(__file__).parent / "data") / "candles"
+# 캐시 형식이 바뀌면 올린다 — 예전 파일은 무시하고 다시 받는다.
+# v2: 일봉 시각을 거래일 00:00 UTC 로 맞춰 저장.
+CACHE_VERSION = "v2"
 DAILY_TTL = 6 * 3600        # 일봉은 하루 한 번만 바뀐다
 MINUTE_TTL = 60             # 1분봉은 계속 바뀐다
 MINUTE_BARS = 390           # 미국 정규장 하루
@@ -31,7 +34,30 @@ _mem_lock = threading.Lock()
 
 def _cache_file(symbol: str, interval: str) -> Path:
     safe = "".join(c if c.isalnum() else "_" for c in symbol)
-    return CACHE / f"{safe}.{interval}.json"
+    # 파일 이름에 형식 번호를 넣어 둔다 — 예전 파일은 저절로 무시되고 다시 받는다
+    return CACHE / f"{safe}.{interval}.{CACHE_VERSION}.json"
+
+
+# ── 일봉 시각 맞추기 ──
+# 토스는 봉 시각을 **그 시장의 자정**으로 준다. SPY 는 04:00 UTC(미국 자정)이라 UTC 날짜가
+# 곧 거래일이지만, 국내 종목은 15:00 UTC(= 다음날 한국 자정)이라 **UTC 날짜가 하루 밀린다.**
+# 그대로 두면 ① 차트에 하루 앞당겨 그려지고 ② SPY 와 날짜를 맞출 때 한국 월요일이
+# UTC 일요일이 되어 통째로 빠지며(543일 중 137일) ③ 남은 날도 한국 화요일이 미국 월요일과
+# 짝지어져 회귀·β·Z·M 이 어긋난다. 받아 오는 자리에서 **거래일 00:00 UTC 로 맞춰 둔다.**
+KST_OFFSET = 9 * 3600
+
+
+def _normalize_daily(symbol: str, bars: list[dict]) -> list[dict]:
+    off = KST_OFFSET if store.is_krw(symbol) else 0
+    out = []
+    seen = set()
+    for b in bars:
+        day = (int(b["t"]) + off) // 86400 * 86400
+        if day in seen:
+            continue          # 같은 날이 둘이면 앞의 것만 (있을 리 없지만 방어)
+        seen.add(day)
+        out.append({**b, "t": day})
+    return out
 
 
 def _load_cache(symbol: str, interval: str, ttl: float) -> list[dict] | None:
@@ -88,7 +114,7 @@ def candles(toss: Toss, symbol: str, months: int | None = None,
     with _gate:
         for attempt in range(3):
             try:
-                bars = toss.ohlc(symbol, "1d", store.bar_count(months))
+                bars = _normalize_daily(symbol, toss.ohlc(symbol, "1d", store.bar_count(months)))
                 if len(bars) >= 2:
                     _save_cache(symbol, "1d", bars)
                 return bars

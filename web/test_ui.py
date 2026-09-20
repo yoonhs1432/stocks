@@ -350,6 +350,17 @@ def run(pg, base: str, errs: list[str]) -> None:
     pg.wait_for_timeout(3000)
 
     # ── 뒤로가기 ──
+    # ── 국내 종목 날짜가 SPY 와 제대로 맞는가 ──
+    # 토스는 국내 봉을 15:00 UTC(= 다음날 한국 자정)로 준다. 맞춰 주지 않으면 한국 월요일이
+    # UTC 일요일이 되어 통째로 빠지고, 남은 날도 하루씩 어긋나 짝지어진다.
+    print("\n[날짜] 국내 종목도 SPY 와 날짜가 맞는가")
+    for tk, name in [("005930", "국내"), ("TQQQ", "미국")]:
+        o = pg.evaluate("""async (t) => {
+          const r = await fetch('/api/analysis?ticker=' + t).then(x => x.json());
+          return {봉: (r.candles || []).length, 지표: r.result ? r.result.dates.length : 0};
+        }""", tk)
+        check(f"{name} 종목의 지표 일수가 봉 수와 같다", o["지표"] >= o["봉"] - 2, str(o))
+
     print("\n[뒤로가기] 직전 탭으로 돌아가는가")
     pg.click("#tabs button[data-tab='portfolio']")
     pg.wait_for_timeout(2500)
