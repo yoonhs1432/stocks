@@ -229,6 +229,26 @@ def run(pg, base: str, errs: list[str]) -> None:
     pg.wait_for_timeout(3500)
     marks = pg.evaluate("tradeMarks(S.analysis.result.dates, S.analysis.trades || [])")
     check("매매 기록이 산점도 좌표로 바뀐다", len(marks) >= 1, str(marks))
+    # 시계열(캔들·Z·M) 위에도 같은 마커가 찍히는가 — 보이는 구간 안의 값으로 넣어 본다
+    pg.evaluate("""() => {
+      // 앞 검사에서 구간을 옮겨 놨다 → 기억한 구간을 지우고 최근으로 되돌린 뒤 본다
+      localStorage.removeItem('range-1d');
+      const c = S.analysis.candles.at(-8);
+      S.analysis.trades = [{date: new Date(c.t * 1000).toISOString().slice(0, 10),
+                            qty: 1, price: c.close, type: 'buy'}];
+      renderAnalysis();
+    }""")
+    pg.wait_for_timeout(2000)
+    layers = pg.evaluate("""() => [...document.querySelectorAll('#body canvas.mk')].map(c => {
+      const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+      let hit = 0;
+      for (let i = 0; i < d.length; i += 4)
+        if (Math.abs(d[i]-220) < 12 && Math.abs(d[i+1]-38) < 14 && Math.abs(d[i+2]-38) < 14) hit++;
+      return hit;
+    })""")
+    check("캔들과 Z·M 양쪽에 매매 마커가 찍힌다",
+          len(layers) == 2 and all(x > 30 for x in layers), str(layers))
+
     pg.click("#hdr-seg button:has-text('산점도')")
     pg.wait_for_timeout(2500)
     red = pg.evaluate("""() => {

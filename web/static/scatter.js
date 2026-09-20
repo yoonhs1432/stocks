@@ -144,18 +144,23 @@ function zmScatter(host, r, height = 240, marks = []) {
   [0, 50, 100].forEach(v => axisLabel(g, String(v), w - PAD_R + 4, sy(v) + 3));
 }
 
-/** 매매 마커 — 매수는 빨강 ↑, 매도는 파랑 ↓ (안드로이드와 같은 모양). */
-function marker(g, cx, cy, buy, r = 7) {
+/**
+ * 매매 마커 — 안드로이드와 같은 모양: 채운 원 + 얇은 흰 테두리 + 흰 ↑/↓.
+ * 산점도와 시계열 차트가 **같은 그림**을 쓴다(app.js 의 markLayer 가 이걸 부른다).
+ */
+function marker(g, cx, cy, buy, r = 6.5) {
   g.beginPath();
   g.arc(cx, cy, r, 0, Math.PI * 2);
   g.fillStyle = buy ? '#DC2626' : '#2563EB';
   g.fill();
-  g.strokeStyle = '#fff'; g.lineWidth = 1; g.stroke();
+  g.lineWidth = 0.8;                       // 얇은 흰 테두리
+  g.strokeStyle = '#fff';
+  g.stroke();
   g.fillStyle = '#fff';
-  g.font = `bold ${Math.round(r * 1.9)}px ui-monospace, monospace`;
+  g.font = `bold ${Math.round(r * 1.5)}px -apple-system, "Noto Sans KR", sans-serif`;
   g.textAlign = 'center';
   g.textBaseline = 'middle';
-  g.fillText(buy ? '↑' : '↓', cx, cy + 0.5);
+  g.fillText(buy ? '↑' : '↓', cx, cy + r * 0.06);
   g.textBaseline = 'alphabetic';
 }
 

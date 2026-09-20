@@ -516,14 +516,12 @@ function renderAnalysis(err) {
         axisLabelVisible: true, title: '평단',
       });
     }
-    // 매매 마커 (일봉에서만 — 분봉은 날짜가 안 맞는다)
+    // 매매 마커 (일봉에서만 — 분봉은 날짜가 안 맞는다).
+    // 안드로이드처럼 **체결 가격 자리**에 원+↑ 를 찍는다.
     if (!minMode && a.trades.length) {
-      cs.setMarkers(a.trades.map(t => ({
-        time: Math.floor(new Date(t.date + 'T00:00:00Z').getTime() / 1000),
-        position: t.type === 'buy' ? 'belowBar' : 'aboveBar',
-        color: t.type === 'buy' ? UP : DOWN,
-        shape: t.type === 'buy' ? 'arrowUp' : 'arrowDown',
-      })).sort((x, y) => x.time - y.time));
+      markLayer(cw, ch, cs, a.trades.map(t => ({
+        time: dayEpoch(t.date), value: t.price, buy: t.type === 'buy',
+      })));
     }
 
     // 꾹 누르면(모바일) / 올리면(PC) 시고저종 상자
@@ -583,14 +581,16 @@ function renderAnalysis(err) {
       lineChart(wrap, 'MACD · 1분', t, [[m.macd, VIOLET], [m.macdSignal, '#C9C5BB']], [], linked, 120, 200);
       lineChart(wrap, 'RSI · 1분', t, [[m.rsi, TEAL]], [30, 70], linked, 120, 200);
     } else if (r) {
-      lineChart(wrap, 'Z · M', r.dates, [[r.zPct, UP], [r.mPct, '#FFD24D']], [20, 40, 60, 80], linked, 45, 170);
+      zmMarks(lineChart(wrap, 'Z · M', r.dates, [[r.zPct, UP], [r.mPct, '#FFD24D']],
+                        [20, 40, 60, 80], linked, 45, 170), r, a.trades);
     }
   } else if (r) {
     if (sub) {
       lineChart(wrap, 'MACD', r.dates, [[r.macd, VIOLET], [r.macdSignal, '#C9C5BB']], [], linked, 45, 200);
       lineChart(wrap, 'RSI', r.dates, [[r.rsi, TEAL]], [30, 70], linked, 45, 200);
     } else {
-      lineChart(wrap, 'Z · M', r.dates, [[r.zPct, UP], [r.mPct, '#FFD24D']], [20, 40, 60, 80], linked, 45, 170);
+      zmMarks(lineChart(wrap, 'Z · M', r.dates, [[r.zPct, UP], [r.mPct, '#FFD24D']],
+                        [20, 40, 60, 80], linked, 45, 170), r, a.trades);
     }
   } else {
     wrap.appendChild(el('p', 'muted', '분석 데이터 부족 — 상장 후 기간이 짧은 종목입니다'));
@@ -598,6 +598,42 @@ function renderAnalysis(err) {
   if (linked.length > 1) linkTime(linked);
   fitAnalysis();
 }
+
+/**
+ * 차트 위에 매매 마커를 얹는다 — 안드로이드와 같은 원+↑ 모양.
+ *
+ * 차트 라이브러리가 주는 마커는 삼각형·네모뿐이라 모양을 맞출 수 없다. 그래서 차트 위에
+ * 투명한 캔버스를 한 겹 덮고 직접 그린다. 확대·이동하거나 폭이 바뀌면 다시 그린다.
+ * 좌표는 라이브러리에 물어본다(시간→x, 값→y).
+ */
+function markLayer(wrap, chart, series, marks) {
+  if (!marks || !marks.length) return;
+  const cv = el('canvas', 'mk');
+  wrap.appendChild(cv);
+  const draw = () => {
+    const w = wrap.clientWidth, h = wrap.clientHeight;
+    if (!w || !h) return;
+    const dpr = window.devicePixelRatio || 1;
+    cv.width = w * dpr; cv.height = h * dpr;
+    cv.style.width = w + 'px'; cv.style.height = h + 'px';
+    const g = cv.getContext('2d');
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, w, h);
+    const ts = chart.timeScale();
+    marks.forEach(m => {
+      const x = ts.timeToCoordinate(m.time);
+      const y = series.priceToCoordinate(m.value);
+      if (x == null || y == null) return;
+      marker(g, x, y, m.buy);
+    });
+  };
+  chart.timeScale().subscribeVisibleTimeRangeChange(() => requestAnimationFrame(draw));
+  new ResizeObserver(() => requestAnimationFrame(draw)).observe(wrap);
+  requestAnimationFrame(draw);
+}
+
+/** 'YYYY-MM-DD' → 그 날 00:00 UTC 초 (봉 시각과 같은 기준). */
+const dayEpoch = d => Math.floor(Date.parse(d + 'T00:00:00Z') / 1000);
 
 /** 매매 기록을 분석 날짜 배열의 몇 번째인지로 바꾼다 (산점도에 찍으려고). */
 function tradeMarks(dates, trades) {
@@ -655,14 +691,24 @@ if (window.visualViewport) {
   visualViewport.addEventListener('resize', () => { if (S.tab === 'analysis') fitAnalysis(); });
 }
 
+/** Z·M 차트에 매매 마커 — 안드로이드와 같이 **M 값 자리**에 찍는다. */
+function zmMarks(zm, r, trades) {
+  const marks = tradeMarks(r.dates, trades || [])
+    .map(m => ({ time: r.dates[m.i], value: r.mPct[m.i], buy: m.buy }))
+    .filter(m => m.value != null && !Number.isNaN(m.value));
+  markLayer(zm.wrap, zm.chart, zm.series[1], marks);
+}
+
 /** 선 차트 한 판. series = [[값배열, 색], …], guides = 임계 가로선. */
 function lineChart(parent, title, times, series, guides = [], linked = null, recent = 45,
                    height = 120, weight = 1) {
-  const { host } = chartBox(parent, title);
+  const { host, wrap } = chartBox(parent, title);
   host.weight = weight;
   const ch = mkChart(host, height);
+  const made = [];
   series.forEach(([vals, color], idx) => {
     const s = ch.addLineSeries({ color, lineWidth: 2, priceLineVisible: false, lastValueVisible: idx === 0 });
+    made.push(s);
     s.setData(times.map((t, i) => ({ time: t, value: vals[i] }))
       .filter(p => p.value != null && !Number.isNaN(p.value)));
     if (idx === 0) guides.forEach(g => s.createPriceLine({
@@ -671,7 +717,7 @@ function lineChart(parent, title, times, series, guides = [], linked = null, rec
   });
   fitRange(ch, times.length, recent, linked && !linked.length ? 'remember' : 'apply');
   if (linked) linked.push(ch);
-  return ch;
+  return { chart: ch, series: made, wrap };
 }
 
 // 분석 요청 번호. 칩을 빠르게 연달아 누르면 먼저 부른 종목의 응답이 **나중에** 도착해
