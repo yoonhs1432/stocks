@@ -167,6 +167,23 @@ def run(pg, base: str, errs: list[str]) -> None:
           len(us_list) > 5 and not any(t in us_list for t in ("005930", "SOLKR")),
           f"tickers={us_list}")
 
+    # ── 체결 플래시 ──
+    print("\n[비교] 체결이 들어오면 현재가 칸이 반짝이는가")
+    fl = pg.evaluate("""() => {
+      const t = S.rows[0].ticker;
+      const td = cmpRefs.find(x => x.r.ticker === t).pTd;
+      live[t] = shownPrice(S.rows[0]) * 1.05;   // 체결이 하나 들어온 셈 친다
+      tickCompare();
+      const on = td.classList.contains('flash');
+      const anim = getComputedStyle(td).animationName;
+      tickCompare();                            // 값이 그대로인 틱
+      const again = td.classList.contains('flash');
+      delete live[t]; tickCompare();            // 뒤 검사에 영향 없게 되돌린다
+      return [on, anim, again];
+    }""")
+    check("값이 바뀐 칸이 반짝인다", fl[0] and fl[1] == "tick-flash", str(fl))
+    check("안 바뀐 칸은 가만히 있다", fl[2] is False, str(fl))
+
     # ── 비교 → 분석: 행을 누르면 그 종목으로 ──
     print("\n[비교→분석] 행 누르기")
     name = pg.inner_text("#body table tr.row td.l")

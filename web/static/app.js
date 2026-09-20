@@ -224,15 +224,29 @@ function stampText(e) {
     (S.tickAt ? ` · 현재가 ${hhmm2(S.tickAt)}` : '') + ' · 일봉은 최대 6시간 캐시';
 }
 
+/**
+ * 체결 플래시 — 칸을 잠깐 물들였다 사그라뜨린다.
+ * 같은 칸이 연달아 바뀌어도 처음부터 다시 돌게 클래스를 떼고 리플로우를 한 번 준다.
+ */
+function flashCell(td) {
+  td.classList.remove('flash');
+  void td.offsetWidth;
+  td.classList.add('flash');
+}
+
 /** 틱에서 쓰는 가벼운 갱신 — 값이 바뀐 칸만 고친다. 정렬은 건드리지 않는다. */
 function tickCompare() {
   if (!cmpRefs || !document.querySelector('#body table.cmp')) { renderCompare(); return; }
   cmpRefs.forEach(({ r, cv, pTd, dTd }) => {
     const d = shownDay(r), p = shownPrice(r);
     const c = 'mono ' + cls(d);
+    const txt = price(r.krw, p);
+    // 체결이 있었던 종목만 반짝인다 — 보이는 숫자가 실제로 달라졌는지로 본다
+    const hit = pTd.textContent !== txt;
     pTd.className = c; dTd.className = c;
-    pTd.textContent = price(r.krw, p);
+    pTd.textContent = txt;
     dTd.textContent = pct(d, 1);
+    if (hit) flashCell(pTd);
     drawCandle(cv, { ...r, price: p });
   });
   if (cmpStamp) stampText(cmpStamp);

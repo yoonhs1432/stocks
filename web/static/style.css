@@ -168,6 +168,15 @@ table.cmp td {
   border-bottom: 1px solid var(--line); white-space: nowrap;
 }
 table.cmp tr { cursor: pointer; }
+
+/* 체결 플래시 — 현재가가 실제로 바뀐 칸만 잠깐 물들었다 사그라든다.
+   안드로이드(CompareScreen.QuoteRow)와 같게 0.6초, 손익 색의 22%. */
+@keyframes tick-flash {
+  from { background-color: var(--flash); }
+  to   { background-color: transparent; }
+}
+table.cmp td.flash { --flash: rgba(240, 68, 82, .22); animation: tick-flash .6s ease-out; }
+table.cmp td.flash.down { --flash: rgba(49, 130, 246, .22); }
 table.cmp .nm { font-size: 14px; font-weight: 600; }
 table.cmp .mini { width: 10px; padding-right: 4px; }
 table.cmp canvas { vertical-align: middle; }
