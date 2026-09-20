@@ -80,18 +80,20 @@ winget install --id Cloudflare.cloudflared
 
 ```powershell
 winget install --id tailscale.tailscale
-# PowerShell 창을 새로 연 뒤
+# PowerShell 창을 새로 연 뒤 (안 열면 tailscale 을 못 찾는다)
 tailscale up                  # 브라우저가 열리면 계정으로 로그인 (무료)
-tailscale funnel 8000         # 처음 한 번은 관리 화면에서 허용하라는 안내가 뜬다
+tailscale funnel --bg 8000    # 처음 한 번은 관리 화면에서 허용하라는 안내가 뜬다
 ```
 
-`tailscale funnel 8000` 이 알려 주는 주소가 앞으로 쓸 주소다. 한 번 허용해 두면 다음부터는
+여기서 알려 주는 주소가 앞으로 쓸 주소다.
 
-```powershell
-.\run.ps1 -Funnel
-```
+> ⚠️ **`--bg` 를 빼면 안 된다.** `tailscale funnel 8000` 은 그 창이 떠 있는 동안만
+> 유지돼서, 창을 닫거나 Ctrl+C 하는 순간 등록이 지워지고 폰에서 "연결할 수 없습니다"
+> 가 된다. `--bg` 는 한 번 등록하면 재부팅해도 살아 있다. 끄려면 `tailscale funnel --bg off`,
+> 상태는 `tailscale funnel status` 로 본다.
 
-로 서버와 고정 주소가 같이 뜬다. 폰에서 그 주소 뒤에 `/?key=<접속 암호>` 를 붙여 한 번만
+한 번 등록해 두면 서버는 `.\run.ps1` 만으로 띄우면 된다. `.\run.ps1 -Funnel` 은 등록이
+지워졌을 때 다시 등록해 주는 용도다. 폰에서 그 주소 뒤에 `/?key=<접속 암호>` 를 붙여 한 번만
 열면 끝이다. **주소가 바뀌지 않으니 즐겨찾기 해 두면 다시는 PC 콘솔을 볼 일이 없다.**
 
 > 관리 화면에서 허용하라는 안내가 뜨면 그 링크(admin console → DNS → HTTPS Certificates,

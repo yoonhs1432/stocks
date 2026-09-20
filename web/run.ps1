@@ -4,6 +4,9 @@
 #   .\run.ps1 -Tunnel      Cloudflare 임시 주소로 외부 접속 (주소가 껐다 켤 때마다 바뀐다)
 #   .\run.ps1 -Funnel      Tailscale 고정 주소로 외부 접속 (주소가 안 바뀐다. README 참고)
 #
+# -Funnel 은 고정 주소를 **백그라운드로 등록**한다. 한 번 등록되면 이 창을 닫아도,
+# PC 를 재부팅해도 주소가 살아 있다. 끄려면  tailscale funnel --bg off
+#
 # 창을 닫거나 Ctrl+C 를 누르면 전부 멈춘다.
 
 param([switch]$Tunnel, [switch]$Funnel)
@@ -54,9 +57,12 @@ try {
             Write-Host "  설치 후 PowerShell 창을 새로 열고, README 의 '고정 주소' 를 한 번 따라 하세요."
         } else {
             Write-Host ""
-            Write-Host "  고정 주소로 엽니다. 아래 ts.net 주소는 앞으로 바뀌지 않습니다." -ForegroundColor Cyan
+            Write-Host "  고정 주소를 등록합니다. 이 창을 닫아도, 재부팅해도 유지됩니다." -ForegroundColor Cyan
             Write-Host ""
-            & $ts funnel 8000
+            # ⚠️ --bg 가 꼭 필요하다. 앞단에서 그냥 'funnel 8000' 을 돌리면 창을 닫거나
+            # Ctrl+C 하는 순간 등록이 지워져, 폰에서 "연결할 수 없습니다" 가 된다.
+            & $ts funnel --bg 8000
+            & $ts funnel status
         }
     }
     elseif ($Tunnel) {
