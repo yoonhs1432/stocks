@@ -147,11 +147,11 @@ function zmScatter(host, r, height = 240, marks = []) {
 /**
  * 매매 마커 — 안드로이드와 같은 모양: 채운 원 + 얇은 흰 테두리 + 흰 화살표.
  * 산점도와 시계열 차트가 **같은 그림**을 쓴다(app.js 의 markLayer 가 이걸 부른다).
- * 크기는 안드로이드 화면 실측값 — 캡처(배율 3.5)에서 원 지름 28px,
- * 화살표 16x23px, 기둥 폭 6px 였다. → 원 반지름 4px.
+ * 비율은 안드로이드 화면 실측값 — 캡처(배율 3.5)에서 원 지름 28px,
+ * 화살표 16x23px, 기둥 폭 6px 였다(= 반지름 4px). 크기만 키워서 쓴다.
  */
-const MARK_R = 4;
-const MARK = { ring: 0.09, head: 0.57, stem: 0.21, height: 1.64, headRatio: 0.52 };
+const MARK_R = 5.6;   // 안드로이드 실측은 4 — 더 크게 해 달라 해서 1.4 배
+const MARK = { ring: 0.1, head: 0.57, stem: 0.21, height: 1.64, headRatio: 0.52 };
 
 function marker(g, cx, cy, buy, r = MARK_R) {
   // 원 + 흰 테두리
