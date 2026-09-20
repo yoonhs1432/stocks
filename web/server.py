@@ -25,6 +25,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 
 import auth
@@ -59,14 +60,19 @@ def _load_creds() -> tuple[str, str]:
 
 
 def _clean(v):
-    """NaN·Inf 를 None 으로.
+    """NaN·Inf 를 None 으로, 소수는 4자리까지만.
 
     ⚠️ 파이썬 json 은 NaN 을 그대로 흘려보내는데 그건 **유효한 JSON 이 아니라서**
     브라우저의 JSON.parse 가 통째로 거부한다. Z·M·RSI 는 warmup 구간이 NaN 이므로
     분석 화면이 전부 안 뜨게 된다. 내보내기 직전에 반드시 거른다.
+
+    소수 자르기는 응답 크기 때문이다. `0.12345678901234` 같은 값이 배열 10개 × 500봉이면
+    그것만으로 수십 KB 다. 화면은 소수 2자리까지만 쓰므로 4자리면 넘치게 충분하다.
     """
     if isinstance(v, float):
-        return None if (v != v or v in (float("inf"), float("-inf"))) else v
+        if v != v or v in (float("inf"), float("-inf")):
+            return None
+        return round(v, 4)
     if isinstance(v, list):
         return [_clean(x) for x in v]
     if isinstance(v, dict):
@@ -75,6 +81,10 @@ def _clean(v):
 
 
 app = FastAPI(title="Quant Portfolio")
+
+# 분석 응답은 500봉 × 배열 10개라 130KB 가까이 된다. 폰에서 종목을 누를 때마다 그걸
+# 통째로 받으니 느렸다. 압축만으로 1/3 이 되고, 소수 자릿수 정리(_clean)까지 하면 1/5.
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 _key, _secret = _load_creds()
 
 # QUANT_MOCK=1 이면 가짜 시세로 띄운다 — 화면을 직접 열어 확인하기 위한 개발용.
@@ -236,6 +246,9 @@ def api_compare(market: str = "US", force: bool = False):
                 r["name"] = h["name"] or r["ticker"]
                 r["holding"] = True
                 r["avgPrice"] = h["avgPrice"]
+    # 일봉이 캐시에 올라온 김에 분석도 미리 계산해 둔다. 폰에서 종목을 누르는 순간
+    # 계산이 시작되는 게 아니라 이미 끝나 있게.
+    threading.Thread(target=_warm_analysis, args=(tickers,), daemon=True).start()
     return _clean({"rows": rows, "market": market, "at": time.time(), "asOf": rows_at})
 
 
@@ -267,17 +280,80 @@ def api_prices(symbols: str = ""):
 
 # ── 분석 ──
 
+# 분석 결과 캐시. 계산 자체는 빠르지만 종목마다 매번 다시 하면 폰에서 누를 때마다 기다린다.
+# 일봉 캐시와 같은 6시간을 쓴다 — 어차피 원본이 그 주기로 갱신된다.
+AN_TTL = 6 * 3600
+_an_lock = threading.Lock()
+_an_cache: dict[str, tuple[float, dict]] = {}
+_warming = False
+
+
+def _analysis(ticker: str, force: bool = False) -> dict:
+    """분석 응답 한 벌. 캐시에 있으면 그대로 준다. 실패는 TossError/ValueError 로 던진다."""
+    key = f"{ticker}:{store.lookback_months()}"
+    if not force:
+        with _an_lock:
+            hit = _an_cache.get(key)
+        if hit and time.time() - hit[0] < AN_TTL:
+            return hit[1]
+
+    r, bars = repo.analyze(_toss, ticker, force=force)
+    if not bars:
+        raise ValueError(f"{ticker} 시세를 가져오지 못했습니다")
+
+    payload = _clean({
+        "ticker": ticker,
+        "krw": store.is_krw(ticker),
+        "candles": bars,
+        "trades": store.trades().get(ticker, []),
+        "result": None if r is None else {
+            "dates": r.dates, "zPct": r.zPct, "mPct": r.mPct, "rsi": r.rsi,
+            "macd": r.macd, "macdSignal": r.macdSignal,
+            "predicted": r.predicted, "bandUpper": r.bandUpper, "bandLower": r.bandLower,
+            "spyNorm": r.spyNorm, "tickerNorm": r.tickerNorm,
+            "beta": r.beta, "sigmaPct": r.sigmaPct, "lastPrice": r.lastPrice,
+            "lastZpct": r.lastZpct, "lastMpct": r.lastMpct, "signal": r.signal,
+        },
+    })
+    with _an_lock:
+        _an_cache[key] = (time.time(), payload)
+    return payload
+
+
+def _warm_analysis(tickers: list[str]) -> None:
+    """비교를 받아 온 김에 **전 종목 분석을 미리 계산해 둔다.**
+
+    폰에서 종목을 누르면 그때부터 계산하느라 기다려야 했다. 일봉은 이미 캐시에 있으니
+    계산만 하면 되고, PC 는 놀고 있으므로 미리 해 두는 편이 낫다.
+    """
+    global _warming
+    with _an_lock:
+        if _warming:
+            return
+        _warming = True
+    try:
+        for t in tickers:
+            try:
+                _analysis(t)
+            except Exception:
+                pass          # 한 종목이 실패해도 나머지는 계속
+    finally:
+        with _an_lock:
+            _warming = False
+
+
 @app.get("/api/analysis")
 def api_analysis(ticker: str, force: bool = False):
     """한 종목 분석 — 회귀·Z·M·MACD·RSI + 일봉 + 매매 마커."""
     try:
-        r, bars = repo.analyze(_toss, ticker, force=force)
+        base = _analysis(ticker, force)
     except TossError as e:
         return JSONResponse({"error": e.message, "code": e.code}, status_code=502)
-    if not bars:
-        return JSONResponse({"error": f"{ticker} 시세를 가져오지 못했습니다"}, status_code=502)
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=502)
 
-    tr = store.trades().get(ticker, [])
+    # 평단·수량은 캐시에 넣지 않는다 — 체결되면 바로 바뀌어야 한다
+    tr = base["trades"]
     pos = store.position(tr)
     # 평단은 토스 보유 정보를 우선한다 — 체결내역 역산은 기록이 빠지면 어긋난다
     avg = None
@@ -288,22 +364,7 @@ def api_analysis(ticker: str, force: bool = False):
     if avg is None and pos:
         avg = pos["avg"]
 
-    return _clean({
-        "ticker": ticker,
-        "krw": store.is_krw(ticker),
-        "candles": bars,
-        "avgPrice": avg,
-        "qty": pos["qty"] if pos else None,
-        "trades": tr,
-        "result": None if r is None else {
-            "dates": r.dates, "zPct": r.zPct, "mPct": r.mPct, "rsi": r.rsi,
-            "macd": r.macd, "macdSignal": r.macdSignal,
-            "predicted": r.predicted, "bandUpper": r.bandUpper, "bandLower": r.bandLower,
-            "spyNorm": r.spyNorm, "tickerNorm": r.tickerNorm,
-            "beta": r.beta, "sigmaPct": r.sigmaPct, "lastPrice": r.lastPrice,
-            "lastZpct": r.lastZpct, "lastMpct": r.lastMpct, "signal": r.signal,
-        },
-    })
+    return {**base, "avgPrice": _clean(avg), "qty": pos["qty"] if pos else None}
 
 
 @app.get("/api/minutes")
@@ -463,6 +524,26 @@ def api_backup():
                  "Cache-Control": "no-store"})
 
 
+@app.post("/api/tickers/bulk")
+def api_tickers_bulk(body: dict):
+    """목록 전체를 한 번에 저장한다 — 쉼표·줄바꿈·공백 아무거나로 구분.
+
+    하나씩 추가하려면 20번을 눌러야 했다. 다른 앱에서 쓰던 목록을 그대로 붙여넣게 한다.
+    """
+    text = str(body.get("text", ""))
+    seen, out = set(), []
+    for raw in re.split(r"[\s,;]+", text):
+        t = raw.strip().upper()
+        if t and t not in seen:
+            seen.add(t)
+            out.append(t)
+    if not out:
+        return JSONResponse({"error": "종목이 하나도 없습니다"}, status_code=400)
+    store.set_tickers(out)
+    _ov_cache.clear()
+    return {"tickers": out}
+
+
 @app.post("/api/settings/tick")
 def api_set_tick(body: dict):
     v = max(0, min(60, int(body.get("seconds", 10))))
@@ -476,6 +557,8 @@ def api_set_months(body: dict):
     store.put("lookback_months", m)
     repo.clear_cache()           # 기간이 바뀌면 받아 둔 일봉을 다시 받아야 한다
     _ov_cache.clear()
+    with _an_lock:
+        _an_cache.clear()
     return {"months": m}
 
 
@@ -523,6 +606,8 @@ def api_fills():
 def api_clear_cache():
     repo.clear_cache()
     _ov_cache.clear()
+    with _an_lock:
+        _an_cache.clear()
     return {"ok": True}
 
 

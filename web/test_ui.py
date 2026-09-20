@@ -23,6 +23,9 @@ import urllib.request
 
 from playwright.sync_api import sync_playwright
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from store import DEFAULT_TICKERS      # 되돌릴 기준 목록
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 fails: list[str] = []
 
@@ -148,8 +151,8 @@ def run(pg, base: str, errs: list[str]) -> None:
 
     # ── 비교 → 분석: 행을 누르면 그 종목으로 ──
     print("\n[비교→분석] 행 누르기")
-    name = pg.inner_text("#body table tr:nth-child(2) td.l")
-    pg.click("#body table tr:nth-child(2)")
+    name = pg.inner_text("#body table tr.row td.l")
+    pg.click("#body table tr.row")
     pg.wait_for_timeout(2500)
     check("분석 탭으로 넘어간다", pg.inner_text("#title").strip() == "분석",
           pg.inner_text("#title"))
@@ -217,9 +220,28 @@ def run(pg, base: str, errs: list[str]) -> None:
     added = check("종목을 추가하면 목록에 들어간다", "AAPL" in pg.inner_text("#body"))
     if added:
         pg.once("dialog", lambda d: d.accept())
-        pg.click("#body .row2:has(span:text-is('AAPL')) button:has-text('삭제')")
+        pg.click("#body .tk:has(b:text-is('AAPL')) button")
         pg.wait_for_timeout(1500)
         check("종목을 삭제하면 목록에서 빠진다", "AAPL" not in pg.inner_text("#body"))
+
+    # 목록 통째로 바꾸기 — 다른 앱에서 쓰던 목록을 한 번에 옮기는 길
+    before_n = len(pg.query_selector_all("#body .tk"))
+    pg.fill("#body textarea", "AAA, BBB\nCCC 005930")
+    pg.once("dialog", lambda d: d.accept())
+    pg.click("#body button:has-text('통째로 저장')")
+    pg.wait_for_timeout(2500)
+    chips = [c.inner_text().replace("✕", "").strip() for c in pg.query_selector_all("#body .tk")]
+    check("붙여넣은 목록으로 통째로 바뀐다", chips == ["AAA", "BBB", "CCC", "005930"],
+          f"{before_n}개 → {chips}")
+    check("한국 종목은 눈에 띄게 표시된다",
+          pg.query_selector("#body .tk.kr b") is not None)
+    # 뒤 검사들이 기본 종목을 쓰므로 목록을 되돌려 놓는다
+    pg.fill("#body textarea", ", ".join(DEFAULT_TICKERS))
+    pg.once("dialog", lambda d: d.accept())
+    pg.click("#body button:has-text('통째로 저장')")
+    pg.wait_for_timeout(2500)
+    check("목록을 되돌려 놓았다", len(pg.query_selector_all("#body .tk")) == len(DEFAULT_TICKERS),
+          f"{len(pg.query_selector_all('#body .tk'))}개")
 
     # ── 탭을 한 바퀴 돌아도 칠이 따라온다 ──
     print("\n[탭바]")
@@ -234,6 +256,32 @@ def run(pg, base: str, errs: list[str]) -> None:
     # ── 고정 막대(헤더·탭바)를 그래프가 덮지 않는가 ──
     # 차트 라이브러리가 캔버스에 z-index 를 박아 둬서, 막대에 z-index 가 없으면 스크롤
     # 중인 그래프가 막대 **위에** 그려진다. 바닥까지 내리면 안 보이므로 중간에서 본다.
+    # ── 화면 폭 안에 들어오는가 ──
+    print("\n[폭] 가로로 넘치지 않는가")
+    for tab, title in [("compare", "비교"), ("portfolio", "포트폴리오"), ("settings", "설정")]:
+        pg.click(f"#tabs button[data-tab='{tab}']")
+        pg.wait_for_timeout(2500)
+        over = pg.evaluate("""() => {
+          const bad = [];
+          document.querySelectorAll('#body *').forEach(e => {
+            const r = e.getBoundingClientRect();
+            if (r.right > innerWidth + 1 && e.closest('.tchips') === null)
+              bad.push(`${e.tagName}.${(e.className||'').toString().slice(0,14)}`);
+          });
+          return {bad: [...new Set(bad)].slice(0, 4),
+                  page: document.scrollingElement.scrollWidth > innerWidth};
+        }""")
+        check(f"{title} 탭이 가로로 넘치지 않는다", not over["bad"] and not over["page"], str(over))
+
+    pg.click("#tabs button[data-tab='compare']")
+    pg.wait_for_timeout(2500)
+    cols = pg.evaluate("""() => {
+      const th = [...document.querySelectorAll('#body table th')];
+      const last = th.at(-1).getBoundingClientRect();
+      return {끝열: th.at(-1).textContent.trim(), 오른쪽: Math.round(last.right), 화면: innerWidth};
+    }""")
+    check("맨 끝 M 열이 화면 안에 다 보인다", cols["오른쪽"] <= cols["화면"], str(cols))
+
     print("\n[겹침] 스크롤 중 헤더·탭바를 덮는 것이 없는가")
     probe = """(sel) => {
       const r = document.querySelector(sel).getBoundingClientRect();
@@ -329,7 +377,7 @@ def run(pg, base: str, errs: list[str]) -> None:
           pg.inner_text("#body").splitlines()[-1] if pg.inner_text("#body") else "")
     pg.evaluate("document.querySelectorAll('#body table th')[0].click()")
     pg.wait_for_timeout(600)
-    first = pg.inner_text("#body table tr:nth-child(2)").split("\t")[0]
+    first = pg.inner_text("#body table tr.row").split("\t")[0]
     check("이름 정렬은 첫 클릭에 ㄱ→ㅎ", first.startswith("AVXX") or first < "F",
           f"1등={first}")
 
@@ -394,6 +442,14 @@ def run(pg, base: str, errs: list[str]) -> None:
     pg.wait_for_timeout(3500)
     body = pg.inner_text("#body")
     check("보유 종목에 비중 %가 보인다", "%" in body and "비중" in body, body[:60])
+    pie = pg.evaluate("""() => {
+      const t = [...document.querySelectorAll('#body .pie-wrap text')].map(e => e.textContent);
+      return t;
+    }""")
+    import re as _re
+    check("파이 조각에 종목명과 %가 적혀 있다",
+          len(pie) >= 3 and all(_re.match(r"^\S+\d+\.\d%$", x) for x in pie),
+          str(pie[:6]))
 
     pg.click("#tabs button[data-tab='settings']")
     pg.wait_for_timeout(2500)

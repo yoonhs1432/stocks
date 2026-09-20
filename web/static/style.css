@@ -24,7 +24,7 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo",
                "Noto Sans KR", "Malgun Gothic", sans-serif;
   font-size: 14px;
-  padding-bottom: 96px;   /* 하단 탭바 + 마지막 차트 날짜축 자리 */
+  padding-bottom: 118px;  /* 하단 탭바(64) + 마지막 차트 날짜축 자리 */
 }
 
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
@@ -48,7 +48,9 @@ header h1 { flex: 1; margin: 0; font-size: 20px; font-weight: 800; }
 }
 .seg button.on { color: var(--accent); font-weight: 800; border-bottom-color: var(--accent); }
 
-main { padding: 0 var(--pad); }
+/* ⚠️ 여기에 좌우 여백을 주면 안 된다. 각 화면이 자기 여백을 이미 주고 있어서
+   **두 겹**이 되고, 360px 폰에서는 쓸 수 있는 폭이 280px 로 줄어 표가 넘쳤다. */
+main { padding: 0; }
 
 /* ── 총자산 ── */
 .hero { padding-top: 14px; }
@@ -113,7 +115,7 @@ footer button {
 }
 #tabs button {
   flex: 1; background: none; border: 0; color: var(--muted);
-  font-size: 12px; font-weight: 600; padding: 10px 0 12px; cursor: pointer;
+  font-size: 14px; font-weight: 700; padding: 20px 0 22px; cursor: pointer;
 }
 #tabs button.on { color: var(--accent); font-weight: 800; }
 
@@ -124,7 +126,12 @@ header button#hdr-btn {
 .pad { padding: 16px var(--pad); }
 
 /* ── 비교 표 ── */
-table.cmp { width: 100%; border-collapse: collapse; }
+/* ⚠️ table-layout: fixed 가 필요하다. 자동 폭이면 긴 종목명이 열을 밀어내
+   표가 화면 밖으로 넘치고 맨 오른쪽 M 이 잘린다(360px 폰에서 실제로 그랬다). */
+table.cmp { width: 100%; border-collapse: collapse; table-layout: fixed; }
+table.cmp col.c-price { width: 5.6em; }
+table.cmp col.c-day   { width: 4.2em; }
+table.cmp col.c-zm    { width: 2.4em; }
 table.cmp th {
   color: var(--text2); font-size: 12px; font-weight: 600; text-align: right;
   padding: 12px 2px; border-bottom: 1px solid var(--line); cursor: pointer;  /* 정렬 버튼이기도 하다 */
@@ -132,6 +139,7 @@ table.cmp th {
 }
 table.cmp th.l, table.cmp td.l { text-align: left; }
 table.cmp th.on { color: var(--text); }
+table.cmp td.l { overflow: hidden; text-overflow: ellipsis; }
 table.cmp td {
   padding: 9px 2px; font-size: 14px; text-align: right;   /* 행 높이 40px — 옆 종목 오탭 방지 */
   border-bottom: 1px solid var(--line); white-space: nowrap;
@@ -196,6 +204,26 @@ button.pri {
 }
 button:disabled { opacity: .5; cursor: default; }
 .msg { font-size: 12px; color: var(--text2); padding: 6px 0; }
+.sec2 { color: var(--text2); font-size: 12px; font-weight: 700; padding: 14px 0 6px; }
+textarea.box {
+  background: var(--surface); color: var(--text); border: 0; border-radius: 10px;
+  padding: 10px; font-size: 14px; font-family: ui-monospace, monospace; width: 100%;
+  resize: vertical;
+}
+
+/* 종목 목록 — 한 줄에 하나씩이면 20줄이 된다. 칩으로 촘촘하게. */
+.tklist { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px 0 2px; }
+.tk {
+  display: inline-flex; align-items: center; gap: 2px;
+  background: var(--ghost); border-radius: 9px; padding: 0 2px 0 10px;
+  font-family: ui-monospace, monospace; font-size: 13px; min-height: 38px;
+}
+.tk.kr b { color: #E0A24A; }
+.tk b { font-weight: 700; }
+.tk button {
+  background: none; border: 0; color: var(--muted); cursor: pointer;
+  font-size: 12px; padding: 10px; min-height: 38px;
+}
 
 /* ── 새 버전 알림 띠 ── 헤더 바로 아래, 내용 위로 밀어 넣는다 */
 #newver {

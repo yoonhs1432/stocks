@@ -28,6 +28,19 @@ const S = {
 let tickTimer = null;
 const live = {};          // symbol → 실시간 현재가
 
+// 한 번 받은 분석은 들고 있는다. 서버도 미리 계산해 두지만, 오가는 시간(폰↔집)이 있어
+// 두 번째부터는 아예 안 받는 편이 빠르다.
+const anCache = new Map();      // ticker → {at, data}
+const minCache = new Map();
+const AN_FRESH = 5 * 60 * 1000;
+const MIN_FRESH = 60 * 1000;
+
+function cacheGet(m, k, fresh) {
+  const v = m.get(k);
+  return (v && Date.now() - v.at < fresh) ? v.data : null;
+}
+function cachePut(m, k, data) { m.set(k, { at: Date.now(), data }); }
+
 // ── 공통 포맷 ──
 const num = (v, d = 2) => (v == null || Number.isNaN(v)) ? '–'
   : v.toLocaleString('ko-KR', { minimumFractionDigits: d, maximumFractionDigits: d });
@@ -124,6 +137,10 @@ function renderCompare() {
   const wrap = el('div', 'pad');
   wrap.style.padding = '0 var(--pad) 8px';
   const t = el('table', 'cmp');
+  // 열 폭을 못 박는다 — 종목명이 길어도 숫자 열(특히 맨 끝 M)이 밀려나지 않게
+  const cg = el('colgroup');
+  ['c-name', 'c-price', 'c-day', 'c-zm', 'c-zm'].forEach(c => cg.appendChild(el('col', c)));
+  t.appendChild(cg);
   const head = el('tr');
   [['name', '종목', 'l'], ['price', '현재가', ''], ['day', '일', ''],
    ['zPct', 'Z', ''], ['mPct', 'M', '']].forEach(([k, label, c]) => {
@@ -140,7 +157,7 @@ function renderCompare() {
   t.appendChild(head);
 
   sortRows(S.rows).forEach(r => {
-    const tr = el('tr');
+    const tr = el('tr', 'row');       // colgroup·머리글과 구분되게 표시해 둔다
     tr.onclick = () => { S.ticker = r.ticker; localStorage.setItem('ticker', r.ticker); go('analysis'); };
 
     const nameTd = el('td', 'l');
@@ -492,23 +509,54 @@ async function loadAnalysis() {
     S.ticker = S.rows.length ? S.rows[0].ticker : null;
   }
   if (!S.ticker) { $('#body').innerHTML = '<p class="muted pad">설정에서 종목을 추가하세요</p>'; return; }
-  S.analysis = null;
+  // 받아 둔 게 있으면 기다리지 않고 바로 그린다
+  const hit = cacheGet(anCache, S.ticker, AN_FRESH);
+  S.analysis = hit;
+  S.minutes = S.bar === '1m' ? cacheGet(minCache, S.ticker, MIN_FRESH) : null;
   renderAnalysis();
+  if (hit && (S.bar !== '1m' || S.minutes)) { startTicks(); prefetchNear(); return; }
   try {
-    const a = await api('/api/analysis?ticker=' + encodeURIComponent(S.ticker));
-    if (seq !== analysisSeq) return;          // 그 사이 다른 종목을 눌렀다
+    let a = hit;
+    if (!a) {
+      a = await api('/api/analysis?ticker=' + encodeURIComponent(S.ticker));
+      if (seq !== analysisSeq) return;        // 그 사이 다른 종목을 눌렀다
+      cachePut(anCache, S.ticker, a);
+    }
     S.analysis = a;
-    if (S.bar === '1m') {
+    if (S.bar === '1m' && !S.minutes) {
       const m = await api('/api/minutes?ticker=' + encodeURIComponent(S.ticker));
       if (seq !== analysisSeq) return;
+      cachePut(minCache, S.ticker, m);
       S.minutes = m;
     }
     renderAnalysis();
     startTicks();
+    prefetchNear();
   } catch (e) {
     if (seq !== analysisSeq) return;
     S.analysis = null; renderAnalysis(e);
   }
+}
+
+/**
+ * 지금 보는 종목 근처를 미리 받아 둔다 — 다음 칩을 누르면 기다림이 없게.
+ * 화면이 다 그려진 뒤(한가할 때) 하나씩만 받는다.
+ */
+function prefetchNear(n = 4) {
+  const list = (S.rows || []).map(r => r.ticker);
+  const i = list.indexOf(S.ticker);
+  const near = [...list.slice(i + 1, i + 1 + n), ...list.slice(Math.max(0, i - 2), i)];
+  const todo = near.filter(t => !cacheGet(anCache, t, AN_FRESH));
+  let k = 0;
+  const next = () => {
+    if (k >= todo.length || S.tab !== 'analysis') return;
+    const t = todo[k++];
+    api('/api/analysis?ticker=' + encodeURIComponent(t))
+      .then(a => cachePut(anCache, t, a))
+      .catch(() => {})
+      .finally(() => setTimeout(next, 150));
+  };
+  setTimeout(next, 400);
 }
 
 // ══════════════════════════ 포트폴리오 ══════════════════════════
@@ -558,6 +606,52 @@ const signedMoney = krw => (krw >= 0 ? '+' : '-') + money(Math.abs(krw));
 const qtyLabel = q => (Number.isInteger(q) ? q.toLocaleString('ko-KR')
   : String(parseFloat(q.toFixed(4)))) + '주';
 
+/** 비중 파이. 조각이 너무 얇으면 글자가 겹치므로 일정 비율 이상만 이름을 적는다. */
+function pieSvg(items, sum, size = 186) {
+  const NS = 'http://www.w3.org/2000/svg';
+  const R = size / 2 - 3, C = size / 2;
+  const svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('viewBox', `0 0 ${size} ${size}`);
+  svg.setAttribute('width', size);
+  svg.setAttribute('height', size);
+  const xy = (ang, r) => [C + r * Math.cos(ang - Math.PI / 2), C + r * Math.sin(ang - Math.PI / 2)];
+
+  let acc = 0;
+  items.forEach((h, i) => {
+    const frac = h.evalKrw / sum;
+    const a0 = acc * Math.PI * 2, a1 = (acc + frac) * Math.PI * 2;
+    acc += frac;
+    const [x0, y0] = xy(a0, R), [x1, y1] = xy(a1, R);
+    const path = document.createElementNS(NS, 'path');
+    // 한 종목뿐이면 호로는 원이 안 닫힌다 → 원으로 그린다
+    path.setAttribute('d', frac >= 0.999
+      ? `M ${C} ${C - R} A ${R} ${R} 0 1 1 ${C - 0.01} ${C - R} Z`
+      : `M ${C} ${C} L ${x0} ${y0} A ${R} ${R} 0 ${a1 - a0 > Math.PI ? 1 : 0} 1 ${x1} ${y1} Z`);
+    path.setAttribute('fill', PALETTE[i % PALETTE.length]);
+    svg.appendChild(path);
+
+    if (frac >= 0.06) {                       // 6% 미만은 글자가 서로 겹친다
+      const [lx, ly] = xy((a0 + a1) / 2, R * 0.63);
+      const g = document.createElementNS(NS, 'text');
+      g.setAttribute('x', lx); g.setAttribute('y', ly);
+      g.setAttribute('text-anchor', 'middle');
+      g.setAttribute('fill', '#12121A');
+      g.setAttribute('font-size', '11');
+      g.setAttribute('font-weight', '800');
+      const n1 = document.createElementNS(NS, 'tspan');
+      n1.textContent = (h.name || h.symbol).slice(0, 6);
+      n1.setAttribute('x', lx); n1.setAttribute('dy', '-2');
+      const n2 = document.createElementNS(NS, 'tspan');
+      n2.textContent = (frac * 100).toFixed(1) + '%';
+      n2.setAttribute('x', lx); n2.setAttribute('dy', '12');
+      n2.setAttribute('font-size', '10');
+      g.append(n1, n2);
+      svg.appendChild(g);
+    }
+  });
+  return svg;
+}
+
 function renderPortfolio() {
   const body = $('#body');
   body.innerHTML = '';
@@ -597,17 +691,11 @@ function renderPortfolio() {
   hero.appendChild(chips);
   wrap.appendChild(hero);
 
-  // 비중 파이 — conic-gradient 한 줄
+  // 비중 파이 — 조각 위에 종목과 % 를 얹으려면 SVG 라야 한다(conic-gradient 는 글자를 못 얹는다)
   const sum = a.items.reduce((x, h) => x + h.evalKrw, 0);
   if (sum > 0) {
     const pw = el('div', 'pie-wrap');
-    const pie = el('div', 'pie');
-    let acc = 0;
-    pie.style.background = 'conic-gradient(' + a.items.map((h, i) => {
-      const from = acc / sum * 360; acc += h.evalKrw;
-      return `${PALETTE[i % PALETTE.length]} ${from}deg ${acc / sum * 360}deg`;
-    }).join(',') + ')';
-    pw.appendChild(pie);
+    pw.appendChild(pieSvg(a.items, sum));
     wrap.appendChild(pw);
     const cap = el('p', 'muted', '보유 종목 비중 · 예수금은 빠져 있습니다');
     cap.style.textAlign = 'center';
@@ -932,14 +1020,14 @@ function renderSettings() {
   const cbtn = el('button', 'gh', '실행');
   cbtn.onclick = async () => {
     await api('/api/cache/clear', { method: 'POST' });
-    S.rows = null;
+    S.rows = null; anCache.clear(); minCache.clear();
     say('캐시를 비웠습니다. 비교 탭에서 다시 받습니다.');
   };
   cb.appendChild(cbtn);
   wrap.appendChild(cb);
 
   // ── 종목 관리 ──
-  wrap.appendChild(el('div', 'sec', '종목 관리'));
+  wrap.appendChild(el('div', 'sec', `종목 관리 (${s.tickers.length})`));
   const ar = el('div', 'row2');
   const ai = el('input', 'box');
   ai.placeholder = '티커 또는 6자리 코드';
@@ -951,25 +1039,57 @@ function renderSettings() {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ticker: ai.value.trim() }),
     });
-    S.rows = null; S.settings = await api('/api/settings');
+    S.rows = null; anCache.clear(); S.settings = await api('/api/settings');
     renderSettings();
   };
   ar.appendChild(ab);
   wrap.appendChild(ar);
 
+  // 한 줄에 하나씩 놓으면 20종목이면 20줄이라 아래 항목이 한참 밑으로 밀린다 → 칩으로
+  const list = el('div', 'tklist');
   s.tickers.forEach(t => {
-    const row = el('div', 'row2');
-    row.appendChild(el('span', 'g mono', t.ticker));
-    const x = el('button', 'gh del', '삭제');
+    const c = el('span', 'tk' + (t.krw ? ' kr' : ''));
+    c.appendChild(el('b', null, t.ticker));
+    const x = el('button', null, '✕');
     x.onclick = async () => {
       if (!confirm(`${t.ticker} 를 목록에서 뺄까요?`)) return;
       await api('/api/tickers/' + encodeURIComponent(t.ticker), { method: 'DELETE' });
-      S.rows = null; S.settings = await api('/api/settings');
+      S.rows = null; anCache.clear(); S.settings = await api('/api/settings');
       renderSettings();
     };
-    row.appendChild(x);
-    wrap.appendChild(row);
+    c.appendChild(x);
+    list.appendChild(c);
   });
+  wrap.appendChild(list);
+
+  // 목록 통째로 바꾸기 — 다른 앱에서 쓰던 목록을 한 번에 옮길 수 있게
+  const bt = el('div', 'sec2', '목록 통째로 바꾸기');
+  wrap.appendChild(bt);
+  const ta = el('textarea', 'box');
+  ta.rows = 4;
+  ta.placeholder = 'FNGU, TQQQ, SOXL, 005930 …  (쉼표·줄바꿈 아무거나)';
+  ta.value = s.tickers.map(t => t.ticker).join(', ');
+  wrap.appendChild(ta);
+  const br = el('div', 'row2');
+  br.appendChild(el('span', 'g muted', '적힌 것만 남고 나머지는 빠집니다'));
+  const bb = el('button', 'gh acc', '통째로 저장');
+  bb.onclick = async () => {
+    const n = (ta.value.match(/[^\s,;]+/g) || []).length;
+    if (!n || !confirm(`목록을 ${n}개로 바꿉니다. 지금 목록은 사라집니다.`)) return;
+    bb.disabled = true;
+    try {
+      await api('/api/tickers/bulk', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: ta.value }),
+      });
+      S.rows = null; anCache.clear(); S.settings = await api('/api/settings');
+      say(`${n}개로 바꿨습니다.`);
+      renderSettings();
+    } catch (e) { say('⚠️ ' + e.message); }
+    bb.disabled = false;
+  };
+  br.appendChild(bb);
+  wrap.appendChild(br);
 
   body.appendChild(wrap);
 }
@@ -1129,6 +1249,24 @@ function go(tab) {
 
 document.querySelectorAll('#tabs button').forEach(b =>
   b.onclick = () => go(b.dataset.tab));
+
+/**
+ * 모바일 크롬은 주소창이 접혔다 펴질 때 **보이는 영역과 레이아웃 영역이 어긋난다.**
+ * 그대로 두면 `bottom:0` 인 탭바가 화면 밖으로 조금 밀려나 누르기 어렵다.
+ * 실제로 보이는 영역의 바닥에 맞춰 끌어올린다. PC 에서는 차이가 0 이라 아무 일도 없다.
+ */
+function pinTabs() {
+  const vv = window.visualViewport;
+  if (!vv) return;
+  const gap = document.documentElement.clientHeight - (vv.height + vv.offsetTop);
+  $('#tabs').style.transform = gap > 1 ? `translateY(${-Math.round(gap)}px)` : '';
+}
+if (window.visualViewport) {
+  visualViewport.addEventListener('resize', pinTabs);
+  visualViewport.addEventListener('scroll', pinTabs);
+  window.addEventListener('scroll', pinTabs, { passive: true });
+  pinTabs();
+}
 
 // 설정은 포트폴리오의 원금 표시에도 필요하므로 처음에 한 번 받아 둔다
 api('/api/settings').then(o => { S.settings = o; }).catch(() => {});
