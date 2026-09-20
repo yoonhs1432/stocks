@@ -430,6 +430,42 @@ def api_minutes(ticker: str, force: bool = False):
 
 # ── 설정 ──
 
+@app.get("/api/diag")
+def api_diag(ticker: str = "005930"):
+    """진단용 — 봉 시각이 어떻게 오는지, SPY 와 며칠이나 겹치는지.
+
+    국내 종목만 Z·M 이 짧게 나오는 문제를 눈으로 확인하려고 만들었다.
+    """
+    from datetime import datetime, timezone, timedelta
+    KST = timezone(timedelta(hours=9))
+
+    def look(sym: str) -> dict:
+        bars = repo.candles(_toss, sym)
+        if not bars:
+            return {"symbol": sym, "bars": 0}
+        def show(t):
+            u = datetime.fromtimestamp(t, timezone.utc)
+            k = datetime.fromtimestamp(t, KST)
+            return {"epoch": t, "UTC": u.strftime("%Y-%m-%d %H:%M %a"),
+                    "KST": k.strftime("%Y-%m-%d %H:%M %a")}
+        days = sorted({b["t"] // 86400 for b in bars})
+        dow = {}
+        for d in days:
+            w = datetime.fromtimestamp(d * 86400, timezone.utc).strftime("%a")
+            dow[w] = dow.get(w, 0) + 1
+        return {"symbol": sym, "bars": len(bars), "처음": show(bars[0]["t"]),
+                "마지막": show(bars[-1]["t"]), "UTC요일분포": dow}
+
+    a, b = look(store.BASE), look(ticker)
+    inter = 0
+    if a.get("bars") and b.get("bars"):
+        sa = {x["t"] // 86400 for x in repo.candles(_toss, store.BASE)}
+        sb = {x["t"] // 86400 for x in repo.candles(_toss, ticker)}
+        inter = len(sa & sb)
+    return {"기준(SPY)": a, "종목": b, "겹치는_날": inter,
+            "설명": "겹치는 날이 종목 봉 수보다 많이 적으면 Z·M 이 짧아진다"}
+
+
 @app.get("/api/history")
 def api_history(days: int = 120):
     """지난 날들의 보유 내역 — 그날 무엇을 얼마나 들고 있었는지."""

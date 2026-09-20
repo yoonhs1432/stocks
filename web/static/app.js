@@ -385,17 +385,30 @@ function fitRange(chart, count, recent = 45, mode = null) {
 
 /**
  * 여러 차트의 시간축을 묶는다 — 하나를 확대·이동하면 나머지도 따라간다.
- * 안 묶으면 캔들을 확대했을 때 아래 Z·M·MACD 가 그대로라 **날짜가 서로 어긋난다**
- * (안드로이드에서는 네 차트가 ChartView 하나를 공유했다).
+ *
+ * ⚠️ **날짜로 묶는다(칸 번호가 아니라).** 지표 차트(Z·M·MACD·RSI)는 SPY 와 날짜가
+ * 겹치는 날만 쓰므로 가격 차트보다 점이 적을 수 있다. 칸 번호로 묶으면 같은 번호가
+ * 서로 다른 날을 가리켜, 가격은 9월인데 Z·M 은 5월을 보여 주는 식으로 어긋난다
+ * (국내 종목에서 실제로 그랬다).
  */
 function linkTime(list) {
-  let busy = false;
-  list.forEach(c => c.timeScale().subscribeVisibleLogicalRangeChange(r => {
-    if (!r || busy) return;
-    busy = true;
-    list.forEach(o => { if (o !== c) o.timeScale().setVisibleLogicalRange(r); });
-    busy = false;
-  }));
+  // 맞춰 준 결과가 이벤트로 **되돌아온다.** 데이터가 짧은 차트는 구간을 잘라서 알려 주는데
+  // 그걸 다시 모두에게 퍼뜨리면 구간이 점점 쪼그라든다(하루까지 줄어드는 걸 봤다).
+  // 그래서 우리가 맞춘 직후 잠깐은 들어오는 이벤트를 무시한다.
+  let quiet = 0;
+  const apply = (from, r) => {
+    if (!r || performance.now() < quiet) return;
+    quiet = performance.now() + 150;
+    list.forEach(o => { if (o !== from) { try { o.timeScale().setVisibleRange(r); } catch (e) {} } });
+  };
+  list.forEach(c => c.timeScale().subscribeVisibleTimeRangeChange(r => apply(c, r)));
+  // 처음 한 번, 가격 차트가 잡은 구간으로 나머지를 맞춘다
+  requestAnimationFrame(() => {
+    try {
+      quiet = 0;
+      apply(list[0], list[0].timeScale().getVisibleRange());
+    } catch (e) {}
+  });
 }
 
 function chartBox(parent, title, valueEl) {
