@@ -432,6 +432,25 @@ def run(pg, base: str, errs: list[str]) -> None:
     }""")
     check("백업 파일을 내려받을 수 있다", dl >= 5, f"파일 {dl}개")
 
+    # ── 터널을 통해 들어온 요청이 암호를 건너뛰지 않는가 ──
+    # 터널은 PC 안에서 127.0.0.1 로 붙는다. "PC 자신은 통과" 규칙이 그대로 걸리면
+    # 인터넷에서 온 사람이 암호 없이 계좌를 본다.
+    print("\n[보안] 터널로 들어온 요청은 암호를 묻는가")
+    # 앞선 검사에서 암호 쿠키가 심겼다. 그대로 두면 "통과"가 쿠키 덕인지 규칙 덕인지
+    # 구분되지 않으므로 지우고 본다.
+    pg.context.clear_cookies()
+    probe_auth = """async (h) => {
+      const r = await fetch('/api/health', { headers: h, cache: 'no-store' });
+      return r.status;
+    }"""
+    for name, hdr in [("실제 IP 를 알려 주는 터널", {"X-Forwarded-For": "203.0.113.9"}),
+                      ("IP 는 안 주고 https 만 알리는 터널", {"X-Forwarded-Proto": "https"}),
+                      ("Tailscale Funnel 표시만 있는 요청", {"Tailscale-Funnel-Request": "?1"})]:
+        st = pg.evaluate(probe_auth, hdr)
+        check(f"{name} → 막힌다", st == 401, f"{st} 로 통과했다")
+    check("PC 자신에서 여는 것은 그대로 통과한다", pg.evaluate(probe_auth, {}) == 200)
+    errs.clear()        # 위 401 세 번은 일부러 낸 것이다
+
     print("\n[콘솔]")
     check("자바스크립트 오류 없음", not errs, " / ".join(errs[:5]))
 

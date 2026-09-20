@@ -27,6 +27,14 @@ COOKIE = "q_auth"
 MAX_AGE = 365 * 24 * 3600
 LOCAL = {"127.0.0.1", "::1", "localhost"}
 
+# 터널(cloudflared·tailscale)은 이 PC 안에서 127.0.0.1:8000 으로 붙는다. 그래서 "PC 자신은
+# 통과" 규칙을 그대로 두면, 프록시가 원래 접속자 IP 를 헤더로 안 알려 주는 순간 **인터넷에서
+# 온 요청이 PC 자신으로 보여 암호 없이 통과**한다. 지금 쓰는 조합에서는 헤더가 붙지만,
+# 거기에 목숨을 걸 이유가 없다. 프록시를 거친 흔적이 하나라도 있으면 통과시키지 않는다.
+PROXY_HINTS = ("x-forwarded-for", "x-forwarded-proto", "x-real-ip", "forwarded",
+               "cf-connecting-ip", "cf-ray", "tailscale-funnel-request",
+               "tailscale-user-login")
+
 _fails: dict[str, list[float]] = {}
 
 
@@ -58,9 +66,10 @@ def load_or_create_token(config_path: Path) -> str:
         tok = secrets.token_urlsafe(24)
         o["access_token"] = tok
         try:
+            config_path.parent.mkdir(parents=True, exist_ok=True)
             config_path.write_text(json.dumps(o, ensure_ascii=False, indent=2), encoding="utf-8")
         except OSError:
-            pass
+            pass          # 못 써도 이번 실행 동안은 이 암호로 돈다
     _token = tok
     return tok
 
@@ -134,8 +143,10 @@ def make_guard(_initial: str = ""):
         ip = request.client.host if request.client else ""
         path = request.url.path
 
-        # PC 자신에서 여는 건 통과 (외부 노출과 무관)
-        if ip in LOCAL:
+        # PC 자신에서 여는 건 통과. 단 **프록시를 거치지 않은 경우에만** —
+        # 터널을 통해 들어온 요청도 127.0.0.1 로 보이기 때문이다.
+        via_proxy = any(h in request.headers for h in PROXY_HINTS)
+        if ip in LOCAL and not via_proxy:
             return await call_next(request)
         if path == "/login":
             return await call_next(request)
