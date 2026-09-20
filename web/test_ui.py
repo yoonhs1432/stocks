@@ -77,6 +77,13 @@ def seed(data: str) -> None:
     with open(os.path.join(data, "deposits.json"), "w", encoding="utf-8") as f:
         json.dump([{"date": str(d0), "krw": 12_000_000}], f)
 
+    # 매매 기록도 심는다 — 차트·산점도의 매매 마커를 확인하려고
+    d1 = (date.today() - timedelta(days=20)).isoformat()
+    d2 = (date.today() - timedelta(days=8)).isoformat()
+    with open(os.path.join(data, "trades.json"), "w", encoding="utf-8") as f:
+        json.dump({"BITU": [{"orderId": "t1", "date": d1, "qty": 10, "price": 30.0, "type": "buy"},
+                            {"orderId": "t2", "date": d2, "qty": 4, "price": 33.0, "type": "sell"}]}, f)
+
     seed_repo(os.path.join(data, "repo"))
 
 
@@ -194,6 +201,49 @@ def run(pg, base: str, errs: list[str]) -> None:
 
     # ── 분석: 시계열 / 보조 / 산점도 ──
     # 넷을 한 화면에 넣으면 하나하나가 너무 낮아 읽기 어렵다 → 둘씩 나눠 놓았다
+    # ── 차트가 데이터 밖으로 밀리지 않는가 · 서로 바로 따라오는가 ──
+    print("\n[차트] 끝에서 멈추고, 같이 움직이는가")
+    n = pg.evaluate("S.analysis.candles.length")
+    pg.evaluate("""() => {
+      const ts = charts[0].timeScale(), r = ts.getVisibleLogicalRange();
+      ts.setVisibleLogicalRange({from: r.from + 40, to: r.to + 40});   // 끝 너머로
+    }""")
+    pg.wait_for_timeout(600)
+    to = pg.evaluate("charts[0].timeScale().getVisibleLogicalRange().to")
+    check("오른쪽 끝을 넘어 빈 공간까지 밀리지 않는다", to <= n + 1, f"봉 {n}개인데 끝이 {to}")
+
+    gap = pg.evaluate("""() => new Promise(res => {
+      const a = charts[0].timeScale(), b = charts[1].timeScale();
+      const r = a.getVisibleLogicalRange();
+      a.setVisibleLogicalRange({from: r.from - 30, to: r.to - 30});
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        const ra = a.getVisibleRange(), rb = b.getVisibleRange();
+        res(ra && rb ? Math.abs(ra.from - rb.from) : -1);
+      }));
+    })""")
+    check("위아래 차트가 곧바로 같이 움직인다", 0 <= gap <= 86400 * 2, f"시작점 차이 {gap}초")
+
+    # ── 산점도에도 매매 마커가 있는가 ──
+    # 매매 기록을 심어 둔 종목으로 옮긴다 (S.ticker 는 메모리 값이라 직접 바꾼다)
+    pg.evaluate("S.ticker = 'BITU'; localStorage.setItem('ticker','BITU'); loadAnalysis();")
+    pg.wait_for_timeout(3500)
+    marks = pg.evaluate("tradeMarks(S.analysis.result.dates, S.analysis.trades || [])")
+    check("매매 기록이 산점도 좌표로 바뀐다", len(marks) >= 1, str(marks))
+    pg.click("#hdr-seg button:has-text('산점도')")
+    pg.wait_for_timeout(2500)
+    red = pg.evaluate("""() => {
+      // 매수 마커 색(#DC2626)이 실제로 찍혔는지 캔버스 픽셀로 확인
+      const c = document.querySelector('#body canvas');
+      const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+      let hit = 0;
+      for (let i = 0; i < d.length; i += 4)
+        if (Math.abs(d[i] - 220) < 12 && Math.abs(d[i+1] - 38) < 14 && Math.abs(d[i+2] - 38) < 14) hit++;
+      return hit;
+    }""")
+    check("산점도에 매매 마커가 그려진다", red > 30, f"마커 색 픽셀 {red}개")
+    pg.click("#hdr-seg button:has-text('시계열')")
+    pg.wait_for_timeout(2000)
+
     print("\n[한 화면] 분석이 스크롤 없이 다 보이는가")
     for g in ("시계열", "보조", "산점도"):
         pg.click(f"#hdr-seg button:has-text('{g}')")

@@ -36,7 +36,7 @@ function axisLabel(g, text, x, y, color = '#8B95A1', align = 'left') {
  * ① 회귀 산점도 (로그-로그). X=SPY 정규화, Y=종목 정규화.
  * 시간순 Turbo 점 + 회귀선 + ±1.5σ 밴드 + 현재 위치 ★.
  */
-function regressionScatter(host, r, height = 240) {
+function regressionScatter(host, r, height = 240, marks = []) {
   const { g, w, h } = setup(host, height);
   const n = r.spyNorm.length;
   const PAD_L = 4, PAD_R = 44, PAD_T = 8, PAD_B = 18;
@@ -80,6 +80,13 @@ function regressionScatter(host, r, height = 240) {
     g.fill();
   }
 
+  // 매매한 날
+  marks.forEach(m => {
+    const i = m.i;
+    if (i >= 0 && i < n && r.spyNorm[i] > 0 && r.tickerNorm[i] > 0)
+      marker(g, sx(r.spyNorm[i]), sy(r.tickerNorm[i]), m.buy);
+  });
+
   // 현재 위치 ★
   const li = n - 1;
   if (r.spyNorm[li] > 0 && r.tickerNorm[li] > 0) {
@@ -96,7 +103,7 @@ function regressionScatter(host, r, height = 240) {
 }
 
 /** ② Z·M 궤적. X=Z 백분위, Y=M 백분위, 둘 다 0~100. 임계 20/40/60/80. */
-function zmScatter(host, r, height = 240) {
+function zmScatter(host, r, height = 240, marks = []) {
   const { g, w, h } = setup(host, height);
   const n = r.zPct.length;
   const PAD_L = 4, PAD_R = 44, PAD_T = 8, PAD_B = 18;
@@ -125,11 +132,31 @@ function zmScatter(host, r, height = 240) {
     g.fill();
     last = i;
   }
+  marks.forEach(m => {
+    const i = m.i, z = r.zPct[i], mm = r.mPct[i];
+    if (i >= 0 && i < n && z != null && mm != null && !Number.isNaN(z) && !Number.isNaN(mm))
+      marker(g, sx(z), sy(mm), m.buy);
+  });
   if (last >= 0) star(g, sx(r.zPct[last]), sy(r.mPct[last]), 8);
 
   axisLabel(g, 'Z(저평가 ←) →', PAD_L, h - 4, '#ffffff88');
   axisLabel(g, 'M ↑', PAD_L, PAD_T + 10, '#8B95A1');
   [0, 50, 100].forEach(v => axisLabel(g, String(v), w - PAD_R + 4, sy(v) + 3));
+}
+
+/** 매매 마커 — 매수는 빨강 ↑, 매도는 파랑 ↓ (안드로이드와 같은 모양). */
+function marker(g, cx, cy, buy, r = 7) {
+  g.beginPath();
+  g.arc(cx, cy, r, 0, Math.PI * 2);
+  g.fillStyle = buy ? '#DC2626' : '#2563EB';
+  g.fill();
+  g.strokeStyle = '#fff'; g.lineWidth = 1; g.stroke();
+  g.fillStyle = '#fff';
+  g.font = `bold ${Math.round(r * 1.9)}px ui-monospace, monospace`;
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.fillText(buy ? '↑' : '↓', cx, cy + 0.5);
+  g.textBaseline = 'alphabetic';
 }
 
 /** 현재 위치 별표 — 마젠타. */

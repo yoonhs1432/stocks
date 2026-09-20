@@ -319,7 +319,9 @@ function mkChart(host, height, opts = {}) {
     grid: { vertLines: { visible: false }, horzLines: { color: '#ffffff0d' } },
     // 위아래 여백이 좁으면 축의 맨 위·맨 아래 숫자가 화면 경계에서 잘린다(작은 폰에서 확인)
     rightPriceScale: { borderColor: '#24242A', scaleMargins: { top: .16, bottom: .13 } },
-    timeScale: { borderColor: '#24242A', timeVisible: S.bar === '1m', secondsVisible: false },
+    // 데이터 끝을 넘어 빈 공간까지 밀리지 않게 한다 — 캔들만 오른쪽으로 계속 끌려갔다
+    timeScale: { borderColor: '#24242A', timeVisible: S.bar === '1m', secondsVisible: false,
+                 rightOffset: 0, fixLeftEdge: true, fixRightEdge: true },
     crosshair: { mode: LightweightCharts.CrosshairMode.Normal,
       vertLine: { color: '#8B95A1', width: 1, style: 2, labelBackgroundColor: '#3182F6' },
       horzLine: { color: '#8B95A1', width: 1, style: 2, labelBackgroundColor: '#3182F6' } },
@@ -393,19 +395,28 @@ function fitRange(chart, count, recent = 45, mode = null) {
  */
 function linkTime(list) {
   // 맞춰 준 결과가 이벤트로 **되돌아온다.** 데이터가 짧은 차트는 구간을 잘라서 알려 주는데
-  // 그걸 다시 모두에게 퍼뜨리면 구간이 점점 쪼그라든다(하루까지 줄어드는 걸 봤다).
-  // 그래서 우리가 맞춘 직후 잠깐은 들어오는 이벤트를 무시한다.
-  let quiet = 0;
+  // 그걸 다시 퍼뜨리면 구간이 점점 쪼그라든다(하루까지 줄어드는 걸 봤다).
+  //
+  // 시간으로 막으면(예: 150ms 무시) 손가락으로 끄는 동안 따라오는 차트가 한 박자 늦는다.
+  // 그래서 **메아리인지 아닌지로** 가린다 — 우리가 방금 밀어 넣은 구간과 같거나(정확한
+  // 메아리) 그 안으로 잘린 것이면 버리고, 사용자가 만든 새 구간은 곧바로 전달한다.
+  let sent = null, sentAt = 0;
+  const echo = r => {
+    if (!sent) return false;
+    const same = Math.abs(r.from - sent.from) < 2 && Math.abs(r.to - sent.to) < 2;
+    const clipped = r.from >= sent.from - 1 && r.to <= sent.to + 1;
+    return same || (clipped && performance.now() - sentAt < 400);
+  };
   const apply = (from, r) => {
-    if (!r || performance.now() < quiet) return;
-    quiet = performance.now() + 150;
+    if (!r || echo(r)) return;
+    sent = r; sentAt = performance.now();
     list.forEach(o => { if (o !== from) { try { o.timeScale().setVisibleRange(r); } catch (e) {} } });
   };
   list.forEach(c => c.timeScale().subscribeVisibleTimeRangeChange(r => apply(c, r)));
   // 처음 한 번, 가격 차트가 잡은 구간으로 나머지를 맞춘다
   requestAnimationFrame(() => {
     try {
-      quiet = 0;
+      sent = null;
       apply(list[0], list[0].timeScale().getVisibleRange());
     } catch (e) {}
   });
@@ -548,9 +559,11 @@ function renderAnalysis(err) {
     }
     const a1 = chartBox(wrap, '회귀 산점도 (SPY 대비)');
     const a2 = chartBox(wrap, 'Z·M 궤적');
+    // 매매한 날이 어디였는지 — 시계열 차트처럼 산점도에도 표시한다
+    const marks = tradeMarks(r.dates, a.trades);
     // 높이는 화면에 맞춰 나중에 정해진다 → 다시 그리는 법을 요소에 달아 둔다
-    a1.host.redraw = h => regressionScatter(a1.host, r, h);
-    a2.host.redraw = h => zmScatter(a2.host, r, h);
+    a1.host.redraw = h => regressionScatter(a1.host, r, h, marks);
+    a2.host.redraw = h => zmScatter(a2.host, r, h, marks);
     a1.host.weight = a2.host.weight = 1;
     a1.host.redraw(240); a2.host.redraw(240);
     // 폭이 바뀌면(회전 등) 다시 그린다 — 캔버스는 알아서 늘어나지 않는다
@@ -584,6 +597,19 @@ function renderAnalysis(err) {
   }
   if (linked.length > 1) linkTime(linked);
   fitAnalysis();
+}
+
+/** 매매 기록을 분석 날짜 배열의 몇 번째인지로 바꾼다 (산점도에 찍으려고). */
+function tradeMarks(dates, trades) {
+  if (!dates || !trades || !trades.length) return [];
+  const idx = new Map();
+  dates.forEach((t, i) => idx.set(new Date(t * 1000).toISOString().slice(0, 10), i));
+  const out = [];
+  trades.forEach(tr => {
+    const i = idx.get(tr.date);
+    if (i != null) out.push({ i, buy: tr.type === 'buy' });
+  });
+  return out;
 }
 
 /**
