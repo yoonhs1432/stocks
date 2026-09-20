@@ -488,6 +488,7 @@ function renderAnalysis(err) {
     wrap.appendChild(el('p', 'muted', minMode ? '1분봉 불러오는 중…' : '일봉이 없습니다'));
   } else {
     const { host, wrap: cw } = chartBox(wrap, minMode ? '가격 · 1분' : '가격 · 일봉');
+    host.weight = 1.7;          // 가격 차트를 지표보다 크게
     const ch = mkChart(host, 260);
     const cs = ch.addCandlestickSeries({
       upColor: UP, downColor: DOWN, borderUpColor: UP, borderDownColor: DOWN,
@@ -546,12 +547,18 @@ function renderAnalysis(err) {
       return;
     }
     const a1 = chartBox(wrap, '회귀 산점도 (SPY 대비)');
-    regressionScatter(a1.host, r);
     const a2 = chartBox(wrap, 'Z·M 궤적');
-    zmScatter(a2.host, r);
+    // 높이는 화면에 맞춰 나중에 정해진다 → 다시 그리는 법을 요소에 달아 둔다
+    a1.host.redraw = h => regressionScatter(a1.host, r, h);
+    a2.host.redraw = h => zmScatter(a2.host, r, h);
+    a1.host.weight = a2.host.weight = 1;
+    a1.host.redraw(240); a2.host.redraw(240);
     // 폭이 바뀌면(회전 등) 다시 그린다 — 캔버스는 알아서 늘어나지 않는다
-    new ResizeObserver(() => { regressionScatter(a1.host, r); zmScatter(a2.host, r); })
-      .observe(wrap);
+    new ResizeObserver(() => {
+      a1.host.redraw(a1.host.clientHeight || 240);
+      a2.host.redraw(a2.host.clientHeight || 240);
+    }).observe(wrap);
+    fitAnalysis();
     return;
   }
 
@@ -576,12 +583,57 @@ function renderAnalysis(err) {
     wrap.appendChild(el('p', 'muted', '분석 데이터 부족 — 상장 후 기간이 짧은 종목입니다'));
   }
   if (linked.length > 1) linkTime(linked);
+  fitAnalysis();
+}
+
+/**
+ * 분석 화면의 차트 높이를 **화면에 맞춘다** — 세로로 스크롤하지 않아도 다 보이게.
+ *
+ * 남는 높이 = 보이는 화면 − 머리 − 탭바 − (칩·제목 같은 차트 아닌 것들).
+ * 그 높이를 차트들이 비중대로 나눠 갖는다. 주소창이 접혔다 펴지면 보이는 높이가
+ * 달라지므로 그때도 다시 맞춘다.
+ */
+function fitAnalysis() {
+  requestAnimationFrame(() => {
+    if (S.tab !== 'analysis') return;
+    const body = $('#body');
+    const hosts = [...body.querySelectorAll('.chart')];
+    if (!hosts.length) return;
+    const vv = window.visualViewport;
+    const vh = Math.round(vv ? vv.height : innerHeight);
+    const tabs = $('#tabs').offsetHeight || 64;
+    const nv = $('#newver');
+    // 머리 = 헤더 + (떠 있으면) 새 버전 알림 띠
+    const head = ($('header').offsetHeight || 52) + (nv ? nv.offsetHeight : 0);
+    // 본문 아래 여백은 평소 탭바 + 마지막 차트 날짜축 자리로 넉넉히 잡아 두는데,
+    // 여기서는 높이를 우리가 정하므로 탭바만큼만 남기고 나머지는 차트에 준다.
+    body.style.paddingBottom = '';                    // 먼저 원래대로 두고 재야 정확하다
+    const used = hosts.reduce((x, h) => x + h.offsetHeight, 0);
+    const others = body.scrollHeight - used;          // 칩·종목 머리·차트 제목들
+    const pad = tabs + 10;
+    const avail = vh - head - pad - others - 4;
+    const total = hosts.reduce((x, h) => x + (h.weight || 1), 0);
+    if (avail < 160) return;                          // 너무 좁으면 그냥 둔다(스크롤)
+    hosts.forEach(h => {
+      const px = Math.max(90, Math.floor(avail * (h.weight || 1) / total));
+      h.style.height = px + 'px';
+      if (h.redraw) h.redraw(px);                     // 산점도는 캔버스라 다시 그린다
+    });
+    document.body.style.paddingBottom = pad + 'px';
+  });
+}
+
+// 화면 크기가 바뀌면(회전·주소창) 다시 맞춘다
+window.addEventListener('resize', () => { if (S.tab === 'analysis') fitAnalysis(); });
+if (window.visualViewport) {
+  visualViewport.addEventListener('resize', () => { if (S.tab === 'analysis') fitAnalysis(); });
 }
 
 /** 선 차트 한 판. series = [[값배열, 색], …], guides = 임계 가로선. */
 function lineChart(parent, title, times, series, guides = [], linked = null, recent = 45,
-                   height = 120) {
+                   height = 120, weight = 1) {
   const { host } = chartBox(parent, title);
+  host.weight = weight;
   const ch = mkChart(host, height);
   series.forEach(([vals, color], idx) => {
     const s = ch.addLineSeries({ color, lineWidth: 2, priceLineVisible: false, lastValueVisible: idx === 0 });
@@ -1651,6 +1703,8 @@ function go(tab, fromBack) {
   document.querySelectorAll('#tabs button').forEach(b =>
     b.classList.toggle('on', b.dataset.tab === tab));
   clearCharts();
+  // 분석 탭에서 줄여 놨던 아래 여백을 되돌린다 (다른 탭은 스크롤하며 보는 화면이다)
+  if (tab !== 'analysis') document.body.style.paddingBottom = '';
   if (tab !== 'portfolio') clearInterval(acctTimer);
   header();
 

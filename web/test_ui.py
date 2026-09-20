@@ -194,6 +194,22 @@ def run(pg, base: str, errs: list[str]) -> None:
 
     # ── 분석: 시계열 / 보조 / 산점도 ──
     # 넷을 한 화면에 넣으면 하나하나가 너무 낮아 읽기 어렵다 → 둘씩 나눠 놓았다
+    print("\n[한 화면] 분석이 스크롤 없이 다 보이는가")
+    for g in ("시계열", "보조", "산점도"):
+        pg.click(f"#hdr-seg button:has-text('{g}')")
+        pg.wait_for_timeout(2000)
+        r = pg.evaluate("({화면: innerHeight, 내용: document.scrollingElement.scrollHeight})")
+        check(f"{g}이(가) 한 화면에 들어간다", r["내용"] <= r["화면"] + 2, str(r))
+    pg.click("#hdr-seg button:has-text('시계열')")
+    pg.wait_for_timeout(1500)
+    pg.click("#tabs button[data-tab='portfolio']")
+    pg.wait_for_timeout(2500)
+    check("다른 탭으로 가면 아래 여백이 돌아온다",
+          pg.evaluate("getComputedStyle(document.body).paddingBottom") == "118px",
+          pg.evaluate("getComputedStyle(document.body).paddingBottom"))
+    pg.click("#tabs button[data-tab='analysis']")
+    pg.wait_for_timeout(3000)
+
     print("\n[분석] 묶음 전환")
     titles = lambda: [e.inner_text().split("\n")[0] for e in pg.query_selector_all("#body .ch-title")]
     check("시계열은 가격과 Z·M 둘", titles() == ["가격 · 일봉", "Z · M"], str(titles()))
@@ -845,15 +861,23 @@ def run(pg, base: str, errs: list[str]) -> None:
     # ── 그래프 위에서 화면이 스크롤되는가 ──
     # 진짜 터치라야 차트 라이브러리가 반응한다 → CDP 로 터치를 넣는다.
     print("\n[터치] 그래프 위에서 위아래로 쓸면 화면이 내려가는가")
-    # 화면을 낮게 잡는다 — 분석 묶음이 둘씩이라 큰 화면에서는 스크롤할 것이 없다
-    tp = pg.context.browser.new_context(viewport={"width": 412, "height": 560},
+    # 아주 낮은 화면 — 분석은 보통 한 화면에 맞춰지므로 스크롤할 것이 없다.
+    # 맞출 수 없을 만큼 좁을 때는 그대로 두고 스크롤하게 되어 있고, 그 상태를 본다.
+    tp = pg.context.browser.new_context(viewport={"width": 412, "height": 400},
                                         has_touch=True, is_mobile=True)
     tpg = tp.new_page()
     cdp = tp.new_cdp_session(tpg)
 
     def swipe(box, dy, dx=0):
+        # 화면 밖이나 탭바 위를 짚으면 아무 일도 안 일어난다 →
+        # 차트에서 **실제로 보이는 부분**의 한가운데를 짚는다
+        geo = tpg.evaluate("""() => ({vh: innerHeight,
+          head: document.querySelector('header').offsetHeight,
+          tabs: document.querySelector('#tabs').offsetHeight})""")
+        top = max(box["y"] + 8, geo["head"] + 8)
+        bottom = min(box["y"] + box["height"] - 8, geo["vh"] - geo["tabs"] - 8)
         x = int(box["x"] + box["width"] / 2)
-        y = int(box["y"] + box["height"] * 0.6)
+        y = int((top + bottom) / 2)
         cdp.send("Input.dispatchTouchEvent", {"type": "touchStart", "touchPoints": [{"x": x, "y": y}]})
         for i in range(1, 9):
             cdp.send("Input.dispatchTouchEvent", {"type": "touchMove",
@@ -876,7 +900,9 @@ def run(pg, base: str, errs: list[str]) -> None:
             check(f"{title} 그래프 위에서 위아래로 쓸면 화면이 내려간다", abs(y1 - y0) > 20,
                   f"스크롤 {y0} → {y1}")
             if tab == "analysis":
-                # 위에서 화면이 내려갔으므로 차트 위치를 다시 잡는다(옛 좌표는 빗나간다)
+                # 위에서 화면이 내려갔다 → 맨 위로 되돌리고 차트 위치를 다시 잡는다
+                tpg.evaluate("window.scrollTo(0, 0)")
+                tpg.wait_for_timeout(500)
                 box = tpg.query_selector("#body .chart").bounding_box()
                 r0 = tpg.evaluate("charts[0].timeScale().getVisibleLogicalRange()")
                 swipe(box, 0, 110)
