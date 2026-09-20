@@ -748,7 +748,10 @@ function renderSettings() {
 
   const wrap = el('div');
   wrap.style.padding = '0 var(--pad) 12px';
+  // 안내 문구는 S.msg 에 담는다 — 저장 뒤 화면을 다시 그리면 지역 변수만으로는 사라진다
   const msg = el('p', 'msg');
+  msg.textContent = S.msg || '';
+  const say = t => { S.msg = t; msg.textContent = t; };
 
   // ── 분석 ──
   wrap.appendChild(el('div', 'sec', '분석'));
@@ -766,9 +769,9 @@ function renderSettings() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ months: parseInt(mi.value, 10) || s.months }),
       });
-      msg.textContent = '적용했습니다. 일봉을 다시 받습니다.';
+      say('적용했습니다. 일봉을 다시 받습니다.');
       S.rows = null; S.settings = await api('/api/settings');
-    } catch (e) { msg.textContent = '⚠️ ' + e.message; }
+    } catch (e) { say('⚠️ ' + e.message); }
     mb.disabled = false;
   };
   r1.appendChild(mb);
@@ -822,7 +825,7 @@ function renderSettings() {
       });
       S.settings.deposits = o.deposits; S.settings.principal = o.principal;
       renderSettings();
-    } catch (e) { msg.textContent = '⚠️ ' + e.message; }
+    } catch (e) { say('⚠️ ' + e.message); }
   };
   dr.appendChild(db);
   wrap.appendChild(dr);
@@ -878,11 +881,39 @@ function renderSettings() {
       renderSettings();
       // 폰에서 다시 들어갈 주소를 바로 알려 준다
       alert('새 암호: ' + o.token + '\n\n폰에서는 주소 뒤에 ?key=' + o.token + ' 를 붙여 한 번 열면 됩니다.');
-    } catch (e) { msg.textContent = '⚠️ ' + e.message; }
+    } catch (e) { say('⚠️ ' + e.message); }
     kb.disabled = false;
   };
   kr2.appendChild(kb);
   wrap.appendChild(kr2);
+
+  // ── 앱 ──
+  // 고친 코드를 받으려고 PC 앞에 갈 필요가 없게. 서버가 직접 받아 와 다시 뜬다.
+  wrap.appendChild(el('div', 'sec', '앱'));
+  const vr = el('div', 'row2');
+  vr.appendChild(el('span', 'g', '현재 버전'));
+  vr.appendChild(el('span', 'mono', s.version || '?'));
+  wrap.appendChild(vr);
+
+  const ub = el('button', 'pri', '업데이트 받기');
+  ub.onclick = async () => {
+    ub.disabled = true;
+    say('받는 중…');
+    try {
+      const o = await api('/api/update', { method: 'POST' });
+      if (o.restarting) {
+        say('새 코드를 받았습니다. 다시 시작하는 중…');
+        await waitForServer();
+        location.reload();
+        return;
+      }
+      say(o.changed ? `받았습니다. ${o.note}` : '이미 최신입니다.');
+      S.settings = await api('/api/settings');
+      renderSettings();
+    } catch (e) { say('⚠️ ' + e.message); }
+    ub.disabled = false;
+  };
+  wrap.appendChild(ub);
 
   // ── 데이터 ──
   wrap.appendChild(el('div', 'sec', '데이터'));
@@ -901,12 +932,12 @@ function renderSettings() {
   wrap.appendChild(bn);
   const fb = el('button', 'pri', `체결내역 가져오기 (${s.trades}건 저장됨)`);
   fb.onclick = async () => {
-    fb.disabled = true; msg.textContent = '가져오는 중…';
+    fb.disabled = true; say('가져오는 중…');
     try {
       const o = await api('/api/fills', { method: 'POST' });
-      msg.textContent = `체결 ${o.fetched}건 조회, 누적 ${o.total}건 저장`;
+      say(`체결 ${o.fetched}건 조회, 누적 ${o.total}건 저장`);
       S.settings = await api('/api/settings');
-    } catch (e) { msg.textContent = '⚠️ ' + e.message; }
+    } catch (e) { say('⚠️ ' + e.message); }
     fb.disabled = false;
   };
   wrap.appendChild(fb);
@@ -918,7 +949,7 @@ function renderSettings() {
   cbtn.onclick = async () => {
     await api('/api/cache/clear', { method: 'POST' });
     S.rows = null;
-    msg.textContent = '캐시를 비웠습니다. 비교 탭에서 다시 받습니다.';
+    say('캐시를 비웠습니다. 비교 탭에서 다시 받습니다.');
   };
   cb.appendChild(cbtn);
   wrap.appendChild(cb);
@@ -957,6 +988,18 @@ function renderSettings() {
   });
 
   body.appendChild(wrap);
+}
+
+/** 서버가 다시 뜰 때까지 기다린다 — 재시작은 보통 2~5초. */
+async function waitForServer(sec = 60) {
+  for (let i = 0; i < sec; i++) {
+    await new Promise(r => setTimeout(r, 1000));
+    try {
+      const res = await fetch('/api/health', { cache: 'no-store' });
+      if (res.ok) return true;
+    } catch (e) { /* 아직 안 떴다 */ }
+  }
+  return false;
 }
 
 // ══════════════════════════ 탭 ══════════════════════════
@@ -1024,6 +1067,7 @@ function header() {
 }
 
 function go(tab) {
+  if (tab !== S.tab) S.msg = '';      // 지난 탭의 안내 문구를 들고 다니지 않는다
   S.tab = tab;
   localStorage.setItem('tab', tab);
   window.scrollTo(0, 0);      // 탭을 바꿨는데 이전 탭의 스크롤 위치에서 시작하면 헷갈린다

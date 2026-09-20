@@ -1,12 +1,13 @@
 ﻿# 부팅할 때 서버를 자동으로 띄운다 (Windows 작업 스케줄러).
 #
 #   .\install-task.ps1              서버만
-#   .\install-task.ps1 -Tunnel      터널까지 (외부 접속)
+#   .\install-task.ps1 -Tunnel      Cloudflare 임시 주소까지 (실행할 때마다 주소가 바뀐다)
+#   .\install-task.ps1 -Funnel      Tailscale 고정 주소까지 (주소가 안 바뀐다 — 권장)
 #   .\install-task.ps1 -Remove      등록 해제
 #
 # 관리자 권한이 필요 없다. 로그인할 때 숨겨진 창으로 실행된다.
 
-param([switch]$Tunnel, [switch]$Remove)
+param([switch]$Tunnel, [switch]$Funnel, [switch]$Remove)
 
 $ErrorActionPreference = "Stop"
 $name = "QuantDashboard"
@@ -18,7 +19,7 @@ if ($Remove) {
 }
 
 $here = $PSScriptRoot
-$args = if ($Tunnel) { "-Tunnel" } else { "" }
+$args = if ($Funnel) { "-Funnel" } elseif ($Tunnel) { "-Tunnel" } else { "" }
 
 # run.ps1 을 숨긴 창으로 띄운다. -ExecutionPolicy Bypass 가 있어야 정책과 무관하게 돈다
 $action = New-ScheduledTaskAction -Execute "powershell.exe" `
@@ -36,7 +37,9 @@ Register-ScheduledTask -TaskName $name -Action $action -Trigger $trigger `
 
 Write-Host ""
 Write-Host "  등록했습니다. 다음 로그인부터 자동으로 실행됩니다." -ForegroundColor Green
-if ($Tunnel) {
+if ($Funnel) {
+    Write-Host "  고정 주소(ts.net)로 뜹니다. 미리 한 번 'tailscale funnel 8000' 을 허용해 두세요." -ForegroundColor Cyan
+} elseif ($Tunnel) {
     Write-Host "  ⚠️ 터널 주소는 실행할 때마다 바뀝니다. 고정하려면 README 의 '고정 주소' 참고." -ForegroundColor Yellow
 }
 Write-Host ""

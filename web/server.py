@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import subprocess
 import threading
 import time
 from pathlib import Path
@@ -353,6 +354,7 @@ def api_settings():
         # 이 응답은 이미 인증을 통과한 사람만 받는다(미들웨어). 암호를 잊었을 때
         # config.json 을 열어 보지 않아도 되게 화면에서 확인·교체할 수 있게 한다.
         "accessToken": auth.token(),
+        "version": version(),
     }
 
 
@@ -367,6 +369,48 @@ def api_rotate(request: Request):
     resp = JSONResponse({"token": new})
     auth._set_cookie(resp, new, secure)
     return resp
+
+
+# ── 업데이트 ──
+# 폰에서 고친 코드를 받으려고 PC 앞에 가야 했다. 여기서 git pull 을 하고 스스로 종료하면
+# run.ps1 의 감시 루프가 새 코드로 다시 띄운다. **cloudflared 는 건드리지 않으므로
+# 터널 주소가 그대로**라 폰에서 그대로 새로고침하면 된다.
+# 검사용으로만 바꾼다 — 진짜 저장소에 git pull 을 하지 않게.
+REPO = Path(os.environ.get("QUANT_REPO") or HERE.parent)
+RESTART_CODE = 3          # run.ps1 이 이 코드를 보면 다시 띄운다
+
+
+def _git(*args: str, timeout: int = 120) -> tuple[int, str]:
+    try:
+        r = subprocess.run(["git", *args], cwd=REPO, capture_output=True,
+                           text=True, timeout=timeout, encoding="utf-8", errors="replace")
+        return r.returncode, ((r.stdout or "") + (r.stderr or "")).strip()
+    except FileNotFoundError:
+        return 127, "git 을 찾을 수 없습니다"
+    except (OSError, subprocess.SubprocessError) as e:
+        return 1, str(e)
+
+
+def version() -> str:
+    code, out = _git("log", "-1", "--format=%h %cd", "--date=format:%m-%d %H:%M", timeout=10)
+    return out if code == 0 else "?"
+
+
+@app.post("/api/update")
+def api_update():
+    """최신 코드를 받아 온다. 받은 게 있으면 스스로 종료해 새 코드로 다시 뜬다."""
+    code, out = _git("pull", "--ff-only", "origin", "main")
+    if code != 0:
+        return JSONResponse({"error": f"받지 못했습니다\n{out}"}, status_code=502)
+
+    changed = "Already up to date" not in out and "이미 업데이트" not in out
+    supervised = os.environ.get("QUANT_SUPERVISED") == "1"
+    if changed and supervised:
+        # 응답을 먼저 보내고 종료한다 — 바로 죽으면 폰에는 "연결 실패"만 남는다
+        threading.Timer(1.0, lambda: os._exit(RESTART_CODE)).start()
+    return {"output": out, "changed": changed, "restarting": changed and supervised,
+            "version": version(),
+            "note": "" if supervised else "서버를 직접 다시 켜야 적용됩니다 (run.ps1 로 띄우면 자동)"}
 
 
 @app.get("/api/backup")

@@ -67,12 +67,38 @@ def seed(data: str) -> None:
     with open(os.path.join(data, "deposits.json"), "w", encoding="utf-8") as f:
         json.dump([{"date": str(d0), "krw": 12_000_000}], f)
 
+    seed_repo(os.path.join(data, "repo"))
+
+
+def seed_repo(root: str) -> str:
+    """업데이트 버튼용 가짜 저장소 한 쌍 — work 는 한 칸 뒤, upstream 에 새 커밋.
+
+    진짜 저장소에 git pull 을 걸면 작업 중인 코드가 딸려 올라가거나 충돌한다.
+    """
+    up, work = os.path.join(root, "upstream"), os.path.join(root, "work")
+    git = lambda d, *a: subprocess.run(["git", *a], cwd=d, capture_output=True, text=True)
+    os.makedirs(up, exist_ok=True)
+    git(up, "init", "-q", "-b", "main")
+    git(up, "config", "user.email", "t@t")
+    git(up, "config", "user.name", "t")
+    for msg in ("v1", "v2"):
+        with open(os.path.join(up, "note.txt"), "w") as f:
+            f.write(msg)
+        git(up, "add", "-A")
+        git(up, "commit", "-qm", msg)
+    subprocess.run(["git", "clone", "-q", up, work], capture_output=True)
+    git(work, "reset", "-q", "--hard", "HEAD~1")
+    return work
+
 
 def start_server(port: int, data: str) -> subprocess.Popen:
     # QUANT_CONFIG 도 임시 파일로 — 암호 교체 검사가 진짜 config.json 을 갈아 치우면
     # 폰에서 갑자기 못 들어오게 된다.
     env = {**os.environ, "QUANT_MOCK": "1", "QUANT_DATA": data,
-           "QUANT_CONFIG": os.path.join(data, "config.json")}
+           "QUANT_CONFIG": os.path.join(data, "config.json"),
+           # 업데이트 버튼이 진짜 저장소를 당기지 않게 (감시 루프도 없으니 재시작도 안 한다)
+           "QUANT_REPO": os.path.join(data, "repo", "work")}
+    env.pop("QUANT_SUPERVISED", None)
     p = subprocess.Popen([sys.executable, "-m", "uvicorn", "server:app",
                           "--host", "127.0.0.1", "--port", str(port), "--log-level", "warning"],
                          cwd=HERE, env=env)
@@ -387,6 +413,18 @@ def run(pg, base: str, errs: list[str]) -> None:
     pg.remove_listener("dialog", ok_all)
     check("암호를 새로 만들 수 있다", pg.evaluate("S.settings.accessToken") != old_tok,
           "그대로였다")
+    check("현재 버전이 보인다", "현재 버전" in pg.inner_text("#body"))
+    pg.click("#body button:has-text('업데이트 받기')")
+    pg.wait_for_timeout(2500)
+    got = pg.inner_text("#body")
+    check("업데이트 버튼이 새 코드를 받아 온다", "받았습니다" in got,
+          [l for l in got.splitlines() if "⚠" in l or "받" in l][:2])
+    check("감시 루프가 없으면 직접 켜라고 알려 준다", "다시 켜야" in got,
+          [l for l in got.splitlines() if "받" in l][:2])
+    pg.click("#body button:has-text('업데이트 받기')")
+    pg.wait_for_timeout(2500)
+    check("두 번째는 이미 최신이라고 한다", "이미 최신" in pg.inner_text("#body"))
+
     dl = pg.evaluate("""async () => {
       const r = await fetch('/api/backup');
       const o = await r.json();

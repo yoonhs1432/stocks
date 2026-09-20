@@ -1,11 +1,12 @@
-﻿# 서버 실행 (+ 외부 접속용 Cloudflare 터널).
+﻿# 서버 실행 (+ 외부 접속).
 #
 #   .\run.ps1              집·PC 에서만 (같은 와이파이)
-#   .\run.ps1 -Tunnel      외부에서도 접속 (https 주소가 만들어진다)
+#   .\run.ps1 -Tunnel      Cloudflare 임시 주소로 외부 접속 (주소가 껐다 켤 때마다 바뀐다)
+#   .\run.ps1 -Funnel      Tailscale 고정 주소로 외부 접속 (주소가 안 바뀐다. README 참고)
 #
-# 창을 닫거나 Ctrl+C 를 누르면 둘 다 멈춘다.
+# 창을 닫거나 Ctrl+C 를 누르면 전부 멈춘다.
 
-param([switch]$Tunnel)
+param([switch]$Tunnel, [switch]$Funnel)
 
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
@@ -20,7 +21,21 @@ $lan = (Get-NetIPAddress -AddressFamily IPv4 |
         Where-Object { $_.IPAddress -like "192.168.*" -or $_.IPAddress -like "10.*" } |
         Select-Object -First 1).IPAddress
 
-$server = Start-Process $py -ArgumentList "server.py" -PassThru -NoNewWindow
+# 방금 설치한 프로그램은 이 창의 PATH 에 아직 없다. 다시 읽어 둔다.
+$env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" +
+            [Environment]::GetEnvironmentVariable("Path", "User")
+
+function Find-Exe([string]$name, [string[]]$places) {
+    $p = (Get-Command $name -ErrorAction SilentlyContinue).Source
+    if ($p) { return $p }
+    return $places | Where-Object { Test-Path $_ } | Select-Object -First 1
+}
+
+# 서버는 감시 루프가 띄운다 — 설정 탭에서 "업데이트 받기" 를 눌러 서버가 다시 떠도
+# 터널은 그대로라 주소가 바뀌지 않는다.
+$server = Start-Process powershell -PassThru -NoNewWindow -ArgumentList @(
+    "-NoProfile", "-ExecutionPolicy", "Bypass",
+    "-File", (Join-Path $PSScriptRoot "serve-loop.ps1"), "-Py", $py)
 
 try {
     Start-Sleep -Seconds 3
@@ -28,19 +43,27 @@ try {
     Write-Host "  이 PC:        http://localhost:8000"
     if ($lan) { Write-Host "  같은 와이파이: http://${lan}:8000" }
 
-    if ($Tunnel) {
-        # winget 으로 막 설치했으면 PATH 가 아직 이 창에 반영되지 않았다.
-        # 그래서 PATH 를 다시 읽고, 그래도 없으면 설치 위치를 직접 찾는다.
-        $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" +
-                    [Environment]::GetEnvironmentVariable("Path", "User")
-        $cf = (Get-Command cloudflared -ErrorAction SilentlyContinue).Source
-        if (-not $cf) {
-            $cf = @(
-                "$env:LOCALAPPDATA\Microsoft\WinGet\Links\cloudflared.exe",
-                "$env:ProgramFiles\cloudflared\cloudflared.exe",
-                "${env:ProgramFiles(x86)}\cloudflared\cloudflared.exe"
-            ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+    if ($Funnel) {
+        $ts = Find-Exe "tailscale" @(
+            "$env:ProgramFiles\Tailscale\tailscale.exe",
+            "${env:ProgramFiles(x86)}\Tailscale\tailscale.exe")
+        if (-not $ts) {
+            Write-Host ""
+            Write-Host "  tailscale 을 찾지 못했습니다." -ForegroundColor Yellow
+            Write-Host "    winget install --id tailscale.tailscale"
+            Write-Host "  설치 후 PowerShell 창을 새로 열고, README 의 '고정 주소' 를 한 번 따라 하세요."
+        } else {
+            Write-Host ""
+            Write-Host "  고정 주소로 엽니다. 아래 ts.net 주소는 앞으로 바뀌지 않습니다." -ForegroundColor Cyan
+            Write-Host ""
+            & $ts funnel 8000
         }
+    }
+    elseif ($Tunnel) {
+        $cf = Find-Exe "cloudflared" @(
+            "$env:LOCALAPPDATA\Microsoft\WinGet\Links\cloudflared.exe",
+            "$env:ProgramFiles\cloudflared\cloudflared.exe",
+            "${env:ProgramFiles(x86)}\cloudflared\cloudflared.exe")
         if (-not $cf) {
             Write-Host ""
             Write-Host "  cloudflared 를 찾지 못했습니다." -ForegroundColor Yellow
@@ -49,7 +72,7 @@ try {
         } else {
             Write-Host ""
             Write-Host "  터널을 엽니다. 아래 trycloudflare.com 주소를 폰에서 열면 됩니다." -ForegroundColor Cyan
-            Write-Host "  (주소는 껐다 켤 때마다 바뀝니다. 고정하려면 README 의 '고정 주소' 참고)"
+            Write-Host "  (주소는 껐다 켤 때마다 바뀝니다. 고정하려면 -Funnel 또는 README 참고)"
             Write-Host ""
             & $cf tunnel --url http://localhost:8000
         }
@@ -57,5 +80,8 @@ try {
     Wait-Process -Id $server.Id
 }
 finally {
-    if ($server -and -not $server.HasExited) { Stop-Process -Id $server.Id -Force }
+    # 감시 루프와 그 아래 파이썬까지 같이 정리한다 (/T = 자식 프로세스 포함)
+    if ($server -and -not $server.HasExited) {
+        taskkill /PID $server.Id /T /F 2>$null | Out-Null
+    }
 }

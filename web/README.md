@@ -73,9 +73,33 @@ winget install --id Cloudflare.cloudflared
 > ⚠️ 이 주소는 **서버를 껐다 켤 때마다 바뀐다.** Cloudflare 가 임시용이라고 못 박아 둔
 > 기능이라 그렇다.
 
-### 고정 주소로 쓰려면
+### 고정 주소 ① Tailscale Funnel — 도메인 없이, 무료
 
-도메인이 하나 필요하다(Cloudflare 에서 사면 원가, 연 몇천 원짜리도 있다).
+주소가 `https://<PC이름>.<계정>.ts.net` 으로 **영영 고정된다.** https 도 자동이고 공유기
+설정도 필요 없다. PC 에 한 번만 해 두면 된다.
+
+```powershell
+winget install --id tailscale.tailscale
+# PowerShell 창을 새로 연 뒤
+tailscale up                  # 브라우저가 열리면 계정으로 로그인 (무료)
+tailscale funnel 8000         # 처음 한 번은 관리 화면에서 허용하라는 안내가 뜬다
+```
+
+`tailscale funnel 8000` 이 알려 주는 주소가 앞으로 쓸 주소다. 한 번 허용해 두면 다음부터는
+
+```powershell
+.\run.ps1 -Funnel
+```
+
+로 서버와 고정 주소가 같이 뜬다. 폰에서 그 주소 뒤에 `/?key=<접속 암호>` 를 붙여 한 번만
+열면 끝이다. **주소가 바뀌지 않으니 즐겨찾기 해 두면 다시는 PC 콘솔을 볼 일이 없다.**
+
+> 관리 화면에서 허용하라는 안내가 뜨면 그 링크(admin console → DNS → HTTPS Certificates,
+> Access controls 의 `funnel` 속성)를 따라 한 번 켜 주면 된다. 계정당 한 번이다.
+
+### 고정 주소 ② 도메인 + Cloudflare 네임드 터널
+
+도메인이 이미 있으면 이쪽이 깔끔하다(Cloudflare 에서 사면 연 몇천 원짜리도 있다).
 도메인을 Cloudflare 에 올린 뒤:
 
 ```powershell
@@ -87,7 +111,19 @@ cloudflared tunnel run --url http://localhost:8000 quant
 
 이제 `https://quant.내도메인.com` 이 계속 같은 주소로 열린다.
 
-## 5. 부팅할 때 자동 실행
+## 5. 폰에서 코드 업데이트하기
+
+버그를 고친 뒤 PC 앞으로 갈 필요가 없다. **설정 탭 → 앱 → 업데이트 받기** 를 누르면
+서버가 직접 `git pull` 하고 스스로 다시 뜬다. 5초쯤 뒤 화면이 알아서 새로고침된다.
+
+터널은 서버와 따로 떠 있어서 **다시 떠도 주소가 바뀌지 않는다.** 그래서 폰에서 버튼만
+누르면 끝이다(`run.ps1` 로 띄웠을 때. 직접 `py server.py` 로 띄웠으면 받아만 두고
+"직접 다시 켜야 한다" 고 알려 준다).
+
+접속 암호도 같은 탭(**설정 → 접속**)에서 보고 바꿀 수 있다. 바꾼 기기는 그대로 쓰던
+대로 쓰고, 다른 기기만 새 암호로 다시 들어가면 된다.
+
+## 6. 부팅할 때 자동 실행
 
 작업 스케줄러에 등록하면 로그인할 때 숨겨진 창으로 알아서 뜬다. 관리자 권한은 필요 없다.
 
@@ -169,7 +205,8 @@ py test_ui.py        # 실패가 있으면 종료코드 1
 | `snapshots.py` | 일별 잔고 기록 (`data/Snapshots.kt`) — 자산 추이의 유일한 출처 |
 | `static/` | 화면. 안드로이드와 같은 A-1 토스 블루 토큰. 차트는 lightweight-charts |
 | `static/scatter.js` | 산점도 2종 — lightweight-charts 가 산점도를 지원하지 않아 캔버스로 |
-| `run.ps1` / `install-task.ps1` | 실행 / 자동 실행 등록 |
+| `run.ps1` / `serve-loop.ps1` | 실행(+터널) / 서버 감시 루프 — 업데이트 뒤 다시 띄운다 |
+| `install-task.ps1` | 부팅 시 자동 실행 등록 |
 | `mock.py` / `shot.py` / `test_ui.py` | **개발용** — 가짜 시세, 화면 캡처, 눌러 보는 검사 |
 
 `web/data/` 는 이 PC 안에만 있는 것이라 커밋되지 않는다.
