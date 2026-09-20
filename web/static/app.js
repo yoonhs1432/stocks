@@ -99,7 +99,16 @@ function miniCandle(r) {
   const w = 7, h = 20, dpr = window.devicePixelRatio || 1;
   c.width = w * dpr; c.height = h * dpr;
   c.style.width = w + 'px'; c.style.height = h + 'px';
+  drawCandle(c, r);
+  return c;
+}
+
+/** 이미 있는 캔버스에 다시 그린다 (틱마다 캔버스를 새로 만들지 않게). */
+function drawCandle(c, r) {
+  const w = 7, h = 20, dpr = window.devicePixelRatio || 1;
   const g = c.getContext('2d');
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.clearRect(0, 0, c.width, c.height);
   g.scale(dpr, dpr);
   const { open: o, high, low, price: cl } = r;
   if (o == null || high == null || low == null || high <= low) return c;
@@ -158,12 +167,16 @@ function renderCompare() {
   });
   t.appendChild(head);
 
+  // 틱마다 표를 통째로 다시 만들면 미니 캔들 19개를 매번 새로 그리게 되고,
+  // 다시 정렬까지 하면 **행이 위아래로 튄다.** 그려 둔 칸을 기억해 두고 숫자만 고친다.
+  cmpRefs = [];
   sortRows(S.rows).forEach(r => {
     const tr = el('tr', 'row');       // colgroup·머리글과 구분되게 표시해 둔다
     tr.onclick = () => { S.ticker = r.ticker; localStorage.setItem('ticker', r.ticker); go('analysis'); };
 
     const nameTd = el('td', 'l');
-    nameTd.appendChild(miniCandle({ ...r, price: shownPrice(r) }));
+    const cv = miniCandle({ ...r, price: shownPrice(r) });
+    nameTd.appendChild(cv);
     nameTd.appendChild(el('span', r.holding ? 'hold-dot' : r.hasHistory ? 'hist-dot' : 'nodot'));
     nameTd.appendChild(el('span', 'nm', r.name || r.ticker));
     tr.appendChild(nameTd);
@@ -171,7 +184,8 @@ function renderCompare() {
     const d = shownDay(r);
     const pTd = el('td', 'mono ' + cls(d), price(r.krw, shownPrice(r)));
     tr.appendChild(pTd);
-    tr.appendChild(el('td', 'mono ' + cls(d), pct(d, 1)));
+    const dTd = el('td', 'mono ' + cls(d), pct(d, 1));
+    tr.appendChild(dTd);
 
     [r.zPct, r.mPct].forEach(v => {
       const td = el('td', 'mono', v == null ? '–' : Math.round(v));
@@ -180,6 +194,7 @@ function renderCompare() {
       tr.appendChild(td);
     });
     t.appendChild(tr);
+    cmpRefs.push({ r, cv, pTd, dTd, nameTd });
   });
 
   wrap.appendChild(t);
@@ -188,11 +203,32 @@ function renderCompare() {
   const hhmm = ms => new Date(ms).toLocaleTimeString('ko-KR',
     { hour: '2-digit', minute: '2-digit' });
   const stamp = el('p', 'muted stamp');
-  stamp.textContent = (S.rowsAt ? `조회 ${hhmm(S.rowsAt)}` : '') +
-    (S.tickAt ? ` · 현재가 ${hhmm(S.tickAt)}` : '') + ' · 일봉은 최대 6시간 캐시';
+  cmpStamp = stamp;
+  stampText(stamp);
   wrap.appendChild(stamp);
 
   body.appendChild(wrap);
+}
+
+let cmpRefs = null, cmpStamp = null;
+const hhmm2 = ms => new Date(ms).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+function stampText(e) {
+  e.textContent = (S.rowsAt ? `조회 ${hhmm2(S.rowsAt)}` : '') +
+    (S.tickAt ? ` · 현재가 ${hhmm2(S.tickAt)}` : '') + ' · 일봉은 최대 6시간 캐시';
+}
+
+/** 틱에서 쓰는 가벼운 갱신 — 값이 바뀐 칸만 고친다. 정렬은 건드리지 않는다. */
+function tickCompare() {
+  if (!cmpRefs || !document.querySelector('#body table.cmp')) { renderCompare(); return; }
+  cmpRefs.forEach(({ r, cv, pTd, dTd }) => {
+    const d = shownDay(r), p = shownPrice(r);
+    const c = 'mono ' + cls(d);
+    pTd.className = c; dTd.className = c;
+    pTd.textContent = price(r.krw, p);
+    dTd.textContent = pct(d, 1);
+    drawCandle(cv, { ...r, price: p });
+  });
+  if (cmpStamp) stampText(cmpStamp);
 }
 
 const ROWS_FRESH = 3 * 60 * 1000;
@@ -221,6 +257,15 @@ async function loadCompare(force) {
   } catch (e) { fail(e, () => loadCompare(force)); }
 }
 
+/** 지금 보는 종목의 1분봉을 미리 받아 둔다 — 일봉↔1분 전환을 기다리지 않게. */
+function prefetchMinutes() {
+  const t = S.ticker;
+  if (!t || cacheGet(minCache, t, MIN_FRESH)) return;
+  api('/api/minutes?ticker=' + encodeURIComponent(t))
+    .then(m => cachePut(minCache, t, m))
+    .catch(() => {});
+}
+
 /** 반대쪽 시장 표를 미리 받아 둔다 — 미국↔한국 전환을 기다리지 않게. */
 function prefetchMarket() {
   const other = S.market === 'US' ? 'KR' : 'US';
@@ -244,8 +289,8 @@ function startTicks() {
       const o = await api('/api/prices?symbols=' + syms.join(','));
       Object.entries(o).forEach(([k, v]) => { live[k] = v.price; });
       S.tickAt = Date.now();
-      if (S.tab === 'compare') renderCompare();
-      else if (S.tab === 'portfolio') renderPortfolio();
+      if (S.tab === 'compare') tickCompare();
+      else if (S.tab === 'portfolio') tickPortfolio();
     } catch (e) { /* 틱 실패는 조용히 넘긴다 — 다음 주기에 다시 시도 */ }
   }, sec * 1000);
 }
@@ -583,6 +628,7 @@ function stopPrefetch() {
 }
 
 function prefetchAll(delay = 600) {
+  if (S.settings && S.settings.prefetch === false) return;   // 설정에서 끔
   const c = navigator.connection;
   if (c && (c.saveData || /(^|-)2g$/.test(c.effectiveType || ''))) return;
   clearTimeout(preTimer);
@@ -594,7 +640,7 @@ function prefetchAll(delay = 600) {
   let k = 0;
   const step = () => {
     if (gen !== preGen) return;         // 그 사이 사용자가 뭔가 눌렀다
-    if (k >= todo.length) { prefetchMarket(); return; }
+    if (k >= todo.length) { prefetchMinutes(); prefetchMarket(); return; }
     const t = todo[k++];
     api('/api/analysis?ticker=' + encodeURIComponent(t))
       .then(a => cachePut(anCache, t, a))
@@ -716,6 +762,10 @@ function axisRow(from, mid, to) {
 
 function renderPortfolio() {
   const body = $('#body');
+  // ⚠️ 이전 차트를 반드시 버린다. 안 그러면 틱마다 새 차트가 쌓여 (30초에 60개)
+  // 폰을 켜 둘수록 느려지다 결국 멈춘다. renderAnalysis 는 하고 있었는데 여기만 빠져 있었다.
+  clearCharts();
+  pfRefs = null;
   body.innerHTML = '';
   const a = liveAccount();
   if (!a) { body.appendChild(el('p', 'muted pad', '불러오는 중…')); return; }
@@ -731,27 +781,34 @@ function renderPortfolio() {
   const row = el('div', 'row');
   row.appendChild(el('span', 'label', '현재 총자산'));
   left.appendChild(row);
-  left.appendChild(el('div', 'total mono', short(a.totalKrw)));
-  left.appendChild(el('div', 'today mono ' + cls(a.dailyPnlKrw),
-    `오늘 ${signedShort(a.dailyPnlKrw)} (${pct(a.dailyPnlRate * 100)})`));
+  const totalEl = el('div', 'total mono', short(a.totalKrw));
+  left.appendChild(totalEl);
+  const todayEl = el('div', 'today mono ' + cls(a.dailyPnlKrw),
+    `오늘 ${signedShort(a.dailyPnlKrw)} (${pct(a.dailyPnlRate * 100)})`);
+  left.appendChild(todayEl);
   const prin = S.settings ? S.settings.principal : 0;
+  let prinEl = null;
   if (prin > 0) {
-    const gain = a.totalKrw - (S.usdMode ? prin / a.rate * a.rate : prin);
-    left.appendChild(el('div', 'pnl mono ' + cls(gain),
-      `원금 ${short(prin)} · ${signedShort(gain)} (${pct(gain / prin * 100)})`));
+    const gain = a.totalKrw - prin;
+    prinEl = el('div', 'pnl mono ' + cls(gain),
+      `원금 ${short(prin)} · ${signedShort(gain)} (${pct(gain / prin * 100)})`);
+    left.appendChild(prinEl);
   }
   top.appendChild(left);
 
   const leg = el('div', 'legend');
   const legend = [['평가금액', UP, a.evalKrw], ['예수금', '#5B9BF2', a.cashKrw]];
   if (prin > 0) legend.push(['원금', GOLD, prin]);
+  const legEls = [];
   legend.forEach(([k, color, v]) => {
     const r = el('div', 'lg');
     const d = el('span', 'dot');
     d.style.background = color;
     r.appendChild(d);
     r.appendChild(el('span', 'k', k));
-    r.appendChild(el('span', 'v mono', short(v)));
+    const vEl = el('span', 'v mono', short(v));
+    r.appendChild(vEl);
+    legEls.push(vEl);
     leg.appendChild(r);
   });
   const fx = el('div', 'lg');
@@ -763,6 +820,7 @@ function renderPortfolio() {
   hero.appendChild(top);
   row.appendChild(el('span', 'acct', a.accountNo ? '•••••' + a.accountNo.slice(-4) : ''));
   wrap.appendChild(hero);
+  pfHead = { totalEl, todayEl, prinEl, legEls };
 
   // 비중 파이 — 조각 위에 종목과 % 를 얹으려면 SVG 라야 한다(conic-gradient 는 글자를 못 얹는다)
   const sum = a.items.reduce((x, h) => x + h.evalKrw, 0);
@@ -776,6 +834,8 @@ function renderPortfolio() {
     wrap.appendChild(cap);
   }
 
+  pfRefs = { total: null, today: null, prin: null, legend: [], rows: [],
+             syms: a.items.map(h => h.symbol).join(',') };
   a.items.forEach((h, i) => {
     const art = el('article', 'hold');
     const r1 = el('div', 'r1');
@@ -787,12 +847,16 @@ function renderPortfolio() {
     art.appendChild(r1);
     const r2 = el('div', 'r2');
     const w = sum > 0 ? (h.evalKrw / sum * 100) : null;
-    r2.appendChild(el('span', 'qty', qtyLabel(h.quantity) +
-      (w == null ? '' : ` · ${w.toFixed(1)}%`)));
-    r2.appendChild(el('span', 'gain mono ' + cls(h.pnlKrw), signedMoney(h.pnlKrw)));
+    const qtyEl = el('span', 'qty', qtyLabel(h.quantity) +
+      (w == null ? '' : ` · ${w.toFixed(1)}%`));
+    r2.appendChild(qtyEl);
+    const gainEl = el('span', 'gain mono ' + cls(h.pnlKrw), signedMoney(h.pnlKrw));
+    r2.appendChild(gainEl);
     r2.appendChild(el('span', 'sep', '|'));
-    r2.appendChild(el('span', 'rate mono ' + cls(h.pnlRate), pct(h.pnlRate * 100)));
+    const rateEl = el('span', 'rate mono ' + cls(h.pnlRate), pct(h.pnlRate * 100));
+    r2.appendChild(rateEl);
     art.appendChild(r2);
+    pfRefs.rows.push({ sym: h.symbol, evalEl: r1.lastChild, qtyEl, gainEl, rateEl });
     art.onclick = () => { S.ticker = h.symbol; localStorage.setItem('ticker', h.symbol); go('analysis'); };
     wrap.appendChild(art);
   });
@@ -981,14 +1045,60 @@ function renderHistory(parent) {
   parent.appendChild(cap);
 }
 
+let pfRefs = null, pfHead = null;
+
+/**
+ * 틱에서 쓰는 가벼운 갱신 — 숫자만 고친다.
+ * 통째로 다시 그리면 차트 3개를 매번 새로 만들고 자산 그래프가 10초마다 리셋된다.
+ */
+function tickPortfolio() {
+  const a = liveAccount();
+  if (!a || !pfRefs || !pfHead || pfRefs.syms !== a.items.map(h => h.symbol).join(',')) {
+    renderPortfolio();
+    return;
+  }
+  const sum = a.items.reduce((x, h) => x + h.evalKrw, 0);
+  pfHead.totalEl.textContent = short(a.totalKrw);
+  pfHead.todayEl.className = 'today mono ' + cls(a.dailyPnlKrw);
+  pfHead.todayEl.textContent = `오늘 ${signedShort(a.dailyPnlKrw)} (${pct(a.dailyPnlRate * 100)})`;
+  const prin = S.settings ? S.settings.principal : 0;
+  if (pfHead.prinEl && prin > 0) {
+    const gain = a.totalKrw - prin;
+    pfHead.prinEl.className = 'pnl mono ' + cls(gain);
+    pfHead.prinEl.textContent =
+      `원금 ${short(prin)} · ${signedShort(gain)} (${pct(gain / prin * 100)})`;
+  }
+  if (pfHead.legEls[0]) pfHead.legEls[0].textContent = short(a.evalKrw);
+  if (pfHead.legEls[1]) pfHead.legEls[1].textContent = short(a.cashKrw);
+
+  const by = new Map(a.items.map(h => [h.symbol, h]));
+  pfRefs.rows.forEach(ref => {
+    const h = by.get(ref.sym);
+    if (!h) return;
+    ref.evalEl.textContent = money(h.evalKrw);
+    const w = sum > 0 ? (h.evalKrw / sum * 100) : null;
+    ref.qtyEl.textContent = qtyLabel(h.quantity) + (w == null ? '' : ` · ${w.toFixed(1)}%`);
+    ref.gainEl.className = 'gain mono ' + cls(h.pnlKrw);
+    ref.gainEl.textContent = signedMoney(h.pnlKrw);
+    ref.rateEl.className = 'rate mono ' + cls(h.pnlRate);
+    ref.rateEl.textContent = pct(h.pnlRate * 100);
+  });
+}
+
 let acctTimer = null;
 
 async function loadPortfolio(force) {
   try {
-    S.account = await api('/api/account' + (force ? '?force=true' : ''));
+    // 차례로 기다리면 집 밖에서는 왕복만 3번이다. 서로 필요 없으니 같이 보낸다.
+    const [acc, snaps, settings] = await Promise.all([
+      api('/api/account' + (force ? '?force=true' : '')),
+      api('/api/snapshots' + (S.usdMode ? '?usd=true' : '')),
+      S.settings ? Promise.resolve(S.settings) : api('/api/settings'),
+    ]);
+    S.account = acc;
+    S.snaps = snaps;
+    S.settings = settings;
     if (force) S.hist = null;
-    if (!S.settings) S.settings = await api('/api/settings');
-    S.snaps = await api('/api/snapshots' + (S.usdMode ? '?usd=true' : ''));
     renderPortfolio();
     startTicks();
     startAccountRefresh();
@@ -1050,6 +1160,30 @@ function renderSettings() {
   };
   r1.appendChild(mb);
   wrap.appendChild(r1);
+
+  const pr2 = el('div', 'row2');
+  pr2.appendChild(el('span', 'g', '미리 받기'));
+  const psel = el('select', 'box pre-sel');
+  psel.style.width = '110px';
+  [[1, '켬 (빠름)'], [0, '끔 (데이터 절약)']].forEach(([v, lab]) => {
+    const o = el('option', null, lab);
+    o.value = v;
+    if (!!v === (s.prefetch !== false)) o.selected = true;
+    psel.appendChild(o);
+  });
+  psel.onchange = async () => {
+    const on = psel.value === '1';
+    try {
+      await api('/api/settings/prefetch', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ on }),
+      });
+      S.settings.prefetch = on;
+      say(on ? '종목을 미리 받아 둡니다.' : '누를 때만 받습니다.');
+    } catch (e) { say('⚠️ ' + e.message); }
+  };
+  pr2.appendChild(psel);
+  wrap.appendChild(pr2);
 
   const tr2 = el('div', 'row2');
   tr2.appendChild(el('span', 'g', '실시간 갱신'));
@@ -1478,6 +1612,18 @@ function go(tab, fromBack) {
 
 document.querySelectorAll('#tabs button').forEach(b =>
   b.onclick = () => go(b.dataset.tab));
+
+// 앱을 내려놓으면(화면 꺼짐·다른 앱) 시세 요청을 멈춘다 — 배터리·데이터를 아낀다.
+// 돌아오면 곧바로 한 번 받아 최신으로 맞춘다.
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    clearInterval(tickTimer); clearInterval(acctTimer); stopPrefetch();
+  } else {
+    startTicks();
+    if (S.tab === 'portfolio') { loadPortfolio(false); startAccountRefresh(); }
+    else if (S.tab === 'compare') loadCompare(false);
+  }
+});
 
 history.replaceState({ tab: S.tab }, '');
 window.addEventListener('popstate', e => {

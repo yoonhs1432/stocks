@@ -465,6 +465,7 @@ def api_settings():
         "principal": store.principal_total(),
         "trades": sum(len(v) for v in store.trades().values()),
         "tickSeconds": store.settings().get("tick_seconds", 10),
+        "prefetch": store.settings().get("prefetch", True),
         # 이 응답은 이미 인증을 통과한 사람만 받는다(미들웨어). 암호를 잊었을 때
         # config.json 을 열어 보지 않아도 되게 화면에서 확인·교체할 수 있게 한다.
         "accessToken": auth.token(),
@@ -661,6 +662,14 @@ def api_set_tick(body: dict):
     v = max(0, min(60, int(body.get("seconds", 10))))
     store.put("tick_seconds", v)
     return {"tickSeconds": v}
+
+
+@app.post("/api/settings/prefetch")
+def api_set_prefetch(body: dict):
+    """미리 받기 켜고 끄기 — 5G 에서 데이터를 아끼고 싶을 때."""
+    on = bool(body.get("on", True))
+    store.put("prefetch", on)
+    return {"prefetch": on}
 
 
 @app.post("/api/settings/months")

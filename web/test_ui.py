@@ -179,8 +179,10 @@ def run(pg, base: str, errs: list[str]) -> None:
     pg.click("#hdr-seg button:has-text('1분')")
     pg.wait_for_timeout(3000)
     check("1분을 누르면 칠이 옮겨간다", seg_on(pg) == "1분", f"칠={seg_on(pg)}")
-    check("1분을 누르면 분봉을 받아 온다", bool(got_min) and state(pg, "S.bar") == "1m",
-          f"요청={got_min} bar={state(pg, 'S.bar')}")
+    # 미리 받아 뒀으면 이 순간 요청이 없을 수도 있다 — 중요한 건 분봉이 그려졌는가다
+    check("1분을 누르면 분봉이 그려진다",
+          state(pg, "S.bar") == "1m" and state(pg, "!!(S.minutes && S.minutes.candles.length)") is True,
+          f"bar={state(pg, 'S.bar')} 분봉={state(pg, '(S.minutes||{}).candles ? S.minutes.candles.length : 0')}")
     pg.click("#hdr-seg button:has-text('일봉')")
     pg.wait_for_timeout(2500)
     check("일봉으로 되돌아온다", seg_on(pg) == "일봉" and state(pg, "S.bar") == "1d",
@@ -398,6 +400,43 @@ def run(pg, base: str, errs: list[str]) -> None:
     check("미리 받아 둔 종목은 기다림 없이 뜬다(1초 이내)", dt < 1.0, f"{dt:.2f}초")
 
     # ── 시장 전환이 빠른가 ──
+    # ── 켜 두면 무거워지지 않는가 ──
+    print("\n[누수] 틱이 돌아도 차트가 쌓이지 않는가")
+    pg.click("#tabs button[data-tab='portfolio']")
+    pg.wait_for_timeout(3000)
+    n0 = pg.evaluate("charts.length")
+    pg.evaluate("S.settings.tickSeconds = 1; startTicks()")
+    pg.wait_for_timeout(12000)
+    n1 = pg.evaluate("charts.length")
+    check("포트폴리오를 켜 둬도 차트가 안 쌓인다", n1 <= n0, f"{n0} → {n1}개")
+    check("틱이 돌아도 숫자는 갱신된다", "총자산" in pg.inner_text("#body"))
+    pg.evaluate("S.settings.tickSeconds = 10; startTicks()")
+
+    # ── 화면을 내려놓으면 요청을 멈추는가 ──
+    print("\n[절전] 화면을 내려놓으면 요청이 멈추는가")
+    hits = []
+    handler = lambda r: hits.append(r.url) if "/api/prices" in r.url else None
+    pg.on("request", handler)
+    pg.evaluate("S.settings.tickSeconds = 1; startTicks()")
+    pg.wait_for_timeout(3000)
+    before = len(hits)
+    pg.evaluate("""() => {
+      Object.defineProperty(document, 'hidden', { value: true, configurable: true });
+      document.dispatchEvent(new Event('visibilitychange'));
+    }""")
+    hits.clear()
+    pg.wait_for_timeout(4000)
+    check("내려놓으면 시세 요청이 멈춘다", before > 0 and len(hits) == 0,
+          f"켜져 있을 때 {before}건 → 내려놓고 {len(hits)}건")
+    pg.evaluate("""() => {
+      Object.defineProperty(document, 'hidden', { value: false, configurable: true });
+      document.dispatchEvent(new Event('visibilitychange'));
+    }""")
+    pg.wait_for_timeout(3000)
+    check("돌아오면 다시 받는다", len(hits) > 0, f"{len(hits)}건")
+    pg.remove_listener("request", handler)
+    pg.evaluate("S.settings.tickSeconds = 10; startTicks()")
+
     print("\n[전환] 미국↔한국이 기다림 없이 바뀌는가")
     pg.click("#tabs button[data-tab='compare']")
     pg.wait_for_timeout(2000)
@@ -537,6 +576,20 @@ def run(pg, base: str, errs: list[str]) -> None:
     check("고른 종목 칩이 화면 안에 보인다", chip is True, str(chip))
 
     # ── 칩을 연달아 누를 때 엉뚱한 종목이 그려지지 않는가 ──
+    # ── 1분봉도 미리 받아 두는가 ──
+    print("\n[분봉] 일봉↔1분 전환이 빠른가")
+    pg.click("#tabs button[data-tab='analysis']")
+    pg.wait_for_timeout(3500)
+    pg.wait_for_timeout(6000)          # 미리받기가 분봉까지 받을 시간
+    t0 = time.time()
+    pg.click("#hdr-seg button:has-text('1분')")
+    pg.wait_for_function("S.bar === '1m' && document.querySelectorAll('#body .ch-wrap canvas').length > 0",
+                         timeout=20000)
+    dt = time.time() - t0
+    check("1분봉 전환이 1초 이내", dt < 1.0, f"{dt:.2f}초")
+    pg.click("#hdr-seg button:has-text('일봉')")
+    pg.wait_for_timeout(2500)
+
     print("\n[연타] 늦게 온 옛 응답이 화면을 덮지 않는가")
     pg.click("#tabs button[data-tab='analysis']")
     pg.wait_for_timeout(3000)
@@ -626,6 +679,13 @@ def run(pg, base: str, errs: list[str]) -> None:
     check("입금 날짜가 달력 입력이다",
           pg.eval_on_selector("#body input[type='date']", "e => e.type") == "date")
     check("접속 암호 칸이 있다", "접속 암호" in pg.inner_text("#body"))
+    check("미리 받기를 끌 수 있다", pg.query_selector("#body .pre-sel") is not None)
+    pg.select_option("#body .pre-sel", "0")
+    pg.wait_for_timeout(1500)
+    check("끄면 설정에 남는다", pg.evaluate("S.settings.prefetch") is False,
+          str(pg.evaluate("S.settings.prefetch")))
+    pg.select_option("#body .pre-sel", "1")
+    pg.wait_for_timeout(1500)
     pg.click("#body button:has-text('보기')")
     pg.wait_for_timeout(400)
     shown = pg.inner_text("#body")
