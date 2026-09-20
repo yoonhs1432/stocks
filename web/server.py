@@ -236,6 +236,12 @@ def api_compare(market: str = "US", force: bool = False):
                 return JSONResponse({"error": str(e) or "조회 실패"}, status_code=502)
             _ov_cache[key] = (time.time(), rows)
 
+    # 저장해 둔 이름을 먼저 입힌다 (보유 종목이면 아래에서 토스 이름으로 덮인다)
+    saved = store.names()
+    for r in rows:
+        if saved.get(r["ticker"]):
+            r["name"] = saved[r["ticker"]]
+
     # 이름·보유 여부는 계좌에서 덧입힌다 (국내는 코드만 보면 무슨 종목인지 모른다)
     acc = _cache
     if acc:
@@ -407,7 +413,8 @@ def api_settings():
     return {
         "months": store.lookback_months(),
         "maxMonths": store.MAX_MONTHS,
-        "tickers": [{"ticker": t, "krw": store.is_krw(t)} for t in store.tickers()],
+        "tickers": [{"ticker": t, "krw": store.is_krw(t), "name": store.name_of(t)}
+                    for t in store.tickers()],
         "deposits": store.deposits(),
         "principal": store.principal_total(),
         "trades": sum(len(v) for v in store.trades().values()),
@@ -531,17 +538,43 @@ def api_tickers_bulk(body: dict):
     하나씩 추가하려면 20번을 눌러야 했다. 다른 앱에서 쓰던 목록을 그대로 붙여넣게 한다.
     """
     text = str(body.get("text", ""))
-    seen, out = set(), []
-    for raw in re.split(r"[\s,;]+", text):
-        t = raw.strip().upper()
-        if t and t not in seen:
-            seen.add(t)
-            out.append(t)
+    seen, out, nm = set(), [], {}
+    # 쉼표·줄바꿈으로 나눈다. "005930=삼성전자" 처럼 이름을 같이 적을 수 있고,
+    # 이름이 없는 덩어리는 공백으로도 나눈다 — "AAA BBB CCC" 처럼 붙여넣는 경우.
+    # (이름에는 공백이 들어갈 수 있으므로 = 가 있으면 통째로 둔다.)
+    items: list[str] = []
+    for raw in re.split(r"[,;\n]+", text):
+        chunk = raw.strip()
+        if not chunk:
+            continue
+        items += [chunk] if "=" in chunk else chunk.split()
+    for item in items:
+        code, _, name = item.partition("=")
+        t = code.strip().upper()
+        if not t or t in seen:
+            continue
+        seen.add(t)
+        out.append(t)
+        if name.strip():
+            nm[t] = name.strip()
     if not out:
         return JSONResponse({"error": "종목이 하나도 없습니다"}, status_code=400)
     store.set_tickers(out)
+    if nm:
+        store.set_names(nm)
     _ov_cache.clear()
     return {"tickers": out}
+
+
+@app.post("/api/tickers/name")
+def api_set_name(body: dict):
+    """종목에 이름 붙이기 — 코드만 보면 뭔지 모르는 국내 종목용."""
+    t = str(body.get("ticker", "")).strip().upper()
+    if not t:
+        return JSONResponse({"error": "종목이 없습니다"}, status_code=400)
+    store.set_name(t, str(body.get("name", "")))
+    _ov_cache.clear()
+    return {"ticker": t, "name": store.name_of(t)}
 
 
 @app.post("/api/settings/tick")

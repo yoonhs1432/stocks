@@ -235,6 +235,14 @@ def run(pg, base: str, errs: list[str]) -> None:
           f"{before_n}개 → {chips}")
     check("한국 종목은 눈에 띄게 표시된다",
           pg.query_selector("#body .tk.kr b") is not None)
+
+    # 코드=이름 으로 이름까지 한 번에
+    pg.fill("#body textarea", "005930=내가붙인이름, TQQQ")
+    pg.once("dialog", lambda d: d.accept())
+    pg.click("#body button:has-text('통째로 저장')")
+    pg.wait_for_timeout(2500)
+    check("코드=이름 으로 이름도 같이 저장된다",
+          "내가붙인이름" in pg.inner_text("#body"), pg.inner_text("#body .tklist"))
     # 뒤 검사들이 기본 종목을 쓰므로 목록을 되돌려 놓는다
     pg.fill("#body textarea", ", ".join(DEFAULT_TICKERS))
     pg.once("dialog", lambda d: d.accept())
@@ -383,10 +391,16 @@ def run(pg, base: str, errs: list[str]) -> None:
 
     # ── 잘못 눌리지 않는가 ──
     print("\n[조작]")
-    small = pg.evaluate("""() => [...document.querySelectorAll('#hdr-seg button, #hdr-btn, #body table tr, #body .tchips button')]
+    # 표 행은 일부러 촘촘하게 둔다(한 화면에 많이 보이게) — 버튼류만 손가락 크기로
+    small = pg.evaluate("""() => [...document.querySelectorAll('#hdr-seg button, #hdr-btn, #body .tchips button, #tabs button')]
         .map(e => e.getBoundingClientRect())
         .filter(r => r.height > 2 && r.height < 38).length""")
-    check("누르는 것들이 손가락 크기(38px 이상)", small == 0, f"작은 것 {small}개")
+    check("버튼류가 손가락 크기(38px 이상)", small == 0, f"작은 것 {small}개")
+    rowh = pg.evaluate("""() => {
+      const r = document.querySelectorAll('#body table tr.row');
+      return r.length > 1 ? Math.round(r[1].getBoundingClientRect().top - r[0].getBoundingClientRect().top) : 0;
+    }""")
+    check("비교 표 행 간격이 촘촘하다(24~36px)", 24 <= rowh <= 36, f"{rowh}px")
 
     reqs = []
     pg.on("request", lambda r: reqs.append(r.url) if "/api/compare" in r.url else None)

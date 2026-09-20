@@ -134,14 +134,14 @@ table.cmp col.c-day   { width: 4.2em; }
 table.cmp col.c-zm    { width: 2.4em; }
 table.cmp th {
   color: var(--text2); font-size: 12px; font-weight: 600; text-align: right;
-  padding: 12px 2px; border-bottom: 1px solid var(--line); cursor: pointer;  /* 정렬 버튼이기도 하다 */
+  padding: 10px 2px; border-bottom: 1px solid var(--line); cursor: pointer;  /* 정렬 버튼이기도 하다 */
   white-space: nowrap;
 }
 table.cmp th.l, table.cmp td.l { text-align: left; }
 table.cmp th.on { color: var(--text); }
 table.cmp td.l { overflow: hidden; text-overflow: ellipsis; }
 table.cmp td {
-  padding: 9px 2px; font-size: 14px; text-align: right;   /* 행 높이 40px — 옆 종목 오탭 방지 */
+  padding: 5px 2px; font-size: 14px; text-align: right;   /* 한 화면에 더 많이 보이게 */
   border-bottom: 1px solid var(--line); white-space: nowrap;
 }
 table.cmp tr { cursor: pointer; }
@@ -220,6 +220,8 @@ textarea.box {
 }
 .tk.kr b { color: #E0A24A; }
 .tk b { font-weight: 700; }
+.tk i { font-style: normal; color: var(--text2); font-size: 11px; margin-left: 4px;
+        max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tk button {
   background: none; border: 0; color: var(--muted); cursor: pointer;
   font-size: 12px; padding: 10px; min-height: 38px;

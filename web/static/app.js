@@ -1050,6 +1050,7 @@ function renderSettings() {
   s.tickers.forEach(t => {
     const c = el('span', 'tk' + (t.krw ? ' kr' : ''));
     c.appendChild(el('b', null, t.ticker));
+    if (t.name) c.appendChild(el('i', null, t.name));
     const x = el('button', null, '✕');
     x.onclick = async () => {
       if (!confirm(`${t.ticker} 를 목록에서 뺄까요?`)) return;
@@ -1067,11 +1068,11 @@ function renderSettings() {
   wrap.appendChild(bt);
   const ta = el('textarea', 'box');
   ta.rows = 4;
-  ta.placeholder = 'FNGU, TQQQ, SOXL, 005930 …  (쉼표·줄바꿈 아무거나)';
-  ta.value = s.tickers.map(t => t.ticker).join(', ');
+  ta.placeholder = 'FNGU, TQQQ, 005930=이름 …  (쉼표·줄바꿈으로 구분, 이름은 선택)';
+  ta.value = s.tickers.map(t => t.ticker + (t.name ? '=' + t.name : '')).join(', ');
   wrap.appendChild(ta);
   const br = el('div', 'row2');
-  br.appendChild(el('span', 'g muted', '적힌 것만 남고 나머지는 빠집니다'));
+  br.appendChild(el('span', 'g muted', '적힌 것만 남습니다 · 코드=이름 으로 이름도 지정'));
   const bb = el('button', 'gh acc', '통째로 저장');
   bb.onclick = async () => {
     const n = (ta.value.match(/[^\s,;]+/g) || []).length;

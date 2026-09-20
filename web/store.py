@@ -16,8 +16,16 @@ from pathlib import Path
 DATA = Path(os.environ.get("QUANT_DATA") or Path(__file__).parent / "data")
 _lock = threading.Lock()
 
-# 기본 종목 — Tickers.kt DEFAULT 와 같은 목록
+# 기본 종목
 DEFAULT_TICKERS = [
+    "BITU", "SOXL", "TARK", "HIBL", "TQQQ", "YINN", "SPYU", "FNGU", "DFEN",
+    "DPST", "GDXU", "WTIU", "KORU", "BNKU", "NRGU", "LABU", "NAIL", "QPUX",
+    "URAA", "000660", "473460", "005930",
+]
+
+# 예전 기본 목록. **한 번도 손대지 않은 경우에만** 위 목록으로 갈아 준다 —
+# 직접 고친 목록을 말없이 덮어쓰면 안 되므로 정확히 일치할 때만.
+_OLD_DEFAULT = [
     "FNGU", "TQQQ", "SOXL", "HIBL", "QPUX", "LABU", "DFEN", "DPST",
     "GDXU", "KORU", "005930", "AVXX", "SPYU", "TARK", "URTY", "TNA",
     "BNKU", "GLD",
@@ -72,7 +80,12 @@ def bar_count(months: int) -> int:
 
 def tickers() -> list[str]:
     v = _read("tickers.json", None)
-    return list(v) if isinstance(v, list) and v else list(DEFAULT_TICKERS)
+    if not isinstance(v, list) or not v:
+        return list(DEFAULT_TICKERS)
+    if v == _OLD_DEFAULT:
+        set_tickers(DEFAULT_TICKERS)
+        return list(DEFAULT_TICKERS)
+    return list(v)
 
 
 def set_tickers(v: list[str]) -> None:
@@ -208,3 +221,36 @@ def backup_daily(day: str) -> None:
             x.unlink(missing_ok=True)
     except OSError:
         pass          # 백업이 실패해도 화면은 계속 떠야 한다
+
+
+# ── 종목 이름 ──
+# 국내 종목은 코드만 보면 뭔지 알 수 없다. 보유 중이면 토스가 이름을 주지만 아니면 없다.
+# 그래서 **사용자가 붙인 이름**을 여기 저장해 둔다. 종목 이름을 코드에 박지 않기 위한
+# 방법이기도 하다 — 이름은 사용자 데이터지 프로그램의 일부가 아니다.
+
+def names() -> dict[str, str]:
+    v = _read("names.json", {})
+    return v if isinstance(v, dict) else {}
+
+
+def set_name(ticker: str, name: str) -> None:
+    v = names()
+    t = ticker.strip().upper()
+    if name.strip():
+        v[t] = name.strip()
+    else:
+        v.pop(t, None)
+    _write("names.json", v)
+
+
+def set_names(m: dict[str, str]) -> None:
+    v = names()
+    for t, n in m.items():
+        t = t.strip().upper()
+        if n.strip():
+            v[t] = n.strip()
+    _write("names.json", v)
+
+
+def name_of(ticker: str) -> str:
+    return names().get(ticker.strip().upper(), "")
