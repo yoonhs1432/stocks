@@ -232,8 +232,10 @@ def principal_total() -> float:
 # 입금·매매·자산 추이는 **토스에서 다시 받아올 수 없다.** PC 가 고장 나거나 폴더를
 # 잘못 지우면 그걸로 끝이라, ① 화면에서 받아 갈 수 있는 파일 ② PC 안의 하루 한 벌
 # 복사본 두 가지를 둔다. 시세 캐시(candles/)는 다시 받으면 되므로 뺀다.
-BACKUP_FILES = ("settings.json", "tickers.json", "trades.json",
-                "deposits.json", "snapshots.json")
+# 다시 못 만드는 것만 넣는다. 시세 캐시(candles/)와 종목 이름 목록(universe.json)은
+# 토스에서 다시 받으면 되므로 뺀다.
+BACKUP_FILES = ("settings.json", "tickers.json", "trades.json", "deposits.json",
+                "snapshots.json", "names.json", "markets.json")
 BACKUP_KEEP = 14          # 최근 14일치만 남긴다
 
 

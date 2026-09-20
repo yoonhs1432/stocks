@@ -679,7 +679,7 @@ def run(pg, base: str, errs: list[str]) -> None:
       const o = await r.json();
       return o && o.files ? Object.keys(o.files).length : 0;
     }""")
-    check("백업 파일을 내려받을 수 있다", dl >= 5, f"파일 {dl}개")
+    check("백업에 되살릴 수 없는 기록이 다 들어 있다", dl >= 7, f"파일 {dl}개")
 
     # ── 터널을 통해 들어온 요청이 암호를 건너뛰지 않는가 ──
     # 터널은 PC 안에서 127.0.0.1 로 붙는다. "PC 자신은 통과" 규칙이 그대로 걸리면
