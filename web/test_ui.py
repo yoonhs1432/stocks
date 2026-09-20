@@ -341,6 +341,27 @@ def run(pg, base: str, errs: list[str]) -> None:
     }""")
     check("고른 종목 칩이 화면 안에 보인다", chip is True, str(chip))
 
+    # ── 칩을 연달아 누를 때 엉뚱한 종목이 그려지지 않는가 ──
+    print("\n[연타] 늦게 온 옛 응답이 화면을 덮지 않는가")
+    pg.click("#tabs button[data-tab='analysis']")
+    pg.wait_for_timeout(3000)
+    pg.evaluate("""() => {
+      const orig = window.fetch;                 // 먼저 누른 종목만 3초 늦춘다
+      window.fetch = (u, o) => {
+        const d = String(u).includes('TQQQ') ? 3000 : 0;
+        return new Promise(r => setTimeout(() => r(orig(u, o)), d));
+      };
+    }""")
+    pg.click("#body .tchips button:has-text('TQQQ')")
+    pg.wait_for_timeout(400)
+    pg.click("#body .tchips button:has-text('SOXL')")
+    pg.wait_for_timeout(6000)
+    shown = pg.evaluate("document.querySelector('#body .anl-head .tk')?.textContent")
+    chip = pg.evaluate("document.querySelector('#body .tchips button.on')?.textContent")
+    check("칩과 차트의 종목이 같다", shown == chip == "SOXL", f"칩={chip} 차트={shown}")
+    pg.reload(wait_until="networkidle")          # fetch 를 원래대로
+    pg.wait_for_timeout(3000)
+
     # ── 포트폴리오·설정에 새로 넣은 것들 ──
     print("\n[추가된 정보]")
     pg.click("#tabs button[data-tab='portfolio']")

@@ -471,16 +471,22 @@ function lineChart(parent, title, times, series, guides = [], linked = null, rec
   return ch;
 }
 
+// 분석 요청 번호. 칩을 빠르게 연달아 누르면 먼저 부른 종목의 응답이 **나중에** 도착해
+// 화면을 덮어쓸 수 있다(칩은 SOXL 인데 차트는 TQQQ). 마지막 요청이 아니면 버린다.
+let analysisSeq = 0;
+
 async function loadAnalysis() {
+  const seq = ++analysisSeq;
   // 종목 칩과 기본 종목이 비교 데이터에서 나온다. 분석 탭을 열어 둔 채 새로고침하면
   // 그게 없어서 화면이 통째로 비었다 → 없으면 여기서 직접 받아 온다.
   if (!S.rows) {
     $('#body').innerHTML = '<p class="muted pad">종목 목록 불러오는 중…</p>';
     try {
       const o = await api(`/api/compare?market=${S.market}`);
+      if (seq !== analysisSeq) return;
       S.rows = o.rows;
       S.rowsAt = (o.asOf ? o.asOf * 1000 : Date.now());
-    } catch (e) { fail(e); return; }
+    } catch (e) { fail(e, () => loadAnalysis()); return; }
   }
   if (!S.ticker || !S.rows.some(r => r.ticker === S.ticker)) {
     S.ticker = S.rows.length ? S.rows[0].ticker : null;
@@ -489,11 +495,20 @@ async function loadAnalysis() {
   S.analysis = null;
   renderAnalysis();
   try {
-    S.analysis = await api('/api/analysis?ticker=' + encodeURIComponent(S.ticker));
-    if (S.bar === '1m') S.minutes = await api('/api/minutes?ticker=' + encodeURIComponent(S.ticker));
+    const a = await api('/api/analysis?ticker=' + encodeURIComponent(S.ticker));
+    if (seq !== analysisSeq) return;          // 그 사이 다른 종목을 눌렀다
+    S.analysis = a;
+    if (S.bar === '1m') {
+      const m = await api('/api/minutes?ticker=' + encodeURIComponent(S.ticker));
+      if (seq !== analysisSeq) return;
+      S.minutes = m;
+    }
     renderAnalysis();
     startTicks();
-  } catch (e) { S.analysis = null; renderAnalysis(e); }
+  } catch (e) {
+    if (seq !== analysisSeq) return;
+    S.analysis = null; renderAnalysis(e);
+  }
 }
 
 // ══════════════════════════ 포트폴리오 ══════════════════════════
