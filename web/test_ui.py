@@ -414,6 +414,29 @@ def run(pg, base: str, errs: list[str]) -> None:
     check("암호를 새로 만들 수 있다", pg.evaluate("S.settings.accessToken") != old_tok,
           "그대로였다")
     check("현재 버전이 보인다", "현재 버전" in pg.inner_text("#body"))
+
+    # ── 새 버전 알림 띠 ──
+    print("\n[알림] 새 버전이 올라오면 띠로 알려 주는가")
+    pg.evaluate("localStorage.removeItem('skipVer')")
+    pg.evaluate("checkUpdate()")
+    pg.wait_for_timeout(2500)
+    bar = pg.query_selector("#newver")
+    check("새 버전이 있으면 띠가 뜬다", bar is not None and "새 버전" in bar.inner_text(),
+          bar.inner_text() if bar else "안 뜸")
+    if bar:
+        check("무엇이 바뀌는지 적혀 있다", "v2" in bar.inner_text(), bar.inner_text())
+        pg.click("#newver .nv-x")
+        pg.wait_for_timeout(500)
+        check("✕ 를 누르면 그 버전은 다시 안 띄운다",
+              pg.query_selector("#newver") is None)
+        pg.evaluate("checkUpdate()")
+        pg.wait_for_timeout(1500)
+        check("넘어간 버전은 다시 확인해도 안 뜬다", pg.query_selector("#newver") is None)
+        pg.evaluate("localStorage.removeItem('skipVer'); checkUpdate()")
+        pg.wait_for_timeout(1500)
+        check("넘어가기를 지우면 다시 뜬다", pg.query_selector("#newver") is not None)
+    pg.click("#tabs button[data-tab='settings']")
+    pg.wait_for_timeout(2000)
     pg.click("#body button:has-text('업데이트 받기')")
     pg.wait_for_timeout(2500)
     got = pg.inner_text("#body")

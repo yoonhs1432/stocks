@@ -396,6 +396,40 @@ def version() -> str:
     return out if code == 0 else "?"
 
 
+# 새 버전이 올라왔는지만 조용히 확인한다(받지는 않는다). 받는 시점은 사용자가 정한다.
+UPDATE_TTL = 300.0
+_upd_lock = threading.Lock()
+_upd: dict = {}
+
+
+def _check_update(force: bool = False) -> dict:
+    with _upd_lock:
+        if not force and _upd and time.time() - _upd.get("at", 0) < UPDATE_TTL:
+            return dict(_upd)
+
+    info = {"at": time.time(), "available": False, "behind": 0, "subject": "",
+            "version": version()}
+    code, _ = _git("fetch", "origin", "main", timeout=60)
+    if code == 0:
+        c2, out = _git("rev-list", "--count", "HEAD..origin/main", timeout=20)
+        if c2 == 0 and out.strip().isdigit():
+            info["behind"] = int(out.strip())
+            info["available"] = info["behind"] > 0
+            if info["available"]:
+                _, subj = _git("log", "-1", "--format=%s", "origin/main", timeout=20)
+                info["subject"] = subj.splitlines()[0] if subj else ""
+    # 확인에 실패해도 조용히 넘긴다 — 인터넷이 잠깐 끊긴 것뿐일 수 있다
+    with _upd_lock:
+        _upd.clear()
+        _upd.update(info)
+    return dict(info)
+
+
+@app.get("/api/update/check")
+def api_update_check(force: bool = False):
+    return _check_update(force)
+
+
 @app.post("/api/update")
 def api_update():
     """최신 코드를 받아 온다. 받은 게 있으면 스스로 종료해 새 코드로 다시 뜬다."""
@@ -403,6 +437,8 @@ def api_update():
     if code != 0:
         return JSONResponse({"error": f"받지 못했습니다\n{out}"}, status_code=502)
 
+    with _upd_lock:
+        _upd.clear()            # 받았으니 확인 결과를 새로 구한다
     changed = "Already up to date" not in out and "이미 업데이트" not in out
     supervised = os.environ.get("QUANT_SUPERVISED") == "1"
     if changed and supervised:

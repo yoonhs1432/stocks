@@ -896,23 +896,7 @@ function renderSettings() {
   wrap.appendChild(vr);
 
   const ub = el('button', 'pri', '업데이트 받기');
-  ub.onclick = async () => {
-    ub.disabled = true;
-    say('받는 중…');
-    try {
-      const o = await api('/api/update', { method: 'POST' });
-      if (o.restarting) {
-        say('새 코드를 받았습니다. 다시 시작하는 중…');
-        await waitForServer();
-        location.reload();
-        return;
-      }
-      say(o.changed ? `받았습니다. ${o.note}` : '이미 최신입니다.');
-      S.settings = await api('/api/settings');
-      renderSettings();
-    } catch (e) { say('⚠️ ' + e.message); }
-    ub.disabled = false;
-  };
+  ub.onclick = () => applyUpdate(ub, say);
   wrap.appendChild(ub);
 
   // ── 데이터 ──
@@ -988,6 +972,67 @@ function renderSettings() {
   });
 
   body.appendChild(wrap);
+}
+
+/**
+ * 새 코드를 받아 적용한다. 설정 탭의 버튼과 위쪽 알림 띠가 같이 쓴다.
+ * 받은 게 있으면 서버가 스스로 재시작하므로, 다시 뜰 때까지 기다렸다 새로고침한다.
+ */
+async function applyUpdate(btn, say = () => {}) {
+  if (btn.disabled) return;
+  btn.disabled = true;
+  const label = btn.textContent;
+  btn.textContent = '받는 중…';
+  say('받는 중…');
+  try {
+    const o = await api('/api/update', { method: 'POST' });
+    if (o.restarting) {
+      btn.textContent = '다시 시작 중…';
+      say('새 코드를 받았습니다. 다시 시작하는 중…');
+      await waitForServer();
+      location.reload();
+      return;
+    }
+    say(o.changed ? `받았습니다. ${o.note}` : '이미 최신입니다.');
+    S.upd = null;
+    renderBanner();
+    if (S.tab === 'settings') { S.settings = await api('/api/settings'); renderSettings(); }
+  } catch (e) { say('⚠️ ' + e.message); }
+  btn.disabled = false;
+  btn.textContent = label;
+}
+
+// ── 새 버전 알림 띠 ──
+// 서버가 5분마다 확인만 한다. 받는 시점은 사용자가 정한다 — 보고 있는데 화면이 갑자기
+// 다시 뜨면 곤란하기 때문이다.
+function renderBanner() {
+  const o = S.upd;
+  let b = $('#newver');
+  if (!o || !o.available || localStorage.getItem('skipVer') === o.subject) {
+    if (b) b.remove();
+    return;
+  }
+  if (!b) {
+    b = el('div');
+    b.id = 'newver';
+    document.body.insertBefore(b, $('#body'));
+  }
+  b.innerHTML = '';
+  b.appendChild(el('span', 'nv-txt', `새 버전 — ${o.subject}`));
+  const go = el('button', 'nv-go', '받기');
+  go.onclick = () => applyUpdate(go);
+  b.appendChild(go);
+  const x = el('button', 'nv-x', '✕');
+  x.title = '이 버전은 넘어가기';
+  x.onclick = () => { localStorage.setItem('skipVer', o.subject); b.remove(); };
+  b.appendChild(x);
+}
+
+async function checkUpdate() {
+  try {
+    S.upd = await api('/api/update/check');
+    renderBanner();
+  } catch (e) { /* 확인 실패는 조용히 — 인터넷이 잠깐 끊겼을 수 있다 */ }
 }
 
 /** 서버가 다시 뜰 때까지 기다린다 — 재시작은 보통 2~5초. */
@@ -1087,4 +1132,8 @@ document.querySelectorAll('#tabs button').forEach(b =>
 
 // 설정은 포트폴리오의 원금 표시에도 필요하므로 처음에 한 번 받아 둔다
 api('/api/settings').then(o => { S.settings = o; }).catch(() => {});
+
+// 새 버전이 올라왔는지 확인 — 열 때 한 번, 그 뒤 5분마다
+checkUpdate();
+setInterval(checkUpdate, 5 * 60 * 1000);
 go(S.tab);
