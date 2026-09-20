@@ -145,23 +145,41 @@ function zmScatter(host, r, height = 240, marks = []) {
 }
 
 /**
- * 매매 마커 — 안드로이드와 같은 모양: 채운 원 + 얇은 흰 테두리 + 흰 ↑/↓.
+ * 매매 마커 — 안드로이드와 같은 모양: 채운 원 + 얇은 흰 테두리 + 흰 화살표.
  * 산점도와 시계열 차트가 **같은 그림**을 쓴다(app.js 의 markLayer 가 이걸 부른다).
+ * 크기는 안드로이드 화면 실측값 — 캡처(배율 3.5)에서 원 지름 28px,
+ * 화살표 16x23px, 기둥 폭 6px 였다. → 원 반지름 4px.
  */
-function marker(g, cx, cy, buy, r = 6.5) {
+const MARK_R = 4;
+const MARK = { ring: 0.09, head: 0.57, stem: 0.21, height: 1.64, headRatio: 0.52 };
+
+function marker(g, cx, cy, buy, r = MARK_R) {
+  // 원 + 흰 테두리
   g.beginPath();
   g.arc(cx, cy, r, 0, Math.PI * 2);
   g.fillStyle = buy ? '#DC2626' : '#2563EB';
   g.fill();
-  g.lineWidth = 0.8;                       // 얇은 흰 테두리
+  g.lineWidth = r * MARK.ring;
   g.strokeStyle = '#fff';
   g.stroke();
+
+  // 화살표 — 폰트 글자가 아니라 도형으로 그린다 (안드로이드와 같은 굵기)
+  const h = r * MARK.height, hw = r * MARK.head, sw = r * MARK.stem;
+  const s = buy ? 1 : -1;                  // 매수 ↑ · 매도 ↓
+  const tip = cy - s * h / 2;              // 머리 꼭짓점
+  const base = cy + s * h / 2;             // 기둥 끝
+  const mid = tip + s * h * MARK.headRatio;  // 머리와 기둥이 만나는 높이
+  g.beginPath();
+  g.moveTo(cx, tip);
+  g.lineTo(cx + hw, mid);
+  g.lineTo(cx + sw, mid);
+  g.lineTo(cx + sw, base);
+  g.lineTo(cx - sw, base);
+  g.lineTo(cx - sw, mid);
+  g.lineTo(cx - hw, mid);
+  g.closePath();
   g.fillStyle = '#fff';
-  g.font = `bold ${Math.round(r * 1.5)}px -apple-system, "Noto Sans KR", sans-serif`;
-  g.textAlign = 'center';
-  g.textBaseline = 'middle';
-  g.fillText(buy ? '↑' : '↓', cx, cy + r * 0.06);
-  g.textBaseline = 'alphabetic';
+  g.fill();
 }
 
 /** 현재 위치 별표 — 마젠타. */

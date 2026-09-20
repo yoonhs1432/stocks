@@ -239,15 +239,20 @@ def run(pg, base: str, errs: list[str]) -> None:
       renderAnalysis();
     }""")
     pg.wait_for_timeout(2000)
+    # 마커 판 위에는 마커 말고 아무것도 안 그린다 → 칠해진 픽셀 수로 센다.
+    # (마커가 작아서 진한 빨강만 세면 몇 개 안 나온다 — 가장자리가 거의 다 섞인 색)
     layers = pg.evaluate("""() => [...document.querySelectorAll('#body canvas.mk')].map(c => {
       const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
-      let hit = 0;
-      for (let i = 0; i < d.length; i += 4)
-        if (Math.abs(d[i]-220) < 12 && Math.abs(d[i+1]-38) < 14 && Math.abs(d[i+2]-38) < 14) hit++;
-      return hit;
+      let ink = 0, red = 0;
+      for (let i = 0; i < d.length; i += 4) {
+        if (d[i + 3] < 8) continue;
+        ink++;
+        if (d[i] > 150 && d[i+1] < 120 && d[i+2] < 120) red++;
+      }
+      return [ink, red];
     })""")
     check("캔들과 Z·M 양쪽에 매매 마커가 찍힌다",
-          len(layers) == 2 and all(x > 30 for x in layers), str(layers))
+          len(layers) == 2 and all(ink > 40 and red > 15 for ink, red in layers), str(layers))
 
     pg.click("#hdr-seg button:has-text('산점도')")
     pg.wait_for_timeout(2500)
@@ -260,7 +265,8 @@ def run(pg, base: str, errs: list[str]) -> None:
         if (Math.abs(d[i] - 220) < 12 && Math.abs(d[i+1] - 38) < 14 && Math.abs(d[i+2] - 38) < 14) hit++;
       return hit;
     }""")
-    check("산점도에 매매 마커가 그려진다", red > 30, f"마커 색 픽셀 {red}개")
+    # 안드로이드 크기(반지름 4px)라 진한 빨강 원픽셀은 열 몇 개뿐이다
+    check("산점도에 매매 마커가 그려진다", red > 6, f"마커 색 픽셀 {red}개")
     pg.click("#hdr-seg button:has-text('시계열')")
     pg.wait_for_timeout(2000)
 
