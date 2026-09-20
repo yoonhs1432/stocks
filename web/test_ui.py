@@ -234,7 +234,8 @@ def run(pg, base: str, errs: list[str]) -> None:
     pg.once("dialog", lambda d: d.accept())
     pg.click("#body button:has-text('통째로 저장')")
     pg.wait_for_timeout(2500)
-    chips = [c.inner_text().replace("✕", "").strip() for c in pg.query_selector_all("#body .tk")]
+    # 칩에는 이름도 같이 붙으므로 코드(b)만 본다
+    chips = pg.evaluate("[...document.querySelectorAll('#body .tk b')].map(e => e.textContent)")
     check("붙여넣은 목록으로 통째로 바뀐다", chips == ["AAA", "BBB", "CCC", "005930"],
           f"{before_n}개 → {chips}")
     check("한국 종목은 눈에 띄게 표시된다",
@@ -319,6 +320,42 @@ def run(pg, base: str, errs: list[str]) -> None:
 
     # ── 오류가 났을 때 되살아날 수 있는가 ──
     # ── 탭을 옮겼을 때 이전 탭 화면이 남지 않는가 ──
+    # ── 국내 종목 이름이 저절로 붙는가 ──
+    print("\n[이름] 국내 코드가 이름으로 보이는가")
+    pg.click("#tabs button[data-tab='compare']")
+    pg.wait_for_timeout(1500)
+    pg.click("#hdr-seg button:has-text('한국')")
+    pg.wait_for_timeout(3000)
+    pg.click("#hdr-btn")                     # 목록을 받아 오면서 종목 이름도 받아 둔다
+    pg.wait_for_timeout(6000)
+    pg.click("#hdr-btn")
+    pg.wait_for_timeout(5000)
+    names = pg.evaluate("(S.rows||[]).map(r => r.name)")
+    codes = pg.evaluate("(S.rows||[]).map(r => r.ticker)")
+    import re as _re2
+    bare = [n for n in names if _re2.fullmatch(r"\d{6}", n or "")]
+    check("국내 종목이 코드가 아니라 이름으로 보인다",
+          names and not bare and any("국내 ETF" in (n or "") for n in names),
+          f"{list(zip(codes, names))}")
+    pg.click("#hdr-seg button:has-text('미국')")
+    pg.wait_for_timeout(3000)
+
+    # ── 뒤로가기 ──
+    print("\n[뒤로가기] 직전 탭으로 돌아가는가")
+    pg.click("#tabs button[data-tab='portfolio']")
+    pg.wait_for_timeout(2500)
+    pg.click("#tabs button[data-tab='settings']")
+    pg.wait_for_timeout(2000)
+    pg.go_back()
+    pg.wait_for_timeout(2500)
+    check("뒤로 가면 직전 탭(포트폴리오)으로", "포트폴리오" in pg.inner_text("#title"),
+          pg.inner_text("#title"))
+    pg.go_back()
+    pg.wait_for_timeout(2500)
+    check("한 번 더 뒤로 가면 비교로", "비교" in pg.inner_text("#title"),
+          pg.inner_text("#title"))
+    check("뒤로 가도 화면이 비지 않는다", pg.query_selector("#body table.cmp") is not None)
+
     print("\n[탭] 옮기면 이전 내용이 지워지는가")
     pg.evaluate("S.analysis = null; S.account = null; S.settings = null")
     pg.click("#tabs button[data-tab='compare']")

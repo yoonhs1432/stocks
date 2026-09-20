@@ -368,7 +368,7 @@ function renderAnalysis(err) {
 
   // 헤더 — 종목 · σ·β · 현재가 · 평단
   const head = el('div', 'anl-head');
-  head.appendChild(el('span', 'tk', a.ticker));
+  head.appendChild(el('span', 'tk', a.name || a.ticker));
   const px = live[a.ticker] ?? (r ? r.lastPrice : a.candles.at(-1).close);
   head.appendChild(el('span', 'mono', price(a.krw, px)));
   if (r) head.appendChild(el('span', 'sub', `σ±${r.sigmaPct.toFixed(0)}% · β ${r.beta.toFixed(1)}`));
@@ -1240,8 +1240,10 @@ function header() {
   }
 }
 
-function go(tab) {
+function go(tab, fromBack) {
   if (tab !== S.tab) S.msg = '';      // 지난 탭의 안내 문구를 들고 다니지 않는다
+  // 폰의 뒤로가기가 앱을 닫아 버리지 않고 **직전 탭으로** 가게 한다.
+  if (!fromBack && tab !== S.tab) history.pushState({ tab }, '');
   S.tab = tab;
   localStorage.setItem('tab', tab);
   window.scrollTo(0, 0);      // 탭을 바꿨는데 이전 탭의 스크롤 위치에서 시작하면 헷갈린다
@@ -1266,6 +1268,12 @@ function go(tab) {
 
 document.querySelectorAll('#tabs button').forEach(b =>
   b.onclick = () => go(b.dataset.tab));
+
+history.replaceState({ tab: S.tab }, '');
+window.addEventListener('popstate', e => {
+  const t = (e.state && e.state.tab) || 'compare';
+  if (t !== S.tab) go(t, true);
+});
 
 /**
  * 모바일 크롬은 주소창이 접혔다 펴질 때 **보이는 영역과 레이아웃 영역이 어긋난다.**

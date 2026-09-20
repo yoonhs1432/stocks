@@ -110,6 +110,15 @@ class MockToss:
         self._base[symbol] = bars[-1]["close"]
         return bars
 
+    def list_stocks(self, market: str, status: str = "ACTIVE"):
+        if market == "KOSPI":
+            return [{"symbol": "005930", "name": "가나전자", "type": "STOCK"},
+                    {"symbol": "000660", "name": "다라반도체", "type": "STOCK"},
+                    {"symbol": "473460", "name": "국내 ETF A", "type": "ETF"}]
+        if market == "KOSDAQ":
+            return [{"symbol": "SOLKR", "name": "국내 ETF B", "type": "ETF"}]
+        return []
+
     def fills(self, account_seq: int, max_pages: int = 20):
         return [
             {"orderId": "o1", "symbol": "SOXL", "buy": True, "date": "2026-08-14",

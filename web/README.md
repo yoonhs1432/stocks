@@ -247,7 +247,8 @@ py test_ui.py        # 실패가 있으면 종료코드 1
 | `toss.py` | 토스 API 클라이언트 (**조회 전용**. 주문·정정·취소는 구현하지 않는다) |
 | `quant.py` | 회귀·Z·M·MACD·RSI — `quant/Quant.kt` 를 그대로 옮긴 것 |
 | `repo.py` | 일봉 캐시(6시간, 파일) + 비교/분석 계산. 동시 요청 3개 제한 + 429 재시도 |
-| `store.py` | 설정·종목·매매기록·원금 (`web/data/` 아래 JSON) |
+| `store.py` | 설정·종목·매매기록·원금·시장·이름 (`web/data/` 아래 JSON) |
+| `universe.py` | 국내 종목 이름 — `stocks/all` 을 하루 1회 받아 코드에 이름을 붙인다 |
 | `server.py` | FastAPI 엔드포인트 |
 | `snapshots.py` | 일별 잔고 기록 (`data/Snapshots.kt`) — 자산 추이의 유일한 출처 |
 | `static/` | 화면. 안드로이드와 같은 A-1 토스 블루 토큰. 차트는 lightweight-charts |

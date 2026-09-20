@@ -118,6 +118,9 @@ def is_krw(ticker: str) -> bool:
     m = markets().get(t)
     if m is not None:
         return bool(m)
+    import universe               # 받아 둔 국내 종목 목록에 있으면 국내
+    if universe.is_kr(t):
+        return True
     return len(t) == 6 and t.isdigit()
 
 

@@ -250,6 +250,22 @@ class Toss:
                 out[o.get("symbol", "")] = {"price": v, "at": o.get("timestamp")}
         return out
 
+    def list_stocks(self, market: str, status: str = "ACTIVE") -> list[dict]:
+        """마켓별 전체 종목 — `GET /api/v1/stocks/all`.
+
+        국내 종목은 코드(005930)만으로는 뭔지 알 수 없어서 이름을 얻으려고 쓴다.
+        마켓당 수천 건이라 **하루 1회** 받아 캐시한다(`universe.py`).
+        market: KOSPI · KOSDAQ · KR_ETC · NYSE · NASDAQ · AMEX · US_ETC
+        """
+        arr = self._get("/api/v1/stocks/all", {"market": market, "status": status})
+        out = []
+        for o in arr if isinstance(arr, list) else []:
+            sym = str(o.get("symbol") or "").strip()
+            if sym:
+                out.append({"symbol": sym, "name": str(o.get("name") or "").strip(),
+                            "type": str(o.get("securityType") or "")})
+        return out
+
     def ohlc(self, symbol: str, interval: str = "1d", count: int = 520,
              adjusted: bool = True) -> list[dict]:
         """``GET /api/v1/candles`` — 요청당 200봉 상한이라 ``nextBefore`` 로 이어 받는다.

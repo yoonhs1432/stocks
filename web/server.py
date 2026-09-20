@@ -33,6 +33,7 @@ import quant
 import repo
 import snapshots
 import store
+import universe
 from toss import Toss, TossError
 
 HERE = Path(__file__).parent
@@ -237,12 +238,6 @@ def api_compare(market: str = "US", force: bool = False):
                 return JSONResponse({"error": str(e) or "조회 실패"}, status_code=502)
             _ov_cache[key] = (time.time(), rows)
 
-    # 저장해 둔 이름을 먼저 입힌다 (보유 종목이면 아래에서 토스 이름으로 덮인다)
-    saved = store.names()
-    for r in rows:
-        if saved.get(r["ticker"]):
-            r["name"] = saved[r["ticker"]]
-
     # 이름·보유 여부는 계좌에서 덧입힌다 (국내는 코드만 보면 무슨 종목인지 모른다)
     acc = _cache
     if acc:
@@ -253,6 +248,18 @@ def api_compare(market: str = "US", force: bool = False):
                 r["name"] = h["name"] or r["ticker"]
                 r["holding"] = True
                 r["avgPrice"] = h["avgPrice"]
+
+    # 이름 우선순위: 내가 붙인 이름 > 보유(토스) > 받아 둔 종목 목록 > 코드
+    saved = store.names()
+    for r in rows:
+        t = r["ticker"]
+        if saved.get(t):
+            r["name"] = saved[t]
+        elif r.get("name") in (None, "", t):
+            r["name"] = universe.name_of(t) or t
+
+    # 국내 종목 목록을 하루 1회 받아 둔다 — 코드만 뜨던 국내 종목에 이름을 붙이려고
+    threading.Thread(target=lambda: universe.ensure(_toss), daemon=True).start()
     # 일봉이 캐시에 올라온 김에 분석도 미리 계산해 둔다. 폰에서 종목을 누르는 순간
     # 계산이 시작되는 게 아니라 이미 끝나 있게.
     threading.Thread(target=_warm_analysis, args=(tickers,), daemon=True).start()
@@ -310,6 +317,7 @@ def _analysis(ticker: str, force: bool = False) -> dict:
 
     payload = _clean({
         "ticker": ticker,
+        "name": store.name_of(ticker) or universe.name_of(ticker) or ticker,
         "krw": store.is_krw(ticker),
         "candles": bars,
         "trades": store.trades().get(ticker, []),
@@ -414,7 +422,8 @@ def api_settings():
     return {
         "months": store.lookback_months(),
         "maxMonths": store.MAX_MONTHS,
-        "tickers": [{"ticker": t, "krw": store.is_krw(t), "name": store.name_of(t)}
+        "tickers": [{"ticker": t, "krw": store.is_krw(t),
+                     "name": store.name_of(t) or universe.name_of(t)}
                     for t in store.tickers()],
         "deposits": store.deposits(),
         "principal": store.principal_total(),
