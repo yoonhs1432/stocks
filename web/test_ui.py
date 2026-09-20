@@ -381,6 +381,30 @@ def run(pg, base: str, errs: list[str]) -> None:
         pg.wait_for_timeout(3000)
 
     # ── 분석을 미리 받아 두는가 ──
+    # ── 탭을 빨리 누르면 늦게 온 화면이 덮어쓰지 않는가 ──
+    print("\n[탭 연타] 늦게 온 탭 내용이 딴 탭 자리에 그려지지 않는가")
+    pg.evaluate("""() => {
+      const f = window.fetch;                      // 포폴만 2초 늦춘다
+      window.fetch = (u, o) => {
+        const slow = String(u).includes('/api/account') || String(u).includes('/api/snapshots');
+        return new Promise(r => setTimeout(() => r(f(u, o)), slow ? 2000 : 0));
+      };
+      S.account = null; S.snaps = null;
+    }""")
+    pg.click("#tabs button[data-tab='analysis']")
+    pg.wait_for_timeout(700)
+    pg.click("#tabs button[data-tab='portfolio']")
+    pg.wait_for_timeout(300)
+    pg.click("#tabs button[data-tab='analysis']")
+    pg.wait_for_timeout(4000)
+    body3 = pg.inner_text("#body")
+    check("분석·포폴·분석을 빨리 눌러도 분석 화면이 남는다",
+          pg.evaluate("document.querySelector('#tabs button.on').dataset.tab") == "analysis"
+          and "총자산" not in body3,
+          body3[:50].replace("\n", " "))
+    pg.reload(wait_until="networkidle")             # fetch 를 원래대로
+    pg.wait_for_timeout(3000)
+
     print("\n[미리받기] 종목을 누르기 전에 받아 두는가")
     pg.evaluate("anCache.clear()")
     pg.click("#tabs button[data-tab='compare']")

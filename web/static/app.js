@@ -29,6 +29,13 @@ const S = {
 let tickTimer = null;
 const live = {};          // symbol → 실시간 현재가
 
+/**
+ * 늦게 끝난 요청이 이미 바뀐 화면을 덮지 않게 하는 관문.
+ * 탭을 빨리 누르면(분석→포폴→분석) 포폴이 뒤늦게 도착해 분석 화면 자리에 그려졌다.
+ * 받아 온 값은 그대로 두고 **그리기만** 건너뛴다 — 다시 그 탭에 가면 바로 쓴다.
+ */
+const onTab = t => S.tab === t;
+
 // 한 번 받은 분석은 들고 있는다. 서버도 미리 계산해 두지만, 오가는 시간(폰↔집)이 있어
 // 두 번째부터는 아예 안 받는 편이 빠르다.
 const anCache = new Map();      // ticker → {at, data}
@@ -240,6 +247,7 @@ async function loadCompare(force) {
   if (hit) {                // 한 번 본 시장은 곧바로 그린다 (현재가는 틱이 갱신한다)
     S.rows = hit.rows;
     S.rowsAt = hit.at;
+    if (!onTab('compare')) return;
     renderCompare();
     startTicks();
     prefetchAll();
@@ -251,10 +259,11 @@ async function loadCompare(force) {
     S.rows = o.rows;
     S.rowsAt = (o.asOf ? o.asOf * 1000 : Date.now());
     cachePut(rowCache, mk, { rows: o.rows, at: S.rowsAt });
+    if (!onTab('compare')) return;      // 그 사이 다른 탭으로 갔다
     renderCompare();
     startTicks();
     prefetchAll();          // 분석을 미리 받아 둔다 — 종목을 눌렀을 때 기다리지 않게
-  } catch (e) { fail(e, () => loadCompare(force)); }
+  } catch (e) { if (onTab('compare')) fail(e, () => loadCompare(force)); }
 }
 
 /** 지금 보는 종목의 1분봉을 미리 받아 둔다 — 일봉↔1분 전환을 기다리지 않게. */
@@ -581,7 +590,8 @@ async function loadAnalysis() {
       if (seq !== analysisSeq) return;
       S.rows = o.rows;
       S.rowsAt = (o.asOf ? o.asOf * 1000 : Date.now());
-    } catch (e) { fail(e, () => loadAnalysis()); return; }
+      if (!onTab('analysis')) return;
+    } catch (e) { if (onTab('analysis')) fail(e, () => loadAnalysis()); return; }
   }
   if (!S.ticker || !S.rows.some(r => r.ticker === S.ticker)) {
     S.ticker = S.rows.length ? S.rows[0].ticker : null;
@@ -600,6 +610,7 @@ async function loadAnalysis() {
       if (seq !== analysisSeq) return;        // 그 사이 다른 종목을 눌렀다
       cachePut(anCache, S.ticker, a);
     }
+    if (!onTab('analysis')) return;
     S.analysis = a;
     if (S.bar === '1m' && !S.minutes) {
       const m = await api('/api/minutes?ticker=' + encodeURIComponent(S.ticker));
@@ -611,7 +622,7 @@ async function loadAnalysis() {
     startTicks();
     prefetchAll();
   } catch (e) {
-    if (seq !== analysisSeq) return;
+    if (seq !== analysisSeq || !onTab('analysis')) return;
     S.analysis = null; renderAnalysis(e);
   }
 }
@@ -941,6 +952,7 @@ function renderPortfolio() {
       try { S.hist = await api('/api/history?days=180'); } catch (e) { /* 없으면 비워 둔다 */ }
       if (S.hist && S.hist.dates.length) S.histDate = S.hist.dates.at(-1);
     }
+    if (!onTab('portfolio')) return;
     renderPortfolio();
   };
   hw.appendChild(hh);
@@ -958,6 +970,7 @@ function renderPortfolio() {
     if (S.journalOpen && !S.journal) {
       try { S.journal = await api('/api/journal'); } catch (e) { /* 없으면 비워 둔다 */ }
     }
+    if (!onTab('portfolio')) return;
     renderPortfolio();
   };
   jw.appendChild(jh);
@@ -1104,10 +1117,11 @@ async function loadPortfolio(force) {
     S.snaps = snaps;
     S.settings = settings;
     if (force) S.hist = null;
+    if (!onTab('portfolio')) return;    // 그 사이 다른 탭으로 갔다
     renderPortfolio();
     startTicks();
     startAccountRefresh();
-  } catch (e) { fail(e, () => loadPortfolio(force)); }
+  } catch (e) { if (onTab('portfolio')) fail(e, () => loadPortfolio(force)); }
 }
 
 /**
@@ -1122,6 +1136,7 @@ function startAccountRefresh() {
     if (S.tab !== 'portfolio') return;
     try {
       S.account = await api('/api/account');
+      if (!onTab('portfolio')) return;
       renderPortfolio();
     } catch (e) { /* 조용히 넘긴다 */ }
   }, 60000);
@@ -1612,7 +1627,12 @@ function go(tab, fromBack) {
   if (tab === 'compare') { S.rows ? renderCompare() : loadCompare(false); if (S.rows) startTicks(); }
   else if (tab === 'analysis') loadAnalysis();
   else if (tab === 'portfolio') { S.account ? renderPortfolio() : loadPortfolio(false); }
-  else { S.settings ? renderSettings() : api('/api/settings').then(o => { S.settings = o; renderSettings(); }).catch(fail); }
+  else {
+    if (S.settings) renderSettings();
+    else api('/api/settings')
+      .then(o => { S.settings = o; if (onTab('settings')) renderSettings(); })
+      .catch(e => { if (onTab('settings')) fail(e); });
+  }
 }
 
 document.querySelectorAll('#tabs button').forEach(b =>
