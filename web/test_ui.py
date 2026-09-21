@@ -271,6 +271,35 @@ def run(pg, base: str, errs: list[str]) -> None:
     check("캔들과 Z·M 양쪽에 매매 마커가 찍힌다",
           len(layers) == 2 and all(ink > 40 and red > 15 for ink, red in layers), str(layers))
 
+    # ── 평단 이름표가 봉을 가리는가 ──
+    # 예전엔 createPriceLine 의 title 이 차트 **안쪽**에 금색 상자로 얹혀 최근 봉을 덮었다.
+    print("\n[평단] 이름표가 차트를 가리지 않는가")
+    gold = pg.evaluate("""() => {
+      const cs = S.analysis.candles.slice(-40);
+      S.analysis.avgPrice = cs.reduce((a, c) => a + c.close, 0) / cs.length;  // 보이는 구간 한가운데
+      renderAnalysis();
+      return new Promise(res => setTimeout(() => {
+        // 캔들이 그려지는 판. 마커 판(.mk)은 빼야 한다 — 그게 더 커서 잘못 잡힌다.
+        const cv = [...document.querySelectorAll('#body canvas:not(.mk)')]
+          .sort((a, b) => b.width * b.height - a.width * a.height)[0];
+        const W = cv.width, H = cv.height;
+        const d = cv.getContext('2d').getImageData(0, 0, W, H).data;
+        let worst = 0;                     // 세로로 가장 길게 이어진 금색
+        for (let x = 0; x < W; x++) {
+          let run = 0;
+          for (let y = 0; y < H; y++) {
+            const i = (y * W + x) * 4;
+            const g1 = d[i] > 185 && d[i + 1] > 125 && d[i + 1] < 195 && d[i + 2] < 125;
+            run = g1 ? run + 1 : 0;
+            if (run > worst) worst = run;
+          }
+        }
+        res(worst);
+      }, 2500));
+    }""")
+    # 평단선 자체는 1~2px — 상자가 얹히면 10px 을 훌쩍 넘는다
+    check("평단 이름표가 봉 위에 얹히지 않는다", gold <= 6, f"세로로 이어진 금색 {gold}px")
+
     pg.click("#hdr-seg button:has-text('산점도')")
     pg.wait_for_timeout(2500)
     red = pg.evaluate("""() => {

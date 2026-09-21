@@ -543,11 +543,13 @@ function renderAnalysis(err) {
     fitRange(ch, bars.length, minMode ? 120 : 45, 'remember');
     linked.push(ch);
 
-    // 평단선 — 보유 중일 때만
+    // 평단선 — 보유 중일 때만.
+    // ⚠️ title 을 주면 그 글자가 **차트 안쪽**에 금색 상자로 얹혀 최근 봉을 가린다.
+    // 값은 오른쪽 축의 금색 칸에 나오고, 평단 금액은 위 머리글에도 적혀 있다.
     if (a.avgPrice) {
       cs.createPriceLine({
         price: a.avgPrice, color: GOLD, lineWidth: 1, lineStyle: 2,
-        axisLabelVisible: true, title: '평단',
+        axisLabelVisible: true,
       });
     }
     // 매매 마커 (일봉에서만 — 분봉은 날짜가 안 맞는다).
