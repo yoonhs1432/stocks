@@ -149,12 +149,10 @@ footer button {
   stroke-linecap: round; stroke-linejoin: round;
 }
 
-header button#hdr-btn, header button#hdr-btn2 {
+header button#hdr-btn {
   background: var(--ghost); color: var(--text); border: 0; border-radius: 10px;
   padding: 10px 14px; min-height: 40px; font-size: 13px; font-weight: 700; cursor: pointer;
 }
-header button#hdr-btn2 { padding: 10px 11px; font-size: 15px; }
-
 /* 틱 상태 점 — 갱신될 때마다 한 번 밝아졌다 사그라든다. 안 돌면 회색. */
 .tick-dot {
   display: inline-block; width: 7px; height: 7px; border-radius: 50%;

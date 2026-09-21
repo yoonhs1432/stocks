@@ -16,6 +16,7 @@ from __future__ import annotations
 import math
 import random
 import time
+import zlib
 from datetime import datetime, timedelta, timezone
 
 NAMES = {
@@ -42,8 +43,13 @@ def _daily_times(n: int, krw: bool) -> list[int]:
 
 
 def _walk(symbol: str, n: int, start: float, step: float, seed_extra: int = 0):
-    """종목마다 재현 가능한 가격 시계열. 같은 종목은 늘 같은 그림이 나온다."""
-    rnd = random.Random(hash(symbol) % 10_000 + seed_extra)
+    """종목마다 재현 가능한 가격 시계열. 같은 종목은 늘 같은 그림이 나온다.
+
+    ⚠️ 씨앗에 `hash()` 를 쓰면 안 된다. 파이썬의 문자열 해시는 **프로세스마다 달라서**
+    서버가 캐시에 써 둔 값과 다른 프로세스가 받은 값이 어긋난다(끝봉 갱신 검사가 이걸로
+    깨졌다). crc32 는 어디서 돌려도 같다.
+    """
+    rnd = random.Random(zlib.crc32(symbol.encode()) % 10_000 + seed_extra)
     px = start
     out = []
     t0 = int(time.time()) - n * step
@@ -133,8 +139,11 @@ class MockToss:
         if symbol == "AVXX":
             return []          # 시세를 못 받는 종목 — 행이 남는지 보려고 일부러 비운다
         step = 60 if interval == "1m" else 86400
-        n = min(count, 390 if interval == "1m" else 500)
-        bars = _walk(symbol, n, 30 if symbol != "GLD" else 400, step)
+        full = 390 if interval == "1m" else 500
+        n = min(count, full)
+        # 진짜 API 는 **최신 n 개**를 준다. 앞에서 n 개를 잘라 주면 적게 요청했을 때
+        # 전혀 다른 값이 나와서, 끝봉만 다시 받는 장중 갱신을 검사할 수 없다.
+        bars = _walk(symbol, full, 30 if symbol != "GLD" else 400, step)[-n:]
         if interval == "1d":
             krw = symbol.isdigit() and len(symbol) == 6 or symbol == "SOLKR"
             for b, t in zip(bars, _daily_times(len(bars), krw)):

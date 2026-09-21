@@ -890,7 +890,45 @@ def _recorder() -> None:
         time.sleep(1800)
 
 
+REFRESH_SEC = 300          # 장중 일봉 갱신 주기
+
+
+def _refresher() -> None:
+    """장이 열려 있는 동안 **스스로** 일봉 끝을 다시 받는다.
+
+    새로고침 단추를 없앤 자리를 이게 메운다. 전체를 다시 받으면 종목당 3페이지라
+    무거우므로 끝 몇 봉만 받아 캐시에 덮어쓰고(`repo.refresh_tail`), 계산해 둔 표·분석을
+    비워 다음 조회에서 새 값으로 다시 계산되게 한다.
+
+    닫힌 시장 종목은 건드리지 않는다 — 값이 안 바뀌는데 요청만 나간다.
+    """
+    while True:
+        time.sleep(REFRESH_SEC)
+        try:
+            market.ensure(_toss)
+            live = market.open_markets()
+            if not live:
+                continue
+            held: set[str] = set()
+            if _cache:
+                held = {h["symbol"] for h in _cache.get("items", [])}
+            syms = [t for t in dict.fromkeys(list(store.tickers()) + sorted(held))
+                    if ("KR" if store.is_krw(t) else "US") in live]
+            changed = False
+            for t in syms:
+                if repo.refresh_tail(_toss, t):
+                    changed = True
+            if changed:
+                with _ov_lock:
+                    _ov_cache.clear()       # 표를 새 일봉으로 다시 계산하게
+                with _an_lock:
+                    _an_cache.clear()
+        except Exception:
+            pass                            # 다음 차례에 다시 한다
+
+
 threading.Thread(target=_recorder, daemon=True).start()
+threading.Thread(target=_refresher, daemon=True).start()
 
 app.mount("/", NoCacheStatic(directory=HERE / "static", html=True), name="static")
 

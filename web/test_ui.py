@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import glob
+import json
 import os
 import socket
 import subprocess
@@ -142,7 +143,7 @@ def state(pg, expr: str):
     return pg.evaluate(f"(() => {{ try {{ return {expr}; }} catch (e) {{ return '__ERR__' + e; }} }})()")
 
 
-def run(pg, base: str, errs: list[str]) -> None:
+def run(pg, base: str, errs: list[str], data: str = "") -> None:
     pg.goto(base + "/", wait_until="networkidle")
     pg.wait_for_selector("#body table tr", timeout=15000)
 
@@ -283,16 +284,21 @@ def run(pg, base: str, errs: list[str]) -> None:
           pg.eval_on_selector("#tabs button.on", "b => b.dataset.tab") == "analysis")
     check("누른 종목이 열린다", (state(pg, "S.ticker") or "") in name, f"{state(pg, 'S.ticker')} / {name}")
 
-    # ── 분석 탭에 다시 받기 · 직접 입력 · 보유 수량 ──
-    print("\n[분석] 다시 받기 · 직접 입력 · 보유 수량")
-    check("다시 받기 단추가 있다", not pg.eval_on_selector("#hdr-btn2", "e => e.hidden"))
-    forced = []
-    hf = lambda r: forced.append(r.url) if "/api/analysis" in r.url and "force=true" in r.url else None
+    # ── 분석 탭: 자동 갱신 · 직접 입력 · 보유 수량 ──
+    print("\n[분석] 자동 갱신 · 직접 입력 · 보유 수량")
+    # 캐시가 식으면 스스로 다시 받는다 (새로고침 단추는 없앴다)
+    again = []
+    hf = lambda r: again.append(r.url) if "/api/analysis" in r.url else None
     pg.on("request", hf)
-    pg.click("#hdr-btn2")
-    pg.wait_for_timeout(4000)
+    pg.evaluate("""() => {
+      anCache.clear(); lastTouch = 0;
+      AUTO_MS = 900; startAutoRefresh();
+    }""")
+    pg.wait_for_timeout(2600)
+    pg.evaluate("AUTO_MS = 60000; startAutoRefresh();")
+    pg.wait_for_timeout(2500)
     pg.remove_listener("request", hf)
-    check("누르면 캐시를 건너뛰고 받는다", len(forced) >= 1, f"{len(forced)}건")
+    check("분석도 스스로 다시 받는다", len(again) >= 1, f"{len(again)}건")
     # 수량은 보유 중인 종목에서만 나온다 — 가짜 계좌가 들고 있는 종목으로 옮긴다
     pg.evaluate("S.ticker = 'BITU'; localStorage.setItem('ticker','BITU'); loadAnalysis();")
     pg.wait_for_timeout(4000)
@@ -317,6 +323,22 @@ def run(pg, base: str, errs: list[str]) -> None:
       loadAnalysis();
     }""")
     pg.wait_for_timeout(4000)
+
+    # ── 틱이 마지막 봉을 키우는가 ──
+    print("\n[캔들] 틱으로 오늘 봉이 자라는가")
+    grew = pg.evaluate("""() => {
+      if (!anCandle) return null;
+      const b = anCandle.bars[anCandle.bars.length - 1];
+      const before = { c: b.close, h: b.high };
+      live[S.ticker] = before.c * 1.04;          // 체결이 하나 들어온 셈
+      tickAnalysis();
+      const after = { c: b.close, h: b.high };
+      delete live[S.ticker];
+      return [before, after];
+    }""")
+    check("틱이 마지막 봉의 종가를 올린다",
+          bool(grew) and grew[1]["c"] > grew[0]["c"], str(grew))
+    check("고가도 따라 올라간다", bool(grew) and grew[1]["h"] >= grew[1]["c"], str(grew))
 
     # ── 고가·저가 말풍선 ──
     print("\n[캔들] 최고·최저 말풍선")
@@ -641,9 +663,10 @@ def run(pg, base: str, errs: list[str]) -> None:
     pg.wait_for_timeout(1500)
     pg.click("#hdr-seg button:has-text('한국')")
     pg.wait_for_timeout(3000)
-    pg.click("#hdr-btn")                     # 목록을 받아 오면서 종목 이름도 받아 둔다
+    # 목록을 받아 오면서 종목 이름도 받아 둔다 (새로고침 단추는 없앴다)
+    pg.evaluate("loadCompare(true)")
     pg.wait_for_timeout(6000)
-    pg.click("#hdr-btn")
+    pg.evaluate("loadCompare(true)")
     pg.wait_for_timeout(5000)
     names = pg.evaluate("(S.rows||[]).map(r => r.name)")
     codes = pg.evaluate("(S.rows||[]).map(r => r.ticker)")
@@ -760,10 +783,11 @@ def run(pg, base: str, errs: list[str]) -> None:
     pg.wait_for_timeout(2000)
 
     print("\n[미리받기] 종목을 누르기 전에 받아 두는가")
-    pg.evaluate("anCache.clear()")
+    pg.evaluate("anCache.clear(); rowCache.clear();")
     pg.click("#tabs button[data-tab='compare']")
     pg.wait_for_timeout(1500)
-    pg.click("#hdr-btn")          # 새로고침 → 비교를 다시 받으면 미리받기가 돈다
+    # 비교를 다시 받으면 그 김에 분석을 미리 받아 둔다 (새로고침 단추는 없앴다)
+    pg.evaluate("loadCompare(true)")
     pg.wait_for_timeout(9000)
     n = pg.evaluate("anCache.size")
     total = pg.evaluate("(S.rows||[]).length")
@@ -939,14 +963,16 @@ def run(pg, base: str, errs: list[str]) -> None:
     }""")
     check("비교 표 행 간격이 촘촘하다(24~36px)", 24 <= rowh <= 36, f"{rowh}px")
 
-    reqs = []
-    # force=true 는 새로고침이 보내는 것뿐이다. 반대 시장 미리받기는 세지 않는다.
-    pg.on("request", lambda r: reqs.append(r.url) if "/api/compare" in r.url and "force=true" in r.url else None)
-    for _ in range(4):
-        pg.click("#hdr-btn", force=True)
-        pg.wait_for_timeout(120)
-    pg.wait_for_timeout(3000)
-    check("새로고침을 연타해도 요청은 한 번", len(reqs) <= 1, f"{len(reqs)}번")
+    # 새로고침 단추는 전부 없앴다 — 장중에는 스스로 갱신한다
+    hidden = []
+    for tab in ("compare", "analysis", "portfolio"):
+        pg.click(f"#tabs button[data-tab='{tab}']")
+        pg.wait_for_timeout(2500)
+        hidden.append(pg.inner_text("header"))
+    check("어느 탭에도 새로고침 단추가 없다",
+          all("새로고침" not in t and "⟳" not in t for t in hidden), str(hidden))
+    pg.click("#tabs button[data-tab='compare']")
+    pg.wait_for_timeout(2000)
 
     pg.click("#tabs button[data-tab='settings']")
     pg.wait_for_timeout(2000)
@@ -1258,6 +1284,26 @@ def run(pg, base: str, errs: list[str]) -> None:
     finally:
         tp.close()
 
+    print("\n[갱신] 서버가 일봉 끝봉만 다시 받는가")
+    code = (
+        "import json,sys;sys.path.insert(0,'.');"
+        "import repo;from mock import MockToss;t=MockToss();sym='SOXL';"
+        "bars=repo.candles(t,sym);n0=len(bars);last=bars[-1]['close'];"
+        "bars[-1]['close']=0.01;repo._save_cache(sym,'1d',bars);"
+        "ok=repo.refresh_tail(t,sym);"
+        "a=repo._load_cache(sym,'1d',10**9);"
+        "print(json.dumps({'len': len(a)==n0, 'fixed': abs(a[-1]['close']-last)<1e-9, 'ok': ok}))"
+    )
+    env = {**os.environ, "QUANT_MOCK": "1", "QUANT_DATA": data,
+           "QUANT_CONFIG": os.path.join(data, "c.json")}
+    out = subprocess.run([sys.executable, "-c", code], cwd=HERE, env=env,
+                         capture_output=True, text=True, timeout=120)
+    try:
+        got = json.loads(out.stdout.strip().splitlines()[-1])
+    except Exception:
+        got = {"err": (out.stdout + out.stderr)[-200:]}
+    check("끝봉만 받아 고쳐 넣는다", got.get("len") and got.get("fixed"), str(got))
+
     print("\n[탭] 아이콘")
     icons = pg.evaluate("[...document.querySelectorAll('#tabs button')].map(b => !!b.querySelector('svg'))")
     check("탭마다 아이콘이 있다", len(icons) == 4 and all(icons), str(icons))
@@ -1280,7 +1326,7 @@ def main() -> int:
             pg.on("console", lambda m: errs.append(f"[{m.type}] {m.text}") if m.type == "error" else None)
             pg.on("pageerror", lambda e: errs.append(f"[pageerror] {e}"))
             try:
-                run(pg, base, errs)
+                run(pg, base, errs, data)
             finally:
                 b.close()
     finally:

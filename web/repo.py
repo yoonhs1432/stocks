@@ -129,6 +129,34 @@ def candles(toss: Toss, symbol: str, months: int | None = None,
     return _load_cache(symbol, "1d", 10 ** 9) or []
 
 
+TAIL_BARS = 5        # 장중 갱신에서 다시 받는 봉 수
+
+
+def refresh_tail(toss: Toss, symbol: str) -> bool:
+    """**끝 몇 봉만** 다시 받아 캐시에 덮어쓴다 — 장중 자동 갱신용.
+
+    장이 열려 있는 동안 오늘 봉은 계속 자란다. 전체를 다시 받으면 종목당 3페이지라
+    스무 종목이면 60번인데, 끝 몇 봉만 받으면 종목당 한 번이면 된다.
+    캐시가 아예 없으면 아무것도 하지 않는다(그건 `candles()` 가 할 일이다).
+    """
+    old = _load_cache(symbol, "1d", 10 ** 9)
+    if not old:
+        return False
+    with _gate:
+        try:
+            tail = _normalize_daily(symbol, toss.ohlc(symbol, "1d", TAIL_BARS))
+        except Exception:
+            return False
+    if not tail:
+        return False
+    by = {b["t"]: b for b in old}
+    before = by.get(tail[-1]["t"], {}).get("close")
+    for b in tail:
+        by[b["t"]] = b                      # 같은 날이면 새 값으로 갈아끼운다
+    _save_cache(symbol, "1d", [by[t] for t in sorted(by)])
+    return before != tail[-1]["close"]      # 값이 실제로 바뀌었는가
+
+
 def minutes(toss: Toss, symbol: str, force: bool = False) -> list[dict]:
     """1분봉. 분석 화면에서 **보고 있는 종목만** 받는다."""
     if not force:

@@ -295,9 +295,14 @@ function flashCell(td) {
   td.classList.add('flash');
 }
 
-let anHead = null;
+let anHead = null, anCandle = null;
 
-/** 분석 탭 틱 — 머리글의 현재가·수익률만 고친다. 차트를 다시 그리지 않는다. */
+/**
+ * 분석 탭 틱 — 머리글 숫자와 **마지막 봉**을 고친다. 차트를 다시 그리지 않는다.
+ *
+ * 장중에는 오늘 봉이 계속 자란다. 서버에서 일봉을 다시 받는 건 5분에 한 번이라,
+ * 그 사이는 현재가로 마지막 봉의 종가·고가·저가를 직접 늘려 준다. 요청이 늘지 않는다.
+ */
 function tickAnalysis() {
   if (!anHead || !document.querySelector('#body .anl-head')) return;
   const a = anHead.a;
@@ -309,6 +314,15 @@ function tickAnalysis() {
     anHead.roiEl.className = cls(roi);
     anHead.roiEl.textContent = pct(roi, 1);
   }
+  if (!anCandle || !anCandle.bars.length) return;
+  const b = anCandle.bars[anCandle.bars.length - 1];
+  // 같은 배열을 최고·최저 말풍선도 보고 있으므로 **그 자리에서** 고친다
+  b.close = px;
+  if (px > b.high) b.high = px;
+  if (px < b.low) b.low = px;
+  try {
+    anCandle.series.update({ time: b.t, open: b.open, high: b.high, low: b.low, close: b.close });
+  } catch (e) { /* 차트가 이미 치워졌으면 넘어간다 */ }
 }
 
 /** 틱에서 쓰는 가벼운 갱신 — 값이 바뀐 칸만 고친다. 정렬은 건드리지 않는다. */
@@ -450,12 +464,25 @@ function startAutoRefresh() {
   clearInterval(autoTimer);
   autoTimer = setInterval(() => {
     if (document.hidden || !S.mkt || !S.mkt.open) return;
-    if (Date.now() - lastTouch < 20000) return;
+    if (Date.now() - lastTouch < 20000) return;   // 보는 중엔 다시 그리지 않는다
+    const y = window.scrollY;
     if (S.tab === 'compare' && S.rows) {
-      const y = window.scrollY;
       loadCompare(false).then(() => window.scrollTo(0, y));
+    } else if (S.tab === 'portfolio' && S.account) {
+      loadPortfolio(false).then(() => window.scrollTo(0, y));
+    } else if (S.tab === 'analysis' && S.ticker) {
+      // 받아 둔 게 아직 신선하면 아무것도 하지 않는다 → 실제로는 캐시 수명(5분)마다 새로 그린다.
+      // 확대해 둔 산점도가 있으면 건너뛴다 — 보고 있던 배율이 풀리면 곤란하다.
+      if (cacheGet(anCache, S.ticker, AN_FRESH)) return;
+      if (S.group === 'scatter' && scatterZoomed()) return;
+      loadAnalysis();
     }
   }, AUTO_MS);
+}
+
+/** 확대해 둔 산점도가 있는가 — 자동 갱신이 배율을 풀어 버리지 않게. */
+function scatterZoomed() {
+  return [...document.querySelectorAll('#body .chart')].some(h => h._v && h._v.k > 1.02);
 }
 
 /** 틱을 멈춘다 — 화면을 내려놓거나 주기를 바꿀 때. */
@@ -464,7 +491,11 @@ function stopTicks() { tickGen++; clearTimeout(tickTimer); }
 // ══════════════════════════ 분석 ══════════════════════════
 
 const charts = [];
-function clearCharts() { charts.forEach(c => { try { c.remove(); } catch (e) {} }); charts.length = 0; }
+function clearCharts() {
+  charts.forEach(c => { try { c.remove(); } catch (e) {} });
+  charts.length = 0;
+  anCandle = null;          // 치운 차트의 봉을 계속 고치면 오류가 난다
+}
 
 function mkChart(host, height, opts = {}) {
   const c = LightweightCharts.createChart(host, {
@@ -714,6 +745,8 @@ function renderAnalysis(err) {
     cs.setData(bars.map(b => ({ time: b.t, open: b.open, high: b.high, low: b.low, close: b.close })));
     fitRange(ch, bars.length, minMode ? 120 : 45, 'remember');
     linked.push(ch);
+    // 마지막 봉을 틱으로 키우려고 붙잡아 둔다 (아래 tickAnalysis)
+    anCandle = { series: cs, bars };
 
     // 평단선 — 보유 중일 때만.
     // ⚠️ title 을 주면 그 글자가 **차트 안쪽**에 금색 상자로 얹혀 최근 봉을 가린다.
@@ -1511,8 +1544,6 @@ function tickPortfolio() {
   });
 }
 
-let acctTimer = null;
-
 async function loadPortfolio(force) {
   try {
     // 차례로 기다리면 집 밖에서는 왕복만 3번이다. 서로 필요 없으니 같이 보낸다.
@@ -1529,26 +1560,7 @@ async function loadPortfolio(force) {
     if (!onTab('portfolio')) return;    // 그 사이 다른 탭으로 갔다
     renderPortfolio();
     startTicks();
-    startAccountRefresh();
   } catch (e) { if (onTab('portfolio')) fail(e, () => loadPortfolio(force)); }
-}
-
-/**
- * 계좌 전체 재조회 — 60초. 현재가는 틱이 맡고, 여기서는 **예수금·환율·보유 종목 변동**
- * 처럼 현재가로 알 수 없는 것만 따라잡는다. 호출이 4번이라 자주 부를 수 없다.
- */
-function startAccountRefresh() {
-  clearInterval(acctTimer);
-  const sec = S.settings ? (S.settings.tickSeconds ?? 10) : 10;
-  if (!sec) return;                  // 갱신 끔이면 계좌도 자동으로 다시 받지 않는다
-  acctTimer = setInterval(async () => {
-    if (S.tab !== 'portfolio') return;
-    try {
-      S.account = await api('/api/account');
-      if (!onTab('portfolio')) return;
-      renderPortfolio();
-    } catch (e) { /* 조용히 넘긴다 */ }
-  }, 60000);
 }
 
 // ══════════════════════════ 설정 ══════════════════════════
@@ -1957,16 +1969,9 @@ async function waitForServer(sec = 60) {
 // ══════════════════════════ 탭 ══════════════════════════
 
 /** 버튼을 잠그고 끝날 때까지 "받는 중…" 으로 바꾼다. */
-async function busyBtn(btn, fn, busyLabel = '받는 중…') {
-  if (btn.disabled) return;
-  const label = btn.textContent;
-  btn.disabled = true; btn.textContent = busyLabel;
-  try { await fn(); } finally { btn.disabled = false; btn.textContent = label; }
-}
-
 function header() {
-  const seg = $('#hdr-seg'), btn = $('#hdr-btn'), btn2 = $('#hdr-btn2');
-  seg.innerHTML = ''; btn.hidden = true; btn2.hidden = true;
+  const seg = $('#hdr-seg'), btn = $('#hdr-btn');
+  seg.innerHTML = ''; btn.hidden = true;
   const mkSeg = (opts, sel, on) => opts.forEach(([id, label]) => {
     const b = el('button', id === sel ? 'on' : '', label);
     b.onclick = () => {
@@ -1984,16 +1989,11 @@ function header() {
       S.market = m; localStorage.setItem('market', m); S.rows = null;
       renderCompare(); loadCompare(false);
     });
-    btn.hidden = false; btn.textContent = '새로고침';
-    // 비교 새로고침은 20~30초짜리 작업이다. 잠그지 않으면 반응이 없어 또 누르게 되고
-    // 그만큼 요청이 겹쳐 더 느려진다.
-    btn.onclick = () => busyBtn(btn, () => { S.rows = null; renderCompare(); return loadCompare(true); });
+    // 새로고침 단추는 없앴다 — 장중에는 스스로 다시 받는다(startAutoRefresh).
+    // 손으로 처음부터 다시 받고 싶으면 설정 → 데이터 → 일봉 다시 받기.
   } else if (S.tab === 'analysis') {
     $('#title').textContent = '분석';
-    // 분석 탭엔 다시 받는 길이 아예 없었다 — 일봉 캐시(6시간)를 건너뛰고 받아 온다
-    btn2.hidden = false; btn2.textContent = '⟳';
-    btn2.title = '다시 받기';
-    btn2.onclick = () => busyBtn(btn2, () => loadAnalysis(true), '…');
+
     // 넷을 한 화면에 넣으면 하나하나가 너무 낮아 읽기 어렵다 → 둘씩 나눈다
     // (안드로이드와 같은 구성: 시계열 = 가격·Z·M / 보조 = MACD·RSI / 산점도)
     mkSeg([['series', '시계열'], ['sub', '보조'], ['scatter', '산점도']], S.group, g => {
@@ -2025,8 +2025,7 @@ function header() {
       } catch (e) { return; }
       renderPortfolio();
     });
-    btn.hidden = false; btn.textContent = '새로고침';
-    btn.onclick = () => busyBtn(btn, () => loadPortfolio(true));
+    // 여기도 단추 없이 스스로 갱신한다 (현재가는 틱, 잔고는 자동 새로고침)
   } else {
     $('#title').textContent = '설정';
   }
@@ -2044,7 +2043,6 @@ function go(tab, fromBack) {
   clearCharts();
   // 분석 탭에서 줄여 놨던 아래 여백을 되돌린다 (다른 탭은 스크롤하며 보는 화면이다)
   if (tab !== 'analysis') document.body.style.paddingBottom = '';
-  if (tab !== 'portfolio') clearInterval(acctTimer);
   header();
 
   // 받아 둔 게 없으면 **먼저 비운다.** 안 그러면 이전 탭 화면이 그대로 남아 있어
@@ -2072,10 +2070,10 @@ document.querySelectorAll('#tabs button').forEach(b =>
 // 돌아오면 곧바로 한 번 받아 최신으로 맞춘다.
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
-    stopTicks(); clearInterval(acctTimer); stopPrefetch();
+    stopTicks(); stopPrefetch();
   } else {
     startTicks();
-    if (S.tab === 'portfolio') { loadPortfolio(false); startAccountRefresh(); }
+    if (S.tab === 'portfolio') loadPortfolio(false);
     else if (S.tab === 'compare') loadCompare(false);
   }
 });

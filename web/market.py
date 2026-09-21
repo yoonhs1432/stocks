@@ -104,6 +104,16 @@ def is_stale(market: str, at, now: float | None = None) -> bool:
         return False
 
 
+def open_markets(now: float | None = None) -> set[str]:
+    """지금 열려 있는 시장들. 세션표가 없으면 대략 판정으로 둘 다 본다."""
+    now = time.time() if now is None else now
+    with _lock:
+        have = bool(_sessions)
+    if have:
+        return {s["market"] for s in _now_open(now)}
+    return {"KR", "US"} if _fallback_open(now) else set()
+
+
 def status(toss, now: float | None = None) -> dict:
     """화면에 뿌릴 한 덩어리."""
     ensure(toss)
