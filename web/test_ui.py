@@ -184,6 +184,70 @@ def run(pg, base: str, errs: list[str]) -> None:
     check("값이 바뀐 칸이 반짝인다", fl[0] and fl[1] == "tick-flash", str(fl))
     check("안 바뀐 칸은 가만히 있다", fl[2] is False, str(fl))
 
+    # ── 장 운영시간 ──
+    print("\n[장] 장이 열렸는지 보고 틱을 돌리는가")
+    mk = pg.evaluate("fetch('/api/market').then(r => r.json())")
+    check("장 상태를 알려 준다", mk.get("open") is True and "US" in (mk.get("label") or ""),
+          str(mk))
+    check("틱 상태줄에 세션이 보인다", "US" in pg.inner_text("#body .stamp"),
+          pg.inner_text("#body .stamp"))
+    check("돌고 있으면 점이 초록", not pg.eval_on_selector(
+        "#body .stamp .tick-dot", "e => e.classList.contains('off')"))
+    # 장이 닫히면 현재가를 조르지 않는다
+    closed = []
+    hc = lambda r: closed.append(r.url) if "/api/prices" in r.url else None
+    pg.on("request", hc)
+    pg.evaluate("""() => {
+      S.mkt = { open: false, label: '장 마감' };
+      S.settings.tickSeconds = 1; startTicks();
+    }""")
+    pg.wait_for_timeout(3500)
+    pg.remove_listener("request", hc)
+    check("장 마감이면 시세를 안 부른다", len(closed) == 0, f"{len(closed)}건")
+    check("장 마감이라고 적어 준다", "장 마감" in pg.inner_text("#body .stamp"),
+          pg.inner_text("#body .stamp"))
+    check("멈춘 점은 회색", pg.eval_on_selector(
+        "#body .stamp .tick-dot", "e => e.classList.contains('off')"))
+    # 되돌린다 — 뒤 검사는 장중을 전제로 한다
+    pg.evaluate("S.settings.tickSeconds = 10; loadMarket();")
+    pg.wait_for_timeout(1200)
+
+    # 이번 장에 체결이 없는 종목은 흐리게 (가짜 서버는 NAIL 만 체결 시각을 비워 둔다)
+    pg.evaluate("S.settings.tickSeconds = 1; startTicks();")
+    pg.wait_for_timeout(2500)
+    pg.evaluate("S.settings.tickSeconds = 10; startTicks();")
+    dim = pg.evaluate("""() => {
+      const on = [...document.querySelectorAll('#body table tr.stale td.l')].map(t => t.innerText);
+      return [on, Object.entries(liveStale).filter(([, v]) => v).map(([k]) => k)];
+    }""")
+    check("이번 장 체결이 없는 종목은 흐리게", any("NAIL" in t for t in dim[0]), str(dim))
+
+    # ── 자동 새로고침 ──
+    print("\n[자동] 장중에는 스스로 다시 받는가")
+    got = []
+    ha = lambda r: got.append(r.url) if "/api/compare" in r.url else None
+    pg.on("request", ha)
+    pg.evaluate("""() => {
+      rowCache.clear();                  // 캐시가 살아 있으면 요청이 안 나간다
+      lastTouch = 0;                     // 보는 중이 아니라고 친다
+      AUTO_MS = 900; startAutoRefresh();
+    }""")
+    pg.wait_for_timeout(2600)
+    pg.evaluate("AUTO_MS = 60000; startAutoRefresh();")
+    n_auto = len(got)
+    got.clear()
+    pg.evaluate("""() => {
+      rowCache.clear();
+      S.mkt = { open: false, label: '장 마감' };
+      AUTO_MS = 900; startAutoRefresh();
+    }""")
+    pg.wait_for_timeout(2600)
+    pg.evaluate("AUTO_MS = 60000; startAutoRefresh(); loadMarket();")
+    pg.remove_listener("request", ha)
+    check("장중에는 스스로 다시 받는다", n_auto >= 1, f"{n_auto}건")
+    check("장 마감에는 다시 받지 않는다", len(got) == 0, f"{len(got)}건")
+    pg.wait_for_timeout(1000)
+
     # ── 보유만 보기 ──
     print("\n[보유] 보유 종목만 보기")
     all_n = len(pg.query_selector_all("#body table tr.row"))
@@ -218,6 +282,59 @@ def run(pg, base: str, errs: list[str]) -> None:
     check("탭바 칠도 분석으로 간다",
           pg.eval_on_selector("#tabs button.on", "b => b.dataset.tab") == "analysis")
     check("누른 종목이 열린다", (state(pg, "S.ticker") or "") in name, f"{state(pg, 'S.ticker')} / {name}")
+
+    # ── 분석 탭에 다시 받기 · 직접 입력 · 보유 수량 ──
+    print("\n[분석] 다시 받기 · 직접 입력 · 보유 수량")
+    check("다시 받기 단추가 있다", not pg.eval_on_selector("#hdr-btn2", "e => e.hidden"))
+    forced = []
+    hf = lambda r: forced.append(r.url) if "/api/analysis" in r.url and "force=true" in r.url else None
+    pg.on("request", hf)
+    pg.click("#hdr-btn2")
+    pg.wait_for_timeout(4000)
+    pg.remove_listener("request", hf)
+    check("누르면 캐시를 건너뛰고 받는다", len(forced) >= 1, f"{len(forced)}건")
+    # 수량은 보유 중인 종목에서만 나온다 — 가짜 계좌가 들고 있는 종목으로 옮긴다
+    pg.evaluate("S.ticker = 'BITU'; localStorage.setItem('ticker','BITU'); loadAnalysis();")
+    pg.wait_for_timeout(4000)
+    check("보유 수량이 머리글에 보인다", "보유" in pg.inner_text("#body .anl-head"),
+          pg.inner_text("#body .anl-head"))
+
+    # 목록에 없는 종목을 직접 — 등록하지 않고 한 번 본다
+    pg.click("#body .tbar button:has-text('직접')")
+    pg.wait_for_timeout(600)
+    pg.fill("#body .di-in", "NVDA")
+    pg.click("#body .row2 button:has-text('분석')")
+    pg.wait_for_timeout(5000)
+    check("목록에 없는 종목도 열린다",
+          state(pg, "S.ticker") == "NVDA" and "NVDA" in pg.inner_text("#body .anl-head"),
+          f"{state(pg, 'S.ticker')} / {pg.inner_text('#body .anl-head')[:40]}")
+    check("목록에 없어도 칩에 남는다",
+          pg.evaluate("[...document.querySelectorAll('#body .tchips button')].some(b => b.textContent === 'NVDA')"))
+    # 원래 종목으로 돌아간다
+    pg.evaluate("""() => {
+      S.free = false; localStorage.setItem('free', '0');
+      S.ticker = S.rows[0].ticker; localStorage.setItem('ticker', S.ticker);
+      loadAnalysis();
+    }""")
+    pg.wait_for_timeout(4000)
+
+    # ── 고가·저가 말풍선 ──
+    print("\n[캔들] 최고·최저 말풍선")
+    texts = pg.evaluate("""() => {
+      // 캔버스에 찍힌 글자를 가로채 확인한다 — 픽셀로 글자를 읽을 수는 없다
+      const seen = [];
+      const orig = CanvasRenderingContext2D.prototype.fillText;
+      CanvasRenderingContext2D.prototype.fillText = function (t, ...a) {
+        seen.push(String(t)); return orig.call(this, t, ...a);
+      };
+      renderAnalysis();                  // 다시 그리면 말풍선도 다시 찍힌다
+      return new Promise(res => setTimeout(() => {
+        CanvasRenderingContext2D.prototype.fillText = orig;
+        res(seen);
+      }, 1500));
+    }""")
+    call = [t for t in texts if "." in t and "%" in t]
+    check("최고·최저에 값·날짜·수익률이 붙는다", len(call) >= 2, str(call[:4]))
 
     # ── 분석: 묶음(시계열·보조·산점도)과 봉 주기 ──
     print("\n[분석] 봉 주기 세그먼트")
@@ -1140,6 +1257,10 @@ def run(pg, base: str, errs: list[str]) -> None:
         check("두 번 누르면 원래 크기로", abs(k3 - 1) < 0.01, f"배율 {round(k3, 2)}")
     finally:
         tp.close()
+
+    print("\n[탭] 아이콘")
+    icons = pg.evaluate("[...document.querySelectorAll('#tabs button')].map(b => !!b.querySelector('svg'))")
+    check("탭마다 아이콘이 있다", len(icons) == 4 and all(icons), str(icons))
 
     print("\n[콘솔]")
     check("자바스크립트 오류 없음", not errs, " / ".join(errs[:5]))

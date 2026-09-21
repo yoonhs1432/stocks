@@ -22,13 +22,18 @@ const S = {
   bar: localStorage.getItem('bar') || '1d',
   group: localStorage.getItem('group') || 'series',
   holdOnly: localStorage.getItem('holdOnly') === '1',
+  free: localStorage.getItem('free') === '1',   // 목록에 없는 종목을 직접 열어 둔 상태
+  diOpen: false,
   account: null, rows: null, analysis: null, minutes: null, settings: null,
   snaps: null, journal: null, journalOpen: false,
   hist: null, histOpen: false, histDate: null,
+  mkt: null,          // 장 운영 상태 {open, label, exact}
 };
 
-let tickTimer = null, tickGen = 0;
+let tickTimer = null, tickGen = 0, autoTimer = null;
+let lastTouch = 0;        // 마지막으로 화면을 만진 시각 — 보는 중엔 다시 그리지 않는다
 const live = {};          // symbol → 실시간 현재가
+const liveStale = {};     // symbol → 이번 장에 체결이 없었나
 
 /**
  * 늦게 끝난 요청이 이미 바뀐 화면을 덮지 않게 하는 관문.
@@ -204,8 +209,12 @@ function renderCompare() {
   // 다시 정렬까지 하면 **행이 위아래로 튄다.** 그려 둔 칸을 기억해 두고 숫자만 고친다.
   cmpRefs = [];
   sortRows(viewRows()).forEach(r => {
-    const tr = el('tr', 'row');       // colgroup·머리글과 구분되게 표시해 둔다
-    tr.onclick = () => { S.ticker = r.ticker; localStorage.setItem('ticker', r.ticker); go('analysis'); };
+    const tr = el('tr', 'row' + (liveStale[r.ticker] ? ' stale' : ''));
+    tr.onclick = () => {
+      S.ticker = r.ticker; S.free = false;
+      localStorage.setItem('ticker', r.ticker); localStorage.setItem('free', '0');
+      go('analysis');
+    };
 
     const nameTd = el('td', 'l');
     const cv = miniCandle({ ...r, price: shownPrice(r) });
@@ -227,7 +236,7 @@ function renderCompare() {
       tr.appendChild(td);
     });
     t.appendChild(tr);
-    cmpRefs.push({ r, cv, pTd, dTd, nameTd });
+    cmpRefs.push({ r, cv, pTd, dTd, nameTd, tr });
   });
 
   wrap.appendChild(t);
@@ -243,11 +252,37 @@ function renderCompare() {
   body.appendChild(wrap);
 }
 
-let cmpRefs = null, cmpStamp = null;
+let cmpRefs = null, cmpStamp = null, cmpDot = null;
 const hhmm2 = ms => new Date(ms).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+const hms = ms => new Date(ms).toLocaleTimeString('ko-KR',
+  { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+/**
+ * 틱 상태 줄 — 갱신될 때마다 점이 반짝이고, **안 돌면 그 이유**를 적는다.
+ * 조용히 멈추면 고장과 구분이 안 되는 게 제일 곤란하다(안드로이드에서 겪은 일).
+ */
 function stampText(e) {
-  e.textContent = (S.rowsAt ? `조회 ${hhmm2(S.rowsAt)}` : '') +
-    (S.tickAt ? ` · 현재가 ${hhmm2(S.tickAt)}` : '') + ' · 일봉은 최대 6시간 캐시';
+  e.innerHTML = '';
+  cmpDot = el('span', 'tick-dot');
+  const sec = S.settings ? (S.settings.tickSeconds ?? 10) : 10;
+  const mk = S.mkt;
+  const bits = [];
+  if (!mk) bits.push('확인 중…');
+  else if (!mk.open) bits.push(mk.label || '장 마감');
+  else bits.push(mk.label || '장중', sec ? `${sec}초` : '갱신 꺼짐');
+  if (mk && !mk.open) cmpDot.classList.add('off');
+  if (S.tickAt && mk && mk.open) bits.push(hms(S.tickAt));
+  if (S.rowsAt) bits.push(`조회 ${hhmm2(S.rowsAt)}`);
+  e.appendChild(cmpDot);
+  e.appendChild(el('span', null, ' ' + bits.join(' · ')));
+}
+
+/** 갱신이 한 번 돌았다는 표시 — 점이 밝아졌다 사그라든다. */
+function blinkDot() {
+  if (!cmpDot) return;
+  cmpDot.classList.remove('beat');
+  void cmpDot.offsetWidth;
+  cmpDot.classList.add('beat');
 }
 
 /**
@@ -260,10 +295,26 @@ function flashCell(td) {
   td.classList.add('flash');
 }
 
+let anHead = null;
+
+/** 분석 탭 틱 — 머리글의 현재가·수익률만 고친다. 차트를 다시 그리지 않는다. */
+function tickAnalysis() {
+  if (!anHead || !document.querySelector('#body .anl-head')) return;
+  const a = anHead.a;
+  const px = live[a.ticker];
+  if (px == null) return;
+  anHead.pxEl.textContent = price(a.krw, px);
+  if (anHead.roiEl && a.avgPrice) {
+    const roi = (px / a.avgPrice - 1) * 100;
+    anHead.roiEl.className = cls(roi);
+    anHead.roiEl.textContent = pct(roi, 1);
+  }
+}
+
 /** 틱에서 쓰는 가벼운 갱신 — 값이 바뀐 칸만 고친다. 정렬은 건드리지 않는다. */
 function tickCompare() {
   if (!cmpRefs || !document.querySelector('#body table.cmp')) { renderCompare(); return; }
-  cmpRefs.forEach(({ r, cv, pTd, dTd }) => {
+  cmpRefs.forEach(({ r, cv, pTd, dTd, tr }) => {
     const d = shownDay(r), p = shownPrice(r);
     const c = 'mono ' + cls(d);
     const txt = price(r.krw, p);
@@ -273,9 +324,10 @@ function tickCompare() {
     pTd.textContent = txt;
     dTd.textContent = pct(d, 1);
     if (hit) flashCell(pTd);
+    if (tr) tr.classList.toggle('stale', !!liveStale[r.ticker]);
     drawCandle(cv, { ...r, price: p });
   });
-  if (cmpStamp) stampText(cmpStamp);
+  if (cmpStamp) { stampText(cmpStamp); blinkDot(); }
 }
 
 const ROWS_FRESH = 3 * 60 * 1000;
@@ -325,6 +377,21 @@ function prefetchMarket() {
 }
 
 /**
+ * 장이 열려 있는지 확인해 둔다 — 닫혀 있으면 현재가를 조르지 않는다.
+ *
+ * 없으면 새벽에도 1초마다 물어보게 되고, 화면은 왜 숫자가 안 바뀌는지 알려 주지 못한다.
+ */
+async function loadMarket() {
+  try {
+    const o = await api('/api/market');
+    const was = S.mkt && S.mkt.open;
+    S.mkt = o;
+    if (cmpStamp) stampText(cmpStamp);
+    if (o.open && !was) startTicks();      // 개장하면 곧바로 다시 돈다
+  } catch (e) { /* 못 받으면 예전 판단을 그대로 쓴다 */ }
+}
+
+/**
  * 실시간 현재가 — 화면에 보이는 종목만 주기적으로 갱신.
  *
  * ⚠️ setInterval 이 아니라 **한 번 끝나면 다음을 예약**하는 방식이다. 1초 주기에서
@@ -339,6 +406,12 @@ function startTicks() {
   const step = async () => {
     if (gen !== tickGen || document.hidden) return;
     let wait = sec * 1000;
+    // 장이 닫혀 있으면 값이 안 바뀐다 — 60초마다 열렸는지만 본다
+    if (S.mkt && !S.mkt.open) {
+      if (cmpStamp) stampText(cmpStamp);
+      tickTimer = setTimeout(step, 60000);
+      return;
+    }
     const syms = S.tab === 'compare' ? (S.rows || []).map(r => r.ticker)
       : S.tab === 'analysis' && S.ticker ? [S.ticker]
       : S.tab === 'portfolio' && S.account ? S.account.items.map(h => h.symbol) : [];
@@ -346,10 +419,14 @@ function startTicks() {
       try {
         const o = await api('/api/prices?symbols=' + syms.join(','));
         if (gen !== tickGen) return;              // 그 사이 주기가 바뀌었다
-        Object.entries(o).forEach(([k, v]) => { live[k] = v.price; });
+        Object.entries(o).forEach(([k, v]) => {
+          live[k] = v.price;
+          liveStale[k] = !!v.stale;               // 이번 장에 체결이 없던 종목
+        });
         S.tickAt = Date.now();
         if (S.tab === 'compare') tickCompare();
         else if (S.tab === 'portfolio') tickPortfolio();
+        else if (S.tab === 'analysis') tickAnalysis();
       } catch (e) {
         // 실패(한도 초과 등)는 조용히 넘기되 최소 5초는 쉬었다 다시 본다
         wait = Math.max(wait, 5000);
@@ -359,6 +436,26 @@ function startTicks() {
     tickTimer = setTimeout(step, wait);
   };
   tickTimer = setTimeout(step, sec * 1000);
+}
+
+/**
+ * 장중 자동 새로고침 — 60초마다 본다.
+ *
+ * 현재가는 틱이 맡고, 여기서는 **Z·M·등락처럼 다시 계산해야 하는 값**을 따라잡는다.
+ * 캐시(3분)가 받쳐 주므로 실제 요청은 그보다 드물게 나간다.
+ * 손가락을 대고 있는 동안에는 건너뛴다 — 보는 중에 표가 다시 그려지면 성가시다.
+ */
+let AUTO_MS = 60000;              // 검사에서 줄여 쓸 수 있게 변수로 둔다
+function startAutoRefresh() {
+  clearInterval(autoTimer);
+  autoTimer = setInterval(() => {
+    if (document.hidden || !S.mkt || !S.mkt.open) return;
+    if (Date.now() - lastTouch < 20000) return;
+    if (S.tab === 'compare' && S.rows) {
+      const y = window.scrollY;
+      loadCompare(false).then(() => window.scrollTo(0, y));
+    }
+  }, AUTO_MS);
 }
 
 /** 틱을 멈춘다 — 화면을 내려놓거나 주기를 바꿀 때. */
@@ -505,25 +602,61 @@ function renderAnalysis(err) {
   // 종목 칩 — 왼쪽에 '보유' 토글을 붙박이로 두고 칩만 옆으로 흐르게 한다
   const tbar = el('div', 'tbar');
   tbar.appendChild(holdBtn(renderAnalysis));
+  // 목록에 없는 종목도 그 자리에서 — 등록하지 않고 한 번 보고 마는 길
+  const diBtn = el('button', 'hold-btn' + (S.diOpen ? ' on' : ''), '＋직접');
+  diBtn.onclick = () => { S.diOpen = !S.diOpen; renderAnalysis(); };
+  tbar.appendChild(diBtn);
   const chips = el('div', 'tchips');
   // 보고 있는 종목이 보유가 아니면 그것만은 남긴다 — 안 그러면 어딜 보는지 알 수 없다
   let list = viewRows();
   if (S.ticker && !list.some(r => r.ticker === S.ticker)) {
-    const cur = (S.rows || []).find(r => r.ticker === S.ticker);
+    const cur = (S.rows || []).find(r => r.ticker === S.ticker)
+      || (S.free ? { ticker: S.ticker, name: (S.analysis && S.analysis.name) || S.ticker } : null);
     if (cur) list = [cur, ...list];
   }
   list.forEach(r => {
     const b = el('button', r.ticker === S.ticker ? 'on' : '', r.name || r.ticker);
-    b.onclick = () => { S.ticker = r.ticker; localStorage.setItem('ticker', r.ticker); loadAnalysis(); };
+    b.onclick = () => {
+      S.ticker = r.ticker;
+      S.free = !(S.rows || []).some(x => x.ticker === r.ticker);
+      localStorage.setItem('ticker', r.ticker);
+      localStorage.setItem('free', S.free ? '1' : '0');
+      loadAnalysis();
+    };
     chips.appendChild(b);
   });
   tbar.appendChild(chips);
   wrap.appendChild(tbar);
+
+  if (S.diOpen) {
+    const di = el('div', 'row2');
+    const inp = el('input', 'box di-in');
+    inp.placeholder = 'NVDA · 005930';
+    inp.autocapitalize = 'characters';
+    const open = () => {
+      const t = inp.value.trim().toUpperCase();
+      if (!t) return;
+      S.ticker = t; S.free = true; S.diOpen = false;
+      localStorage.setItem('ticker', t);
+      localStorage.setItem('free', '1');
+      loadAnalysis();
+    };
+    inp.onkeydown = e => { if (e.key === 'Enter') open(); };
+    const go2 = el('button', 'gh acc', '분석');
+    go2.onclick = open;
+    di.appendChild(inp); di.appendChild(go2);
+    wrap.appendChild(di);
+    requestAnimationFrame(() => inp.focus());
+  }
   body.appendChild(wrap);
   // 뒤쪽 종목을 고르면 칩이 화면 밖에 있어 뭘 보는지 알 수 없었다 → 가운데로 당겨 온다
   requestAnimationFrame(() => {
     const on = chips.querySelector('button.on');
-    if (on) chips.scrollLeft = on.offsetLeft - chips.clientWidth / 2 + on.offsetWidth / 2;
+    if (!on) return;
+    // offsetLeft 는 기준이 칩줄이 아니다 — 앞에 붙박이 단추가 생기면서 어긋났다.
+    // 화면 좌표로 재서 가운데로 옮긴다.
+    const cb = chips.getBoundingClientRect(), ob = on.getBoundingClientRect();
+    chips.scrollLeft += (ob.left - cb.left) - (cb.width - ob.width) / 2;
   });
 
   // 오류가 나도 칩은 남겨 둔다 — 칩까지 지우면 다른 종목으로 갈 수도, 다시 받을 수도 없다
@@ -548,16 +681,20 @@ function renderAnalysis(err) {
   const head = el('div', 'anl-head');
   head.appendChild(el('span', 'tk', a.name || a.ticker));
   const px = live[a.ticker] ?? (r ? r.lastPrice : a.candles.at(-1).close);
-  head.appendChild(el('span', 'mono', price(a.krw, px)));
+  // 틱마다 숫자만 고쳐 쓰려고 칸을 기억해 둔다 (차트는 건드리지 않는다)
+  anHead = { a, pxEl: el('span', 'mono', price(a.krw, px)), roiEl: null };
+  head.appendChild(anHead.pxEl);
   if (r) head.appendChild(el('span', 'sub', `σ±${r.sigmaPct.toFixed(0)}% · β ${r.beta.toFixed(1)}`));
   if (a.avgPrice) {
     const roi = (px / a.avgPrice - 1) * 100;
     const s = el('span', 'sub mono');
     s.textContent = `평단 ${price(a.krw, a.avgPrice)} `;
-    const b = el('b', cls(roi), pct(roi, 1));
-    s.appendChild(b);
+    anHead.roiEl = el('b', cls(roi), pct(roi, 1));
+    s.appendChild(anHead.roiEl);
     head.appendChild(s);
   }
+  // 몇 주 들고 있는지 — 안드로이드 분석 머리글에 있던 것
+  if (a.qty) head.appendChild(el('span', 'sub mono', `보유 ${qtyLabel(a.qty)}`));
   wrap.appendChild(head);
 
   // ── 가격 차트 (시계열 묶음에서만) ──
@@ -589,11 +726,11 @@ function renderAnalysis(err) {
     }
     // 매매 마커 (일봉에서만 — 분봉은 날짜가 안 맞는다).
     // 안드로이드처럼 **체결 가격 자리**에 원+↑ 를 찍는다.
-    if (!minMode && a.trades.length) {
-      markLayer(cw, ch, cs, a.trades.map(t => ({
+    markLayer(cw, ch, cs,
+      (!minMode && a.trades.length) ? a.trades.map(t => ({
         time: dayEpoch(t.date), value: t.price, buy: t.type === 'buy',
-      })));
-    }
+      })) : [],
+      { bars, fmt: v => price(a.krw, v) });
 
     // 꾹 누르면(모바일) / 올리면(PC) 시고저종 상자
     const tip = el('div', 'ohlc');
@@ -677,8 +814,51 @@ function renderAnalysis(err) {
  * 투명한 캔버스를 한 겹 덮고 직접 그린다. 확대·이동하거나 폭이 바뀌면 다시 그린다.
  * 좌표는 라이브러리에 물어본다(시간→x, 값→y).
  */
-function markLayer(wrap, chart, series, marks) {
-  if (!marks || !marks.length) return;
+/**
+ * 보이는 구간의 최고·최저 지점에 말풍선 — 값 · 날짜 · 현재가 대비 %.
+ * 증권사 앱에서 늘 보던 것인데 웹에는 없었다(안드로이드 CandleChart 의 hCallout).
+ */
+function hiLoCallout(g, chart, series, bars, w, fmt) {
+  const ts = chart.timeScale();
+  const vr = ts.getVisibleRange();
+  if (!vr || !bars.length) return;
+  let hi = null, lo = null;
+  for (const b of bars) {
+    if (b.t < vr.from || b.t > vr.to) continue;
+    if (!hi || b.high > hi.v) hi = { v: b.high, t: b.t };
+    if (!lo || b.low < lo.v) lo = { v: b.low, t: b.t };
+  }
+  if (!hi || !lo) return;
+  const cur = bars.at(-1).close;
+  // 축 폭만큼은 글자가 들어가면 안 된다 — 눈금 숫자와 겹친다
+  let axis = 50;
+  try { axis = chart.priceScale('right').width() || axis; } catch (e) {}
+  const plotW = w - axis;
+  const day = t => new Date(t * 1000).toISOString().slice(2, 10).replace(/-/g, '.');
+  [[hi, UP], [lo, DOWN]].forEach(([p, color]) => {
+    const x = ts.timeToCoordinate(p.t), y = series.priceToCoordinate(p.v);
+    if (x == null || y == null) return;
+    const right = x < plotW / 2;              // 자리가 남는 쪽으로 글자를 보낸다
+    const s = right ? 1 : -1;
+    const ex = x + s * 22;
+    g.strokeStyle = color; g.lineWidth = 1.6; g.lineCap = 'round';
+    g.beginPath(); g.moveTo(x, y); g.lineTo(ex, y); g.stroke();
+    g.beginPath();                            // 지점을 가리키는 화살촉
+    g.moveTo(x + s * 6, y - 4); g.lineTo(x, y); g.lineTo(x + s * 6, y + 4);
+    g.stroke();
+    const roi = (cur / p.v - 1) * 100;
+    g.fillStyle = color;
+    g.font = '10px ui-monospace, monospace';
+    g.textAlign = right ? 'left' : 'right';
+    g.textBaseline = 'middle';
+    const tx = Math.min(Math.max(ex + s * 4, 2), plotW - 2);
+    g.fillText(`${fmt(p.v)} ${day(p.t)} ${roi >= 0 ? '+' : ''}${roi.toFixed(1)}%`, tx, y);
+  });
+  g.textAlign = 'left'; g.textBaseline = 'alphabetic';
+}
+
+function markLayer(wrap, chart, series, marks, hilo) {
+  if ((!marks || !marks.length) && !hilo) return;
   const cv = el('canvas', 'mk');
   wrap.appendChild(cv);
   const draw = () => {
@@ -690,8 +870,9 @@ function markLayer(wrap, chart, series, marks) {
     const g = cv.getContext('2d');
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     g.clearRect(0, 0, w, h);
+    if (hilo) hiLoCallout(g, chart, series, hilo.bars, w, hilo.fmt);
     const ts = chart.timeScale();
-    marks.forEach(m => {
+    (marks || []).forEach(m => {
       const x = ts.timeToCoordinate(m.time);
       const y = series.priceToCoordinate(m.value);
       if (x == null || y == null) return;
@@ -795,7 +976,7 @@ function lineChart(parent, title, times, series, guides = [], linked = null, rec
 // 화면을 덮어쓸 수 있다(칩은 SOXL 인데 차트는 TQQQ). 마지막 요청이 아니면 버린다.
 let analysisSeq = 0;
 
-async function loadAnalysis() {
+async function loadAnalysis(force) {
   const seq = ++analysisSeq;
   stopPrefetch();
   // 종목 칩과 기본 종목이 비교 데이터에서 나온다. 분석 탭을 열어 둔 채 새로고침하면
@@ -810,12 +991,14 @@ async function loadAnalysis() {
       if (!onTab('analysis')) return;
     } catch (e) { if (onTab('analysis')) fail(e, () => loadAnalysis()); return; }
   }
-  if (!S.ticker || !S.rows.some(r => r.ticker === S.ticker)) {
+  // 직접 입력한 종목은 목록에 없는 게 당연하므로 되돌리지 않는다
+  if (!S.ticker || (!S.free && !S.rows.some(r => r.ticker === S.ticker))) {
     S.ticker = S.rows.length ? S.rows[0].ticker : null;
   }
   if (!S.ticker) { $('#body').innerHTML = '<p class="muted pad">설정에서 종목을 추가하세요</p>'; return; }
-  // 받아 둔 게 있으면 기다리지 않고 바로 그린다
-  const hit = cacheGet(anCache, S.ticker, AN_FRESH);
+  // 받아 둔 게 있으면 기다리지 않고 바로 그린다 (새로고침은 캐시를 건너뛴다)
+  if (force) { anCache.delete(S.ticker); minCache.delete(S.ticker); }
+  const hit = force ? null : cacheGet(anCache, S.ticker, AN_FRESH);
   S.analysis = hit;
   S.minutes = S.bar === '1m' ? cacheGet(minCache, S.ticker, MIN_FRESH) : null;
   renderAnalysis();
@@ -823,7 +1006,8 @@ async function loadAnalysis() {
   try {
     let a = hit;
     if (!a) {
-      a = await api('/api/analysis?ticker=' + encodeURIComponent(S.ticker));
+      a = await api('/api/analysis?ticker=' + encodeURIComponent(S.ticker)
+                    + (force ? '&force=true' : ''));
       if (seq !== analysisSeq) return;        // 그 사이 다른 종목을 눌렀다
       cachePut(anCache, S.ticker, a);
     }
@@ -1090,7 +1274,14 @@ function renderPortfolio() {
     r2.appendChild(rateEl);
     art.appendChild(r2);
     pfRefs.rows.push({ sym: h.symbol, evalEl: r1.lastChild, qtyEl, gainEl, rateEl });
-    art.onclick = () => { S.ticker = h.symbol; localStorage.setItem('ticker', h.symbol); go('analysis'); };
+    art.onclick = () => {
+      S.ticker = h.symbol;
+      // 보유인데 목록엔 없을 수 있다 — 그때도 분석이 열리게 '직접' 취급한다
+      S.free = !(S.rows || []).some(x => x.ticker === h.symbol);
+      localStorage.setItem('ticker', h.symbol);
+      localStorage.setItem('free', S.free ? '1' : '0');
+      go('analysis');
+    };
     wrap.appendChild(art);
   });
 
@@ -1766,16 +1957,16 @@ async function waitForServer(sec = 60) {
 // ══════════════════════════ 탭 ══════════════════════════
 
 /** 버튼을 잠그고 끝날 때까지 "받는 중…" 으로 바꾼다. */
-async function busyBtn(btn, fn) {
+async function busyBtn(btn, fn, busyLabel = '받는 중…') {
   if (btn.disabled) return;
   const label = btn.textContent;
-  btn.disabled = true; btn.textContent = '받는 중…';
+  btn.disabled = true; btn.textContent = busyLabel;
   try { await fn(); } finally { btn.disabled = false; btn.textContent = label; }
 }
 
 function header() {
-  const seg = $('#hdr-seg'), btn = $('#hdr-btn');
-  seg.innerHTML = ''; btn.hidden = true;
+  const seg = $('#hdr-seg'), btn = $('#hdr-btn'), btn2 = $('#hdr-btn2');
+  seg.innerHTML = ''; btn.hidden = true; btn2.hidden = true;
   const mkSeg = (opts, sel, on) => opts.forEach(([id, label]) => {
     const b = el('button', id === sel ? 'on' : '', label);
     b.onclick = () => {
@@ -1799,6 +1990,10 @@ function header() {
     btn.onclick = () => busyBtn(btn, () => { S.rows = null; renderCompare(); return loadCompare(true); });
   } else if (S.tab === 'analysis') {
     $('#title').textContent = '분석';
+    // 분석 탭엔 다시 받는 길이 아예 없었다 — 일봉 캐시(6시간)를 건너뛰고 받아 온다
+    btn2.hidden = false; btn2.textContent = '⟳';
+    btn2.title = '다시 받기';
+    btn2.onclick = () => busyBtn(btn2, () => loadAnalysis(true), '…');
     // 넷을 한 화면에 넣으면 하나하나가 너무 낮아 읽기 어렵다 → 둘씩 나눈다
     // (안드로이드와 같은 구성: 시계열 = 가격·Z·M / 보조 = MACD·RSI / 산점도)
     mkSeg([['series', '시계열'], ['sub', '보조'], ['scatter', '산점도']], S.group, g => {
@@ -1911,6 +2106,15 @@ if (window.visualViewport) {
 
 // 설정은 포트폴리오의 원금 표시에도 필요하므로 처음에 한 번 받아 둔다
 api('/api/settings').then(o => { S.settings = o; }).catch(() => {});
+
+// 보는 중인지 알아 두려고 — 자동 새로고침이 끼어들지 않게
+['pointerdown', 'touchstart', 'wheel'].forEach(ev =>
+  document.addEventListener(ev, () => { lastTouch = Date.now(); }, { passive: true }));
+
+// 장이 열려 있는지 — 열 때 한 번, 그 뒤 5분마다 (닫히면 틱이 스스로 쉰다)
+loadMarket();
+setInterval(loadMarket, 5 * 60 * 1000);
+startAutoRefresh();
 
 // 새 버전이 올라왔는지 확인 — 열 때 한 번, 그 뒤 5분마다
 checkUpdate();

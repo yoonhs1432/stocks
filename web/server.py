@@ -32,6 +32,7 @@ import auth
 import quant
 import repo
 import snapshots
+import market
 import store
 import universe
 from toss import Toss, TossError
@@ -299,6 +300,28 @@ def _px_ttl() -> float:
     return v
 
 
+def _mark_stale(quotes: dict) -> dict:
+    """이번(또는 마지막) 세션에 체결이 없었던 종목을 표시한다.
+
+    장 마감 뒤에도 직전 종가가 그대로 오므로, 그걸 실시간 값으로 읽으면 안 된다.
+    화면은 이 표시를 보고 그 줄을 흐리게 그린다.
+    """
+    market.ensure(_toss)
+    now = time.time()
+    for sym, q in quotes.items():
+        if not isinstance(q, dict):
+            continue
+        mk = "KR" if store.is_krw(sym) else "US"
+        q["stale"] = market.is_stale(mk, q.get("at"), now)
+    return quotes
+
+
+@app.get("/api/market")
+def api_market():
+    """장이 열려 있는지 + 지금 세션 이름. 화면이 틱을 돌릴지 판단하는 근거."""
+    return market.status(_toss)
+
+
 @app.get("/api/prices")
 def api_prices(symbols: str = ""):
     """실시간 현재가 — 비교/분석 화면이 주기적으로 부른다.
@@ -319,7 +342,7 @@ def api_prices(symbols: str = ""):
     if now < _px_block:
         return hit[1] if hit else {}
     try:
-        out = _toss.prices(syms)
+        out = _mark_stale(_toss.prices(syms))
         _px_cache[key] = (time.time(), out)
         return out
     except TossError as e:
@@ -437,14 +460,18 @@ def api_analysis(ticker: str, force: bool = False):
     pos = store.position(tr)
     # 평단은 토스 보유 정보를 우선한다 — 체결내역 역산은 기록이 빠지면 어긋난다
     avg = None
+    qty = None
     if _cache:
         h = next((x for x in _cache["items"] if x["symbol"] == ticker), None)
         if h and h["avgPrice"] > 0:
             avg = h["avgPrice"]
+            qty = h["quantity"]          # 수량도 증권사 값이 맞다 (기록 누락에 안 흔들린다)
     if avg is None and pos:
         avg = pos["avg"]
+    if qty is None and pos:
+        qty = pos["qty"]
 
-    return {**base, "avgPrice": _clean(avg), "qty": pos["qty"] if pos else None}
+    return {**base, "avgPrice": _clean(avg), "qty": _clean(qty)}
 
 
 @app.get("/api/minutes")

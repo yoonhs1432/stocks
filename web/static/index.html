@@ -16,16 +16,43 @@
 <header>
   <h1 id="title">비교</h1>
   <div class="seg" id="hdr-seg"></div>
+  <button id="hdr-btn2" hidden></button>
   <button id="hdr-btn" hidden></button>
 </header>
 
 <main id="body"><p class="muted pad">불러오는 중…</p></main>
 
+<!-- 탭 아이콘 — 안드로이드와 같은 네 가지(산점도·막대·서류가방·톱니).
+     currentColor 라 선택 색이 글자와 함께 바뀐다. -->
 <nav id="tabs">
-  <button data-tab="compare" class="on">비교</button>
-  <button data-tab="analysis">분석</button>
-  <button data-tab="portfolio">포트폴리오</button>
-  <button data-tab="settings">설정</button>
+  <button data-tab="compare" class="on">
+    <svg viewBox="0 0 22 22" aria-hidden="true">
+      <circle cx="6.6" cy="7.9" r="1.9"/><circle cx="13.6" cy="11" r="1.9"/>
+      <circle cx="9.2" cy="15.4" r="1.9"/><circle cx="16.3" cy="6.6" r="1.9"/>
+    </svg>비교
+  </button>
+  <button data-tab="analysis">
+    <svg viewBox="0 0 22 22" aria-hidden="true">
+      <rect x="3.5" y="12" width="3.4" height="6.5" rx="1"/>
+      <rect x="9.3" y="7" width="3.4" height="11.5" rx="1"/>
+      <rect x="15.1" y="3.5" width="3.4" height="15" rx="1"/>
+    </svg>분석
+  </button>
+  <button data-tab="portfolio">
+    <svg viewBox="0 0 22 22" aria-hidden="true" class="ln">
+      <rect x="2.8" y="7" width="16.4" height="11.2" rx="2.2"/>
+      <path d="M8 7V5.6a1.6 1.6 0 0 1 1.6-1.6h2.8A1.6 1.6 0 0 1 14 5.6V7"/>
+      <path d="M2.8 11.6h16.4"/>
+    </svg>포트폴리오
+  </button>
+  <button data-tab="settings">
+    <svg viewBox="0 0 22 22" aria-hidden="true" class="ln">
+      <circle cx="11" cy="11" r="3.5"/>
+      <!-- 톱니 — 짧고 굵게 붙여야 해(태양)처럼 안 보인다 -->
+      <path stroke-width="2.6" d="M16.2 11h2.3M3.5 11h2.3M11 16.2v2.3M11 3.5v2.3
+        M14.7 7.3l1.6-1.6M7.3 14.7l-1.6 1.6M14.7 14.7l1.6 1.6M7.3 7.3 5.7 5.7"/>
+    </svg>설정
+  </button>
 </nav>
 
 <script src="scatter.js"></script>

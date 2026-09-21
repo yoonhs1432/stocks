@@ -111,11 +111,22 @@ class MockToss:
     def prices(self, symbols: list[str]):
         # 초마다 조금씩 흔들어 실시간 갱신이 화면에 반영되는지 볼 수 있게
         out = {}
+        now = int(time.time())
         for s in symbols:
             base = self._base.setdefault(s, _walk(s, 2, 50, 86400)[-1]["close"])
+            # NAIL 만 체결 시각을 비워 둔다 — '이번 장 체결 없음'(흐리게) 표시를 눈으로 보려고
             out[s] = {"price": round(base * (1 + math.sin(time.time() / 7) * 0.003), 2),
-                      "at": None}
+                      "at": None if s == "NAIL" else now - 30}
         return out
+
+    def market_sessions(self, country: str):
+        """장 시간표 — 미국은 열려 있고 한국은 닫힌 상태로 흉내 낸다."""
+        now = int(time.time())
+        if country == "US":
+            return [{"market": "US", "name": "정규장", "start": now - 3 * 3600,
+                     "end": now + 3 * 3600}]
+        return [{"market": "KR", "name": "정규장", "start": now - 9 * 3600,
+                 "end": now - 2 * 3600}]
 
     def ohlc(self, symbol: str, interval: str = "1d", count: int = 520,
              adjusted: bool = True):

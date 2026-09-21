@@ -27,6 +27,16 @@ BASE = "https://openapi.tossinvest.com"
 TIMEOUT = 10
 
 
+def _epoch(iso) -> int | None:
+    """``2026-09-21T09:00:00+09:00`` → epoch 초. 못 읽으면 None."""
+    if not isinstance(iso, str) or not iso:
+        return None
+    try:
+        return int(datetime.fromisoformat(iso.replace("Z", "+00:00")).timestamp())
+    except ValueError:
+        return None
+
+
 class TossError(Exception):
     """토스 API 호출 실패. code 는 스펙의 에러 코드(`invalid-token`, `access_denied` 등)."""
 
@@ -248,6 +258,35 @@ class Toss:
                 if v != v:
                     continue
                 out[o.get("symbol", "")] = {"price": v, "at": o.get("timestamp")}
+        return out
+
+    # ── 장 운영시간 ──
+
+    def market_sessions(self, country: str) -> list[dict]:
+        """``GET /api/v1/market-calendar/{KR|US}`` — 전·당·익 3영업일의 세션 시각.
+
+        미국 정규장은 한국 시각 22:30 에 시작해 **다음 날 05:00 에 끝난다.** 그래서
+        새벽에는 '오늘'이 아니라 전 영업일 세션이 열려 있다 — 3일치를 모두 펼쳐 준다.
+        """
+        r = self._get(f"/api/v1/market-calendar/{country}") or {}
+        names = ([("preMarket", "프리마켓"), ("regularMarket", "정규장"),
+                  ("afterMarket", "애프터마켓")] if country == "KR" else
+                 [("dayMarket", "데이마켓"), ("preMarket", "프리마켓"),
+                  ("regularMarket", "정규장"), ("afterMarket", "애프터마켓")])
+        out: list[dict] = []
+        for day in ("previousBusinessDay", "today", "nextBusinessDay"):
+            d = r.get(day) if isinstance(r, dict) else None
+            if country == "KR" and isinstance(d, dict):
+                d = d.get("integrated")          # 국내는 통합 세션 한 벌
+            if not isinstance(d, dict):
+                continue
+            for key, name in names:
+                o = d.get(key)
+                if not isinstance(o, dict):
+                    continue
+                a, b = _epoch(o.get("startTime")), _epoch(o.get("endTime"))
+                if a and b and b > a:
+                    out.append({"market": country, "name": name, "start": a, "end": b})
         return out
 
     def list_stocks(self, market: str, status: str = "ACTIVE") -> list[dict]:

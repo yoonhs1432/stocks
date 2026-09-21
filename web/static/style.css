@@ -138,14 +138,34 @@ footer button {
 }
 #tabs button {
   flex: 1; background: none; border: 0; color: var(--muted);
-  font-size: 14px; font-weight: 700; padding: 20px 0 22px; cursor: pointer;
+  font-size: 12px; font-weight: 700; padding: 10px 0 14px; cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
 }
 #tabs button.on { color: var(--accent); font-weight: 800; }
+#tabs svg { width: 22px; height: 22px; fill: currentColor; }
+/* 선으로 그리는 아이콘(서류가방·톱니)은 채우지 않는다 */
+#tabs svg.ln {
+  fill: none; stroke: currentColor; stroke-width: 1.7;
+  stroke-linecap: round; stroke-linejoin: round;
+}
 
-header button#hdr-btn {
+header button#hdr-btn, header button#hdr-btn2 {
   background: var(--ghost); color: var(--text); border: 0; border-radius: 10px;
   padding: 10px 14px; min-height: 40px; font-size: 13px; font-weight: 700; cursor: pointer;
 }
+header button#hdr-btn2 { padding: 10px 11px; font-size: 15px; }
+
+/* 틱 상태 점 — 갱신될 때마다 한 번 밝아졌다 사그라든다. 안 돌면 회색. */
+.tick-dot {
+  display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+  background: #2EA078; vertical-align: middle;
+}
+.tick-dot.off { background: var(--muted); }
+@keyframes tick-beat { from { background: #7BFFCB; } to { background: #2EA078; } }
+.tick-dot.beat { animation: tick-beat .7s ease-out; }
+
+/* 이번 장에 체결이 없는 종목 — 값이 직전 종가라는 뜻이라 흐리게 둔다 */
+table.cmp tr.stale td { opacity: .45; }
 .pad { padding: 16px var(--pad); }
 
 /* ── 비교 표 ── */
