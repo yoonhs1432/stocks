@@ -26,7 +26,7 @@ const S = {
   hist: null, histOpen: false, histDate: null,
 };
 
-let tickTimer = null;
+let tickTimer = null, tickGen = 0;
 const live = {};          // symbol → 실시간 현재가
 
 /**
@@ -298,25 +298,45 @@ function prefetchMarket() {
     .catch(() => {});
 }
 
-/** 실시간 현재가 — 화면에 보이는 종목만 주기적으로 갱신. */
+/**
+ * 실시간 현재가 — 화면에 보이는 종목만 주기적으로 갱신.
+ *
+ * ⚠️ setInterval 이 아니라 **한 번 끝나면 다음을 예약**하는 방식이다. 1초 주기에서
+ * 집 밖 왕복이 1초를 넘으면 interval 은 요청을 계속 쌓고, 늦게 온 응답이 먼저 온
+ * 응답을 덮어써서 값이 뒤로 튄다. 실패하면 조금 쉬었다 간다(연달아 두드리지 않게).
+ */
 function startTicks() {
-  clearInterval(tickTimer);
+  clearTimeout(tickTimer);
+  const gen = ++tickGen;             // 예전 예약이 남아 있어도 이걸로 걸러 낸다
   const sec = S.settings ? (S.settings.tickSeconds ?? 10) : 10;
   if (!sec) return;                  // 0 = 끔
-  tickTimer = setInterval(async () => {
+  const step = async () => {
+    if (gen !== tickGen || document.hidden) return;
+    let wait = sec * 1000;
     const syms = S.tab === 'compare' ? (S.rows || []).map(r => r.ticker)
       : S.tab === 'analysis' && S.ticker ? [S.ticker]
       : S.tab === 'portfolio' && S.account ? S.account.items.map(h => h.symbol) : [];
-    if (!syms.length) return;
-    try {
-      const o = await api('/api/prices?symbols=' + syms.join(','));
-      Object.entries(o).forEach(([k, v]) => { live[k] = v.price; });
-      S.tickAt = Date.now();
-      if (S.tab === 'compare') tickCompare();
-      else if (S.tab === 'portfolio') tickPortfolio();
-    } catch (e) { /* 틱 실패는 조용히 넘긴다 — 다음 주기에 다시 시도 */ }
-  }, sec * 1000);
+    if (syms.length) {
+      try {
+        const o = await api('/api/prices?symbols=' + syms.join(','));
+        if (gen !== tickGen) return;              // 그 사이 주기가 바뀌었다
+        Object.entries(o).forEach(([k, v]) => { live[k] = v.price; });
+        S.tickAt = Date.now();
+        if (S.tab === 'compare') tickCompare();
+        else if (S.tab === 'portfolio') tickPortfolio();
+      } catch (e) {
+        // 실패(한도 초과 등)는 조용히 넘기되 최소 5초는 쉬었다 다시 본다
+        wait = Math.max(wait, 5000);
+      }
+    }
+    if (gen !== tickGen) return;
+    tickTimer = setTimeout(step, wait);
+  };
+  tickTimer = setTimeout(step, sec * 1000);
 }
+
+/** 틱을 멈춘다 — 화면을 내려놓거나 주기를 바꿀 때. */
+function stopTicks() { tickGen++; clearTimeout(tickTimer); }
 
 // ══════════════════════════ 분석 ══════════════════════════
 
@@ -1374,7 +1394,8 @@ function renderSettings() {
   tr2.appendChild(el('span', 'g', '실시간 갱신'));
   const tsel = el('select', 'box');
   tsel.style.width = '110px';
-  [[0, '끔'], [5, '5초'], [10, '10초'], [30, '30초'], [60, '60초']].forEach(([v, lab]) => {
+  [[0, '끔'], [1, '1초'], [2, '2초'], [3, '3초'], [5, '5초'], [10, '10초'],
+   [30, '30초'], [60, '60초']].forEach(([v, lab]) => {
     const o = el('option', null, lab);
     o.value = v;
     if (v === (s.tickSeconds ?? 10)) o.selected = true;
@@ -1819,7 +1840,7 @@ document.querySelectorAll('#tabs button').forEach(b =>
 // 돌아오면 곧바로 한 번 받아 최신으로 맞춘다.
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
-    clearInterval(tickTimer); clearInterval(acctTimer); stopPrefetch();
+    stopTicks(); clearInterval(acctTimer); stopPrefetch();
   } else {
     startTicks();
     if (S.tab === 'portfolio') { loadPortfolio(false); startAccountRefresh(); }

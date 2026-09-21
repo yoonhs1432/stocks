@@ -345,6 +345,23 @@ def run(pg, base: str, errs: list[str]) -> None:
     txt = pg.inner_text("#body")
     check("종목 목록이 보인다", "종목 관리" in txt and "SOXL" in txt)
 
+    # 갱신 주기에 1초가 있는가 — 장중에 체결을 바로 보려고 넣었다
+    opts = pg.evaluate("""() => {
+      const s = [...document.querySelectorAll('#body select')]
+        .find(x => [...x.options].some(o => o.textContent.endsWith('초')));
+      return s ? [...s.options].map(o => o.value) : [];
+    }""")
+    check("갱신 주기에 1초가 있다", "1" in opts, str(opts))
+    got = pg.evaluate("""async () => {
+      const r = await fetch('/api/settings/tick', {method:'POST',
+        headers:{'Content-Type':'application/json'}, body: JSON.stringify({seconds: 1})});
+      const o = await r.json();
+      await fetch('/api/settings/tick', {method:'POST',
+        headers:{'Content-Type':'application/json'}, body: JSON.stringify({seconds: 10})});
+      return o.tickSeconds;
+    }""")
+    check("서버가 1초를 받아 준다", got == 1, str(got))
+
     # 종목 추가/삭제까지 눌러 본다 (임시 데이터 폴더라 진짜 목록은 그대로다)
     pg.fill("#body input[placeholder='티커 또는 6자리 코드']", "AAPL")
     pg.click("#body .row2:has(input[placeholder='티커 또는 6자리 코드']) button")
@@ -602,6 +619,20 @@ def run(pg, base: str, errs: list[str]) -> None:
     check("포트폴리오를 켜 둬도 차트가 안 쌓인다", n1 <= n0, f"{n0} → {n1}개")
     check("틱이 돌아도 숫자는 갱신된다", "총자산" in pg.inner_text("#body"))
     pg.evaluate("S.settings.tickSeconds = 10; startTicks()")
+
+    # ── 1초 주기가 실제로 1초로 도는가 ──
+    print("\n[1초] 1초 주기")
+    beats = []
+    h1 = lambda r: beats.append(time.time()) if "/api/prices" in r.url else None
+    pg.on("request", h1)
+    pg.evaluate("S.settings.tickSeconds = 1; startTicks()")
+    pg.wait_for_timeout(4500)
+    pg.remove_listener("request", h1)
+    pg.evaluate("S.settings.tickSeconds = 10; startTicks()")
+    gaps = [round(b - a, 2) for a, b in zip(beats, beats[1:])]
+    check("4초 동안 서너 번 받는다", 3 <= len(beats) <= 6, f"{len(beats)}건 {gaps}")
+    # 앞 요청이 끝나야 다음을 예약한다 → 간격이 0 에 붙는 일이 없어야 한다
+    check("요청이 겹쳐 쌓이지 않는다", bool(gaps) and all(g >= 0.8 for g in gaps), str(gaps))
 
     # ── 화면을 내려놓으면 요청을 멈추는가 ──
     print("\n[절전] 화면을 내려놓으면 요청이 멈추는가")

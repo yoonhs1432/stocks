@@ -271,6 +271,32 @@ def api_compare(market: str = "US", force: bool = False):
 
 _px_cache: dict[str, tuple[float, dict]] = {}
 PX_TTL = 3.0
+PX_MIN_TTL = 0.5      # 아무리 짧게 잡아도 이만큼은 캐시 — 여러 기기가 같이 볼 때 대비
+PX_BACKOFF = 10.0     # 한도(429) 에 걸리면 이만큼 쉰다
+_px_block = 0.0       # 그 쉬는 시각
+
+
+_ttl_memo: tuple[float, float] = (0.0, PX_TTL)
+
+
+def _px_ttl() -> float:
+    """현재가 캐시 수명 — 화면 갱신 주기를 따라간다.
+
+    캐시가 갱신 주기보다 길면 1초로 맞춰 놔도 화면은 3초마다 바뀐다(캐시가 같은 값을
+    돌려주므로). 그래서 설정한 주기보다 조금 짧게 잡는다.
+    설정 파일을 매 요청마다 읽지 않게 잠깐 기억해 둔다(주기를 바꾸면 곧바로 비운다).
+    """
+    global _ttl_memo
+    now = time.time()
+    if now - _ttl_memo[0] < 5:
+        return _ttl_memo[1]
+    try:
+        sec = float(store.settings().get("tick_seconds", 10) or 0)
+    except (TypeError, ValueError):
+        sec = 10.0
+    v = PX_TTL if sec <= 0 else max(PX_MIN_TTL, min(PX_TTL, sec * 0.8))
+    _ttl_memo = (now, v)
+    return v
 
 
 @app.get("/api/prices")
@@ -278,20 +304,29 @@ def api_prices(symbols: str = ""):
     """실시간 현재가 — 비교/분석 화면이 주기적으로 부른다.
 
     기기마다 따로 부르므로(PC + 폰 + 탭 여러 개) 짧게라도 캐시를 둔다.
-    같은 목록을 3초 안에 다시 물으면 토스를 또 부르지 않는다.
+    같은 목록을 캐시 수명 안에 다시 물으면 토스를 또 부르지 않는다.
     """
+    global _px_block
     syms = [s for s in symbols.split(",") if s]
     if not syms:
         return {}
     key = ",".join(syms)
     hit = _px_cache.get(key)
-    if hit and time.time() - hit[0] < PX_TTL:
+    now = time.time()
+    if hit and now - hit[0] < _px_ttl():
         return hit[1]
+    # 한도에 걸린 동안은 토스를 부르지 않는다. 1초 주기로 두드리면 더 오래 막힌다.
+    if now < _px_block:
+        return hit[1] if hit else {}
     try:
         out = _toss.prices(syms)
         _px_cache[key] = (time.time(), out)
         return out
     except TossError as e:
+        if e.http == 429:
+            _px_block = time.time() + PX_BACKOFF
+            if hit:
+                return hit[1]      # 마지막으로 받은 값이라도 준다 (화면이 빈칸이 되지 않게)
         return JSONResponse({"error": e.message, "code": e.code}, status_code=502)
 
 
@@ -695,8 +730,10 @@ def api_set_name(body: dict):
 
 @app.post("/api/settings/tick")
 def api_set_tick(body: dict):
+    global _ttl_memo
     v = max(0, min(60, int(body.get("seconds", 10))))
     store.put("tick_seconds", v)
+    _ttl_memo = (0.0, PX_TTL)      # 현재가 캐시 수명도 새 주기를 따라가게
     return {"tickSeconds": v}
 
 
