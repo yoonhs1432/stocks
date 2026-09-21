@@ -184,6 +184,30 @@ def run(pg, base: str, errs: list[str]) -> None:
     check("값이 바뀐 칸이 반짝인다", fl[0] and fl[1] == "tick-flash", str(fl))
     check("안 바뀐 칸은 가만히 있다", fl[2] is False, str(fl))
 
+    # ── 보유만 보기 ──
+    print("\n[보유] 보유 종목만 보기")
+    all_n = len(pg.query_selector_all("#body table tr.row"))
+    want = pg.evaluate("(S.rows || []).filter(r => r.holding).length")
+    pg.click("#body .hold-btn")
+    pg.wait_for_timeout(800)
+    hold_n = len(pg.query_selector_all("#body table tr.row"))
+    check("보유만 누르면 보유 종목만 남는다", 0 < hold_n == want < all_n,
+          f"{all_n}종목 → {hold_n}종목 (보유 {want})")
+    check("켜진 단추는 색이 다르다",
+          pg.eval_on_selector("#body .hold-btn", "b => b.classList.contains('on')"))
+    # 분석 칩도 같은 설정을 따른다
+    pg.click("#tabs button[data-tab='analysis']")
+    pg.wait_for_timeout(3000)
+    chips = pg.evaluate("document.querySelectorAll('#body .tchips button').length")
+    check("분석 종목 칩도 보유만 보인다", chips <= want + 1, f"칩 {chips}개 (보유 {want})")
+    pg.click("#body .hold-btn")          # 되돌린다 — 뒤 검사는 전체 목록을 본다
+    pg.wait_for_timeout(1200)
+    pg.click("#tabs button[data-tab='compare']")
+    pg.wait_for_timeout(2000)
+    check("다시 누르면 전부 보인다",
+          len(pg.query_selector_all("#body table tr.row")) == all_n,
+          f"{len(pg.query_selector_all('#body table tr.row'))}종목")
+
     # ── 비교 → 분석: 행을 누르면 그 종목으로 ──
     print("\n[비교→분석] 행 누르기")
     name = pg.inner_text("#body table tr.row td.l")
@@ -1063,6 +1087,57 @@ def run(pg, base: str, errs: list[str]) -> None:
                 check("가로로 쓸면 차트는 그대로 움직인다",
                       bool(r0 and r1 and abs(r1["from"] - r0["from"]) > 0.5),
                       f"{r0} → {r1}")
+    except Exception as e:
+        check("그래프 위 터치 검사가 끝까지 돈다", False, str(e))
+
+    # ── 산점도 확대 ──
+    print("\n[산점도] 손가락으로 벌리면 확대되는가")
+
+    def pinch(box, grow=True):
+        geo = tpg.evaluate("""() => ({vh: innerHeight,
+          head: document.querySelector('header').offsetHeight,
+          tabs: document.querySelector('#tabs').offsetHeight})""")
+        top = max(box["y"] + 8, geo["head"] + 8)
+        bottom = min(box["y"] + box["height"] - 8, geo["vh"] - geo["tabs"] - 8)
+        cx = int(box["x"] + box["width"] / 2)
+        cy = int((top + bottom) / 2)
+        d0, d1 = (26, 110) if grow else (110, 26)
+        pt = lambda d: [{"x": cx - d, "y": cy, "id": 1}, {"x": cx + d, "y": cy, "id": 2}]
+        cdp.send("Input.dispatchTouchEvent", {"type": "touchStart", "touchPoints": pt(d0)})
+        for i in range(1, 9):
+            cdp.send("Input.dispatchTouchEvent",
+                     {"type": "touchMove", "touchPoints": pt(d0 + (d1 - d0) * i // 8)})
+            time.sleep(0.03)
+        cdp.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
+        time.sleep(0.4)
+
+    def double_tap(box):
+        cx = int(box["x"] + box["width"] / 2)
+        cy = int(box["y"] + min(box["height"] / 2, 30))
+        for _ in range(2):
+            cdp.send("Input.dispatchTouchEvent",
+                     {"type": "touchStart", "touchPoints": [{"x": cx, "y": cy, "id": 1}]})
+            cdp.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
+            time.sleep(0.08)
+        time.sleep(0.4)
+
+    try:
+        tpg.evaluate("window.scrollTo(0, 0)")
+        tpg.click("#tabs button[data-tab='analysis']")
+        tpg.wait_for_timeout(3000)
+        tpg.click("#hdr-seg button:has-text('산점도')")
+        tpg.wait_for_timeout(2500)
+        sbox = tpg.query_selector("#body .chart").bounding_box()
+        k0 = tpg.evaluate("document.querySelector('#body .chart')._v.k")
+        pinch(sbox, True)
+        k1 = tpg.evaluate("document.querySelector('#body .chart')._v.k")
+        check("손가락을 벌리면 확대된다", k1 > k0 * 1.5, f"배율 {k0} → {round(k1, 2)}")
+        # 두 번째 산점도는 따로 논다 — 하나를 확대해도 다른 하나는 그대로
+        k2 = tpg.evaluate("document.querySelectorAll('#body .chart')[1]._v.k")
+        check("아래 산점도는 그대로다", abs(k2 - 1) < 0.01, f"배율 {k2}")
+        double_tap(sbox)
+        k3 = tpg.evaluate("document.querySelector('#body .chart')._v.k")
+        check("두 번 누르면 원래 크기로", abs(k3 - 1) < 0.01, f"배율 {round(k3, 2)}")
     finally:
         tp.close()
 

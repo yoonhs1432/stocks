@@ -21,6 +21,7 @@ const S = {
   ticker: localStorage.getItem('ticker') || null,
   bar: localStorage.getItem('bar') || '1d',
   group: localStorage.getItem('group') || 'series',
+  holdOnly: localStorage.getItem('holdOnly') === '1',
   account: null, rows: null, analysis: null, minutes: null, settings: null,
   snaps: null, journal: null, journalOpen: false,
   hist: null, histOpen: false, histDate: null,
@@ -128,6 +129,24 @@ function drawCandle(c, r) {
   return c;
 }
 
+/** 보유만 보기 — 비교 표와 분석 종목 칩이 같은 목록을 쓴다. */
+const viewRows = () => {
+  const rows = S.rows || [];
+  return S.holdOnly ? rows.filter(r => r.holding) : rows;
+};
+
+/** '● 보유' 토글 단추. 어느 화면에서 눌러도 같은 설정을 바꾼다. */
+function holdBtn(after) {
+  const n = (S.rows || []).filter(r => r.holding).length;
+  const b = el('button', 'hold-btn' + (S.holdOnly ? ' on' : ''), `● 보유${n ? ` ${n}` : ''}`);
+  b.onclick = () => {
+    S.holdOnly = !S.holdOnly;
+    localStorage.setItem('holdOnly', S.holdOnly ? '1' : '0');
+    after();
+  };
+  return b;
+}
+
 function sortRows(rows) {
   const k = S.sortKey;
   const val = r => k === 'name' ? (r.name || r.ticker)
@@ -154,6 +173,13 @@ function renderCompare() {
 
   const wrap = el('div', 'pad');
   wrap.style.padding = '0 var(--pad) 8px';
+
+  // 보유만 보기 — 종목이 스물이 넘으면 내 것만 보고 싶을 때가 많다
+  const bar = el('div', 'hold-bar');
+  bar.appendChild(holdBtn(renderCompare));
+  bar.appendChild(el('span', 'muted', `${viewRows().length}종목`));
+  wrap.appendChild(bar);
+
   const t = el('table', 'cmp');
   // 열 폭을 못 박는다 — 종목명이 길어도 숫자 열(특히 맨 끝 M)이 밀려나지 않게
   const cg = el('colgroup');
@@ -177,7 +203,7 @@ function renderCompare() {
   // 틱마다 표를 통째로 다시 만들면 미니 캔들 19개를 매번 새로 그리게 되고,
   // 다시 정렬까지 하면 **행이 위아래로 튄다.** 그려 둔 칸을 기억해 두고 숫자만 고친다.
   cmpRefs = [];
-  sortRows(S.rows).forEach(r => {
+  sortRows(viewRows()).forEach(r => {
     const tr = el('tr', 'row');       // colgroup·머리글과 구분되게 표시해 둔다
     tr.onclick = () => { S.ticker = r.ticker; localStorage.setItem('ticker', r.ticker); go('analysis'); };
 
@@ -476,14 +502,23 @@ function renderAnalysis(err) {
   const wrap = el('div');
   wrap.style.padding = '0 var(--pad) 12px';
 
-  // 종목 칩
+  // 종목 칩 — 왼쪽에 '보유' 토글을 붙박이로 두고 칩만 옆으로 흐르게 한다
+  const tbar = el('div', 'tbar');
+  tbar.appendChild(holdBtn(renderAnalysis));
   const chips = el('div', 'tchips');
-  (S.rows || []).forEach(r => {
+  // 보고 있는 종목이 보유가 아니면 그것만은 남긴다 — 안 그러면 어딜 보는지 알 수 없다
+  let list = viewRows();
+  if (S.ticker && !list.some(r => r.ticker === S.ticker)) {
+    const cur = (S.rows || []).find(r => r.ticker === S.ticker);
+    if (cur) list = [cur, ...list];
+  }
+  list.forEach(r => {
     const b = el('button', r.ticker === S.ticker ? 'on' : '', r.name || r.ticker);
     b.onclick = () => { S.ticker = r.ticker; localStorage.setItem('ticker', r.ticker); loadAnalysis(); };
     chips.appendChild(b);
   });
-  wrap.appendChild(chips);
+  tbar.appendChild(chips);
+  wrap.appendChild(tbar);
   body.appendChild(wrap);
   // 뒤쪽 종목을 고르면 칩이 화면 밖에 있어 뭘 보는지 알 수 없었다 → 가운데로 당겨 온다
   requestAnimationFrame(() => {
