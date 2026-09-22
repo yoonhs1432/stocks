@@ -53,8 +53,7 @@ import com.quant.dashboard.data.LivePrices
 import com.quant.dashboard.data.MarketHours
 import com.quant.dashboard.data.Store
 import com.quant.dashboard.data.Tickers
-import com.quant.dashboard.data.TossSync
-import com.quant.dashboard.quant.Portfolio
+import com.quant.dashboard.data.Trade
 import com.quant.dashboard.quant.Quant
 import com.quant.dashboard.ui.theme.Accent
 import com.quant.dashboard.ui.theme.BgApp
@@ -145,7 +144,7 @@ fun AnalysisScreen(vm: AnalysisViewModel = viewModel(), onBack: () -> Unit = {})
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         ResultView(s.result, s.ticker, s.ohlc, ov[s.ticker]?.day, group, avail,
-                            s.minutes) { vm.loadMinutes() }
+                            s.minutes, s.trades, s.avgPrice, s.qty) { vm.loadMinutes() }
                     }
                 }
                 s.loading -> Row(Modifier.fillMaxWidth().padding(24.dp), Arrangement.Center) {
@@ -267,6 +266,11 @@ private fun Accordion(title: String, content: @Composable () -> Unit) {
     }
 }
 
+/** 수량 표시 — 소수점 보유(미국 소수점 매매)는 필요한 자리까지만. */
+private fun heldQtyLabel(q: Double): String =
+    if (q == Math.floor(q)) "%,.0f주".format(q)
+    else "%,.4f".format(q).trimEnd('0').trimEnd('.') + "주"
+
 /** 분석 본문 Column 의 세로 패딩. 가용 높이 계산에서 정확히 이만큼 빠져야 한다. */
 private val BODY_PAD = 8.dp
 
@@ -276,6 +280,8 @@ private class ChartsHeight(var total: Dp = 0.dp)
 @Composable
 private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayPct: Double?,
                        group: String, avail: Dp, minutes: List<Candle> = emptyList(),
+                       trades: List<Trade> = emptyList(),
+                       avgPrice: Double = Double.NaN, heldQty: Double = Double.NaN,
                        onNeedMinutes: () -> Unit = {}) {
     // ── 차트가 화면에 딱 맞게 — 여백을 **추정하지 않고 잰다** ──
     //
@@ -298,16 +304,7 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
     // ── 종목명 + σ·β + (우측) 현재가/평단/수량 — 한 줄, 넘치면 가로 스크롤 ──
-    val trades = remember(ticker) { Store.visibleTrades()[ticker].orEmpty() }
-    val pos = remember(ticker) { Portfolio.position(trades) }
-    // 평단가 — **토스가 계산해 준 값이 우선**이다. 체결내역으로 역산한 pos.avg 는
-    // 기록이 불완전하면 어긋나고, 그러면 헤더 숫자와 차트 평단선이 서로 달라진다.
-    val avgPrice = remember(ticker, AppState.dataVersion) {
-        TossSync.cachedAccount()?.holdings?.items
-            ?.firstOrNull { it.symbol == ticker && it.avgPrice > 0 }?.avgPrice
-            ?: pos?.avg?.takeIf { it > 0 }
-            ?: Double.NaN
-    }
+    // 매매기록·평단·수량은 **서버가 분석과 같이 준다**(증권사 값 우선). 화면이 따로 뒤지지 않는다.
     val held = avgPrice.isFinite() && avgPrice > 0
     Row(
         verticalAlignment = Alignment.Bottom,
@@ -329,7 +326,7 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
             extra = chgPct?.let { "${if (it >= 0) "+" else ""}${"%.1f%%".format(it)}" },
             extraColor = chgPct?.let { if (it >= 0) Profit else Loss } ?: TextMuted)
         if (held) Mini("평단", Tickers.priceLabel(ticker, avgPrice))
-        if (pos != null) Mini("보유", "${pos.qty}주")
+        if (heldQty.isFinite() && heldQty > 0) Mini("보유", heldQtyLabel(heldQty))
     }
 
     // ── 차트 데이터 — 분석 기간 전체를 넘긴다 ──

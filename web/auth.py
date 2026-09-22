@@ -153,6 +153,11 @@ def make_guard(_initial: str = ""):
 
         secure = request.headers.get("x-forwarded-proto", request.url.scheme) == "https"
 
+        # 안드로이드 앱은 쿠키 대신 **헤더**로 보낸다. 리다이렉트·쿠키를 다룰 이유가 없다.
+        hdr = request.headers.get("x-quant-key")
+        if hdr and secrets.compare_digest(hdr, tok):
+            return await call_next(request)
+
         # ?key=... 로 들어오면 쿠키를 심고 주소에서 지운다
         key = request.query_params.get("key")
         if key and secrets.compare_digest(key, tok):

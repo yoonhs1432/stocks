@@ -34,8 +34,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.quant.dashboard.data.BrokerCreds
-import com.quant.dashboard.data.Deposits
+import com.quant.dashboard.data.ServerConfig
 import com.quant.dashboard.data.LivePrices
 import com.quant.dashboard.data.Snapshots
 import com.quant.dashboard.data.Store
@@ -94,6 +93,10 @@ fun PortfolioScreen(onOpenAnalysis: (String) -> Unit = {}) {
 
     suspend fun reload(force: Boolean) {
         val fresh = withContext(Dispatchers.IO) {
+            // 자산 추이·매매 일지도 같이 받아 둔다 — 화면이 그리는 중에 읽는 값이라
+            // 여기서 채워 놓지 않으면 빈 그래프가 뜬다(그리는 중엔 네트워크를 못 탄다).
+            runCatching { Snapshots.ensure(force) }
+            runCatching { Store.refreshTrades() }
             try { TossSync.account(force = force) } catch (e: Exception) { err = e.message; null }
         }
         if (fresh != null) { acct = fresh; err = null }
@@ -129,7 +132,7 @@ fun PortfolioScreen(onOpenAnalysis: (String) -> Unit = {}) {
 
                 val a = acct
                 when {
-                    !BrokerCreds.isLinked() -> Text("설정 탭에서 토스증권을 연결하면 계좌가 표시됩니다.",
+                    !ServerConfig.isSet() -> Text("설정 탭에서 토스증권을 연결하면 계좌가 표시됩니다.",
                         color = TextSecondary, fontSize = 14.sp)
                     a != null -> TossBody(a, usdMode, onOpenAnalysis)
                     else -> Text(err?.let { "⚠️ $it" } ?: "계좌 정보를 불러오는 중…",
@@ -158,7 +161,7 @@ private fun TossBody(a: TossSync.Account, usdMode: Boolean, onOpenAnalysis: (Str
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text("총자산", color = TextSecondary, fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-            Text(BrokerCreds.maskedAccount(), color = TextMuted, fontSize = 10.sp, fontFamily = Mono)
+            Text(ServerConfig.maskedAccount(), color = TextMuted, fontSize = 10.sp, fontFamily = Mono)
         }
         Text(m.of(a.totalKrw()), color = TextPrimary, fontSize = 32.sp,
             fontWeight = FontWeight.Bold, fontFamily = Mono)
@@ -234,13 +237,9 @@ private fun TossBody(a: TossSync.Account, usdMode: Boolean, onOpenAnalysis: (Str
     // 매매기록이 불완전하면 값이 어긋나서 걷어냈다.
     val sr = remember(AppState.dataVersion, usdMode) { Snapshots.series(usdMode) }
     val pnlSeries = remember(AppState.dataVersion, usdMode) { Snapshots.pnls(usdMode) }
-    // 원금 = 설정에 적어 둔 입금 누적. 기록이 없으면 전부 NaN 이라 선도 수익률도 안 나온다
-    val principal = remember(AppState.dataVersion, usdMode) {
-        Deposits.seriesFor(sr.dates, usdMode, sr.rate)
-    }
-    val pnlPrincipal = remember(AppState.dataVersion, usdMode) {
-        Deposits.seriesFor(pnlSeries.map { it.first }, usdMode, Snapshots.pnlRates())
-    }
+    // 원금 = 설정에 적어 둔 입금 누적. 서버가 그날 환율로 환산까지 해서 준다.
+    val principal = remember(AppState.dataVersion, usdMode) { sr.principal }
+    val pnlPrincipal = remember(AppState.dataVersion, usdMode) { Snapshots.pnlPrincipal(usdMode) }
     // 원화는 만원 단위로 접어야 축이 읽힌다. 달러는 그대로
     val div = if (usdMode) 1.0 else 10000.0
     val unit = if (usdMode) "$" else "만원"

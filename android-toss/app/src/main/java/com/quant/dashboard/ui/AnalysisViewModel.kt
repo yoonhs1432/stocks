@@ -9,7 +9,8 @@ import com.quant.dashboard.data.Candle
 import com.quant.dashboard.data.OverviewRepo
 import com.quant.dashboard.data.Store
 import com.quant.dashboard.data.Tickers
-import com.quant.dashboard.data.Quotes
+import com.quant.dashboard.data.Server
+import com.quant.dashboard.data.Trade
 import com.quant.dashboard.quant.Quant
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -25,6 +26,10 @@ data class UiState(
     /** 1분봉 — 봉 주기를 1분으로 놓았을 때만 받는다(일봉 분석과 완전히 별개). */
     val minutes: List<Candle> = emptyList(),
     val minLoading: Boolean = false,
+    // 아래 셋은 서버가 분석과 **같이** 준다. 화면이 따로 뒤지지 않아도 되게.
+    val trades: List<Trade> = emptyList(),
+    val avgPrice: Double = Double.NaN,
+    val qty: Double = Double.NaN,
 )
 
 class AnalysisViewModel : ViewModel() {
@@ -43,7 +48,6 @@ class AnalysisViewModel : ViewModel() {
         }
     }
 
-    private var spyCache: List<Pair<Long, Double>> = emptyList()
     private var loadedVersion = -1
     private var loadJob: Job? = null
     private var reqSeq = 0
@@ -55,7 +59,7 @@ class AnalysisViewModel : ViewModel() {
      */
     fun sync(version: Int, pending: String? = null) {
         val changed = version != loadedVersion
-        if (changed) { loadedVersion = version; spyCache = emptyList() }
+        if (changed) loadedVersion = version
         when {
             pending != null -> select(pending)
             changed -> load()
@@ -87,7 +91,6 @@ class AnalysisViewModel : ViewModel() {
      * 자동 새로고침과 달리 사용자가 명시적으로 요청한 것이므로 캐시를 건너뛴다.
      */
     fun refresh() {
-        spyCache = emptyList()
         load(force = true)
         loadOverview(force = true)
         if (state.minutes.isNotEmpty()) loadMinutes(force = true)
@@ -103,7 +106,9 @@ class AnalysisViewModel : ViewModel() {
         minJob?.cancel()
         minJob = viewModelScope.launch {
             state = state.copy(minLoading = true)
-            val bars = withContext(Dispatchers.IO) { Quotes.minuteOhlc(ticker, force = force) }
+            val bars = withContext(Dispatchers.IO) {
+                runCatching { Server.minutes(ticker) }.getOrDefault(emptyList())
+            }
             if (ticker != state.ticker) return@launch   // 그 사이 종목이 바뀌었으면 버린다
             state = state.copy(minutes = bars, minLoading = false)
         }
@@ -114,34 +119,28 @@ class AnalysisViewModel : ViewModel() {
         loadJob?.cancel()   // 진행 중이던 이전 요청 취소 (응답 순서가 뒤바뀌는 것 방지)
         if (!quiet) state = state.copy(loading = true, error = null)
         loadJob = viewModelScope.launch {
-            val months = Store.lookbackMonths()
+            // 분석은 **서버가 계산해서** 준다. 폰이 일봉을 받아 회귀를 돌리던 때와 달리
+            // 요청 한 번이고, 종목을 눌렀을 때 이미 계산이 끝나 있다(서버가 미리 해 둔다).
             val holder = withContext(Dispatchers.IO) {
-                try {
-                    if (spyCache.isEmpty()) spyCache = Quotes.closes(Tickers.BASE, months, force)
-                    val spy = spyCache
-                    val candles = Quotes.ohlc(ticker, months, force)
-                    val tk = candles.map { Pair(it.t, it.close) }
-                    when {
-                        spy.isEmpty() -> Result.failure(Exception("SPY 시세를 가져오지 못했습니다"))
-                        tk.isEmpty() -> Result.failure(Exception("$ticker 시세를 가져오지 못했습니다"))
-                        else -> {
-                            val r = Quant.analyze(spy, tk)
-                            if (r == null) Result.failure(Exception("분석 데이터 부족"))
-                            else Result.success(Pair(r, candles))
-                        }
-                    }
-                } catch (e: Exception) {
-                    Result.failure(e)
-                }
+                runCatching { Server.analysis(ticker, force) }
             }
             if (seq != reqSeq) return@launch   // 더 최신 요청이 있으면 이 응답은 폐기
-            state = if (holder.isSuccess) {
-                val (r, candles) = holder.getOrNull()!!
-                state.copy(loading = false, ticker = ticker, result = r, ohlc = candles, error = null)
-            } else if (quiet) {
-                state.copy(loading = false)   // 조용한 새로고침 실패는 기존 화면 유지
-            } else {
-                state.copy(loading = false, error = holder.exceptionOrNull()?.message ?: "오류")
+            val a = holder.getOrNull()
+            state = when {
+                a == null && quiet -> state.copy(loading = false)
+                a == null -> state.copy(
+                    loading = false,
+                    error = holder.exceptionOrNull()?.message ?: "PC 에 연결되지 않습니다",
+                )
+                a.result == null -> state.copy(
+                    loading = false, ticker = ticker, ohlc = a.candles,
+                    trades = a.trades, avgPrice = a.avgPrice, qty = a.qty,
+                    error = "분석 데이터 부족 — 상장 후 기간이 짧은 종목입니다",
+                )
+                else -> state.copy(
+                    loading = false, ticker = ticker, result = a.result, ohlc = a.candles,
+                    trades = a.trades, avgPrice = a.avgPrice, qty = a.qty, error = null,
+                )
             }
         }
     }

@@ -44,6 +44,7 @@ object LivePrices {
      */
     fun isStale(symbol: String, market: String): Boolean {
         val q = quotes[symbol] ?: return false
+        if (q.stale) return true                     // 서버가 세션표를 보고 판정해 준다
         val start = MarketHours.sessionStart(market) ?: return false
         return q.at == null || q.at < start
     }
@@ -56,18 +57,18 @@ object LivePrices {
     }
 
     /**
-     * 한 번 갱신. IO 디스패처에서 호출.
-     * 429 를 받으면 잠시 쉬었다 재개한다(서버 한도를 계속 두드리지 않도록).
+     * 한 번 갱신 — **PC 서버**에 묻는다. IO 디스패처에서 호출.
+     * 실패하면 잠시 쉬었다 재개한다(계속 두드리지 않게).
      */
     fun tick(symbols: List<String>) {
-        if (symbols.isEmpty() || !BrokerCreds.isLinked()) return
+        if (symbols.isEmpty() || !ServerConfig.isSet()) return
         val now = System.currentTimeMillis()
         if (now < throttleUntil) {
-            note = "한도 초과 · ${((throttleUntil - now) / 1000).coerceAtLeast(1)}초 후 재개"
+            note = "잠시 후 재개 · ${((throttleUntil - now) / 1000).coerceAtLeast(1)}초"
             return
         }
         try {
-            val m = TossApi.prices(symbols)
+            val m = Server.prices(symbols)
             if (m.isNotEmpty()) {
                 val prev = quotes
                 changed = m.filter { (k, v) -> prev[k]?.price != v.price }.keys
@@ -77,16 +78,12 @@ object LivePrices {
                 tickSeq++
                 note = null
             }
-        } catch (e: TossException) {
-            if (e.http == 429) {
-                throttleUntil = now + 30_000
-                note = "한도 초과 · 30초 후 재개"
-            } else {
-                note = "시세 오류(${e.code})"
-            }
+        } catch (e: Server.HttpError) {
+            throttleUntil = now + 15_000
+            note = if (e.code == 401) "접속 암호를 확인하세요" else "PC 응답 없음 · 15초 후 재개"
         } catch (e: Exception) {
-            // 일시적 네트워크 오류는 조용히 무시 — 다음 틱에서 재시도
-            note = "네트워크 오류"
+            // 일시적 네트워크 오류는 조용히 — 다음 틱에서 재시도
+            note = "PC 에 연결되지 않습니다"
         }
     }
 }

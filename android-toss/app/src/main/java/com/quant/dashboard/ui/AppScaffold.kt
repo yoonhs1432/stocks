@@ -29,13 +29,12 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.quant.dashboard.data.BrokerCreds
+import com.quant.dashboard.data.ServerConfig
 import com.quant.dashboard.data.LivePrices
 import com.quant.dashboard.data.MarketHours
 import com.quant.dashboard.data.Store
 import com.quant.dashboard.data.Tickers
 import com.quant.dashboard.data.TossSync
-import com.quant.dashboard.data.Universe
 import com.quant.dashboard.ui.theme.BgApp
 import com.quant.dashboard.ui.theme.BgElevated
 import com.quant.dashboard.ui.theme.DividerColor
@@ -73,21 +72,19 @@ fun AppScaffold() {
     // 일봉·분석은 무거워서 기존 5분 캐시 그대로 두고, 화면의 현재가·등락률만 이 값으로 덮어쓴다.
     // 종목 유니버스(이름 검색·국내 표시명)는 앱 시작 시 한 번 메모리에 올려 둔다 —
     // 표시명은 화면 그리는 중에 불리므로 그때 파일을 읽으면 안 된다.
+    // 서버에서 설정·종목 목록·입금·매매기록을 받아 둔다. 화면이 그리는 중에 읽는 값이라
+    // 여기서 미리 채워 놓아야 한다(그리는 중에 네트워크를 타면 앱이 죽는다).
     LaunchedEffect(Unit) {
-        val before = withContext(Dispatchers.IO) { Universe.count() }   // 파일 캐시 → 메모리
-        val after = withContext(Dispatchers.IO) {
-            runCatching { Universe.ensure() }.getOrDefault(before)      // 하루 1회만 실제 요청
-        }
-        // 처음으로 이름이 생겼을 때만 화면을 갱신한다 (매 실행마다 전체 재조회를 유발하지 않게)
-        if (after != before) AppState.bump()
+        val changed = withContext(Dispatchers.IO) { Store.syncFromServer(force = true) }
+        if (changed) AppState.bump()
     }
 
     LaunchedEffect(AppState.dataVersion) {
         while (true) {
             val sec = Store.tickSeconds()
-            if (sec <= 0 || !BrokerCreds.isLinked()) {
+            if (sec <= 0 || !ServerConfig.isSet()) {
                 LivePrices.clear()
-                LivePrices.noteIdle(if (sec <= 0) "실시간 갱신 꺼짐" else "토스 미연동")
+                LivePrices.noteIdle(if (sec <= 0) "실시간 갱신 꺼짐" else "PC 미연결")
                 kotlinx.coroutines.delay(30_000)
                 continue
             }
@@ -98,7 +95,7 @@ fun AppScaffold() {
                     LivePrices.tick((Store.loadTickers() + Tickers.BASE + held).distinct())
                 } else {
                     // 왜 안 도는지 화면에 남긴다 — 조용히 멈추면 고장과 구분이 안 된다
-                    LivePrices.noteIdle("장 마감")
+                    LivePrices.noteIdle(MarketHours.label().ifBlank { "장 마감" })
                 }
             }
             kotlinx.coroutines.delay(sec * 1000L)

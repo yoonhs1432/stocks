@@ -120,10 +120,14 @@ def status(toss, now: float | None = None) -> dict:
     now = time.time() if now is None else now
     with _lock:
         have, note = bool(_sessions), _note
+    with _lock:
+        ses = list(_sessions)
     return {
         "open": is_open(now),
         "label": label(now),
         "exact": have,                  # False = 대략 판정 중
         "note": note or None,
         "at": int(now),
+        # 안드로이드 앱이 '이번 장 체결 없음'을 직접 판정하는 데 쓴다
+        "sessions": [s for s in ses if s["end"] >= now - 86400],
     }

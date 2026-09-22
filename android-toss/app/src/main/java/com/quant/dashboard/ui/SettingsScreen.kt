@@ -45,14 +45,12 @@ import com.quant.dashboard.data.Deposits
 import java.time.LocalDate
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.quant.dashboard.data.BrokerCreds
-import com.quant.dashboard.data.NetInfo
-import com.quant.dashboard.data.Quotes
 import com.quant.dashboard.data.Store
+import com.quant.dashboard.data.Server
+import com.quant.dashboard.data.ServerConfig
+import com.quant.dashboard.data.MarketHours
 import com.quant.dashboard.data.Tickers
-import com.quant.dashboard.data.TossApi
 import com.quant.dashboard.data.TossSync
-import com.quant.dashboard.data.Universe
 import com.quant.dashboard.ui.theme.Accent
 import com.quant.dashboard.ui.theme.BgApp
 import com.quant.dashboard.ui.theme.Loss
@@ -124,100 +122,107 @@ fun SettingsScreen() {
                 Spacer(Modifier.weight(1f))
                 NumBox(rangeText, { rangeText = it.filter { c -> c.isDigit() }.take(2) }, 60.dp)
                 Text("개월", color = TextSecondary, fontSize = 13.sp)
+                val mScope = rememberCoroutineScope()
                 GhostButton("적용", color = Accent) {
                     val m = rangeText.toIntOrNull()?.coerceIn(3, Store.MAX_MONTHS) ?: Store.lookbackMonths()
                     rangeText = m.toString()
-                    Store.setLookbackMonths(m); Quotes.clearCache(); AppState.bump()
+                    // 기간은 서버 설정이다 — 바꾸면 PC 가 일봉을 다시 받는다
+                    mScope.launch {
+                        withContext(Dispatchers.IO) { runCatching { Store.setLookbackMonths(m) } }
+                        AppState.bump()
+                    }
                 }
             }
             HDivider(Modifier.padding(top = 4.dp))
         }
 
         // ══════════ 토스증권 ══════════
-        SectionLabel("토스증권")
+        SectionLabel("집 PC 연결")
         Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            var bkKey by remember { mutableStateOf(BrokerCreds.appKey()) }
-            var bkSecret by remember { mutableStateOf(BrokerCreds.appSecret()) }
-            var bkMsg by remember { mutableStateOf<String?>(null) }
-            var bkBusy by remember { mutableStateOf(false) }
-            var bkVer by remember { mutableStateOf(0) }
+            // 이 앱은 증권사를 직접 부르지 않는다. 집 PC 가 부르고, 폰은 거기서 받는다.
+            // 그래서 폰에는 **주소와 접속 암호**만 있으면 된다(앱키·시크릿은 PC 에만).
+            var url by remember { mutableStateOf(ServerConfig.url()) }
+            var token by remember { mutableStateOf(ServerConfig.token()) }
+            var msg by remember { mutableStateOf<String?>(null) }
+            var busy by remember { mutableStateOf(false) }
+            var ver by remember { mutableStateOf(0) }
             val scope = rememberCoroutineScope()
-            val linked = bkVer.let { BrokerCreds.isLinked() }
-            // 키 입력칸은 연결 전엔 펼쳐 두고, 연결된 뒤엔 [키 변경] 을 눌러야 나온다
-            var editKeys by remember(linked) { mutableStateOf(!linked) }
+            val linked = ver.let { ServerConfig.isSet() }
+            var edit by remember(linked) { mutableStateOf(!linked) }
 
-            if (!BrokerCreds.available()) {
-                Text("기기 보안 저장소를 열 수 없어 연동을 쓸 수 없습니다.", color = Loss, fontSize = 12.sp)
+            if (!ServerConfig.available()) {
+                Text("기기 보안 저장소를 열 수 없어 연결 정보를 저장할 수 없습니다.",
+                    color = Loss, fontSize = 12.sp)
                 return@Column
             }
 
-            // ── 상태 줄 ──
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    when {
-                        linked -> "연결됨 · 계좌 ${BrokerCreds.maskedAccount()}"
-                        BrokerCreds.hasKeys() -> "키만 저장됨"
-                        else -> "미연결"
-                    },
+                    if (linked) "연결됨 · ${ServerConfig.url()}" else "미연결",
                     color = if (linked) TextPrimary else TextSecondary, fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f),
+                    fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f), maxLines = 2,
                 )
-                if (linked && !editKeys) GhostButton("키 변경") { editKeys = true }
+                if (linked && !edit) GhostButton("변경") { edit = true }
+            }
+            if (linked && ServerConfig.accountNo().isNotBlank()) {
+                Text("계좌 ${ServerConfig.maskedAccount()}", color = TextMuted,
+                    fontSize = 11.sp, fontFamily = Mono)
             }
 
-            // ── 키 입력 (미연결이거나 [키 변경]) ──
-            if (editKeys) {
-                OutlinedTextField(bkKey, { bkKey = it }, label = { Text("App Key") },
+            if (edit) {
+                OutlinedTextField(url, { url = it },
+                    label = { Text("PC 주소") },
+                    placeholder = { Text("https://hsyunpc.tailXXXX.ts.net", fontSize = 11.sp) },
                     singleLine = true, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(bkSecret, { bkSecret = it }, label = { Text("App Secret") },
+                OutlinedTextField(token, { token = it }, label = { Text("접속 암호") },
                     singleLine = true, visualTransformation = PasswordVisualTransformation(),
                     modifier = Modifier.fillMaxWidth())
+                Text("PC 화면(설정 → 접속)에 있는 암호입니다.", color = TextMuted, fontSize = 11.sp)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                     PrimaryButton(
-                        if (bkBusy) "연결 중…" else "연결",
-                        enabled = !bkBusy && bkKey.isNotBlank() && bkSecret.isNotBlank(),
+                        if (busy) "확인 중…" else "연결",
+                        enabled = !busy && url.isNotBlank() && token.isNotBlank(),
                         modifier = Modifier.weight(1f),
                         onClick = {
-                            BrokerCreds.saveKeys(bkKey, bkSecret)
-                            bkBusy = true; bkMsg = "연결 중…"
+                            ServerConfig.save(url, token)
+                            busy = true; msg = "확인 중…"
                             scope.launch {
-                                val msg = withContext(Dispatchers.IO) {
+                                val out = withContext(Dispatchers.IO) {
                                     try {
-                                        // 계좌 목록을 받아 accountSeq 확정 (종합매매 계좌 우선)
-                                        val accts = TossApi.accounts()
-                                        val a = accts.firstOrNull { it.accountType == "BROKERAGE" } ?: accts.firstOrNull()
-                                        if (a == null) "조회된 계좌가 없습니다"
-                                        else { BrokerCreds.saveAccount(a.accountSeq, a.accountNo); null }
+                                        Server.health()
+                                        Store.syncFromServer(force = true)
+                                        MarketHours.ensure(force = true)
+                                        null
+                                    } catch (e: Server.HttpError) {
+                                        e.message
                                     } catch (e: Exception) {
-                                        // 허용 IP 문제면 지금 IP 를 같이 알려줘야 바로 등록할 수 있다
-                                        if (e is com.quant.dashboard.data.TossException && e.code == "access_denied")
-                                            "허용 IP 밖입니다 — 아래 IP 를 WTS 에 등록하세요"
-                                        else "실패: ${e.message}"
+                                        "PC 에 연결되지 않습니다 (주소를 확인하세요)"
                                     }
                                 }
-                                bkMsg = msg; bkBusy = false; bkVer++; AppState.bump()
+                                msg = out ?: "연결됨"
+                                busy = false; ver++; edit = out != null; AppState.bump()
                             }
                         },
                     )
-                    if (BrokerCreds.hasKeys()) GhostButton("삭제", color = Loss, enabled = !bkBusy) {
-                        BrokerCreds.clear(); bkKey = ""; bkSecret = ""; bkVer++; bkMsg = null; AppState.bump()
+                    if (linked) GhostButton("삭제", color = Loss, enabled = !busy) {
+                        ServerConfig.clear(); url = ""; token = ""; ver++; msg = null; AppState.bump()
                     }
                 }
             }
-            bkMsg?.let { Text(it, color = if (it.startsWith("실패") || it.contains("등록")) Loss else TextSecondary, fontSize = 12.sp) }
-
-            // ── 현재 IP — 열면 자동 확인. 마지막으로 등록한 IP 와 다르면 빨갛게 ──
-            IpRow()
+            msg?.let {
+                Text(it, color = if (it == "연결됨") TextSecondary else Loss, fontSize = 12.sp)
+            }
 
             if (linked) {
                 HDivider()
-                PrimaryButton("체결내역 가져오기", enabled = !bkBusy, modifier = Modifier.padding(vertical = 4.dp)) {
-                    bkBusy = true; bkMsg = "체결내역 가져오는 중…"
+                PrimaryButton("체결내역 가져오기", enabled = !busy, modifier = Modifier.padding(vertical = 4.dp)) {
+                    busy = true; msg = "가져오는 중…"
                     scope.launch {
-                        val msg = withContext(Dispatchers.IO) {
-                            try { TossSync.importFills().summary() } catch (e: Exception) { "실패: ${e.message}" }
+                        val out = withContext(Dispatchers.IO) {
+                            try { "매매기록 ${TossSync.importFills()}건 저장됨" }
+                            catch (e: Exception) { "실패: ${e.message}" }
                         }
-                        bkMsg = msg; bkBusy = false; AppState.bump()
+                        msg = out; busy = false; AppState.bump()
                     }
                 }
 
@@ -227,38 +232,22 @@ fun SettingsScreen() {
                 UnderlineSegments(
                     listOf("0" to "끔", "1" to "1초", "3" to "3초", "5" to "5초", "10" to "10초", "30" to "30초"),
                     selected = tick.toString(),
-                    onSelect = { tick = it.toInt(); Store.setTickSeconds(tick); AppState.bump() },
+                    onSelect = { v ->
+                        tick = v.toInt()
+                        scope.launch {
+                            withContext(Dispatchers.IO) { Store.setTickSeconds(tick) }
+                            AppState.bump()
+                        }
+                    },
                 )
 
-                // ── 진단: 어떤 봉 주기를 받아 주는지 ──
-                // 스펙에 허용값이 없어 실제로 1봉씩 요청해 봐야 안다. 결과를 보고 분석 탭에
-                // 붙일 주기를 정한다(지금은 일봉 고정).
                 HDivider()
-                var ivBusy by remember { mutableStateOf(false) }
-                var ivOut by remember { mutableStateOf<String?>(null) }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Label("봉 주기")
-                    Spacer(Modifier.weight(1f))
-                    GhostButton(if (ivBusy) "확인 중…" else "확인", enabled = !ivBusy) {
-                        ivBusy = true; ivOut = null
-                        scope.launch {
-                            val sym = Store.loadTickers().firstOrNull() ?: "AAPL"
-                            ivOut = withContext(Dispatchers.IO) {
-                                listOf("1m", "3m", "5m", "15m", "30m", "1h", "4h", "1d", "1w", "1M")
-                                    .joinToString("\n") { iv ->
-                                        "%-4s %s".format(iv, TossApi.probeInterval(sym, iv))
-                                    }
-                            }
-                            ivBusy = false
-                        }
+                ListRow(Modifier.clickable {
+                    scope.launch {
+                        withContext(Dispatchers.IO) { runCatching { Server.clearCandleCache() } }
+                        AppState.bump()
                     }
-                }
-                ivOut?.let {
-                    Text(it, color = TextSecondary, fontSize = 11.sp, fontFamily = Mono)
-                }
-
-                HDivider()
-                ListRow(Modifier.clickable { Quotes.clearCache(); AppState.bump() }) {
+                }) {
                     Text("일봉 다시 받기", color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
                         modifier = Modifier.weight(1f))
                     Text("›", color = TextSecondary, fontSize = 16.sp)
@@ -289,12 +278,15 @@ fun SettingsScreen() {
                     108.dp, keyboard = KeyboardType.Phone)
                 NumBox(dpAmt, { dpAmt = it.filter { c -> c.isDigit() || c == '-' }.take(12) },
                     0.dp, Modifier.weight(1f), "금액", KeyboardType.Phone)
+                val dScope = rememberCoroutineScope()
                 GhostButton("추가", color = Accent) {
                     val d = normDate(dpDate)
                     val v = dpAmt.toDoubleOrNull()
                     if (d != null && v != null && v != 0.0) {
-                        Deposits.add(d, v)
-                        deps = Deposits.load(); dpAmt = ""; AppState.bump()
+                        dScope.launch {
+                            withContext(Dispatchers.IO) { runCatching { Deposits.add(d, v) } }
+                            deps = Deposits.load(); dpAmt = ""; AppState.bump()
+                        }
                     }
                 }
             }
@@ -306,9 +298,13 @@ fun SettingsScreen() {
                         color = if (d.krw >= 0) TextPrimary else Loss, fontSize = 13.sp,
                         fontWeight = FontWeight.SemiBold, fontFamily = Mono,
                         modifier = Modifier.weight(1f), textAlign = TextAlign.End)
+                    val rScope = rememberCoroutineScope()
                     Text("삭제", color = TextSecondary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
                         modifier = Modifier.clickable {
-                            Deposits.removeAt(i); deps = Deposits.load(); AppState.bump()
+                            rScope.launch {
+                                withContext(Dispatchers.IO) { runCatching { Deposits.removeAt(i) } }
+                                deps = Deposits.load(); AppState.bump()
+                            }
                         }.padding(horizontal = 4.dp, vertical = 6.dp))
                 }
             }
@@ -317,86 +313,43 @@ fun SettingsScreen() {
         // ══════════ 종목 관리 ══════════
         SectionLabel("종목 관리")
 
-        // 토스 종목 유니버스 — 이름으로 티커를 찾기 위한 캐시. 하루 1회 갱신.
-        val uniScope = rememberCoroutineScope()
-        var uniCount by remember { mutableStateOf(0) }
-        var uniBusy by remember { mutableStateOf(false) }
-        LaunchedEffect(Unit) {
-            val linked = BrokerCreds.isLinked()
-            if (linked) uniBusy = true
-            uniCount = withContext(Dispatchers.IO) { if (linked) Universe.ensure() else Universe.count() }
-            uniBusy = false
-        }
-
+        val tScope = rememberCoroutineScope()
         var addMsg by remember { mutableStateOf<String?>(null) }
-        // 구분자가 있으면 일괄 추가. 공백은 "NVDA AAPL" 같은 티커 나열일 때만 구분자로 보고,
-        // 한글이 섞여 있으면(예: "버크셔 해서웨이") 이름 검색어이므로 쪼개지 않는다.
+        // 구분자가 있으면 일괄 추가 (증권사 앱 관심종목을 통째로 붙여넣는 용도)
         val bulk = remember(input) {
             val t = input.trim()
-            t.any { it == ',' || it == '\n' || it == ';' } ||
-                (t.any { it == ' ' } && t.none { it.code > 127 })
+            t.any { it == ',' || it == '\n' || it == ';' } || t.any { it == ' ' }
         }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedTextField(input, { input = it },
-                placeholder = { Text(if (uniCount > 0) "티커 또는 이름" else "티커") },
+                placeholder = { Text("티커 또는 6자리 코드") },
                 singleLine = false, maxLines = 4, modifier = Modifier.weight(1f))
             GhostButton(if (bulk) "모두 추가" else "추가", color = Accent) {
-                if (input.isNotBlank()) {
-                    val (added, dup) =
-                        if (bulk) Store.addTickers(input) else Store.addTickers(input.trim().replace(" ", ""))
-                    tickers = Store.loadTickers().toList()
-                    addMsg = when {
-                        added == 0 && dup > 0 -> "이미 있습니다"
-                        added > 1 -> "${added}개 추가"
-                        else -> null
+                val text = input
+                if (text.isNotBlank()) {
+                    input = ""
+                    tScope.launch {
+                        val (added, dup) = withContext(Dispatchers.IO) {
+                            runCatching {
+                                if (bulk) Store.addTickers(text)
+                                else Store.addTickers(text.trim().replace(" ", ""))
+                            }.getOrDefault(0 to 0)
+                        }
+                        tickers = Store.loadTickers().toList()
+                        addMsg = when {
+                            added == 0 && dup > 0 -> "이미 있습니다"
+                            added == 0 -> "추가하지 못했습니다"
+                            added > 1 -> "${added}개 추가"
+                            else -> null
+                        }
+                        AppState.bump()
                     }
-                    input = ""; AppState.bump()
                 }
             }
         }
         addMsg?.let { Text(it, color = TextSecondary, fontSize = 11.sp) }
-
-        // 이름 검색 결과 — 탭하면 바로 추가
-        val found = remember(input, uniCount, bulk) {
-            if (!bulk && input.length >= 1 && uniCount > 0) Universe.search(input) else emptyList()
-        }
-        found.forEach { it2 ->
-            val already = it2.symbol in tickers
-            Row(
-                Modifier.fillMaxWidth().padding(vertical = 1.dp)
-                    .clip(RoundedCornerShape(6.dp)).background(SurfaceInput)
-                    .clickable(enabled = !already) {
-                        Store.addTicker(it2.symbol); tickers = Store.loadTickers().toList()
-                        input = ""; AppState.bump()
-                    }
-                    .padding(horizontal = 10.dp, vertical = 7.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Text(it2.symbol, color = if (already) TextMuted else TextPrimary,
-                    fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                Text(it2.name, color = TextSecondary, fontSize = 12.sp, modifier = Modifier.weight(1f))
-                Text(if (already) "추가됨" else "${it2.market} · ${it2.type}", color = TextMuted, fontSize = 10.sp)
-            }
-        }
-
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 6.dp)) {
-            Text(
-                when {
-                    uniBusy -> "종목 목록 받는 중…"
-                    uniCount > 0 -> "${"%,d".format(uniCount)}종목 (${Universe.cachedDate().ifEmpty { "부분" }})"
-                    else -> ""
-                },
-                color = TextMuted, fontSize = 11.sp, modifier = Modifier.weight(1f),
-            )
-            if (BrokerCreds.isLinked()) GhostButton("목록 갱신") {
-                uniScope.launch {
-                    uniBusy = true
-                    uniCount = withContext(Dispatchers.IO) { Universe.ensure(force = true) }
-                    uniBusy = false
-                }
-            }
-        }
+        Text("국내는 6자리 코드로 넣으세요. 이름은 PC 가 붙여 줍니다.",
+            color = TextMuted, fontSize = 11.sp)
 
         // ── 종목 리스트 (1열) ──
         HDivider(Modifier.padding(top = 6.dp))
@@ -408,7 +361,10 @@ fun SettingsScreen() {
                     color = TextSecondary, fontSize = 13.sp, maxLines = 1, modifier = Modifier.weight(1f))
                 Text("삭제", color = TextSecondary, fontSize = 13.sp, fontWeight = FontWeight.Bold,
                     modifier = Modifier.clickable {
-                        Store.removeTicker(tk); tickers = Store.loadTickers().toList(); AppState.bump()
+                        tScope.launch {
+                            withContext(Dispatchers.IO) { runCatching { Store.removeTicker(tk) } }
+                            tickers = Store.loadTickers().toList(); AppState.bump()
+                        }
                     }.padding(horizontal = 4.dp, vertical = 6.dp))
             }
         }
@@ -417,51 +373,3 @@ fun SettingsScreen() {
     }
 }
 
-/**
- * 현재 공인 IP 한 줄 — 설정을 열면 자동으로 확인한다.
- *
- * 허용 IP 등록은 API 가 없어 앱에서 못 하므로, 할 수 있는 건 "바뀌었는지 바로 보이게"와
- * "두 탭이면 끝나게"까지다. [등록함] 을 누르면 그 IP 를 기억해 두고, 다음에 다르면 빨갛게 표시.
- */
-@Composable
-private fun IpRow() {
-    val scope = rememberCoroutineScope()
-    val clipboard = LocalClipboardManager.current
-    val ctx = LocalContext.current
-    var ip by remember { mutableStateOf<String?>(null) }
-    var busy by remember { mutableStateOf(true) }
-    var registered by remember { mutableStateOf(Store.registeredIp()) }
-    var copied by remember { mutableStateOf(false) }
-
-    fun check() {
-        scope.launch {
-            busy = true; copied = false
-            ip = withContext(Dispatchers.IO) { NetInfo.publicIp() }
-            busy = false
-        }
-    }
-    LaunchedEffect(Unit) { check() }
-
-    val cur = ip
-    val changed = cur != null && registered.isNotEmpty() && cur != registered
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text("IP", color = TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-        Text(
-            when { busy -> "확인 중…"; cur == null -> "확인 실패"; else -> cur },
-            color = when { changed -> Loss; cur == null -> TextMuted; else -> TextPrimary },
-            fontSize = 13.sp, fontFamily = Mono, maxLines = 1,
-            modifier = Modifier.weight(1f).clickable { check() },
-        )
-        if (cur != null) {
-            GhostButton(if (copied) "복사됨" else "복사") { clipboard.setText(AnnotatedString(cur)); copied = true }
-            GhostButton("WTS") {
-                runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.tossinvest.com"))) }
-            }
-            // 등록해 둔 IP 와 같으면 버튼이 사라진다 = 등록 완료 표시
-            if (registered != cur) GhostButton("등록함", color = Accent) { Store.setRegisteredIp(cur); registered = cur }
-        }
-    }
-    // 설명 문장은 두지 않는다. 문제가 있을 때(등록 IP 와 다름)만 한 줄
-    if (changed) Text("등록 IP $registered 와 다름", color = Loss, fontSize = 11.sp)
-}
