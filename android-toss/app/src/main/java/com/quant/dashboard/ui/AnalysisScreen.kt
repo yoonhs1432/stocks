@@ -365,6 +365,16 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
         if (cd != null) { opens[i] = cd.open; highs[i] = cd.high; lows[i] = cd.low; closes[i] = cd.close }
         else { opens[i] = Double.NaN; highs[i] = Double.NaN; lows[i] = Double.NaN; closes[i] = Double.NaN }
     }
+    // ── 오늘 봉을 현재가로 키운다 ──
+    // 장중에는 오늘 봉이 계속 자란다. 서버에서 일봉을 다시 받는 건 몇 분에 한 번이라
+    // 그 사이 캔들이 멈춰 보였다. 현재가로 종가·고가·저가만 직접 늘린다 — 요청이 늘지 않고,
+    // LivePrices 가 Compose 상태라 틱이 올 때마다 저절로 다시 그려진다.
+    val tickPx = LivePrices.price(ticker)
+    if (tickPx != null && wN > 0 && !closes[wN - 1].isNaN()) {
+        closes[wN - 1] = tickPx
+        if (tickPx > highs[wN - 1]) highs[wN - 1] = tickPx
+        if (tickPx < lows[wN - 1]) lows[wN - 1] = tickPx
+    }
     val macdW = seg(r.macd); val sigW = seg(r.macdSignal)
     val macdLast = macdW.lastOrNull { !it.isNaN() } ?: 0.0
     val sigLast = sigW.lastOrNull { !it.isNaN() } ?: 0.0
@@ -385,6 +395,11 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
     // MACD·RSI 는 종가만 있으면 되는 값이라 봉 주기대로 다시 계산한다
     val mMacd = remember(minutes) { Quant.macdOf(mCloses) }
     val mRsi = remember(minutes) { Quant.rsiOf(mCloses) }
+    // 1분봉도 마지막 봉을 현재가로 키운다. remember 로 잡아 둔 배열을 고치면 값이
+    // 쌓이므로 복사본에 얹는다 (봉 390개 복사는 무시할 만하다).
+    val mClosesL = if (tickPx != null && mN > 0) mCloses.copyOf().also { it[mN - 1] = tickPx } else mCloses
+    val mHighsL = if (tickPx != null && mN > 0) mHighs.copyOf().also { it[mN - 1] = maxOf(it[mN - 1], tickPx) } else mHighs
+    val mLowsL = if (tickPx != null && mN > 0) mLows.copyOf().also { it[mN - 1] = minOf(it[mN - 1], tickPx) } else mLows
     val minMode = bar == "1m" && mN >= 2
     val empty = remember { DoubleArray(0) }
 
@@ -401,7 +416,7 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
                 markIdx = scatterIdx, height = h, view = view, zoomed = true, modifier = m)
             1 -> ZmScatter(r.zPct, r.mPct, scatterIdx, height = h, view = view, zoomed = true, modifier = m)
             2 -> if (minMode) {
-                CandleChart(mOpens, mHighs, mLows, mCloses, empty, empty, empty,
+                CandleChart(mOpens, mHighsL, mLowsL, mClosesL, empty, empty, empty,
                     currency = Tickers.currencySymbol(ticker), dates = mDates,
                     height = h, view = view, zoomed = true, inspectX = insX,
                     avgPrice = avgPrice, modifier = m)
@@ -490,7 +505,7 @@ private fun ResultView(r: Quant.Result, ticker: String, ohlc: List<Candle>, dayP
                     Tickers.priceLabel(ticker, LivePrices.price(ticker) ?: r.lastPrice)) { zoom = 2 }
                 if (minMode) {
                     // Z·M 을 숨긴 만큼 가격 차트가 본문 전체를 쓴다
-                    CandleChart(mOpens, mHighs, mLows, mCloses, empty, empty, empty,
+                    CandleChart(mOpens, mHighsL, mLowsL, mClosesL, empty, empty, empty,
                         currency = Tickers.currencySymbol(ticker), dates = mDates,
                         height = sh * 2, view = mView, zoomed = true, inspectX = insX,
                         avgPrice = avgPrice, modifier = mGest)
