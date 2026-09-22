@@ -40,6 +40,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
@@ -53,6 +54,7 @@ import com.quant.dashboard.data.LivePrices
 import com.quant.dashboard.data.MarketHours
 import com.quant.dashboard.data.Store
 import com.quant.dashboard.data.Tickers
+import com.quant.dashboard.data.TossLink
 import com.quant.dashboard.data.Trade
 import com.quant.dashboard.quant.Quant
 import com.quant.dashboard.ui.theme.Accent
@@ -95,6 +97,7 @@ fun AnalysisScreen(vm: AnalysisViewModel = viewModel(), onBack: () -> Unit = {})
     val ov = vm.overview.associateBy { it.ticker }
 
     var diOpen by remember { mutableStateOf(false) }
+    var linkFail by remember { mutableStateOf(false) }
     var diText by remember { mutableStateOf("") }
     // 차트 묶음 전환 (산점도 2개 / 시계열 4개) — 비교 탭 시장 전환과 같은 자리·같은 모양
     var group by remember { mutableStateOf(Store.chartGroup()) }
@@ -108,6 +111,17 @@ fun AnalysisScreen(vm: AnalysisViewModel = viewModel(), onBack: () -> Unit = {})
             GhostButton("← 비교") { onBack() }
             Spacer(Modifier.width(6.dp))
             GhostButton("직접", color = if (diOpen) Accent else TextPrimary) { diOpen = !diOpen }
+            Spacer(Modifier.width(6.dp))
+            // 토스 앱의 **그 종목 주문 화면**으로 건너뛴다. 주문은 거기서 직접 넣는다
+            // (이 앱은 주문을 내지 않는다).
+            val ctx = LocalContext.current
+            GhostButton("매매", color = Profit) {
+                if (!TossLink.openOrder(ctx, s.ticker)) linkFail = true
+            }
+        }
+        if (linkFail) {
+            Text("토스 앱도 브라우저도 열 수 없습니다", color = Loss, fontSize = 11.sp,
+                modifier = Modifier.padding(horizontal = ScreenPad))
         }
         // ── 상단 고정: 직접입력 (열렸을 때만) ──
         if (diOpen) {
