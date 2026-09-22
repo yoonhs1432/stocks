@@ -16,6 +16,8 @@ import androidx.security.crypto.MasterKeys
 object ServerConfig {
     private const val FILE = "server_config"
     private const val K_URL = "url"
+    private const val K_URL2 = "url2"
+    private const val K_LAST_OK = "last_ok"
     private const val K_TOKEN = "token"
     private const val K_ACCOUNT_NO = "account_no"
 
@@ -40,16 +42,55 @@ object ServerConfig {
     /** `https://…ts.net` 처럼. 끝의 `/` 는 떼어 저장한다. */
     fun url(): String = prefs?.getString(K_URL, "").orEmpty()
 
+    /**
+     * 보조 주소 — 집 랜(`http://192.168.x.x:8000`) 같은 **두 번째 길**.
+     *
+     * 터널(`…ts.net`)은 PC 가 자거나 터널이 내려가면 **이름조차 안 풀린다**. 집 와이파이에
+     * 있을 때는 랜 주소로 바로 갈 수 있으므로, 한쪽이 막히면 다른 쪽으로 넘어간다.
+     */
+    fun altUrl(): String = prefs?.getString(K_URL2, "").orEmpty()
+
+    /** 마지막에 실제로 응답한 주소 — 다음부터 이쪽을 먼저 부른다(헛걸음 15초 절약). */
+    private fun lastOk(): String = prefs?.getString(K_LAST_OK, "").orEmpty()
+
+    /** 성공한 주소를 기억한다. [Server] 가 부른다. */
+    fun noteOk(base: String) {
+        if (base.isBlank() || base == lastOk()) return
+        prefs?.edit()?.putString(K_LAST_OK, base)?.apply()
+    }
+
+    /** 시도할 주소들 — **최근에 됐던 것부터**. 중복·빈 값은 뺀다. */
+    fun bases(): List<String> {
+        val list = listOf(url(), altUrl()).map { it.trimEnd('/') }.filter { it.isNotBlank() }.distinct()
+        val ok = lastOk()
+        return if (ok.isNotBlank() && ok in list) listOf(ok) + list.filter { it != ok } else list
+    }
+
     fun token(): String = prefs?.getString(K_TOKEN, "").orEmpty()
 
     fun accountNo(): String = prefs?.getString(K_ACCOUNT_NO, "").orEmpty()
 
-    fun isSet(): Boolean = url().isNotBlank() && token().isNotBlank()
+    fun isSet(): Boolean = bases().isNotEmpty() && token().isNotBlank()
 
     fun save(url: String, token: String) {
-        var u = url.trim().trimEnd('/')
-        if (u.isNotBlank() && !u.startsWith("http")) u = "https://$u"
-        prefs?.edit()?.putString(K_URL, u)?.putString(K_TOKEN, token.trim())?.apply()
+        prefs?.edit()?.putString(K_URL, norm(url))?.putString(K_TOKEN, token.trim())?.apply()
+    }
+
+    /** 보조 주소만 따로 저장. 비우면 지운다. */
+    fun saveAlt(url: String) {
+        prefs?.edit()?.putString(K_URL2, norm(url))?.apply()
+    }
+
+    /**
+     * 주소 다듬기. 사설 IP(`192.168.…`)에는 https 인증서가 없으므로 **http** 를 붙인다 —
+     * https 를 붙이면 인증서 오류로 연결이 막힌다.
+     */
+    private fun norm(url: String): String {
+        val u = url.trim().trimEnd('/')
+        if (u.isBlank() || u.startsWith("http")) return u
+        val lan = u.startsWith("192.168.") || u.startsWith("10.") || u.startsWith("127.") ||
+            u.startsWith("localhost") || Regex("^172\\.(1[6-9]|2\\d|3[01])\\.").containsMatchIn(u)
+        return (if (lan) "http://" else "https://") + u
     }
 
     fun saveAccountNo(no: String) {

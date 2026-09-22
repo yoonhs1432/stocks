@@ -30,11 +30,17 @@ import java.util.zip.GZIPInputStream
  */
 object Server {
 
-    class HttpError(val code: Int, message: String) : Exception(message)
+    /**
+     * @param code HTTP 응답 코드. **0 이면 서버가 대답을 못 한 것**(주소·연결 문제).
+     * @param unreachable 주소에 **닿지도 못했다**는 뜻 — 보조 주소로 넘어가도 되는 경우.
+     *   응답을 받은 뒤의 실패(4xx·5xx·읽기 중 끊김)는 여기 해당하지 않는다. 특히 POST 는
+     *   이미 서버에 닿았을 수 있어 다시 보내면 **두 번 저장**될 수 있다.
+     */
+    class HttpError(val code: Int, message: String, val unreachable: Boolean = false) :
+        Exception(message)
 
     // ── 연결 정보 ──
 
-    fun baseUrl(): String = ServerConfig.url()
     fun isSet(): Boolean = ServerConfig.isSet()
 
     // ── 공통 호출 ──
@@ -66,14 +72,33 @@ object Server {
         return once(path, method, body)
     }
 
+    /**
+     * 주소를 **차례로** 시도한다 — 터널이 내려가도 집 와이파이면 랜 주소로 간다.
+     * 서버가 대답을 한 순간(4xx 포함) 거기서 끝낸다. 닿지도 못한 경우에만 다음 주소로.
+     */
     private fun once(path: String, method: String = "GET", body: String? = null): String {
-        val base = baseUrl().trimEnd('/')
-        if (base.isEmpty()) throw HttpError(0, "PC 주소가 설정되지 않았습니다")
+        val bases = ServerConfig.bases()
+        if (bases.isEmpty()) throw HttpError(0, "PC 주소가 설정되지 않았습니다")
+        var last: HttpError? = null
+        for (b in bases) {
+            try {
+                val text = attempt(b, path, method, body)
+                ServerConfig.noteOk(b)
+                return text
+            } catch (e: HttpError) {
+                if (!e.unreachable) throw e
+                last = e
+            }
+        }
+        throw last ?: HttpError(0, "PC 에 연결할 수 없습니다")
+    }
+
+    private fun attempt(base: String, path: String, method: String, body: String?): String {
         var conn: HttpURLConnection? = null
         try {
             conn = (URL(base + path).openConnection() as HttpURLConnection).apply {
                 requestMethod = method
-                connectTimeout = 15_000
+                connectTimeout = 8_000
                 // 첫 조회(일봉 20여 종목)는 PC 에서도 20~30초 걸린다
                 readTimeout = 90_000
                 setRequestProperty("Accept", "application/json")
@@ -85,6 +110,11 @@ object Server {
                     setRequestProperty("Content-Type", "application/json")
                 }
             }
+            // 연결만 따로 세운다 — 여기서 나는 실패는 "닿지도 못했다"가 확실하다.
+            // (한 덩어리로 두면 읽는 중에 난 타임아웃과 구분이 안 되고, 그걸 다른 주소로
+            //  다시 보내면 POST 가 두 번 들어갈 수 있다.)
+            try { conn.connect() } catch (e: Exception) { throw unreachable(e) }
+
             if (body != null) conn.outputStream.use { it.write(body.toByteArray()) }
             val code = conn.responseCode
             val raw = (if (code in 200..299) conn.inputStream else conn.errorStream)
@@ -106,21 +136,28 @@ object Server {
             return text
         } catch (e: HttpError) {
             throw e
-        } catch (e: UnknownHostException) {
-            // 자바 원문("Unable to resolve host …")이 화면에 그대로 나오면 뭘 해야 할지
-            // 알 수 없다. 이름을 못 찾는다 = PC 가 꺼졌거나 터널이 내려갔거나 주소가 틀렸다.
-            throw HttpError(0, "PC 를 찾을 수 없습니다 · PC 가 켜져 있는지, 터널이 살아 있는지 확인하세요")
         } catch (e: SocketTimeoutException) {
+            // 연결은 됐는데 읽다가 끊겼다 — 다른 주소로 다시 보내지 않는다
             throw HttpError(0, "PC 가 응답하지 않습니다 · 잠시 뒤 다시 시도합니다")
-        } catch (e: ConnectException) {
-            throw HttpError(0, "PC 에 연결할 수 없습니다 · 서버가 떠 있는지 확인하세요")
-        } catch (e: SSLException) {
-            throw HttpError(0, "보안 연결에 실패했습니다 · 주소가 https 인지 확인하세요")
         } catch (e: IOException) {
             throw HttpError(0, "PC 와 통신하지 못했습니다 · 인터넷 연결을 확인하세요")
         } finally {
             conn?.disconnect()
         }
+    }
+
+    /** 연결 단계의 실패를 **뭘 해야 할지 알 수 있는 한국어**로. 자바 원문은 안 보여준다. */
+    private fun unreachable(e: Exception): HttpError {
+        val msg = when (e) {
+            // "Unable to resolve host …" — 이름을 못 찾는다 = PC 가 꺼졌거나 터널이 내려갔다
+            is UnknownHostException ->
+                "PC 를 찾을 수 없습니다 · PC 가 켜져 있는지, 터널이 살아 있는지 확인하세요"
+            is SocketTimeoutException -> "PC 가 응답하지 않습니다 · 잠시 뒤 다시 시도합니다"
+            is ConnectException -> "PC 에 연결할 수 없습니다 · 서버가 떠 있는지 확인하세요"
+            is SSLException -> "보안 연결에 실패했습니다 · 주소가 https 인지 확인하세요"
+            else -> "PC 와 통신하지 못했습니다 · 인터넷 연결을 확인하세요"
+        }
+        return HttpError(0, msg, unreachable = true)
     }
 
     private fun obj(path: String): JSONObject = JSONObject(call(path))

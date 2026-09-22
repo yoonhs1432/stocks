@@ -59,7 +59,10 @@ class CompareViewModel : ViewModel() {
         state = state.copy(loading = true, error = null)
         viewModelScope.launch {
             val rows = withContext(Dispatchers.IO) { OverviewRepo.load(force) }
-            state = if (rows.isEmpty()) state.copy(loading = false, error = "시세를 가져오지 못했습니다")
+            // 왜 안 되는지를 그대로 보여준다 — "가져오지 못했습니다" 만으로는 고칠 수가 없다
+            state = if (rows.isEmpty())
+                state.copy(loading = false,
+                    error = OverviewRepo.lastError ?: "시세를 가져오지 못했습니다")
             else state.copy(loading = false, rows = rows, error = null)
         }
     }
@@ -68,7 +71,9 @@ class CompareViewModel : ViewModel() {
     fun autoRefresh() {
         viewModelScope.launch {
             val rows = withContext(Dispatchers.IO) { OverviewRepo.load(false) }
-            if (rows.isNotEmpty()) state = state.copy(rows = rows, error = null)
+            state = if (rows.isNotEmpty()) state.copy(rows = rows, error = null)
+            // 조용한 갱신이라도 **처음부터 빈 화면**이면 이유는 띄워야 한다
+            else state.copy(error = OverviewRepo.lastError ?: state.error)
         }
     }
 

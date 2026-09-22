@@ -132,7 +132,7 @@ fun PortfolioScreen(onOpenAnalysis: (String) -> Unit = {}) {
 
                 val a = acct
                 when {
-                    !ServerConfig.isSet() -> Text("설정 탭에서 토스증권을 연결하면 계좌가 표시됩니다.",
+                    !ServerConfig.isSet() -> Text("설정 탭에서 집 PC 를 연결하면 계좌가 표시됩니다.",
                         color = TextSecondary, fontSize = 14.sp)
                     a != null -> TossBody(a, usdMode, onOpenAnalysis)
                     else -> Text(err?.let { "⚠️ $it" } ?: "계좌 정보를 불러오는 중…",

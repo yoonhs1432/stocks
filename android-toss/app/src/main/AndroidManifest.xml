@@ -13,7 +13,11 @@
         </intent>
     </queries>
 
+    <!-- 보조 주소(집 랜 `http://192.168.x.x:8000`)를 쓰려면 평문 HTTP 가 필요하다.
+         안드로이드 9+ 는 기본으로 막는다. 이 앱이 부르는 곳은 **사용자가 직접 적은
+         자기 PC 한 곳뿐**이라 추가로 노출되는 통신은 없다. 터널 주소는 그대로 https. -->
     <application
+        android:usesCleartextTraffic="true"
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"

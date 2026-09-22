@@ -145,6 +145,7 @@ fun SettingsScreen() {
             // 이 앱은 증권사를 직접 부르지 않는다. 집 PC 가 부르고, 폰은 거기서 받는다.
             // 그래서 폰에는 **주소와 접속 암호**만 있으면 된다(앱키·시크릿은 PC 에만).
             var url by remember { mutableStateOf(ServerConfig.url()) }
+            var url2 by remember { mutableStateOf(ServerConfig.altUrl()) }
             var token by remember { mutableStateOf(ServerConfig.token()) }
             var msg by remember { mutableStateOf<String?>(null) }
             var busy by remember { mutableStateOf(false) }
@@ -167,6 +168,9 @@ fun SettingsScreen() {
                 )
                 if (linked && !edit) GhostButton("변경") { edit = true }
             }
+            if (linked && ServerConfig.altUrl().isNotBlank()) {
+                Text("보조 ${ServerConfig.altUrl()}", color = TextMuted, fontSize = 11.sp, fontFamily = Mono)
+            }
             if (linked && ServerConfig.accountNo().isNotBlank()) {
                 Text("계좌 ${ServerConfig.maskedAccount()}", color = TextMuted,
                     fontSize = 11.sp, fontFamily = Mono)
@@ -176,6 +180,12 @@ fun SettingsScreen() {
                 OutlinedTextField(url, { url = it },
                     label = { Text("PC 주소") },
                     placeholder = { Text("https://hsyunpc.tailXXXX.ts.net", fontSize = 11.sp) },
+                    singleLine = true, modifier = Modifier.fillMaxWidth())
+                // 터널 주소는 PC 가 자거나 터널이 내려가면 **이름조차 안 풀린다**.
+                // 집 와이파이에서는 랜 주소로 바로 갈 수 있으므로 한쪽이 막히면 이쪽으로 넘어간다.
+                OutlinedTextField(url2, { url2 = it },
+                    label = { Text("보조 주소 (선택)") },
+                    placeholder = { Text("192.168.0.7:8000 · 집 와이파이용", fontSize = 11.sp) },
                     singleLine = true, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(token, { token = it }, label = { Text("접속 암호") },
                     singleLine = true, visualTransformation = PasswordVisualTransformation(),
@@ -188,6 +198,7 @@ fun SettingsScreen() {
                         modifier = Modifier.weight(1f),
                         onClick = {
                             ServerConfig.save(url, token)
+                            ServerConfig.saveAlt(url2)
                             busy = true; msg = "확인 중…"
                             scope.launch {
                                 val out = withContext(Dispatchers.IO) {
@@ -208,7 +219,8 @@ fun SettingsScreen() {
                         },
                     )
                     if (linked) GhostButton("삭제", color = Loss, enabled = !busy) {
-                        ServerConfig.clear(); url = ""; token = ""; ver++; msg = null; AppState.bump()
+                        ServerConfig.clear(); url = ""; url2 = ""; token = ""
+                        ver++; msg = null; AppState.bump()
                     }
                 }
             }
