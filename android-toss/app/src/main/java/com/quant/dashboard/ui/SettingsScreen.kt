@@ -50,6 +50,7 @@ import com.quant.dashboard.data.Server
 import com.quant.dashboard.data.ServerConfig
 import com.quant.dashboard.data.MarketHours
 import com.quant.dashboard.data.Tickers
+import com.quant.dashboard.data.TossLink
 import com.quant.dashboard.data.TossSync
 import com.quant.dashboard.ui.theme.Accent
 import com.quant.dashboard.ui.theme.BgApp
@@ -252,6 +253,15 @@ fun SettingsScreen() {
                 }) {
                     Text("일봉 다시 받기", color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
                         modifier = Modifier.weight(1f))
+                    Text("›", color = TextSecondary, fontSize = 16.sp)
+                }
+
+                // [매매] 가 엉뚱한 화면을 열면 여기서 지우고 다시 배우게 한다
+                HDivider()
+                val linkCtx = LocalContext.current
+                ListRow(Modifier.clickable { TossLink.forgetAll(linkCtx); msg = "매매 링크를 지웠습니다" }) {
+                    Text("매매 링크 다시 배우기", color = TextPrimary, fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
                     Text("›", color = TextSecondary, fontSize = 16.sp)
                 }
             }
