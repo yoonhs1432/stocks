@@ -4,12 +4,17 @@ import com.quant.dashboard.quant.Quant
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedReader
+import java.io.IOException
+import java.net.ConnectException
 import java.net.CookieHandler
 import java.net.CookieManager
 import java.net.CookiePolicy
 import java.net.HttpURLConnection
 import java.net.URL
+import java.net.SocketTimeoutException
 import java.net.URLEncoder
+import java.net.UnknownHostException
+import javax.net.ssl.SSLException
 import java.util.zip.GZIPInputStream
 
 /**
@@ -64,21 +69,22 @@ object Server {
     private fun once(path: String, method: String = "GET", body: String? = null): String {
         val base = baseUrl().trimEnd('/')
         if (base.isEmpty()) throw HttpError(0, "PC 주소가 설정되지 않았습니다")
-        val conn = (URL(base + path).openConnection() as HttpURLConnection).apply {
-            requestMethod = method
-            connectTimeout = 15_000
-            // 첫 조회(일봉 20여 종목)는 PC 에서도 20~30초 걸린다
-            readTimeout = 90_000
-            setRequestProperty("Accept", "application/json")
-            setRequestProperty("Accept-Encoding", "gzip")
-            val tk = ServerConfig.token()
-            if (tk.isNotBlank()) setRequestProperty("X-Quant-Key", tk)
-            if (body != null) {
-                doOutput = true
-                setRequestProperty("Content-Type", "application/json")
-            }
-        }
+        var conn: HttpURLConnection? = null
         try {
+            conn = (URL(base + path).openConnection() as HttpURLConnection).apply {
+                requestMethod = method
+                connectTimeout = 15_000
+                // 첫 조회(일봉 20여 종목)는 PC 에서도 20~30초 걸린다
+                readTimeout = 90_000
+                setRequestProperty("Accept", "application/json")
+                setRequestProperty("Accept-Encoding", "gzip")
+                val tk = ServerConfig.token()
+                if (tk.isNotBlank()) setRequestProperty("X-Quant-Key", tk)
+                if (body != null) {
+                    doOutput = true
+                    setRequestProperty("Content-Type", "application/json")
+                }
+            }
             if (body != null) conn.outputStream.use { it.write(body.toByteArray()) }
             val code = conn.responseCode
             val raw = (if (code in 200..299) conn.inputStream else conn.errorStream)
@@ -98,8 +104,22 @@ object Server {
                 )
             }
             return text
+        } catch (e: HttpError) {
+            throw e
+        } catch (e: UnknownHostException) {
+            // 자바 원문("Unable to resolve host …")이 화면에 그대로 나오면 뭘 해야 할지
+            // 알 수 없다. 이름을 못 찾는다 = PC 가 꺼졌거나 터널이 내려갔거나 주소가 틀렸다.
+            throw HttpError(0, "PC 를 찾을 수 없습니다 · PC 가 켜져 있는지, 터널이 살아 있는지 확인하세요")
+        } catch (e: SocketTimeoutException) {
+            throw HttpError(0, "PC 가 응답하지 않습니다 · 잠시 뒤 다시 시도합니다")
+        } catch (e: ConnectException) {
+            throw HttpError(0, "PC 에 연결할 수 없습니다 · 서버가 떠 있는지 확인하세요")
+        } catch (e: SSLException) {
+            throw HttpError(0, "보안 연결에 실패했습니다 · 주소가 https 인지 확인하세요")
+        } catch (e: IOException) {
+            throw HttpError(0, "PC 와 통신하지 못했습니다 · 인터넷 연결을 확인하세요")
         } finally {
-            conn.disconnect()
+            conn?.disconnect()
         }
     }
 
