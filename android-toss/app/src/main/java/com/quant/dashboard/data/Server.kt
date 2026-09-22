@@ -284,7 +284,9 @@ object Server {
                 val q = o.optJSONObject(k) ?: continue
                 val px = q.num("price")
                 if (px.isNaN()) continue
-                val at = if (q.isNull("at")) null else q.optLong("at")
+                // 숫자가 아니면 **모른다**로 둔다. optLong 은 문자열에 0 을 돌려주는데,
+                // 그걸 체결 시각으로 믿으면 전 종목이 '이번 장 체결 없음'이 된다.
+                val at = (q.opt("at") as? Number)?.toLong()
                 out[k] = TossApi.Quote(px, at, q.optBoolean("stale"))
             }
         }

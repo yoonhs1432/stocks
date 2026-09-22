@@ -1310,6 +1310,28 @@ def run(pg, base: str, errs: list[str], data: str = "") -> None:
         got = {"err": (out.stdout + out.stderr)[-200:]}
     check("끝봉만 받아 고쳐 넣는다", got.get("len") and got.get("fixed"), str(got))
 
+    print("\n[시각] 체결 시각을 숫자로 내보내는가")
+    # 토스는 ISO 문자열을 준다. 그대로 흘리면 받는 쪽이 0 으로 읽어 전 종목이
+    # '이번 장 체결 없음'이 된다(안드로이드 앱에서 실제로 그랬다).
+    code2 = (
+        "import json,sys;sys.path.insert(0,'.');"
+        "import toss;t=toss.Toss('k','s');"
+        "t._get=lambda *a,**k:[{'symbol':'AAA','lastPrice':'12.34',"
+        "'timestamp':'2026-09-22T17:00:29+09:00'},"
+        "{'symbol':'BBB','lastPrice':'1','timestamp':None}];"
+        "o=t.prices(['AAA','BBB']);"
+        "print(json.dumps({'num': isinstance(o['AAA']['at'], int),"
+        " 'val': o['AAA']['at'], 'none': o['BBB']['at'] is None}))"
+    )
+    out2 = subprocess.run([sys.executable, "-c", code2], cwd=HERE, env=env,
+                          capture_output=True, text=True, timeout=60)
+    try:
+        got2 = json.loads(out2.stdout.strip().splitlines()[-1])
+    except Exception:
+        got2 = {"err": (out2.stdout + out2.stderr)[-200:]}
+    check("체결 시각이 epoch 초로 나간다",
+          got2.get("num") and got2.get("val") == 1790064029 and got2.get("none"), str(got2))
+
     print("\n[탭] 아이콘")
     icons = pg.evaluate("[...document.querySelectorAll('#tabs button')].map(b => !!b.querySelector('svg'))")
     check("탭마다 아이콘이 있다", len(icons) == 4 and all(icons), str(icons))

@@ -32,6 +32,7 @@ object LivePrices {
         private set
 
     @Volatile private var throttleUntil = 0L
+    @Volatile private var fails = 0        // 연속 실패 횟수
 
     fun price(symbol: String): Double? = quotes[symbol]?.price
 
@@ -42,11 +43,16 @@ object LivePrices {
      * 이 종목의 현재가가 **직전 종가**인가 (이번 세션에 아직 체결이 없음).
      * 시세가 없으면 false — 모르는 것을 낡았다고 표시하지 않는다.
      */
+    /**
+     * 이번(또는 마지막) 세션에 체결이 없었는가 = 지금 값이 직전 종가라는 뜻.
+     * **판정할 수 없으면 흐리게 하지 않는다.** 모른다고 전부 흐려 놓으면 고장처럼 보인다.
+     */
     fun isStale(symbol: String, market: String): Boolean {
         val q = quotes[symbol] ?: return false
         if (q.stale) return true                     // 서버가 세션표를 보고 판정해 준다
+        val at = q.at ?: return false
         val start = MarketHours.sessionStart(market) ?: return false
-        return q.at == null || q.at < start
+        return at < start
     }
 
     /** 틱이 안 도는 사유를 남긴다. (`var note` 의 자동 setter 와 JVM 시그니처가 겹치지 않게 다른 이름) */
@@ -76,14 +82,17 @@ object LivePrices {
                 quotes = prev + m
                 updatedAt = now
                 tickSeq++
+                fails = 0
                 note = null
             }
         } catch (e: Server.HttpError) {
             throttleUntil = now + 15_000
             note = if (e.code == 401) "접속 암호를 확인하세요" else "PC 응답 없음 · 15초 후 재개"
         } catch (e: Exception) {
-            // 일시적 네트워크 오류는 조용히 — 다음 틱에서 재시도
-            note = "PC 에 연결되지 않습니다"
+            // 한 번 놓친 것으로 '연결 안 됨'을 띄우지 않는다 — 짧은 주기에서는 흔한 일이고,
+            // 그때마다 빨간 글씨가 뜨면 정작 진짜 고장일 때 눈에 안 들어온다.
+            fails++
+            if (fails >= 2) note = "PC 에 연결되지 않습니다"
         }
     }
 }

@@ -257,7 +257,10 @@ class Toss:
                 v = _dec(o, "lastPrice", float("nan"))
                 if v != v:
                     continue
-                out[o.get("symbol", "")] = {"price": v, "at": o.get("timestamp")}
+                # ⚠️ 체결 시각은 **epoch 초로 바꿔서** 내보낸다. 토스가 주는 ISO 문자열을
+                # 그대로 흘리면 받는 쪽에서 숫자로 못 읽고 0 으로 떨어져, 전 종목이
+                # '이번 장 체결 없음'으로 판정된다(안드로이드 앱에서 실제로 그랬다).
+                out[o.get("symbol", "")] = {"price": v, "at": _epoch(o.get("timestamp"))}
         return out
 
     # ── 장 운영시간 ──
