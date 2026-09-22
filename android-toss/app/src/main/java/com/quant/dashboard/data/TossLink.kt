@@ -53,13 +53,34 @@ object TossLink {
     //    국내에서 배운 틀에 해외 티커를 끼워 넣으면 "지원하지 않는 상품"이 뜬다.
     private fun keyTemplate(krw: Boolean) = if (krw) "tpl_kr" else "tpl_us"
     private fun keyLink(ticker: String) = "link_" + code(ticker)
+    private fun keyCode(ticker: String) = "code_" + code(ticker)
 
     /** 그 시장에서 배워 둔 주소 틀. 없으면 null. */
     fun template(ctx: Context, ticker: String): String? =
         prefs(ctx).getString(keyTemplate(Tickers.isKrw(ticker)), null)?.takeIf { it.contains(SLOT) }
 
+    /**
+     * 아무 시장에서나 배운 틀. **해외 코드를 끼워 넣을 때** 쓴다 — 틀의 모양은 같고
+     * 달라지는 건 코드뿐이라, 국내에서 배운 틀에 해외 내부코드를 넣으면 그대로 열린다.
+     */
+    fun anyTemplate(ctx: Context): String? =
+        (prefs(ctx).getString(keyTemplate(false), null) ?: prefs(ctx).getString(keyTemplate(true), null))
+            ?.takeIf { it.contains(SLOT) }
+
     /** 이 종목으로 기억해 둔 주소. 없으면 null. */
     fun link(ctx: Context, ticker: String): String? = prefs(ctx).getString(keyLink(ticker), null)
+
+    /** 이 종목의 토스 내부 상품코드(US20100629001 같은). 없으면 null. */
+    fun internalCode(ctx: Context, ticker: String): String? = prefs(ctx).getString(keyCode(ticker), null)
+
+    /**
+     * 토스 페이지가 주소를 **정식 코드로 바꿔 줄 때** 그 코드를 주워 둔다.
+     * 해외는 이 코드가 있어야 앱으로 바로 갈 수 있다.
+     */
+    fun learnCode(ctx: Context, ticker: String, internal: String) {
+        if (internal.isBlank() || internal.equals(code(ticker), true)) return
+        prefs(ctx).edit().putString(keyCode(ticker), internal).apply()
+    }
 
     /**
      * 웹 화면이 앱으로 넘어가려는 순간 잡은 주소를 기억한다.
@@ -91,14 +112,18 @@ object TossLink {
             if (fire(ctx, it)) return true
             forget(ctx, keyLink(ticker))       // 이제 안 먹는다 — 버리고 다시 배운다
         }
-        // ② 같은 시장에서 배운 틀 (국내는 이 길로 간다)
+        // ② 주워 둔 내부코드 + 아는 틀 (해외가 [앱 열기] 없이 바로 가는 길)
+        val internal = internalCode(ctx, ticker)
+        val any = anyTemplate(ctx)
+        if (internal != null && any != null && fire(ctx, any.replace(SLOT, internal))) return true
+        // ③ 같은 시장에서 배운 틀 (국내는 이 길로 간다)
         template(ctx, ticker)?.let {
             if (fire(ctx, it.replace(SLOT, code(ticker)))) return true
             forget(ctx, keyTemplate(Tickers.isKrw(ticker)))
         }
-        // ③ 우리 앱 안 웹 화면에서 열고, 앱으로 넘어가는 순간을 가로챈다
+        // ④ 우리 앱 안 웹 화면에서 열고, 앱으로 넘어가는 순간(또는 정식 코드)을 가로챈다
         if (start(ctx, Intent(ctx, TossOpenActivity::class.java).putExtra("ticker", ticker))) return true
-        // ④ 마지막 수단 — 그냥 브라우저
+        // ⑤ 마지막 수단 — 그냥 브라우저
         return start(ctx, Intent(Intent.ACTION_VIEW, Uri.parse(orderUrl(ticker))))
     }
 
