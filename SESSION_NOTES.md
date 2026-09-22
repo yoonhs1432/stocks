@@ -1,7 +1,55 @@
 # SESSION_NOTES — 최근 작업 핸드오프
 
 > 새 세션 시작 시 이 파일을 읽으면 직전 세션의 맥락을 이어받을 수 있음.
-> 마지막 업데이트: 2026-09-21 (**새로고침 단추 전폐 — 전부 자동 갱신**)
+> 마지막 업데이트: 2026-09-22 (**안드로이드 앱이 PC 서버에서 데이터를 받는다** — 웹은 그대로 둠)
+
+## 2026-09-22 안드로이드 앱 ← PC 서버 (브랜치 `claude/android-server`)
+
+> 이 세션의 한 줄: **웹 화면이 불편하다 → UI 는 안드로이드 것을 쓰고, 데이터만 PC 에서 받는다.**
+
+### 구조
+
+```
+폰 (android-toss)                    집 PC (web/server.py)            토스
+  화면·차트 그대로  ──HTTPS+헤더암호──▶  /api/compare  /api/analysis  ──▶  허용 IP 안에서만
+  data/Server.kt 한 곳에서만 호출        /api/prices   /api/account
+                                        일봉 캐시·장시간·자산기록·백업
+```
+
+- **허용 IP 문제 해소** — 폰 IP 는 계속 바뀌지만 PC 는 고정이다. 예전 앱은 밖에 나가면 막혔다.
+- **폰에 앱키·시크릿이 없다.** `ServerConfig` 에 주소와 접속 암호만 (암호화 저장).
+- 인증은 `X-Quant-Key` 헤더 — 앱에서 쿠키·리다이렉트를 다룰 이유가 없다(`auth.py`).
+
+### 바뀐 파일
+
+| 파일 | 무엇이 |
+|---|---|
+| `data/Server.kt` (신규) | 서버 호출은 **여기 한 곳**. 응답을 기존 타입으로 담는다 |
+| `data/ServerConfig.kt` (신규) | 주소·암호 (BrokerCreds 대체) |
+| `TossApi.kt` | 네트워크 코드를 걷어내고 **화면이 쓰는 자료 모양만** 남김 |
+| `OverviewRepo`·`LivePrices`·`MarketHours`·`TossSync`·`Snapshots`·`Deposits`·`Store`·`Tickers` | 토스 직접 호출 → 서버 호출. **공개 API 를 그대로 둬서** 화면 코드를 거의 안 건드렸다 |
+| `Quotes`·`Universe`·`NetInfo` | 삭제 — 서버가 하는 일이다 |
+| `AnalysisViewModel` | 분석을 서버에서 한 번에. 매매기록·평단·수량도 같이 온다 |
+| `SettingsScreen` | '토스증권' → '집 PC 연결'(주소·암호). 공인 IP 줄 삭제, 이름 검색 삭제 |
+
+### 주의할 점
+
+- **화면 그리는 중에 네트워크를 타면 앱이 죽는다.** `Snapshots`·`Store`(종목·매매기록)·
+  `Deposits` 는 전부 **메모리 캐시**이고, `ensure()`/`syncFromServer()` 로 IO 에서 미리 채운다.
+  새 화면에서 서버 값을 읽는다면 반드시 같은 방식으로.
+- 설정 화면의 쓰기(종목 추가·삭제, 기간, 주기, 입금)는 전부 `Dispatchers.IO` 로 감쌌다.
+- `Quant.Result.price` 는 서버가 안 준다 — 일봉에서 같은 날짜 종가로 채운다(`Server.resultOf`).
+  화면은 이 값을 **정규화 → 금액 환산의 기준**으로만 쓴다.
+- 비교 표는 서버가 시장별로 주므로 **US·KR 둘 다 받아** 합친다(화면이 버튼으로 거른다).
+  서버가 반대쪽을 미리 계산해 두므로 두 번째 호출은 거의 즉시 온다.
+
+### 빌드·설치
+
+- 이 환경에서는 **안드로이드 SDK 를 받을 수 없다**(google 저장소가 프록시에서 403).
+  컴파일 확인은 GitHub Actions `android.yml` 을 `workflow_dispatch` 로 돌린다(publish=false).
+- APK 게시는 **main 브랜치 + publish=true** 일 때만 된다 → 사용자가 "릴리즈" 라고 할 때.
+
+---
 
 ## 2026-09-21 (2) 새로고침 단추를 전부 없애고 자동으로
 
