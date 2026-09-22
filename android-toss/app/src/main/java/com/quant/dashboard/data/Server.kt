@@ -4,6 +4,9 @@ import com.quant.dashboard.quant.Quant
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedReader
+import java.net.CookieHandler
+import java.net.CookieManager
+import java.net.CookiePolicy
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
@@ -33,7 +36,32 @@ object Server {
 
     private fun enc(v: String): String = URLEncoder.encode(v, "UTF-8")
 
+    /**
+     * 옛 서버 대응 — 헤더 인증(`X-Quant-Key`)은 나중에 붙였다. 그 전 서버는 `?key=` 로
+     * 쿠키를 심는 길밖에 없어서, 401 이 오면 한 번은 그쪽으로 다시 물어본다.
+     * 쿠키를 받아 두려면 프로세스 전역 쿠키 저장소가 필요하다.
+     */
+    private val cookies = CookieManager().also {
+        it.setCookiePolicy(CookiePolicy.ACCEPT_ALL)
+        CookieHandler.setDefault(it)
+    }
+
     private fun call(path: String, method: String = "GET", body: String? = null): String {
+        try {
+            return once(path, method, body)
+        } catch (e: HttpError) {
+            if (e.code != 401) throw e
+        }
+        // 옛 서버다 — `?key=` 로 **쿠키만 한 번 받아 두고** 원래 요청을 다시 보낸다.
+        // (`?key=` 를 원래 요청에 붙이면 안 된다. 서버가 303 으로 되돌려 보내면서
+        //  POST 가 GET 으로 바뀌어, 저장이 조용히 안 되는 일이 생긴다.)
+        val tk = ServerConfig.token()
+        if (tk.isBlank()) throw HttpError(401, "접속 암호가 없습니다")
+        runCatching { once("/api/health?key=" + enc(tk)) }
+        return once(path, method, body)
+    }
+
+    private fun once(path: String, method: String = "GET", body: String? = null): String {
         val base = baseUrl().trimEnd('/')
         if (base.isEmpty()) throw HttpError(0, "PC 주소가 설정되지 않았습니다")
         val conn = (URL(base + path).openConnection() as HttpURLConnection).apply {
@@ -63,7 +91,8 @@ object Server {
                     code,
                     when {
                         !msg.isNullOrBlank() -> msg
-                        code == 401 -> "접속 암호가 맞지 않습니다"
+                        // 헤더 인증을 모르는 옛 서버도 여기로 온다 — 둘 다 알려 준다
+                        code == 401 -> "접속 암호가 맞지 않거나 PC 서버가 옛 버전입니다"
                         else -> "요청 실패 ($code)"
                     },
                 )
