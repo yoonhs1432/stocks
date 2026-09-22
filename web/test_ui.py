@@ -1179,7 +1179,7 @@ def run(pg, base: str, errs: list[str], data: str = "") -> None:
     # 안드로이드 앱이 쓰는 길 — 헤더에 암호를 담아 보낸다
     tok = pg.evaluate("fetch('/api/settings').then(r => r.json()).then(o => o.accessToken)")
     st_ok = pg.evaluate(probe_auth, {"X-Forwarded-For": "203.0.113.9", "X-Quant-Key": tok})
-    st_no = pg.evaluate(probe_auth, {"X-Forwarded-For": "203.0.113.9", "X-Quant-Key": "틀린암호"})
+    st_no = pg.evaluate(probe_auth, {"X-Forwarded-For": "203.0.113.9", "X-Quant-Key": "wrong-token"})
     check("앱이 헤더로 보낸 암호가 맞으면 통과", st_ok == 200, str(st_ok))
     check("헤더 암호가 틀리면 막힌다", st_no == 401, str(st_no))
     errs.clear()        # 위 401 세 번은 일부러 낸 것이다
