@@ -197,10 +197,11 @@ object Server {
                 Trade(
                     date = t.optString("date"),
                     type = t.optString("type", "buy"),
-                    qty = t.optDouble("qty", 0.0).toInt(),
+                    // 소수 그대로 — 0.5주 체결을 Int 로 깎으면 0주가 된다
+                    qty = t.optDouble("qty", 0.0),
                     price = t.optDouble("price", Double.NaN),
-                    memo = if (t.isNull("memo")) null else t.optString("memo"),
-                    srcId = if (t.isNull("srcId")) null else t.optString("srcId"),
+                    // 서버가 쓰는 키는 orderId 다 (srcId 는 폰에만 있던 이름)
+                    srcId = if (t.isNull("orderId")) null else t.optString("orderId"),
                 ),
             )
         }
@@ -464,10 +465,9 @@ object Server {
                 Trade(
                     date = t.optString("date"),
                     type = t.optString("type", "buy"),
-                    qty = t.optDouble("qty", 0.0).toInt(),
+                    qty = t.optDouble("qty", 0.0),
                     price = t.optDouble("price", Double.NaN),
-                    memo = if (t.isNull("memo")) null else t.optString("memo"),
-                    srcId = if (t.isNull("srcId")) null else t.optString("srcId"),
+                    srcId = if (t.isNull("orderId")) null else t.optString("orderId"),
                 ),
             )
         }

@@ -103,7 +103,9 @@ private fun Label(text: String) = Text(text, color = TextSecondary, fontSize = 1
 
 @Composable
 fun SettingsScreen() {
-    var tickers by remember { mutableStateOf(Store.loadTickers().toList()) }
+    // ⚠️ 키 없는 remember 로 두면 **서버에서 받기 전 목록이 그대로 굳는다**
+    //    (앱을 켜자마자 설정을 열면 기본 목록이 보였다). 갱신되면 다시 읽는다.
+    var tickers by remember(AppState.dataVersion) { mutableStateOf(Store.loadTickers().toList()) }
     var input by remember { mutableStateOf("") }
 
     Column(Modifier.fillMaxSize().background(BgApp)) {
@@ -261,7 +263,7 @@ fun SettingsScreen() {
         // 포트폴리오 탭 자산 그래프의 원금선과 수익률 기준이 된다.
         SectionLabel("원금")
         Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            var deps by remember { mutableStateOf(Deposits.load()) }
+            var deps by remember(AppState.dataVersion) { mutableStateOf(Deposits.load()) }
             var dpDate by remember { mutableStateOf(LocalDate.now().toString()) }
             var dpAmt by remember { mutableStateOf("") }
 

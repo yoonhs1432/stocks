@@ -9,10 +9,10 @@ import java.io.File
 data class Trade(
     val date: String,   // YYYY-MM-DD
     val type: String,   // buy | sell
-    val qty: Int,
+    /** ⚠️ 소수다. 미국은 0.5주 같은 체결이 있어 Int 로 받으면 0주가 된다. */
+    val qty: Double,
     val price: Double,
-    val memo: String? = null,
-    /** 토스 체결 자동 가져오기 출처 (orderId). 중복 가져오기 방지용. 수동 입력은 null. */
+    /** 체결 출처(orderId) — 서버가 붙여 준다. */
     val srcId: String? = null,
 )
 

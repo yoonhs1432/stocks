@@ -309,12 +309,13 @@ private fun StatChip(label: String, value: String) {
 /** 📒 매매 일지 — 전 종목 매매 기록을 표 형식(최신순)으로. */
 @Composable
 private fun TradeJournal() {
-    // ticker 를 함께 들고 있어야 단가를 원화/달러 중 맞는 단위로 찍을 수 있다
+    // ticker 를 함께 들고 있어야 단가를 원화/달러 중 맞는 단위로 찍을 수 있다.
+    // 메모 칸은 없앴다 — 기록이 증권사 체결내역에서 오므로 메모라는 것이 아예 없다.
     data class Entry(val ticker: String, val date: String, val name: String,
-                     val type: String, val qty: Int, val price: Double, val memo: String?)
-    val entries = remember {
+                     val type: String, val qty: Double, val price: Double)
+    val entries = remember(AppState.dataVersion) {
         Store.visibleTrades().flatMap { (tk, list) ->
-            list.map { Entry(tk, it.date, Tickers.displayName(tk), it.type, it.qty, it.price, it.memo) }
+            list.map { Entry(tk, it.date, Tickers.displayName(tk), it.type, it.qty, it.price) }
         }.sortedByDescending { it.date }
     }
     if (entries.isEmpty()) return
@@ -324,22 +325,20 @@ private fun TradeJournal() {
         modifier = Modifier.fillMaxWidth().clickable { open = !open })
     if (open) {
         Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.Top) {
-            JCell("날짜", 1.9f, TextSecondary, FontWeight.SemiBold)
-            JCell("종목", 1.3f, TextSecondary, FontWeight.SemiBold)
-            JCell("구분", 1.0f, TextSecondary, FontWeight.SemiBold, TextAlign.Center)
-            JCell("수량", 0.8f, TextSecondary, FontWeight.SemiBold, TextAlign.End)
-            JCell("단가", 1.5f, TextSecondary, FontWeight.SemiBold, TextAlign.End)
-            JCell("메모", 3.2f, TextSecondary, FontWeight.SemiBold)
+            JCell("날짜", 2.0f, TextSecondary, FontWeight.SemiBold)
+            JCell("종목", 2.2f, TextSecondary, FontWeight.SemiBold)
+            JCell("구분", 1.2f, TextSecondary, FontWeight.SemiBold, TextAlign.Center)
+            JCell("수량", 1.6f, TextSecondary, FontWeight.SemiBold, TextAlign.End)
+            JCell("단가", 2.0f, TextSecondary, FontWeight.SemiBold, TextAlign.End)
         }
         entries.forEach { e ->
             val buy = e.type == "buy"
             Row(Modifier.fillMaxWidth().padding(vertical = 1.dp), verticalAlignment = Alignment.Top) {
-                JCell(e.date, 1.9f, TextSecondary)
-                JCell(e.name, 1.3f, TextPrimary, FontWeight.SemiBold)
-                JCell(if (buy) "매수" else "매도", 1.0f, if (buy) Profit else Loss, FontWeight.SemiBold, TextAlign.Center)
-                JCell("${e.qty}", 0.8f, TextPrimary, align = TextAlign.End)
-                JCell(Tickers.priceLabel(e.ticker, e.price), 1.5f, TextPrimary, align = TextAlign.End)
-                JCell(e.memo ?: "", 3.2f, TextSecondary, maxLines = Int.MAX_VALUE)
+                JCell(e.date, 2.0f, TextSecondary)
+                JCell(e.name, 2.2f, TextPrimary, FontWeight.SemiBold)
+                JCell(if (buy) "매수" else "매도", 1.2f, if (buy) Profit else Loss, FontWeight.SemiBold, TextAlign.Center)
+                JCell(qtyLabel(e.qty), 1.6f, TextPrimary, align = TextAlign.End)
+                JCell(Tickers.priceLabel(e.ticker, e.price), 2.0f, TextPrimary, align = TextAlign.End)
             }
         }
     }
