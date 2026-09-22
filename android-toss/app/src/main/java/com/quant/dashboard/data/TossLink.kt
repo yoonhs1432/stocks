@@ -3,6 +3,7 @@ package com.quant.dashboard.data
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import com.quant.dashboard.TossOpenActivity
 
 /**
  * 토스증권의 **그 종목 주문 화면**으로 건너뛴다.
