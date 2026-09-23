@@ -1151,10 +1151,13 @@ fun EquityChart(
 }
 
 /**
- * 자산 누적 영역 — 평가금액(아래) + 예수금(위), 윗면이 총자산.
+ * 자산 누적 영역 — 예수금(아래) + 평가금액(위), 윗면이 총자산.
  *
  * 총자산 = 평가금액 + 예수금 이라 쌓아 그리면 "얼마가 종목에 들어가 있고 얼마가 현금인지"를
  * 한 눈에 볼 수 있다. y 는 0부터 — 누적 영역은 0 기준이어야 두께가 곧 금액이 된다.
+ *
+ * 현금을 **바닥에** 깔아서, 위에 얹힌 평가금액 띠의 오르내림이 그대로 종목 평가액의
+ * 변화로 보이게 한다(현금은 잘 안 변한다). 범례도 위에서부터 평가금액·예수금 순이다.
  */
 @Composable
 fun AssetStackChart(
@@ -1237,7 +1240,7 @@ fun AssetStackChart(
             if (first < 0 || first >= last) return@Canvas
 
             clipRect(0f, 0f, plotW, size.height) {
-                // 아래 = 평가금액, 위 = 예수금. 위 띠는 평가금액 선 위에 쌓는다
+                // 아래 = 예수금, 위 = 평가금액. 위 띠는 예수금 선 위에 쌓는다
                 fun stack(lower: (Int) -> Double, upper: (Int) -> Double, color: Color) {
                     val path = Path()
                     path.moveTo(xAt(first), yAt(lower(first)))
@@ -1246,9 +1249,9 @@ fun AssetStackChart(
                     path.close()
                     drawPath(path, color)
                 }
-                stack({ 0.0 }, { eval[it] }, Color(0x59EF6066))
-                stack({ eval[it] }, { total[it] }, Color(0x594F9EE8))
-                poly(eval, ::xAt, ::yAt, Color(0xFFEF6066), 1.6f)
+                stack({ 0.0 }, { cash[it] }, Color(0x594F9EE8))
+                stack({ cash[it] }, { total[it] }, Color(0x59EF6066))
+                poly(cash, ::xAt, ::yAt, Color(0xFF4F9EE8), 1.6f)
                 poly(total, ::xAt, ::yAt, Color(0xFFEEF1F4), 2.4f)   // 윗면 = 총자산
                 // 원금 — 입금일마다 계단으로 오른다. 총자산선과의 간격이 곧 총손익
                 if (prin != null) dashPoly(prin, ::xAt, ::yAt, PRINCIPAL, 2f)
