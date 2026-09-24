@@ -34,6 +34,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.quant.dashboard.data.MarketHours
 import com.quant.dashboard.data.ServerConfig
 import com.quant.dashboard.data.LivePrices
 import com.quant.dashboard.data.Snapshots
@@ -104,6 +105,16 @@ fun PortfolioScreen(onOpenAnalysis: (String) -> Unit = {}) {
 
     LaunchedEffect(AppState.dataVersion) { reload(force = false) }
 
+    // 계좌를 못 받았으면 **스스로 다시 시도한다.** 예전에는 설정이 바뀔 때만 다시 불러서,
+    // 한 번 끊기면 탭을 껐다 켜기 전까지 계속 오류 문구만 떠 있었다.
+    // (집 PC 와의 끊김은 대개 몇 분이면 저절로 돌아온다.)
+    LaunchedEffect(Unit) {
+        while (true) {
+            kotlinx.coroutines.delay(if (acct == null) 8_000 else 60_000)
+            if (acct == null || MarketHours.anyOpen()) reload(force = false)
+        }
+    }
+
     Column(modifier = Modifier.fillMaxSize().background(BgApp)) {
         ScreenHeader("포트폴리오") {
             UnderlineSegments(
@@ -135,7 +146,7 @@ fun PortfolioScreen(onOpenAnalysis: (String) -> Unit = {}) {
                     !ServerConfig.isSet() -> Text("설정 탭에서 집 PC 를 연결하면 계좌가 표시됩니다.",
                         color = TextSecondary, fontSize = 14.sp)
                     a != null -> TossBody(a, usdMode, onOpenAnalysis)
-                    else -> Text(err?.let { "⚠️ $it" } ?: "계좌 정보를 불러오는 중…",
+                    else -> Text(err?.let { "⚠️ $it\n다시 시도하는 중…" } ?: "계좌 정보를 불러오는 중…",
                         color = if (err != null) Loss else TextSecondary, fontSize = 13.sp)
                 }
             }

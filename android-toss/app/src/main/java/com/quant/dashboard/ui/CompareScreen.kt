@@ -76,10 +76,15 @@ fun CompareScreen(vm: CompareViewModel = viewModel(), onOpenAnalysis: (String) -
     val s = vm.state
     LaunchedEffect(AppState.dataVersion) { vm.sync(AppState.dataVersion) }
     // 자동 새로고침 — 화면 켜진 비교 탭 + 장중에만, 60초 (조용히, 명단은 5분 캐시)
+    //
+    // ⚠️ **실패 중일 때는 장 시간을 따지지 않고 짧게 다시 시도한다.** 집 PC 와의 끊김은
+    //    대개 몇 분이면 저절로 돌아오는데, 예전에는 "60초 + 장중에만" 이라 장이 닫혀 있으면
+    //    아예 다시 묻지 않아서 사람이 탭을 껐다 켜야 했다.
     LaunchedEffect(Unit) {
         while (true) {
-            kotlinx.coroutines.delay(60_000)
-            if (MarketHours.anyOpen()) vm.autoRefresh()
+            val failing = vm.state.rows.isEmpty()
+            kotlinx.coroutines.delay(if (failing) 8_000 else 60_000)
+            if (vm.state.rows.isEmpty() || MarketHours.anyOpen()) vm.autoRefresh()
         }
     }
 
@@ -95,7 +100,9 @@ fun CompareScreen(vm: CompareViewModel = viewModel(), onOpenAnalysis: (String) -
                 val rows = vm.sorted()
                 val err = s.error
                 when {
-                    rows.isEmpty() && err != null -> Text("⚠️ $err", color = Loss)
+                    // 실패해도 8초마다 스스로 다시 시도한다 — 기다리면 돌아온다는 걸 알려 준다
+                    rows.isEmpty() && err != null ->
+                        Text("⚠️ $err\n다시 시도하는 중…", color = Loss)
                     s.rows.isEmpty() -> Text("불러오는 중…", color = TextSecondary,
                         modifier = Modifier.padding(24.dp))
                     else -> {

@@ -74,9 +74,15 @@ fun AppScaffold() {
     // 표시명은 화면 그리는 중에 불리므로 그때 파일을 읽으면 안 된다.
     // 서버에서 설정·종목 목록·입금·매매기록을 받아 둔다. 화면이 그리는 중에 읽는 값이라
     // 여기서 미리 채워 놓아야 한다(그리는 중에 네트워크를 타면 앱이 죽는다).
+    // 한 번 실패하면 앱을 껐다 켜기 전까지 종목 목록·기간·매매기록이 비어 있었다.
+    // 받을 때까지 8초마다 다시 묻는다 — 집 PC 와의 끊김은 대개 저절로 돌아온다.
     LaunchedEffect(Unit) {
-        val changed = withContext(Dispatchers.IO) { Store.syncFromServer(force = true) }
-        if (changed) AppState.bump()
+        while (true) {
+            val changed = withContext(Dispatchers.IO) { Store.syncFromServer(force = true) }
+            if (Store.synced()) { AppState.bump(); break }
+            if (changed) AppState.bump()
+            kotlinx.coroutines.delay(8_000)
+        }
     }
 
     LaunchedEffect(AppState.dataVersion) {

@@ -55,6 +55,10 @@ object Store {
     @Volatile private var serverMonths = MAX_MONTHS
     @Volatile private var serverTick = 10
     @Volatile private var syncAt = 0L
+    @Volatile private var syncOk = false
+
+    /** 서버에서 설정을 **한 번이라도 제대로 받았는지**. 못 받았으면 계속 다시 물어야 한다. */
+    fun synced(): Boolean = syncOk
 
     const val MIN_TICKERS = 3
 
@@ -74,6 +78,7 @@ object Store {
             serverTick = s.tickSeconds
             Deposits.set(s.deposits, s.principal)
             syncAt = now
+            syncOk = true
             refreshTrades()
             changed
         } catch (e: Exception) {

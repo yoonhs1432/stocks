@@ -87,10 +87,12 @@ fun AnalysisScreen(vm: AnalysisViewModel = viewModel(), onBack: () -> Unit = {})
         vm.sync(AppState.dataVersion, pending)
     }
     // 자동 새로고침 — 화면 켜진 분석 탭 + 장중에만, 60초 (조용히)
+    // 실패 중이면 장 시간과 상관없이 8초마다 — 끊김은 대개 저절로 돌아온다
     LaunchedEffect(Unit) {
         while (true) {
-            kotlinx.coroutines.delay(60_000)
-            if (MarketHours.anyOpen()) vm.autoRefresh()
+            val failing = vm.state.result == null
+            kotlinx.coroutines.delay(if (failing) 8_000 else 60_000)
+            if (vm.state.result == null || MarketHours.anyOpen()) vm.autoRefresh()
         }
     }
 
