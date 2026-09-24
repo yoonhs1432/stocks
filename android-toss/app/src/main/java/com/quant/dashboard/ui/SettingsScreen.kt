@@ -41,6 +41,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.foundation.layout.Box
 import androidx.compose.ui.unit.Dp
+import com.quant.dashboard.BuildConfig
 import com.quant.dashboard.data.Deposits
 import java.time.LocalDate
 import androidx.compose.ui.unit.dp
@@ -168,6 +169,9 @@ fun SettingsScreen() {
                 )
                 if (linked && !edit) GhostButton("변경") { edit = true }
             }
+            // 사이드로드라 스토어 버전 표시가 없다. 옛 APK 를 쓰고 있는지 여기서 확인한다.
+            Text("앱 빌드 ${BuildConfig.BUILD_STAMP}", color = TextMuted,
+                fontSize = 11.sp, fontFamily = Mono)
             if (linked && ServerConfig.altUrl().isNotBlank()) {
                 Text("보조 ${ServerConfig.altUrl()}", color = TextMuted, fontSize = 11.sp, fontFamily = Mono)
             }

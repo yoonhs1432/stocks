@@ -1,3 +1,14 @@
+/**
+ * 어느 빌드를 깔았는지 앱 안에서 보이게 하는 도장 — `09-24 ba72f9f` 식.
+ *
+ * 사이드로드라 스토어 버전 표시가 없어서, 화면에 옛 버전 증상이 나와도 **APK 가 옛것인지
+ * 코드가 잘못된 건지** 구분할 방법이 없었다. git 이 없으면 "dev".
+ */
+val buildStamp: String = runCatching {
+    ProcessBuilder("git", "log", "-1", "--format=%cd %h", "--date=format:%m-%d")
+        .directory(rootDir).start().inputStream.bufferedReader().readText().trim()
+}.getOrNull()?.takeIf { it.isNotBlank() } ?: "dev"
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -15,6 +26,7 @@ android {
         targetSdk = 34
         versionCode = 1
         versionName = "0.1"
+        buildConfigField("String", "BUILD_STAMP", "\"$buildStamp\"")
     }
 
     // 고정 서명키 — 매 빌드 동일 키로 서명해야 폰에서 '덮어쓰기 설치'가 됨
@@ -47,6 +59,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 

@@ -36,8 +36,13 @@ object Server {
      *   응답을 받은 뒤의 실패(4xx·5xx·읽기 중 끊김)는 여기 해당하지 않는다. 특히 POST 는
      *   이미 서버에 닿았을 수 있어 다시 보내면 **두 번 저장**될 수 있다.
      */
-    class HttpError(val code: Int, message: String, val unreachable: Boolean = false) :
-        Exception(message)
+    class HttpError(
+        val code: Int,
+        message: String,
+        val unreachable: Boolean = false,
+        /** 이름 풀이(DNS) 실패 — 잠깐 쉬었다 다시 물으면 붙는 경우가 많다. */
+        val dns: Boolean = false,
+    ) : Exception(message)
 
     // ── 연결 정보 ──
 
@@ -80,15 +85,22 @@ object Server {
         val bases = ServerConfig.bases()
         if (bases.isEmpty()) throw HttpError(0, "PC 주소가 설정되지 않았습니다")
         var last: HttpError? = null
-        for (b in bases) {
-            try {
-                val text = attempt(b, path, method, body)
-                ServerConfig.noteOk(b)
-                return text
-            } catch (e: HttpError) {
-                if (!e.unreachable) throw e
-                last = e
+        // 이름 풀이는 **한 번씩 헛돈다** — 와이파이가 막 붙었을 때, 절전에서 깨어난 직후,
+        // LTE↔와이파이가 바뀌는 순간. 게다가 실패한 이름은 잠시 기억돼(negative cache)
+        // 바로 다시 물어도 똑같이 실패한다. 그래서 조금 쉬었다 한 번 더 묻는다.
+        // (닿지도 못한 경우에만 다시 보내므로 POST 가 두 번 저장될 일은 없다.)
+        for (round in 0..1) {
+            for (b in bases) {
+                try {
+                    val text = attempt(b, path, method, body)
+                    ServerConfig.noteOk(b)
+                    return text
+                } catch (e: HttpError) {
+                    if (!e.unreachable) throw e
+                    last = e
+                }
             }
+            if (round == 0 && last?.dns == true) Thread.sleep(1_200) else break
         }
         throw last ?: HttpError(0, "PC 에 연결할 수 없습니다")
     }
@@ -148,10 +160,14 @@ object Server {
 
     /** 연결 단계의 실패를 **뭘 해야 할지 알 수 있는 한국어**로. 자바 원문은 안 보여준다. */
     private fun unreachable(e: Exception): HttpError {
-        val msg = when (e) {
+        if (e is UnknownHostException) {
             // "Unable to resolve host …" — 이름을 못 찾는다 = PC 가 꺼졌거나 터널이 내려갔다
-            is UnknownHostException ->
-                "PC 를 찾을 수 없습니다 · PC 가 켜져 있는지, 터널이 살아 있는지 확인하세요"
+            return HttpError(
+                0, "PC 를 찾을 수 없습니다 · PC 가 켜져 있는지, 터널이 살아 있는지 확인하세요",
+                unreachable = true, dns = true,
+            )
+        }
+        val msg = when (e) {
             is SocketTimeoutException -> "PC 가 응답하지 않습니다 · 잠시 뒤 다시 시도합니다"
             is ConnectException -> "PC 에 연결할 수 없습니다 · 서버가 떠 있는지 확인하세요"
             is SSLException -> "보안 연결에 실패했습니다 · 주소가 https 인지 확인하세요"
