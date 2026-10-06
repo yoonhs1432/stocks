@@ -76,10 +76,17 @@ fun AppScaffold() {
     // 여기서 미리 채워 놓아야 한다(그리는 중에 네트워크를 타면 앱이 죽는다).
     // 한 번 실패하면 앱을 껐다 켜기 전까지 종목 목록·기간·매매기록이 비어 있었다.
     // 받을 때까지 8초마다 다시 묻는다 — 집 PC 와의 끊김은 대개 저절로 돌아온다.
+    // 탭들은 **이게 끝나야** 시세를 부른다(`Store.synced()`). 종목 목록을 모르는 채로 먼저
+    // 부르면 기본 목록으로 한 번, 목록이 와서 또 한 번 — 20~30초짜리 조회가 두 번이 된다.
     LaunchedEffect(Unit) {
         while (true) {
             val changed = withContext(Dispatchers.IO) { Store.syncFromServer(force = true) }
-            if (Store.synced()) { AppState.bump(); break }
+            if (Store.synced()) {
+                // 첫 동기화는 목록을 처음 채우는 것이라 거의 항상 '달라졌다'로 나온다.
+                // 그래도 여기서 한 번은 깨워야 탭들이 첫 로드를 시작한다.
+                AppState.bump()
+                break
+            }
             if (changed) AppState.bump()
             kotlinx.coroutines.delay(8_000)
         }

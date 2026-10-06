@@ -9,9 +9,7 @@ import com.quant.dashboard.data.LivePrices
 import com.quant.dashboard.data.OverviewRepo
 import com.quant.dashboard.data.Store
 import com.quant.dashboard.data.Tickers
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 typealias CompareRow = OverviewRepo.Row
 
@@ -21,7 +19,8 @@ enum class SortKey { M, Z, DAY, WEEK, FROM_HIGH, PRICE, NAME, BETA, SIGMA }
 data class CompareState(
     val loading: Boolean = false,
     val error: String? = null,
-    val rows: List<CompareRow> = emptyList(),
+    // 앱을 켜자마자 **지난번 표**로 그린다 — 서버 첫 조회는 PC 에서도 20~30초다
+    val rows: List<CompareRow> = OverviewRepo.cached(),
     val sortKey: SortKey = SortKey.DAY,
     val sortDesc: Boolean = true,
     val holdingsOnly: Boolean = false,
@@ -35,11 +34,23 @@ class CompareViewModel : ViewModel() {
 
     private var loadedVersion = -1
 
-    /** AppState.dataVersion 변경(기준일·설정) 시 강제 재로드, 아니면 최초 1회만. */
+    /**
+     * AppState.dataVersion 변경(기준일·설정) 시 재로드, 아니면 최초 1회만.
+     *
+     * ⚠️ **종목 목록을 서버에서 받기 전에는 부르지 않는다.** 예전에는 기본 목록으로 한 번
+     * 부르고, 목록이 도착하면 또 한 번 불렀다. 서버의 첫 조회가 20~30초라 그 한 번이
+     * 그대로 대기 시간으로 쌓였다(미국·국내 각각이라 분 단위가 되기도 했다).
+     *
+     * ⚠️ **첫 로드는 강제하지 않는다.** `force=true` 는 서버 캐시(5분)와 일봉 캐시를
+     * 둘 다 건너뛰고 전부 다시 받게 한다. 설정이 바뀌면 서버 캐시 키(기간·종목 수)가
+     * 어차피 달라져서 새로 계산되므로, 강제는 사용자가 직접 당겨서 새로고침할 때만 쓴다.
+     */
     fun sync(version: Int) {
+        if (!Store.synced()) return
         if (version != loadedVersion) {
+            val first = loadedVersion < 0
             loadedVersion = version
-            load(force = true)
+            load(force = !first)
         } else {
             loadIfEmpty()
         }
@@ -55,25 +66,38 @@ class CompareViewModel : ViewModel() {
         if (state.rows.isEmpty() && !state.loading) load()
     }
 
+    /**
+     * **보고 있는 시장을 먼저** 받아 그리고, 반대쪽은 그 뒤에 채운다.
+     * 둘 다 기다렸다 한꺼번에 그리면 보이지도 않는 시장 때문에 화면이 두 배로 늦었다.
+     */
     fun load(force: Boolean = false) {
         state = state.copy(loading = true, error = null)
         viewModelScope.launch {
-            val rows = withContext(Dispatchers.IO) { OverviewRepo.load(force) }
+            val order = if (state.market == "KR") listOf("KR", "US") else listOf("US", "KR")
+            var any = false
+            for (mk in order) {
+                val ok = OverviewRepo.loadMarket(mk, force)
+                if (ok) {
+                    any = true
+                    state = state.copy(loading = false, rows = OverviewRepo.cached(), error = null)
+                }
+            }
             // 왜 안 되는지를 그대로 보여준다 — "가져오지 못했습니다" 만으로는 고칠 수가 없다
-            state = if (rows.isEmpty())
-                state.copy(loading = false,
-                    error = OverviewRepo.lastError ?: "시세를 가져오지 못했습니다")
-            else state.copy(loading = false, rows = rows, error = null)
+            if (!any) state = state.copy(loading = false,
+                error = OverviewRepo.lastError ?: "시세를 가져오지 못했습니다")
         }
     }
 
     /** 자동(조용한) 새로고침 — 로딩 표시 없이 명단 갱신(5분 캐시 만료 시에만 실제 재요청). */
     fun autoRefresh() {
         viewModelScope.launch {
-            val rows = withContext(Dispatchers.IO) { OverviewRepo.load(false) }
-            state = if (rows.isNotEmpty()) state.copy(rows = rows, error = null)
-            // 조용한 갱신이라도 **처음부터 빈 화면**이면 이유는 띄워야 한다
-            else state.copy(error = OverviewRepo.lastError ?: state.error)
+            val rows = OverviewRepo.load(false)
+            // ⚠️ 성공 여부는 **rows 가 비었는지가 아니라** lastError 로 판단한다.
+            //    파일에서 꺼낸 지난번 표가 깔려 있으면 실패해도 rows 는 비어 있지 않다.
+            state = state.copy(
+                rows = if (rows.isNotEmpty()) rows else state.rows,
+                error = OverviewRepo.lastError,
+            )
         }
     }
 

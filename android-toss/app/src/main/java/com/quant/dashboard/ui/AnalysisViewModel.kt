@@ -43,7 +43,7 @@ class AnalysisViewModel : ViewModel() {
 
     fun loadOverview(force: Boolean = false) {
         viewModelScope.launch {
-            val rows = withContext(Dispatchers.IO) { OverviewRepo.load(force) }
+            val rows = OverviewRepo.load(force)
             if (rows.isNotEmpty()) overview = rows
         }
     }
@@ -65,7 +65,9 @@ class AnalysisViewModel : ViewModel() {
             changed -> load()
             state.result == null && !state.loading -> load()
         }
-        if (changed || overview.isEmpty()) loadOverview(changed)
+        // ⚠️ 여기서 force 를 주면 **비교 탭의 20~30초짜리 첫 조회가 한 번 더** 돈다.
+        //    칩 줄에 쓰는 값이라 캐시로 충분하다.
+        if (changed || overview.isEmpty()) loadOverview(false)
     }
 
     fun select(ticker: String) {

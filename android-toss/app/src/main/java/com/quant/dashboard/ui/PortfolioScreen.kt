@@ -52,8 +52,9 @@ import com.quant.dashboard.ui.theme.TextPrimary
 import com.quant.dashboard.ui.theme.TextSecondary
 import com.quant.dashboard.ui.theme.WeightPalette
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 private fun pc(v: Double) = if (v > 0) Profit else if (v < 0) Loss else Neutral
 
@@ -93,12 +94,19 @@ fun PortfolioScreen(onOpenAnalysis: (String) -> Unit = {}) {
     val scope = rememberCoroutineScope()
 
     suspend fun reload(force: Boolean) {
-        val fresh = withContext(Dispatchers.IO) {
-            // 자산 추이·매매 일지도 같이 받아 둔다 — 화면이 그리는 중에 읽는 값이라
-            // 여기서 채워 놓지 않으면 빈 그래프가 뜬다(그리는 중엔 네트워크를 못 탄다).
-            runCatching { Snapshots.ensure(force) }
-            runCatching { Store.refreshTrades() }
-            try { TossSync.account(force = force) } catch (e: Exception) { err = e.message; null }
+        // 자산 추이·매매 일지도 같이 받아 둔다 — 화면이 그리는 중에 읽는 값이라
+        // 여기서 채워 놓지 않으면 빈 그래프가 뜬다(그리는 중엔 네트워크를 못 탄다).
+        //
+        // 셋을 **한꺼번에** 보낸다. 차례로 보내면 왕복 시간이 그대로 세 배가 되는데,
+        // 서로 기다릴 이유가 전혀 없는 요청들이다.
+        val fresh = coroutineScope {
+            val snaps = async(Dispatchers.IO) { runCatching { Snapshots.ensure(force) } }
+            val trades = async(Dispatchers.IO) { runCatching { Store.refreshTrades() } }
+            val acc = async(Dispatchers.IO) {
+                try { TossSync.account(force = force) } catch (e: Exception) { err = e.message; null }
+            }
+            snaps.await(); trades.await()
+            acc.await()
         }
         if (fresh != null) { acct = fresh; err = null }
     }

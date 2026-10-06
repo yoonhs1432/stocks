@@ -82,9 +82,11 @@ fun CompareScreen(vm: CompareViewModel = viewModel(), onOpenAnalysis: (String) -
     //    아예 다시 묻지 않아서 사람이 탭을 껐다 켜야 했다.
     LaunchedEffect(Unit) {
         while (true) {
-            val failing = vm.state.rows.isEmpty()
-            kotlinx.coroutines.delay(if (failing) 8_000 else 60_000)
-            if (vm.state.rows.isEmpty() || MarketHours.anyOpen()) vm.autoRefresh()
+            // 파일에서 꺼낸 지난번 표가 깔려 있어도 **오류가 떠 있으면 실패 중**이다.
+            // (rows 가 비었는지만 보면 캐시가 있는 한 다시 시도하지 않는다.)
+            fun failing() = vm.state.rows.isEmpty() || vm.state.error != null
+            kotlinx.coroutines.delay(if (failing()) 8_000 else 60_000)
+            if (failing() || MarketHours.anyOpen()) vm.autoRefresh()
         }
     }
 
@@ -99,6 +101,11 @@ fun CompareScreen(vm: CompareViewModel = viewModel(), onOpenAnalysis: (String) -
             ) {
                 val rows = vm.sorted()
                 val err = s.error
+                // 지난번 표를 그리고 있는 중이면 **옛 값이라는 것**을 한 줄로 알린다
+                if (rows.isNotEmpty() && err != null) {
+                    Text("⚠️ $err · 지난번 값입니다 · 다시 시도하는 중…",
+                        color = Loss, fontSize = 11.sp)
+                }
                 when {
                     // 실패해도 8초마다 스스로 다시 시도한다 — 기다리면 돌아온다는 걸 알려 준다
                     rows.isEmpty() && err != null ->
