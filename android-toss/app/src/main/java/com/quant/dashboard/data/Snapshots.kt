@@ -1,5 +1,9 @@
 package com.quant.dashboard.data
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.setValue
+
 /**
  * 자산 추이 — **PC 서버가 쌓고 계산한 것**을 받아 둔다.
  *
@@ -20,7 +24,18 @@ object Snapshots {
     @Volatile private var usd: Server.Series = EMPTY
     @Volatile private var at = 0L
 
+    /** 새 값이 들어올 때마다 오른다 — 화면이 이걸 보고 그래프를 다시 그린다. */
+    var rev by mutableIntStateOf(0)
+        private set
+
     private const val TTL = 5 * 60 * 1000L
+
+    /** 앱 시작 시 1회 — 지난번 자산 추이를 꺼내 둔다(그래프가 빈 채로 뜨지 않게). */
+    fun restore() {
+        if (krw.dates.isNotEmpty()) return
+        Server.snapshotsCached(false)?.let { krw = it }
+        Server.snapshotsCached(true)?.let { usd = it }
+    }
 
     /** 원·달러 두 벌을 받아 둔다. IO 디스패처에서 호출할 것. */
     fun ensure(force: Boolean = false) {
@@ -31,6 +46,7 @@ object Snapshots {
             krw = Server.snapshots(false)
             usd = Server.snapshots(true)
             at = now
+            rev++
         } catch (e: Exception) {
             // 못 받으면 있던 값을 그대로 쓴다 — 빈 화면보다 낫다
         }

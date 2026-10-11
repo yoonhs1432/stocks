@@ -98,6 +98,11 @@ fun AnalysisScreen(vm: AnalysisViewModel = viewModel(), onBack: () -> Unit = {})
 
     val ov = vm.overview.associateBy { it.ticker }
 
+    // 앞·뒤 종목 — **비교 표에 보이는 순서 그대로**(정렬·시장·보유 필터까지). 비교로 돌아가지
+    // 않고 종목을 훑어볼 수 있다. 같은 액티비티에 묶인 뷰모델이라 비교 탭과 같은 인스턴스다.
+    val cmp: CompareViewModel = viewModel()
+    val order = cmp.sorted().map { it.ticker }
+
     var diOpen by remember { mutableStateOf(false) }
     var linkFail by remember { mutableStateOf(false) }
     var diText by remember { mutableStateOf("") }
@@ -124,6 +129,11 @@ fun AnalysisScreen(vm: AnalysisViewModel = viewModel(), onBack: () -> Unit = {})
         if (linkFail) {
             Text("토스 앱도 브라우저도 열 수 없습니다", color = Loss, fontSize = 11.sp,
                 modifier = Modifier.padding(horizontal = ScreenPad))
+        }
+        // 지난 분석을 그려 둔 채로 새 값을 못 받았다 — 차트는 두고, 옛 값이라는 것만 알린다
+        if (s.result != null && s.error != null) {
+            Text("⚠️ ${s.error} · ${agoLabel(s.asOf)} 값입니다", color = Loss, fontSize = 11.sp,
+                modifier = Modifier.padding(horizontal = ScreenPad, vertical = 2.dp))
         }
         // ── 상단 고정: 직접입력 (열렸을 때만) ──
         if (diOpen) {
@@ -178,6 +188,13 @@ fun AnalysisScreen(vm: AnalysisViewModel = viewModel(), onBack: () -> Unit = {})
                 selected = group,
                 onSelect = { group = it; Store.setChartGroup(it) },
             )
+            Spacer(Modifier.weight(1f))
+            // 엄지가 닿는 오른쪽 아래 — 비교 표 순서대로 넘긴다
+            if (order.size > 1) {
+                GhostButton("‹") { vm.step(order, -1) }
+                Spacer(Modifier.width(6.dp))
+                GhostButton("›") { vm.step(order, +1) }
+            }
         }
     }
 }

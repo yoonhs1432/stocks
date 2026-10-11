@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.sp
 import com.quant.dashboard.data.ServerConfig
 import com.quant.dashboard.data.LivePrices
 import com.quant.dashboard.data.MarketHours
+import com.quant.dashboard.data.Snapshots
 import com.quant.dashboard.data.Store
 import com.quant.dashboard.data.Tickers
 import com.quant.dashboard.data.TossSync
@@ -43,6 +44,7 @@ import com.quant.dashboard.ui.theme.TabInactive
 import kotlin.math.cos
 import kotlin.math.sin
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private val TAB_LABELS = listOf("비교", "분석", "포트폴리오", "설정")
@@ -85,6 +87,10 @@ fun AppScaffold() {
                 // 첫 동기화는 목록을 처음 채우는 것이라 거의 항상 '달라졌다'로 나온다.
                 // 그래도 여기서 한 번은 깨워야 탭들이 첫 로드를 시작한다.
                 AppState.bump()
+                // 아직 안 연 탭의 값도 **지금** 받아 둔다 — 포트폴리오를 처음 누를 때 기다리지 않게.
+                // 계좌가 오면 보유 종목이 틱 대상에도 바로 들어간다. 실패해도 탭이 알아서 다시 묻는다.
+                launch(Dispatchers.IO) { runCatching { TossSync.account() } }
+                launch(Dispatchers.IO) { runCatching { Snapshots.ensure() } }
                 break
             }
             if (changed) AppState.bump()

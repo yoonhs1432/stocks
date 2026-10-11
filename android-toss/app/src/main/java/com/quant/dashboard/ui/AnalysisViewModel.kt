@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.quant.dashboard.data.AnalysisCache
 import com.quant.dashboard.data.Candle
 import com.quant.dashboard.data.OverviewRepo
 import com.quant.dashboard.data.Store
@@ -30,6 +31,14 @@ data class UiState(
     val trades: List<Trade> = emptyList(),
     val avgPrice: Double = Double.NaN,
     val qty: Double = Double.NaN,
+    /** 화면의 분석이 **서버에서 온 시각**(ms). 지난 값을 먼저 그렸을 때 얼마나 묵었는지 알리는 데 쓴다. */
+    val asOf: Long = 0L,
+)
+
+/** 받아 둔 분석 한 벌을 화면 상태로. 종목이 바뀌는 순간에도, 새 응답이 왔을 때도 같은 모양으로 담는다. */
+private fun UiState.with(a: Server.Analysis, ticker: String, at: Long) = copy(
+    ticker = ticker, result = a.result, ohlc = a.candles,
+    trades = a.trades, avgPrice = a.avgPrice, qty = a.qty, asOf = at,
 )
 
 class AnalysisViewModel : ViewModel() {
@@ -49,6 +58,11 @@ class AnalysisViewModel : ViewModel() {
     }
 
     private var loadedVersion = -1
+
+    private companion object {
+        /** 이 안에 받은 분석은 다시 묻지 않는다 — 서버도 그 사이엔 같은 값을 준다. */
+        const val QUICK_MS = 20_000L
+    }
     private var loadJob: Job? = null
     private var reqSeq = 0
 
@@ -71,12 +85,33 @@ class AnalysisViewModel : ViewModel() {
     }
 
     fun select(ticker: String) {
-        // 종목이 바뀌면 이전 종목 결과를 즉시 비움 — 로드 중 이전 종목 차트가 남아 보이는 문제 방지
-        if (ticker != state.ticker) {
-            state = state.copy(ticker = ticker, result = null, ohlc = emptyList(),
-                minutes = emptyList(), error = null)
+        if (ticker == state.ticker) { load(ticker); return }
+        // 받아 둔 게 있으면 **그 종목 자신의** 지난 분석을 바로 그리고, 조용히 새로 받는다.
+        // 없으면 예전처럼 비운다 — 로드 중 이전 종목 차트가 남아 보이는 문제 방지.
+        val hit = AnalysisCache.peek(ticker)
+        state = if (hit != null) {
+            state.with(hit.a, ticker, hit.at).copy(minutes = emptyList(), error = null, loading = false)
+        } else {
+            state.copy(ticker = ticker, result = null, ohlc = emptyList(),
+                minutes = emptyList(), error = null, asOf = 0L)
         }
-        load(ticker)
+        // 방금 받은 것이면 다시 묻지 않는다 — 종목을 빠르게 넘겨 볼 때 요청이 쌓이지 않게
+        if (hit != null && System.currentTimeMillis() - hit.at < QUICK_MS) {
+            loadJob?.cancel(); ++reqSeq
+            return
+        }
+        load(ticker, quiet = hit != null)
+    }
+
+    /**
+     * 비교 표 순서대로 앞·뒤 종목으로. [order] 는 화면에 보이는 정렬 그대로다.
+     * 지금 종목이 목록에 없으면(직접 입력) 첫 종목으로 간다.
+     */
+    fun step(order: List<String>, delta: Int) {
+        if (order.isEmpty()) return
+        val i = order.indexOf(state.ticker)
+        val next = if (i < 0) order.first() else order[(i + delta + order.size) % order.size]
+        if (next != state.ticker) select(next)
     }
 
     /** 자동(조용한) 새로고침 — 로딩 인디케이터 없이 현재 종목 갱신. */
@@ -123,26 +158,32 @@ class AnalysisViewModel : ViewModel() {
         loadJob = viewModelScope.launch {
             // 분석은 **서버가 계산해서** 준다. 폰이 일봉을 받아 회귀를 돌리던 때와 달리
             // 요청 한 번이고, 종목을 눌렀을 때 이미 계산이 끝나 있다(서버가 미리 해 둔다).
+            // 보여 줄 게 아직 없으면 **파일에 남겨 둔 지난 분석**부터 그린다(수십 ms).
+            // 앱을 새로 켠 직후나, 미리 받아 두기만 하고 아직 안 열어 본 종목이 여기에 걸린다.
+            if (state.result == null && !force) {
+                val old = withContext(Dispatchers.IO) { runCatching { AnalysisCache.get(ticker) }.getOrNull() }
+                if (seq != reqSeq) return@launch
+                if (old != null) state = state.with(old.a, ticker, old.at).copy(loading = false, error = null)
+            }
             val holder = withContext(Dispatchers.IO) {
-                runCatching { Server.analysis(ticker, force) }
+                runCatching { AnalysisCache.fetch(ticker, force) }
             }
             if (seq != reqSeq) return@launch   // 더 최신 요청이 있으면 이 응답은 폐기
             val a = holder.getOrNull()
+            val now = System.currentTimeMillis()
             state = when {
                 a == null && quiet -> state.copy(loading = false)
+                // 지난 값이라도 그려져 있으면 차트는 그대로 두고, 왜 못 받았는지만 알린다
                 a == null -> state.copy(
                     loading = false,
                     error = holder.exceptionOrNull()?.message ?: "PC 에 연결되지 않습니다",
                 )
                 a.result == null -> state.copy(
-                    loading = false, ticker = ticker, ohlc = a.candles,
-                    trades = a.trades, avgPrice = a.avgPrice, qty = a.qty,
+                    loading = false, ticker = ticker, result = null, ohlc = a.candles,
+                    trades = a.trades, avgPrice = a.avgPrice, qty = a.qty, asOf = now,
                     error = "분석 데이터 부족 — 상장 후 기간이 짧은 종목입니다",
                 )
-                else -> state.copy(
-                    loading = false, ticker = ticker, result = a.result, ohlc = a.candles,
-                    trades = a.trades, avgPrice = a.avgPrice, qty = a.qty, error = null,
-                )
+                else -> state.with(a, ticker, now).copy(loading = false, error = null)
             }
         }
     }

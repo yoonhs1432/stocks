@@ -250,7 +250,22 @@ object Server {
     )
 
     fun analysis(ticker: String, force: Boolean = false): Analysis {
-        val o = obj("/api/analysis?ticker=${enc(ticker)}" + if (force) "&force=true" else "")
+        val text = call("/api/analysis?ticker=${enc(ticker)}" + if (force) "&force=true" else "")
+        val a = analysisOf(ticker, JSONObject(text))
+        // 쓸 만한 응답만 남긴다 — 다음에 그 종목을 열면 이걸 먼저 그린다
+        if (a.result != null) DiskCache.put(ANALYSIS_KEY + ticker, text)
+        return a
+    }
+
+    const val ANALYSIS_KEY = "an_"
+
+    /** 지난번에 받아 둔 분석 (값, 받은 시각 ms). 파일을 읽으므로 **IO 에서** 부를 것. */
+    fun analysisCached(ticker: String): Pair<Analysis, Long>? {
+        val (text, at) = DiskCache.get(ANALYSIS_KEY + ticker) ?: return null
+        return runCatching { analysisOf(ticker, JSONObject(text)) to at }.getOrNull()
+    }
+
+    private fun analysisOf(ticker: String, o: JSONObject): Analysis {
         val bars = ArrayList<Candle>()
         val ca = o.optJSONArray("candles") ?: JSONArray()
         for (i in 0 until ca.length()) {
@@ -370,7 +385,19 @@ object Server {
     // ── 계좌 ──
 
     fun account(force: Boolean = false): TossSync.Account {
-        val o = obj("/api/account" + if (force) "?force=true" else "")
+        val text = call("/api/account" + if (force) "?force=true" else "")
+        val a = accountOf(JSONObject(text))
+        DiskCache.put("account", text)
+        return a
+    }
+
+    /** 지난번에 받아 둔 계좌 (값, 받은 시각 ms). 수 KB 라 시작할 때 바로 읽어도 된다. */
+    fun accountCached(): Pair<TossSync.Account, Long>? {
+        val (text, at) = DiskCache.get("account") ?: return null
+        return runCatching { accountOf(JSONObject(text)) to at }.getOrNull()
+    }
+
+    private fun accountOf(o: JSONObject): TossSync.Account {
         val items = ArrayList<TossApi.Holding>()
         val a = o.optJSONArray("items") ?: JSONArray()
         for (i in 0 until a.length()) {
@@ -514,7 +541,18 @@ object Server {
     )
 
     fun snapshots(usd: Boolean): Series {
-        val o = obj("/api/snapshots" + if (usd) "?usd=true" else "")
+        val text = call("/api/snapshots" + if (usd) "?usd=true" else "")
+        val s = seriesOf(JSONObject(text))
+        if (s.dates.isNotEmpty()) DiskCache.put(if (usd) "snap_usd" else "snap_krw", text)
+        return s
+    }
+
+    fun snapshotsCached(usd: Boolean): Series? {
+        val (text, _) = DiskCache.get(if (usd) "snap_usd" else "snap_krw") ?: return null
+        return runCatching { seriesOf(JSONObject(text)) }.getOrNull()
+    }
+
+    private fun seriesOf(o: JSONObject): Series {
         val da = o.optJSONArray("dates") ?: JSONArray()
         return Series(
             dates = (0 until da.length()).map { da.optString(it) },

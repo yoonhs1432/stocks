@@ -146,6 +146,22 @@ fun ListRow(
     }
 }
 
+/**
+ * "방금" · "3분 전" · "2시간 전" · "어제" — 지난 값을 먼저 그렸을 때 얼마나 묵었는지.
+ * 0 이면(받은 적 없음) "지난번".
+ */
+fun agoLabel(at: Long, now: Long = System.currentTimeMillis()): String {
+    if (at <= 0L) return "지난번"
+    val min = (now - at) / 60_000L
+    return when {
+        min < 1 -> "방금"
+        min < 60 -> "${min}분 전"
+        min < 24 * 60 -> "${min / 60}시간 전"
+        min < 48 * 60 -> "어제"
+        else -> "${min / (24 * 60)}일 전"
+    }
+}
+
 /** 하단 고정 조작 바 — 탭바 바로 위. 배경은 화면과 같고 위에 구분선. */
 @Composable
 fun BottomActionBar(content: @Composable RowScope.() -> Unit) {

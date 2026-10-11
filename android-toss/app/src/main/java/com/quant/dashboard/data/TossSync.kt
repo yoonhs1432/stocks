@@ -33,6 +33,22 @@ object TossSync {
     @Volatile private var accountCache: Account? = null
     @Volatile private var accountAt = 0L
 
+    /** 지금 들고 있는 값이 **실제로 서버에서 온 시각**(ms). 파일에서 꺼낸 값이면 그때 시각. */
+    @Volatile private var dataAt = 0L
+
+    fun dataAt(): Long = dataAt
+
+    /**
+     * 앱 시작 시 1회 — 지난번 계좌를 꺼내 둔다. 포트폴리오를 열면 **글자 대신 숫자**가 먼저 보인다.
+     * `accountAt` 은 건드리지 않으므로(0) 첫 조회는 평소대로 서버에 묻는다.
+     */
+    fun restore() {
+        if (accountCache != null) return
+        val (a, at) = Server.accountCached() ?: return
+        accountCache = a
+        dataAt = at
+    }
+
     private const val TTL = 60_000L      // 서버도 20초 캐시를 두고 있다
 
     fun cachedAccount(): Account? = accountCache
@@ -45,12 +61,14 @@ object TossSync {
         val a = Server.account(force)
         accountCache = a
         accountAt = now
+        dataAt = now
         return a
     }
 
     fun clear() {
         accountCache = null
         accountAt = 0L
+        dataAt = 0L
     }
 
     /** 체결내역 가져오기 — 서버가 토스에서 받아 PC 에 쌓는다. 누적 건수를 돌려준다. */

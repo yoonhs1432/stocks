@@ -5,10 +5,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.quant.dashboard.data.AnalysisCache
 import com.quant.dashboard.data.LivePrices
 import com.quant.dashboard.data.OverviewRepo
 import com.quant.dashboard.data.Store
 import com.quant.dashboard.data.Tickers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 typealias CompareRow = OverviewRepo.Row
@@ -85,7 +87,31 @@ class CompareViewModel : ViewModel() {
             // 왜 안 되는지를 그대로 보여준다 — "가져오지 못했습니다" 만으로는 고칠 수가 없다
             if (!any) state = state.copy(loading = false,
                 error = OverviewRepo.lastError ?: "시세를 가져오지 못했습니다")
+            if (any) prefetchAnalysis()
         }
+    }
+
+    private var prefetchJob: Job? = null
+
+    /**
+     * 표가 뜨면 **누르기 전에** 분석을 받아 둔다 — 보유 종목 먼저, 그다음 보고 있는 시장의
+     * 화면 순서대로. 서버는 계산을 이미 끝내 두므로 폰은 받아 오기만 하면 된다.
+     */
+    private fun prefetchAnalysis() {
+        prefetchJob?.cancel()
+        prefetchJob = viewModelScope.launch {
+            kotlinx.coroutines.delay(1_500)   // 방금 그린 화면의 틱·계좌 요청이 먼저 나가게
+            val shown = sorted()
+            val rest = state.rows.filter { r -> shown.none { it.ticker == r.ticker } }
+            val order = (shown.filter { it.holding } + shown + rest.filter { it.holding } + rest)
+                .map { it.ticker }
+            AnalysisCache.prefetch(order.take(PREFETCH_MAX))
+        }
+    }
+
+    private companion object {
+        /** 한 번에 미리 받는 종목 수 상한 — 관심 종목이 아주 많아도 데이터를 과하게 쓰지 않게. */
+        const val PREFETCH_MAX = 40
     }
 
     /** 자동(조용한) 새로고침 — 로딩 표시 없이 명단 갱신(5분 캐시 만료 시에만 실제 재요청). */

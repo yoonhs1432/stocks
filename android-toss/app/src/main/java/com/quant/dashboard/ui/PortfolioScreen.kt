@@ -58,6 +58,9 @@ import kotlinx.coroutines.launch
 
 private fun pc(v: Double) = if (v > 0) Profit else if (v < 0) Loss else Neutral
 
+/** 계좌 값이 이보다 묵었으면 "n분 전 값" 을 적는다. 장중 자동 갱신(60초)보다 넉넉하게. */
+private const val STALE_MS = 3 * 60 * 1000L
+
 /** 소수비율(0.0141) → "+1.41%". 토스 API 는 손익률을 전부 소수비율로 준다. */
 private fun signPct(r: Double): String = (if (r >= 0) "+" else "") + "%.2f%%".format(r * 100)
 private fun ident(i: Int) = WeightPalette[i % WeightPalette.size]
@@ -87,6 +90,7 @@ fun PortfolioScreen(onOpenAnalysis: (String) -> Unit = {}) {
     // 계좌 상태를 여기서 들고 있어야 당겨서 새로고침 스피너가 실제 조회와 맞물린다.
     // (예전에는 isRefreshing=false 로 박혀 있어 스피너가 즉시 사라졌고,
     //  account() 도 5분 캐시라 당겨도 아무 일이 일어나지 않았다)
+    // 앱을 켜자마자 **지난번 계좌**로 그린다(파일에서 꺼내 둔 것). 새 값이 오면 조용히 바뀐다.
     var acct by remember { mutableStateOf(TossSync.cachedAccount()) }
     var err by remember { mutableStateOf<String?>(null) }
     var refreshing by remember { mutableStateOf(false) }
@@ -153,7 +157,14 @@ fun PortfolioScreen(onOpenAnalysis: (String) -> Unit = {}) {
                 when {
                     !ServerConfig.isSet() -> Text("설정 탭에서 집 PC 를 연결하면 계좌가 표시됩니다.",
                         color = TextSecondary, fontSize = 14.sp)
-                    a != null -> TossBody(a, usdMode, onOpenAnalysis)
+                    a != null -> {
+                        // 지난 값을 그려 둔 채로 새 값을 못 받고 있다 — 숫자는 두고 사정만 알린다
+                        err?.let {
+                            Text("⚠️ $it · 지난 값입니다 · 다시 시도하는 중…", color = Loss,
+                                fontSize = 11.sp, modifier = Modifier.padding(top = 8.dp))
+                        }
+                        TossBody(a, usdMode, onOpenAnalysis)
+                    }
                     else -> Text(err?.let { "⚠️ $it\n다시 시도하는 중…" } ?: "계좌 정보를 불러오는 중…",
                         color = if (err != null) Loss else TextSecondary, fontSize = 13.sp)
                 }
@@ -180,6 +191,11 @@ private fun TossBody(a: TossSync.Account, usdMode: Boolean, onOpenAnalysis: (Str
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text("총자산", color = TextSecondary, fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+            // 지난 값을 먼저 그렸으면 **얼마나 묵었는지** 적는다 — 숫자를 믿어도 되는지 알 수 있게
+            val at = TossSync.dataAt()
+            if (at > 0 && System.currentTimeMillis() - at > STALE_MS) {
+                Text(agoLabel(at) + " 값 · ", color = TextSecondary, fontSize = 10.sp)
+            }
             Text(ServerConfig.maskedAccount(), color = TextMuted, fontSize = 10.sp, fontFamily = Mono)
         }
         Text(m.of(a.totalKrw()), color = TextPrimary, fontSize = 32.sp,
@@ -254,11 +270,13 @@ private fun TossBody(a: TossSync.Account, usdMode: Boolean, onOpenAnalysis: (Str
     //
     // 토스가 준 값을 그대로 그린다. 예전에는 매매기록으로 입출금을 역산해 TWR 수익률을 냈는데,
     // 매매기록이 불완전하면 값이 어긋나서 걷어냈다.
-    val sr = remember(AppState.dataVersion, usdMode) { Snapshots.series(usdMode) }
-    val pnlSeries = remember(AppState.dataVersion, usdMode) { Snapshots.pnls(usdMode) }
+    // Snapshots.rev — 지난 기록을 먼저 그린 뒤 새 기록이 오면 그래프를 다시 그리게 하는 열쇠
+    val snapRev = Snapshots.rev
+    val sr = remember(AppState.dataVersion, usdMode, snapRev) { Snapshots.series(usdMode) }
+    val pnlSeries = remember(AppState.dataVersion, usdMode, snapRev) { Snapshots.pnls(usdMode) }
     // 원금 = 설정에 적어 둔 입금 누적. 서버가 그날 환율로 환산까지 해서 준다.
-    val principal = remember(AppState.dataVersion, usdMode) { sr.principal }
-    val pnlPrincipal = remember(AppState.dataVersion, usdMode) { Snapshots.pnlPrincipal(usdMode) }
+    val principal = remember(AppState.dataVersion, usdMode, snapRev) { sr.principal }
+    val pnlPrincipal = remember(AppState.dataVersion, usdMode, snapRev) { Snapshots.pnlPrincipal(usdMode) }
     // 원화는 만원 단위로 접어야 축이 읽힌다. 달러는 그대로
     val div = if (usdMode) 1.0 else 10000.0
     val unit = if (usdMode) "$" else "만원"

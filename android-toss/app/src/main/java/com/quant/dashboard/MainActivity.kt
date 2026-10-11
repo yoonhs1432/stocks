@@ -4,6 +4,8 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import com.quant.dashboard.data.OverviewRepo
+import com.quant.dashboard.data.Snapshots
+import com.quant.dashboard.data.TossSync
 import com.quant.dashboard.data.ServerConfig
 import com.quant.dashboard.data.Store
 import com.quant.dashboard.ui.AppScaffold
@@ -16,6 +18,9 @@ class MainActivity : ComponentActivity() {
         ServerConfig.init(applicationContext)
         // 지난번 비교 표를 꺼내 둔다 — 첫 화면이 비어 있지 않게. 작은 파일 하나라 즉시 끝난다.
         OverviewRepo.restore()
+        // 계좌·자산 추이도 지난 값을 먼저 — 포트폴리오가 "불러오는 중…" 으로 시작하지 않게.
+        TossSync.restore()
+        Snapshots.restore()
         setContent {
             QuantTheme {
                 AppScaffold()
