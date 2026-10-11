@@ -219,10 +219,31 @@ private fun TossBody(a: TossSync.Account, usdMode: Boolean, onOpenAnalysis: (Str
             StatChip("예수금", m.of(a.krwCash + a.usdCash * a.rate))
             StatChip("환율", "%,.1f".format(a.rate))
         }
+        CurrencyBar(a)
 
         // 평가금액(원화 환산) 내림차순. 스택바와 목록이 **같은 목록**을 써야 색과 순서가 맞는다
         fun krwOf(h: com.quant.dashboard.data.TossApi.Holding) = m.krwOf(h.evalAmount, h.currency)
         val items = remember(a) { a.holdings.items.sortedByDescending { krwOf(it) } }
+
+        // 둘째 줄에 무엇을 보일지(누적 ↔ 오늘)와 목록 순서. 색은 **평가금액 순서에 묶어 둔다** —
+        // 정렬을 바꿔도 파이 조각과 목록의 색 점이 같은 종목을 가리켜야 한다.
+        var today by remember { mutableStateOf(Store.holdToday()) }
+        var sort by remember { mutableStateOf(Store.holdSort()) }
+        val colorOf = remember(items) { items.withIndex().associate { (i, h) -> h.symbol to ident(i) } }
+        // 오늘 등락률 — 실시간 틱이 있으면 전일 기준가로 다시 계산(증권사 앱과 같은 기준)
+        fun dayRate(h: com.quant.dashboard.data.TossApi.Holding): Double {
+            val lp = LivePrices.price(h.symbol)
+            return if (lp != null && h.basePrice > 0) lp / h.basePrice - 1.0 else h.dailyPnlRate
+        }
+        fun totalRate(h: com.quant.dashboard.data.TossApi.Holding): Double {
+            val lp = LivePrices.price(h.symbol)
+            return if (lp != null && h.avgPrice > 0) lp / h.avgPrice - 1.0 else h.pnlRate
+        }
+        val shown = when (sort) {
+            "rate" -> items.sortedByDescending { totalRate(it) }
+            "day" -> items.sortedByDescending { dayRate(it) }
+            else -> items
+        }
 
         // 보유 비중 파이 — 아래 목록의 색 점이 그대로 범례
         val evalSum = items.sumOf { krwOf(it) }
@@ -231,21 +252,48 @@ private fun TossBody(a: TossSync.Account, usdMode: Boolean, onOpenAnalysis: (Str
             WeightPie(items.map { krwOf(it) / evalSum }, items.indices.map { ident(it) })
         }
 
+        if (items.size > 1) {
+            Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                UnderlineSegments(
+                    listOf("total" to "평가손익", "today" to "오늘"),
+                    selected = if (today) "today" else "total",
+                    onSelect = { today = it == "today"; Store.setHoldToday(today) },
+                    fontSize = 12,
+                )
+                Spacer(Modifier.weight(1f))
+                // 누를 때마다 금액순 → 수익률순 → 오늘순
+                GhostButton(when (sort) { "rate" -> "수익률순"; "day" -> "오늘순"; else -> "금액순" },
+                    color = TextSecondary) {
+                    sort = when (sort) { "eval" -> "rate"; "rate" -> "day"; else -> "eval" }
+                    Store.setHoldSort(sort)
+                }
+            }
+        }
+
         // 보유 목록 — 행 탭 시 분석 이동
-        items.forEachIndexed { i, h ->
+        shown.forEach { h ->
             // 실시간 틱이 있으면 현재가로 다시 계산한다. 기준은 API 와 동일 —
             // 누적 손익률 = 현재가/평단 - 1 (안 맞추면 증권사 앱과 숫자가 어긋난다).
             val lp = LivePrices.price(h.symbol)
             val evalKrw = m.krwOf(if (lp != null) lp * h.quantity else h.evalAmount, h.currency)
             val rate2 = if (lp != null && h.avgPrice > 0) lp / h.avgPrice - 1.0 else h.pnlRate
             val pnlKrw = m.krwOf(if (lp != null) (lp - h.avgPrice) * h.quantity else h.pnlAmount, h.currency)
+            // 오늘 손익 — "오늘 ±" 가 어느 종목 때문인지 보인다
+            val dayR = dayRate(h)
+            val dayKrw = m.krwOf(
+                if (lp != null && h.basePrice > 0) (lp - h.basePrice) * h.quantity else h.dailyPnlAmount,
+                h.currency,
+            )
+            val amt = if (today) dayKrw else pnlKrw
+            val rate = if (today) dayR else rate2
             // 증권사 앱처럼 딱 2줄 — 1줄: 이름 · 평가금액 / 2줄: 수량 · 손익 | 수익률
             // (평가금액을 오른쪽 Column 에 세로로 쌓았더니 3줄이 되어 행이 73dp 까지 커졌었다)
             Column(
                 Modifier.fillMaxWidth().clickable { onOpenAnalysis(h.symbol) }.padding(top = 6.dp),
             ) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(8.dp).clip(RoundedCornerShape(50)).background(ident(i)))
+                    Box(Modifier.size(8.dp).clip(RoundedCornerShape(50))
+                        .background(colorOf[h.symbol] ?: Neutral))
                     Spacer(Modifier.size(8.dp))
                     Text(h.name, color = TextPrimary, fontSize = 16.sp, maxLines = 1,
                         fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
@@ -255,10 +303,10 @@ private fun TossBody(a: TossSync.Account, usdMode: Boolean, onOpenAnalysis: (Str
                 Row(Modifier.fillMaxWidth().padding(top = 1.dp, start = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(qtyLabel(h.quantity), color = TextSecondary, fontSize = 13.sp,
                         maxLines = 1, modifier = Modifier.weight(1f))
-                    Text(m.signed(pnlKrw), color = pc(pnlKrw), fontSize = 13.sp,
+                    Text(m.signed(amt), color = pc(amt), fontSize = 13.sp,
                         fontWeight = FontWeight.SemiBold, fontFamily = Mono, maxLines = 1)
                     Text("  |  ", color = TextMuted, fontSize = 12.sp)
-                    Text(signPct(rate2), color = pc(rate2), fontSize = 13.sp,
+                    Text(signPct(rate), color = pc(rate), fontSize = 13.sp,
                         fontWeight = FontWeight.SemiBold, fontFamily = Mono, maxLines = 1)
                 }
                 HDivider(Modifier.padding(top = 6.dp))
@@ -323,6 +371,40 @@ private fun TossBody(a: TossSync.Account, usdMode: Boolean, onOpenAnalysis: (Str
     }
 
     TradeJournal()
+}
+
+/**
+ * 통화·현금 비중 한 줄 — 미국주식 / 국내주식 / 달러 현금 / 원화 현금.
+ * 환율에 얼마나 노출돼 있는지, 현금이 얼마나 남았는지를 숫자 네 개를 더해 보지 않고 안다.
+ */
+@Composable
+private fun CurrencyBar(a: TossSync.Account) {
+    val parts = listOf(
+        Triple("미국", a.usdEval * a.rate, WeightPalette[0]),
+        Triple("국내", a.krwEval, WeightPalette[1 % WeightPalette.size]),
+        Triple("달러", a.usdCash * a.rate, WeightPalette[2 % WeightPalette.size]),
+        Triple("원화", a.krwCash, WeightPalette[3 % WeightPalette.size]),
+    ).filter { it.second > 0 }
+    val sum = parts.sumOf { it.second }
+    if (parts.size < 2 || sum <= 0) return
+    Column(Modifier.fillMaxWidth().padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp))) {
+            parts.forEach { (_, v, c) ->
+                Box(Modifier.weight((v / sum).toFloat().coerceAtLeast(0.004f)).height(6.dp).background(c))
+            }
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            parts.forEach { (label, v, c) ->
+                Row(verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Box(Modifier.size(6.dp).clip(RoundedCornerShape(50)).background(c))
+                    Text("$label %.0f%%".format(v / sum * 100), color = TextSecondary,
+                        fontSize = 11.sp, maxLines = 1)
+                }
+            }
+        }
+    }
 }
 
 /** 수량 표시 — 소수점 보유(미국 소수점 매매)는 필요한 자리까지만. */

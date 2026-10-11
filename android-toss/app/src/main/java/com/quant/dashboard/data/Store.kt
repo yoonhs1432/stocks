@@ -138,6 +138,18 @@ object Store {
         try { f("settings.json").writeText(o.toString(2)) } catch (e: Exception) {}
     }
 
+    /** 분석 탭에서 마지막으로 본 종목 — 앱을 새로 켜도 보던 종목에서 시작한다. */
+    fun lastTicker(): String? = settings().optString("last_ticker").ifBlank { null }
+    fun setLastTicker(t: String) { saveSettings(settings().put("last_ticker", t)) }
+
+    /** 보유 목록의 둘째 줄 — false: 평가손익(누적) / true: 오늘 손익. */
+    fun holdToday(): Boolean = settings().optBoolean("hold_today", false)
+    fun setHoldToday(v: Boolean) { saveSettings(settings().put("hold_today", v)) }
+
+    /** 보유 목록 정렬 — eval(평가금액) | rate(수익률) | day(오늘 등락). */
+    fun holdSort(): String = settings().optString("hold_sort", "eval")
+    fun setHoldSort(v: String) { saveSettings(settings().put("hold_sort", v)) }
+
     /** MACD·RSI 산점도 X축 정규화 민감도 K (tanh). 기본 0.25. */
     fun macdK(): Double = settings().optDouble("macd_k", 0.25)
     fun setMacdK(v: Double) { saveSettings(settings().put("macd_k", v)) }

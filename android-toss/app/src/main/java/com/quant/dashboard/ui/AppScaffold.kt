@@ -19,6 +19,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -131,11 +132,16 @@ fun AppScaffold() {
                     if (tab != 1) backTab = tab
                     tab = 1
                 }
-                when (tab) {
-                    0 -> CompareScreen(onOpenAnalysis = openAnalysis)
-                    1 -> AnalysisScreen(onBack = { tab = backTab })
-                    2 -> PortfolioScreen(onOpenAnalysis = openAnalysis)
-                    else -> SettingsScreen()
+                // 탭을 오가도 **보던 자리**가 남게 한다. 그냥 갈아 끼우면 스크롤이 매번 맨 위로
+                // 돌아가서, 분석을 보고 돌아오면 비교 표에서 보던 종목을 다시 찾아 내려가야 했다.
+                val keep = rememberSaveableStateHolder()
+                keep.SaveableStateProvider(tab) {
+                    when (tab) {
+                        0 -> CompareScreen(onOpenAnalysis = openAnalysis)
+                        1 -> AnalysisScreen(onBack = { tab = backTab })
+                        2 -> PortfolioScreen(onOpenAnalysis = openAnalysis)
+                        else -> SettingsScreen()
+                    }
                 }
             }
         }

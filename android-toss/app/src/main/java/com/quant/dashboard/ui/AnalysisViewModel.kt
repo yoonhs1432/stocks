@@ -43,7 +43,8 @@ private fun UiState.with(a: Server.Analysis, ticker: String, at: Long) = copy(
 
 class AnalysisViewModel : ViewModel() {
     var state by mutableStateOf(
-        UiState(ticker = Store.loadTickers().firstOrNull() ?: Tickers.DEFAULT.first())
+        // 보던 종목에서 다시 시작한다 — 목록 첫 종목으로 돌아가 있으면 매번 다시 찾아가야 한다
+        UiState(ticker = Store.lastTicker() ?: Store.loadTickers().firstOrNull() ?: Tickers.DEFAULT.first())
     )
         private set
 
@@ -86,6 +87,7 @@ class AnalysisViewModel : ViewModel() {
 
     fun select(ticker: String) {
         if (ticker == state.ticker) { load(ticker); return }
+        Store.setLastTicker(ticker)
         // 받아 둔 게 있으면 **그 종목 자신의** 지난 분석을 바로 그리고, 조용히 새로 받는다.
         // 없으면 예전처럼 비운다 — 로드 중 이전 종목 차트가 남아 보이는 문제 방지.
         val hit = AnalysisCache.peek(ticker)
