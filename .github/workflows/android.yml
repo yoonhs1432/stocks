@@ -1,9 +1,12 @@
 name: Android Build
 
-# 수동 빌드 전용 — 요청 시에만 실행. (자동 push 트리거 제거: Actions 사용량/저장 용량 절약)
+# 수동 빌드 전용 — 요청 시에만 실행.
+#
+# 집 PC 의 자체 호스팅 러너(HSYUNPC-stocks, C:\actions-runner-stocks)에서 돈다.
+# JDK 17 · Android SDK · Gradle 8.9 는 PC 에 이미 깔려 있고 러너의 PATH/환경변수로 잡힌다
+# (C:\Users\yoonh\android-build). 그래서 설치 단계가 없고, Gradle 캐시가 남아 빌드가 빠르다.
 #
 # publish=false 로 돌리면 **빌드만 검증**하고 릴리스는 건드리지 않는다.
-# 평소 커밋은 이걸로 컴파일만 확인하고, 실제 게시는 요청이 있을 때 publish=true 로 돌린다.
 
 on:
   workflow_dispatch:
@@ -12,67 +15,79 @@ on:
         description: "android-latest 릴리스에 APK 게시 (끄면 빌드 검증만)"
         type: boolean
         default: true
+      notes:
+        description: "릴리스 노트 (비우면 최근 커밋 목록)"
+        type: string
+        default: ""
 
 permissions:
   contents: write
 
+concurrency:
+  group: android-build
+  cancel-in-progress: false
+
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Windows, stocks]
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
         with:
-          distribution: temurin
-          java-version: '17'
+          fetch-depth: 30   # 빌드 도장(git log)과 릴리스 노트용
 
-      # packages: '' 가 중요하다. 이 액션은 기본으로 `sdkmanager tools` 를 부르는데,
-      # 구글이 SDK 저장소에서 obsolete `tools` 패키지를 내려서 2026-09 부터 실패한다
-      # (Failed to find package 'tools'). 필요한 패키지는 아래 스텝에서 직접 받는다.
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-        with:
-          packages: ''
-
-      - name: Install SDK packages
-        run: yes | sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools"
-
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.9'
+      - name: Toolchain
+        run: |
+          java -version 2>&1 | head -1
+          gradle --version | grep -E "^Gradle"
+          echo "ANDROID_HOME=$ANDROID_HOME"
 
       - name: Build debug APK
         working-directory: android
-        run: gradle assembleDebug --no-daemon --stacktrace
+        run: gradle assembleDebug --stacktrace
 
       # 토스증권 연동판 — android/ 를 복사해 만든 별도 앱 (applicationId 가 달라 나란히 설치 가능)
       - name: Build debug APK (toss)
         working-directory: android-toss
-        run: gradle assembleDebug --no-daemon --stacktrace
+        run: gradle assembleDebug --stacktrace
 
       - name: Rename APKs
         run: |
           cp android/app/build/outputs/apk/debug/app-debug.apk app-debug.apk
           cp android-toss/app/build/outputs/apk/debug/app-debug.apk quant-toss-debug.apk
+          ls -la *.apk
 
-      # (아티팩트 업로드 제거 — Actions 저장 용량 절약. APK는 아래 릴리스로만 게시)
+      - name: Release notes
+        if: github.ref == 'refs/heads/main' && inputs.publish
+        env:
+          NOTES: ${{ inputs.notes }}
+        run: |
+          {
+            echo "갤럭시에서 이 APK를 받아 설치하세요 (출처 불명 앱 설치 허용 필요)."
+            echo
+            echo "- \`quant-toss-debug.apk\` — 토스증권 연동판 (주력)"
+            echo "- \`app-debug.apk\` — 기존 앱 (퀀트 대시보드)"
+            echo
+            echo "빌드: $(git log -1 --format='%cd %h' --date=format:'%m-%d %H:%M')"
+            echo
+            if [ -n "$NOTES" ]; then
+              echo "$NOTES"
+            else
+              echo "### 최근 변경"
+              git log -15 --format='- %s'
+            fi
+          } > release-notes.md
 
       - name: Publish to rolling release
-        # main 병합 후 기준 브랜치가 main으로 바뀜 (이전: claude/android-native)
         if: github.ref == 'refs/heads/main' && inputs.publish
         uses: softprops/action-gh-release@v2
         with:
           tag_name: android-latest
           name: "Android 최신 빌드 (debug)"
           prerelease: true
+          body_path: release-notes.md
           files: |
             app-debug.apk
             quant-toss-debug.apk
-          body: |
-            갤럭시에서 이 APK를 받아 설치하세요 (출처 불명 앱 설치 허용 필요).
-
-            - `app-debug.apk` — 기존 앱 (퀀트 대시보드)
-            - `quant-toss-debug.apk` — 토스증권 연동판 (별도 앱으로 나란히 설치됨)
