@@ -590,7 +590,10 @@ def api_rotate(request: Request):
 # 터널 주소가 그대로**라 폰에서 그대로 새로고침하면 된다.
 # 검사용으로만 바꾼다 — 진짜 저장소에 git pull 을 하지 않게.
 REPO = Path(os.environ.get("QUANT_REPO") or HERE.parent)
-RESTART_CODE = 3          # run.ps1 이 이 코드를 보면 다시 띄운다
+# serve-loop.ps1 이 이 코드를 보면 곧바로 다시 띄운다.
+# ⚠️ 3 을 쓰면 안 된다 — uvicorn 이 **포트를 못 열었을 때** 내는 코드가 3 이라(STARTUP_FAILURE),
+#    포트를 다른 서버가 잡고 있으면 "새 코드를 받았다"로 오인해 2초마다 헛돌았다.
+RESTART_CODE = 10
 
 
 def _git(*args: str, timeout: int = 120) -> tuple[int, str]:
