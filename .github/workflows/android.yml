@@ -2,9 +2,9 @@ name: Android Build
 
 # 수동 빌드 전용 — 요청 시에만 실행.
 #
-# 집 PC 의 자체 호스팅 러너(HSYUNPC-stocks, C:\actions-runner-stocks)에서 돈다.
-# JDK 17 · Android SDK · Gradle 8.9 는 PC 에 이미 깔려 있고 러너의 PATH/환경변수로 잡힌다
-# (C:\Users\yoonh\android-build). 그래서 설치 단계가 없고, Gradle 캐시가 남아 빌드가 빠르다.
+# 집 PC 의 자체 호스팅 러너(HSYUNPC-stocks)에서 돈다. 2026-10-17 부터는 윈도 서비스
+# (C:\gh-runners\stocks)라 로그인하지 않아도 뜬다. JDK 17 · Android SDK · Gradle 8.9 는 PC 에
+# 이미 깔려 있다(C:\Users\yoonh\android-build). 그래서 설치 단계가 없고, Gradle 캐시가 남아 빌드가 빠르다.
 #
 # publish=false 로 돌리면 **빌드만 검증**하고 릴리스는 건드리지 않는다.
 
@@ -37,6 +37,16 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 30   # 빌드 도장(git log)과 릴리스 노트용
+
+      # 서비스로 도는 러너는 .path 를 읽지 않아 bash·gradle 을 못 찾는다("bash: command not found").
+      # 서비스 재시작엔 관리자 권한이 필요하므로 여기서 PATH 에 직접 넣는다. 이 단계만 powershell.
+      # ascii 로 쓴다 — PS 5.1 의 utf8 은 BOM 을 붙여 첫 경로가 깨진다.
+      - name: PATH
+        shell: powershell
+        run: |
+          "C:\Program Files\Git\bin", "C:\Program Files\Git\usr\bin",
+          "C:\Users\yoonh\android-build\jdk-17.0.20.1+1\bin",
+          "C:\Users\yoonh\android-build\gradle-8.9\bin" | Out-File -Append -Encoding ascii $env:GITHUB_PATH
 
       - name: Toolchain
         run: |
