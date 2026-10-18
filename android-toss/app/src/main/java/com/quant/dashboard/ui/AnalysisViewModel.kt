@@ -33,12 +33,14 @@ data class UiState(
     val qty: Double = Double.NaN,
     /** 화면의 분석이 **서버에서 온 시각**(ms). 지난 값을 먼저 그렸을 때 얼마나 묵었는지 알리는 데 쓴다. */
     val asOf: Long = 0L,
+    /** 장기 제안 — 분석 응답에 같이 온다. */
+    val advice: Server.Advice? = null,
 )
 
 /** 받아 둔 분석 한 벌을 화면 상태로. 종목이 바뀌는 순간에도, 새 응답이 왔을 때도 같은 모양으로 담는다. */
 private fun UiState.with(a: Server.Analysis, ticker: String, at: Long) = copy(
     ticker = ticker, result = a.result, ohlc = a.candles,
-    trades = a.trades, avgPrice = a.avgPrice, qty = a.qty, asOf = at,
+    trades = a.trades, avgPrice = a.avgPrice, qty = a.qty, asOf = at, advice = a.advice,
 )
 
 class AnalysisViewModel : ViewModel() {
@@ -95,7 +97,7 @@ class AnalysisViewModel : ViewModel() {
             state.with(hit.a, ticker, hit.at).copy(minutes = emptyList(), error = null, loading = false)
         } else {
             state.copy(ticker = ticker, result = null, ohlc = emptyList(),
-                minutes = emptyList(), error = null, asOf = 0L)
+                minutes = emptyList(), error = null, asOf = 0L, advice = null)
         }
         // 방금 받은 것이면 다시 묻지 않는다 — 종목을 빠르게 넘겨 볼 때 요청이 쌓이지 않게
         if (hit != null && System.currentTimeMillis() - hit.at < QUICK_MS) {

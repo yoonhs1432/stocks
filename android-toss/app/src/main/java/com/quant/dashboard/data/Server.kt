@@ -247,7 +247,34 @@ object Server {
         val result: Quant.Result?,
         val avgPrice: Double,
         val qty: Double,
+        /** 장기 제안 — 서버가 하루 한 번 낸 통계 + 지금 Z·M. 통계가 아직 없으면 null. */
+        val advice: Advice? = null,
     )
+
+    /**
+     * 장기 제안 한 벌 (`web/insight.py` 의 `advice`).
+     * @param tone `buy`·`sell`·`hold`·`none` — 색만 정한다(매수=빨강, 매도=파랑).
+     * @param day 통계를 낸 날(KST). 매일 아침 바뀐다.
+     */
+    data class Advice(
+        val action: String,
+        val tone: String,
+        val headline: String,
+        val lines: List<String>,
+        val day: String,
+    )
+
+    private fun adviceOf(a: JSONObject?): Advice? {
+        if (a == null) return null
+        val ls = a.optJSONArray("lines") ?: JSONArray()
+        return Advice(
+            action = a.optString("action"),
+            tone = a.optString("tone", "none"),
+            headline = a.optString("headline"),
+            lines = List(ls.length()) { ls.optString(it) },
+            day = a.optString("day"),
+        )
+    }
 
     fun analysis(ticker: String, force: Boolean = false): Analysis {
         val text = call("/api/analysis?ticker=${enc(ticker)}" + if (force) "&force=true" else "")
@@ -305,6 +332,7 @@ object Server {
             result = resultOf(o.optJSONObject("result"), bars),
             avgPrice = o.num("avgPrice"),
             qty = o.num("qty"),
+            advice = adviceOf(o.optJSONObject("advice")),
         )
     }
 

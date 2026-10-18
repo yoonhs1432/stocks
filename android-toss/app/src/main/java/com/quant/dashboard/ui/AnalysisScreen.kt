@@ -135,6 +135,8 @@ fun AnalysisScreen(vm: AnalysisViewModel = viewModel(), onBack: () -> Unit = {})
             Text("⚠️ ${s.error} · ${agoLabel(s.asOf)} 값입니다", color = Loss, fontSize = 11.sp,
                 modifier = Modifier.padding(horizontal = ScreenPad, vertical = 2.dp))
         }
+        // ── 장기 제안 한 줄 — 누르면 근거 전체. 차트 높이 계산 바깥이라 차트를 밀어내지 않는다 ──
+        if (s.result != null) s.advice?.let { AdviceStrip(it) }
         // ── 상단 고정: 직접입력 (열렸을 때만) ──
         if (diOpen) {
             Row(Modifier.fillMaxWidth().padding(horizontal = ScreenPad, vertical = 8.dp),
@@ -194,6 +196,72 @@ fun AnalysisScreen(vm: AnalysisViewModel = viewModel(), onBack: () -> Unit = {})
                 GhostButton("‹") { vm.step(order, -1) }
                 Spacer(Modifier.width(6.dp))
                 GhostButton("›") { vm.step(order, +1) }
+            }
+        }
+    }
+}
+
+/** 제안 색 — 한국식: 매수=빨강, 매도=파랑. */
+private fun adviceColor(tone: String): Color = when (tone) {
+    "buy" -> Profit
+    "sell" -> Loss
+    "hold" -> TextSecondary
+    else -> TextMuted
+}
+
+/**
+ * 장기 제안 띠 — `[분할 매수] Z 0 매수 구간 ›`. 누르면 근거(Z·M 이 이 종목에 통했는지, 12개월 위치,
+ * 200일선)를 전부 보여 준다. 통계는 PC 가 매일 아침 Yahoo 긴 일봉으로 다시 낸다(`web/insight.py`).
+ */
+@Composable
+private fun AdviceStrip(a: com.quant.dashboard.data.Server.Advice) {
+    var open by remember { mutableStateOf(false) }
+    val c = adviceColor(a.tone)
+    Row(
+        Modifier.fillMaxWidth().clickable { open = true }
+            .padding(horizontal = ScreenPad, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Box(
+            Modifier.clip(RoundedCornerShape(6.dp)).border(1.dp, c, RoundedCornerShape(6.dp))
+                .padding(horizontal = 7.dp, vertical = 2.dp),
+        ) {
+            Text(a.action, color = c, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+        }
+        Text(a.headline, color = TextSecondary, fontSize = 11.sp, maxLines = 1,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f))
+        Text("›", color = TextMuted, fontSize = 13.sp)
+    }
+    if (open) {
+        Dialog(onDismissRequest = { open = false }) {
+            Surface(color = BgApp, shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, BorderColor)) {
+                Column(
+                    Modifier.padding(16.dp).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("장기 제안", color = TextPrimary, fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                        Text("✕", color = TextSecondary, fontSize = 20.sp,
+                            modifier = Modifier.clickable { open = false })
+                    }
+                    Text(a.action, color = c, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    a.lines.forEach { l ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("·", color = TextMuted, fontSize = 13.sp)
+                            Text(l, color = TextPrimary, fontSize = 13.sp, lineHeight = 18.sp)
+                        }
+                    }
+                    HDivider()
+                    Text(
+                        "괄호 안 'KRE 99%·8회' = 같은 보유율로 아무 때나 사고판 경우 99%보다 나았다, " +
+                            "그 규칙으로 8번 매매한 결과. 매매가 1~2년에 한 번꼴이라 강한 증거는 아니다. " +
+                            "레버리지 ETF 는 추종 지수의 긴 기록으로 함께 본다. 통계 ${a.day} 기준, 매일 아침 갱신.",
+                        color = TextMuted, fontSize = 11.sp, lineHeight = 15.sp,
+                    )
+                }
             }
         }
     }

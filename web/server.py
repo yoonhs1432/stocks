@@ -29,6 +29,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 
 import auth
+import insight
 import quant
 import repo
 import snapshots
@@ -471,7 +472,28 @@ def api_analysis(ticker: str, force: bool = False):
     if qty is None and pos:
         qty = pos["qty"]
 
-    return {**base, "avgPrice": _clean(avg), "qty": _clean(qty)}
+    # 장기 제안 — 통계는 하루 한 번, Z·M 은 지금 화면에 보이는 값으로
+    res = base.get("result") or {}
+    adv = insight.advice(ticker, res.get("lastZpct"), res.get("lastMpct")) if res else None
+
+    return {**base, "avgPrice": _clean(avg), "qty": _clean(qty), "advice": _clean(adv)}
+
+
+@app.get("/api/insight")
+def api_insight():
+    """전 종목 제안 한꺼번에. 분석은 미리 계산돼 있어(_warm_analysis) 대부분 캐시에서 나온다."""
+    rows = []
+    for tk in store.tickers():
+        z = m = None
+        try:
+            r = _analysis(tk).get("result") or {}
+            z, m = r.get("lastZpct"), r.get("lastMpct")
+        except Exception:
+            pass
+        a = insight.advice(tk, z, m)
+        if a:
+            rows.append({"ticker": tk, "name": store.name_of(tk) or tk, **a})
+    return _clean({"day": insight.load().get("day"), "items": rows})
 
 
 @app.get("/api/minutes")
@@ -932,6 +954,9 @@ def _refresher() -> None:
 
 threading.Thread(target=_recorder, daemon=True).start()
 threading.Thread(target=_refresher, daemon=True).start()
+# 장기 제안 통계 — 하루 한 번 Yahoo 긴 일봉으로. 가짜 시세 검사에서는 밖으로 나가지 않는다.
+if os.environ.get("QUANT_MOCK") != "1":
+    threading.Thread(target=insight.loop, args=(store.tickers,), daemon=True).start()
 
 app.mount("/", NoCacheStatic(directory=HERE / "static", html=True), name="static")
 
