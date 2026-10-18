@@ -2,6 +2,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- 스스로 업데이트: 새 APK 설치 · 12+ 에서 두 번째부터는 확인 없이 · 13+ 알림 -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <uses-permission android:name="android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!-- 안드로이드 11+ 는 다른 앱이 기본적으로 **안 보인다.** 토스 앱에 주문 화면을
          건네주려면 여기에 적어 둬야 하고, 안 적으면 setPackage 가 조용히 실패한다. -->
@@ -42,5 +46,14 @@
             android:exported="false"
             android:label="토스로 이동"
             android:theme="@style/Theme.QuantDashboard" />
+
+        <!-- 설치 결과·'내 앱이 새 버전으로 바뀜'을 받는다. 시스템 방송은 exported=false 여도 온다. -->
+        <receiver
+            android:name=".UpdateReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
     </application>
 </manifest>

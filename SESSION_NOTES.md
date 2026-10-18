@@ -3,6 +3,18 @@
 > 새 세션 시작 시 이 파일을 읽으면 직전 세션의 맥락을 이어받을 수 있음.
 > 마지막 업데이트: 2026-10-18 (**Z·M 검증 → 분석 탭 장기 제안**)
 
+## 2026-10-18 (2) 앱이 스스로 업데이트
+
+- `data/AppUpdate.kt` — GitHub 릴리스 `android-latest/version.json` 을 보고, 내 `versionCode` 보다 크면
+  APK 를 받아 `PackageInstaller` 로 설치. 켤 때 + WorkManager 1시간마다. 저장소가 공개라 PC 와 무관.
+- `versionCode` = 커밋 시각(2024-01-01 부터 분). 같은 커밋은 같은 번호. `versionJson` gradle 작업이
+  `build/outputs/version.json` 을 만들고 워크플로가 릴리스에 같이 올린다.
+- 처음 한 번은 사용자가 '설치'를 눌러야 한다(알림 → 확인 창). 이후 12+ 에서는 확인 없이
+  (`USER_ACTION_NOT_REQUIRED` + `UPDATE_PACKAGES_WITHOUT_USER_ACTION`). 무시하면 같은 번호는 6시간 쉰다.
+- 받은 APK 의 번호를 확인한 뒤 설치한다 — 릴리스 업로드 중 version.json 만 먼저 바뀐 경우를 거른다.
+- 설정 탭 '앱 빌드' 옆 **업데이트 확인** 단추. 완료되면 `MY_PACKAGE_REPLACED` 로 '업데이트 완료' 알림.
+- ⚠️ 서명키(`quant.keystore`)가 바뀌면 자동 업데이트도 실패한다(패키지 충돌).
+
 ## 2026-10-18 Z·M 검증 → 분석 탭 '장기 제안'
 
 - **검증 결과는 `research/zm_study.md`.** 요약: 앱의 과거 Z 그래프는 미래 정보가 섞여 있고, 그걸 빼면

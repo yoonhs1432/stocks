@@ -59,15 +59,21 @@ jobs:
         run: gradle assembleDebug --stacktrace
 
       # 토스증권 연동판 — android/ 를 복사해 만든 별도 앱 (applicationId 가 달라 나란히 설치 가능)
+      # version.json 도 같이 만든다 — 폰이 이걸 보고 스스로 업데이트한다(AppUpdate.kt)
       - name: Build debug APK (toss)
         working-directory: android-toss
-        run: gradle assembleDebug --stacktrace
+        env:
+          NOTES: ${{ inputs.notes }}
+        run: |
+          [ -n "$NOTES" ] || NOTES="$(git log -1 --format=%s)"
+          gradle assembleDebug versionJson -PreleaseNotes="$NOTES" --stacktrace
 
       - name: Rename APKs
         run: |
           cp android/app/build/outputs/apk/debug/app-debug.apk app-debug.apk
           cp android-toss/app/build/outputs/apk/debug/app-debug.apk quant-toss-debug.apk
-          ls -la *.apk
+          cp android-toss/app/build/outputs/version.json version.json
+          ls -la *.apk version.json && cat version.json
 
       - name: Release notes
         if: github.ref == 'refs/heads/main' && inputs.publish
@@ -101,3 +107,4 @@ jobs:
           files: |
             app-debug.apk
             quant-toss-debug.apk
+            version.json

@@ -170,8 +170,23 @@ fun SettingsScreen() {
                 if (linked && !edit) GhostButton("변경") { edit = true }
             }
             // 사이드로드라 스토어 버전 표시가 없다. 옛 APK 를 쓰고 있는지 여기서 확인한다.
-            Text("앱 빌드 ${BuildConfig.BUILD_STAMP}", color = TextMuted,
-                fontSize = 11.sp, fontFamily = Mono)
+            // 새 빌드는 앱이 스스로 받아 깐다(AppUpdate). 기다리기 싫으면 여기서 바로.
+            val appCtx = androidx.compose.ui.platform.LocalContext.current.applicationContext
+            var upd by remember { mutableStateOf<String?>(null) }
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("앱 빌드 ${BuildConfig.BUILD_STAMP}", color = TextMuted,
+                    fontSize = 11.sp, fontFamily = Mono, modifier = Modifier.weight(1f))
+                GhostButton("업데이트 확인") {
+                    upd = "확인 중…"
+                    scope.launch {
+                        upd = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                            runCatching { com.quant.dashboard.data.AppUpdate.run(appCtx, user = true) }
+                                .getOrElse { "업데이트 실패 — ${it.message}" }
+                        }
+                    }
+                }
+            }
+            upd?.let { Text(it, color = TextSecondary, fontSize = 11.sp) }
             if (linked && ServerConfig.altUrl().isNotBlank()) {
                 Text("보조 ${ServerConfig.altUrl()}", color = TextMuted, fontSize = 11.sp, fontFamily = Mono)
             }

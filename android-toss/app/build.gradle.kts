@@ -9,6 +9,16 @@ val buildStamp: String = runCatching {
         .directory(rootDir).start().inputStream.bufferedReader().readText().trim()
 }.getOrNull()?.takeIf { it.isNotBlank() } ?: "dev"
 
+/**
+ * 자동 업데이트가 '더 새 빌드인가' 를 가리는 번호 — 커밋 시각을 2024-01-01 부터의 **분**으로.
+ * 같은 커밋은 어디서 빌드해도 같은 번호, 새 커밋은 항상 더 크다. git 이 없으면 1(설치 안 됨).
+ */
+val commitMinutes: Int = runCatching {
+    val ct = ProcessBuilder("git", "log", "-1", "--format=%ct")
+        .directory(rootDir).start().inputStream.bufferedReader().readText().trim().toLong()
+    ((ct - 1_704_067_200L) / 60).toInt()
+}.getOrNull() ?: 1
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -24,8 +34,8 @@ android {
         applicationId = "com.quant.dashboard.toss"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "0.1"
+        versionCode = commitMinutes
+        versionName = buildStamp
         buildConfigField("String", "BUILD_STAMP", "\"$buildStamp\"")
     }
 
@@ -80,4 +90,21 @@ dependencies {
     implementation("androidx.security:security-crypto:1.0.0")
 
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+
+    // 자동 업데이트 — 앱을 안 열어도 한 시간마다 새 빌드를 확인한다
+    implementation("androidx.work:work-runtime-ktx:2.9.1")
+}
+
+/**
+ * 릴리스에 같이 올리는 `version.json` — 폰이 이것만 받아 보고 새 APK 를 받을지 정한다.
+ * 노트는 `-PreleaseNotes=...` 로 받는다(비면 빈 문자열).
+ */
+tasks.register("versionJson") {
+    val out = layout.buildDirectory.file("outputs/version.json")
+    val notes = (project.findProperty("releaseNotes") as String?) ?: ""
+    outputs.file(out)
+    doLast {
+        out.get().asFile.writeText(groovy.json.JsonOutput.toJson(
+            mapOf("versionCode" to commitMinutes, "stamp" to buildStamp, "notes" to notes)))
+    }
 }
