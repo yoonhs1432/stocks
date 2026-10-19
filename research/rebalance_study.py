@@ -65,8 +65,9 @@ def schedule(cal, kind):
     return set(np.array(cal)[last])
 
 
-def simulate(cal, krw, bars, kind, cash_w=0.0, band=None):
-    """kind: weekly/monthly/quarterly/yearly/band/none. band = 목표 대비 상대 이탈 한도(0.2 = ±20%)."""
+def simulate(cal, krw, bars, kind, cash_w=0.0, band=None, wmap=None):
+    """kind: weekly/monthly/quarterly/yearly/band/none. band = 목표 대비 상대 이탈 한도(0.2 = ±20%).
+    wmap: 종목별 상대 비중(없으면 동일). 그날 살아 있는 종목끼리 다시 나눈다."""
     cols = list(krw.columns)
     us = {t: not t[:1].isdigit() for t in cols}
     qty = {t: 0.0 for t in cols}; basis = {t: 0.0 for t in cols}     # basis = 평균단가 × 수량 (원화)
@@ -129,7 +130,11 @@ def simulate(cal, krw, bars, kind, cash_w=0.0, band=None):
         live = {t for t in cols if bars.loc[d, t] >= MIN_BARS and p[t] == p[t]}
         if not live or i == len(cal) - 1:
             continue
-        target = {t: (1 - cash_w) / len(live) for t in live}
+        if wmap:
+            tot = sum(wmap.get(t, 0.0) for t in live) or 1.0
+            target = {t: (1 - cash_w) * wmap.get(t, 0.0) / tot for t in live}
+        else:
+            target = {t: (1 - cash_w) / len(live) for t in live}
         do = False
         if i == 0 or live != live_prev:
             do = True                          # 처음·종목 편입은 항상

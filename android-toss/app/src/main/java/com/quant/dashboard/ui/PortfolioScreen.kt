@@ -164,6 +164,7 @@ fun PortfolioScreen(onOpenAnalysis: (String) -> Unit = {}) {
                                 fontSize = 11.sp, modifier = Modifier.padding(top = 8.dp))
                         }
                         TossBody(a, usdMode, onOpenAnalysis)
+                        RebalanceEntry()
                     }
                     else -> Text(err?.let { "⚠️ $it\n다시 시도하는 중…" } ?: "계좌 정보를 불러오는 중…",
                         color = if (err != null) Loss else TextSecondary, fontSize = 13.sp)

@@ -43,6 +43,7 @@ class MainActivity : ComponentActivity() {
                 .launch(Manifest.permission.POST_NOTIFICATIONS)
         }
         AppUpdate.schedule(applicationContext)
+        com.quant.dashboard.data.RebalanceAlert.schedule(applicationContext)
         // 켤 때도 한 번 — 한 시간 주기를 기다리지 않게
         lifecycleScope.launch(Dispatchers.IO) { runCatching { AppUpdate.run(applicationContext, user = false) } }
     }

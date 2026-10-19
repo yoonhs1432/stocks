@@ -469,6 +469,99 @@ object Server {
         )
     }
 
+    // ── 리밸런싱 도우미 (web/rebalance.py) ──
+    // 주문은 내지 않는다. 바구니를 동일 비중으로 맞추려면 **무엇을 얼마나**만 서버가 계산해 준다.
+
+    data class RebalRow(
+        val ticker: String, val name: String, val krw: Boolean,
+        val valueKrw: Double, val targetKrw: Double, val devPct: Double,
+        /** "buy"·"sell"·"none" — 20만 원보다 작은 차이는 none */
+        val action: String, val qty: Double, val amountKrw: Double, val held: Boolean,
+    )
+
+    /** 과거 성과 한 줄 — [key] 는 현금 비중(“20”) 또는 주기(“quarterly”). */
+    data class RebalStat(val key: String, val cagr: Double, val mdd: Double, val worst: Double)
+
+    data class Rebalance(
+        val basket: List<String>, val cashPct: Int, val period: String,
+        val due: Boolean, val periodEnd: String, val nextEnd: String, val daysLeft: Int, val lastDone: String?,
+        val totalKrw: Double, val cashKrw: Double, val cashPctNow: Double, val perTargetKrw: Double,
+        val rows: List<RebalRow>,
+        /** 바구니 밖 보유 (티커, 원화 평가) — 계산에서 뺐다 */
+        val outside: List<Pair<String, Double>>,
+        val sellCount: Int, val sellKrw: Double, val buyCount: Int, val buyKrw: Double, val costKrw: Double,
+        val taxYtd: Double, val taxAfter: Double, val taxThis: Double,
+        val alerts: List<String>,
+        /** 백그라운드 계산이 아직이면 null */
+        val cashTable: List<RebalStat>?, val periodTable: List<RebalStat>?, val tableFrom: String,
+        val watchlist: List<String>,
+    )
+
+    fun rebalance(): Rebalance = rebalanceOf(obj("/api/rebalance"))
+
+    fun saveRebalance(basket: List<String>? = null, cashPct: Int? = null, period: String? = null): Rebalance {
+        val b = JSONObject()
+        basket?.let { b.put("basket", JSONArray(it)) }
+        cashPct?.let { b.put("cashPct", it) }
+        period?.let { b.put("period", it) }
+        return rebalanceOf(post("/api/rebalance/settings", b))
+    }
+
+    fun rebalanceDone(): Rebalance = rebalanceOf(post("/api/rebalance/done"))
+
+    private fun JSONArray?.strings(): List<String> =
+        if (this == null) emptyList() else List(length()) { optString(it) }
+
+    private fun rebalanceOf(o: JSONObject): Rebalance {
+        o.optString("error").takeIf { it.isNotBlank() }?.let { throw IOException(it) }
+        val s = o.optJSONObject("settings") ?: JSONObject()
+        val st = o.optJSONObject("status") ?: JSONObject()
+        val ra = o.optJSONArray("rows") ?: JSONArray()
+        val rows = (0 until ra.length()).mapNotNull { i ->
+            val r = ra.optJSONObject(i) ?: return@mapNotNull null
+            RebalRow(
+                r.optString("ticker"), r.optString("name"), r.optBoolean("krw"),
+                r.optDouble("valueKrw", 0.0), r.optDouble("targetKrw", 0.0), r.optDouble("devPct", 0.0),
+                r.optString("action", "none"), r.optDouble("qty", 0.0), r.optDouble("amountKrw", 0.0),
+                r.optBoolean("held"),
+            )
+        }
+        val oa = o.optJSONArray("outside") ?: JSONArray()
+        val outside = (0 until oa.length()).mapNotNull { i ->
+            val x = oa.optJSONObject(i) ?: return@mapNotNull null
+            x.optString("ticker") to x.optDouble("evalKrw", 0.0)
+        }
+        val tb = if (o.isNull("table")) null else o.optJSONObject("table")?.takeIf { !it.has("error") }
+        fun stats(key: String, field: String): List<RebalStat>? {
+            val a = tb?.optJSONArray(key) ?: return null
+            return (0 until a.length()).mapNotNull { i ->
+                val x = a.optJSONObject(i) ?: return@mapNotNull null
+                RebalStat(x.optString(field), x.optDouble("cagr"), x.optDouble("mdd"), x.optDouble("worst"))
+            }
+        }
+        val sells = o.optJSONObject("sells") ?: JSONObject()
+        val buys = o.optJSONObject("buys") ?: JSONObject()
+        val tax = o.optJSONObject("tax") ?: JSONObject()
+        return Rebalance(
+            basket = s.optJSONArray("basket").strings(), cashPct = s.optInt("cashPct", 20),
+            period = s.optString("period", "quarterly"),
+            due = st.optBoolean("due"), periodEnd = st.optString("periodEnd"), nextEnd = st.optString("nextEnd"),
+            daysLeft = st.optInt("daysLeft"), lastDone = if (st.isNull("lastDone")) null else st.optString("lastDone"),
+            totalKrw = o.optDouble("totalKrw", 0.0), cashKrw = o.optDouble("cashKrw", 0.0),
+            cashPctNow = o.optDouble("cashPctNow", 0.0), perTargetKrw = o.optDouble("perTargetKrw", 0.0),
+            rows = rows, outside = outside,
+            sellCount = sells.optInt("count"), sellKrw = sells.optDouble("amountKrw", 0.0),
+            buyCount = buys.optInt("count"), buyKrw = buys.optDouble("amountKrw", 0.0),
+            costKrw = o.optDouble("costKrw", 0.0),
+            taxYtd = tax.optDouble("realizedYtd", 0.0), taxAfter = tax.optDouble("afterSells", 0.0),
+            taxThis = tax.optDouble("thisTrade", 0.0),
+            alerts = o.optJSONArray("alerts").strings(),
+            cashTable = stats("cash", "cashPct"), periodTable = stats("periods", "period"),
+            tableFrom = tb?.optString("from").orEmpty(),
+            watchlist = o.optJSONArray("watchlist").strings(),
+        )
+    }
+
     // ── 장 운영시간 ──
 
     data class Market(val open: Boolean, val label: String, val sessions: List<TossApi.Session>)

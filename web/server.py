@@ -31,6 +31,7 @@ from fastapi.staticfiles import StaticFiles
 import auth
 import insight
 import quant
+import rebalance
 import repo
 import snapshots
 import market
@@ -795,6 +796,52 @@ def api_set_prefetch(body: dict):
     on = bool(body.get("on", True))
     store.put("prefetch", on)
     return {"prefetch": on}
+
+
+# ── 리밸런싱 도우미 ──
+
+def _quotes(syms: list[str]) -> dict[str, float]:
+    """보유하지 않은 바구니 종목의 현재가. 실패하면 일봉 마지막 종가로."""
+    out: dict[str, float] = {}
+    try:
+        out = {k: v["price"] for k, v in _toss.prices(syms).items()}
+    except Exception:
+        pass
+    for t in syms:
+        if t not in out:
+            bars = repo.candles(_toss, t)
+            if bars:
+                out[t] = bars[-1]["close"]
+    return out
+
+
+@app.get("/api/rebalance")
+def api_rebalance():
+    """바구니를 동일 비중으로 맞추려면 무엇을 얼마나 — 주문은 내지 않는다."""
+    acc = api_account()
+    if isinstance(acc, JSONResponse):
+        return acc
+    return _clean(rebalance.plan(acc, _quotes))
+
+
+@app.post("/api/rebalance/settings")
+def api_rebalance_settings(body: dict):
+    patch = {}
+    if isinstance(body.get("basket"), list):
+        patch["basket"] = [str(t).strip().upper() for t in body["basket"] if str(t).strip()]
+    if "cashPct" in body:
+        patch["cashPct"] = int(body["cashPct"])
+    if body.get("period") in rebalance.PERIODS:
+        patch["period"] = body["period"]
+    rebalance.save(patch)
+    return api_rebalance()
+
+
+@app.post("/api/rebalance/done")
+def api_rebalance_done():
+    """'다 맞췄다' — 다음 기간 끝까지 '맞출 때' 표시를 끈다."""
+    rebalance.save({"lastDone": rebalance.datetime.now(rebalance.KST).date().isoformat()})
+    return api_rebalance()
 
 
 @app.post("/api/settings/months")
