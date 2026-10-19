@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8">
+<title>리밸런싱 도우미 목업</title>
+<style>
+  :root { --bg:#101013; --input:#1B1B20; --line:#24242A; --t1:#F2F4F6; --t2:#8B95A1; --t3:#6B7684;
+          --buy:#F04452; --sell:#3182F6; --gold:#E0A24A; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { background:#2a2a30; font-family:"Malgun Gothic","Apple SD Gothic Neo",sans-serif; color:var(--t1);
+         display:flex; gap:28px; padding:24px; align-items:flex-start; }
+  .phone { width:390px; background:var(--bg); border-radius:28px; padding:18px 16px 24px; border:1px solid #333; }
+  .cap { color:#ccc; font-size:13px; margin:0 0 8px 6px; }
+  h1 { font-size:20px; font-weight:700; }
+  .sub { color:var(--t2); font-size:12px; margin-top:4px; }
+  .row { display:flex; align-items:center; }
+  .sp { flex:1; }
+  .pill { font-size:11px; font-weight:700; padding:3px 8px; border-radius:6px; border:1px solid; white-space:nowrap; }
+  .ghost { background:var(--input); color:var(--t1); font-size:12px; font-weight:700; padding:7px 11px; border-radius:8px; }
+  .sec { color:var(--t2); font-size:12px; font-weight:700; margin:20px 0 8px; }
+  hr { border:0; border-top:1px solid var(--line); margin:14px 0; }
+  .mono { font-family:Consolas,monospace; }
+  .big { font-size:24px; font-weight:700; }
+  .cashbar { height:10px; border-radius:5px; background:var(--input); position:relative; overflow:hidden; margin-top:8px; }
+  .cashbar .inv { position:absolute; left:0; top:0; bottom:0; background:#3a3f4b; }
+  .cashbar .tgt { position:absolute; top:-3px; bottom:-3px; width:2px; background:var(--gold); }
+  .legend { color:var(--t3); font-size:11px; margin-top:6px; }
+  /* 이탈 막대 */
+  .dev { display:grid; grid-template-columns:62px 1fr 46px; align-items:center; gap:6px; height:22px; }
+  .dev .tk { font-size:12px; font-weight:700; font-family:Consolas,monospace; }
+  .track { position:relative; height:12px; }
+  .track .mid { position:absolute; left:50%; top:-5px; bottom:-5px; width:1px; background:var(--line); }
+  .track .b { position:absolute; top:0; bottom:0; border-radius:3px; }
+  .dev .v { font-size:11px; text-align:right; font-family:Consolas,monospace; }
+  .axis { display:grid; grid-template-columns:62px 1fr 46px; gap:6px; color:var(--t3); font-size:10px; margin-top:2px; }
+  .axis .lbl { display:flex; justify-content:space-between; }
+  /* 주문 목록 */
+  .ord { display:flex; align-items:center; padding:10px 0; border-bottom:1px solid var(--line); }
+  .ord .tk { font-family:Consolas,monospace; font-weight:700; font-size:14px; width:70px; }
+  .ord .mid { flex:1; color:var(--t2); font-size:11px; line-height:15px; }
+  .ord .act { text-align:right; font-size:13px; font-weight:700; line-height:17px; }
+  .ord .act small { display:block; font-size:11px; font-weight:400; color:var(--t2); }
+  .go { margin-left:8px; font-size:11px; color:var(--t2); background:var(--input); padding:5px 7px; border-radius:6px; }
+  .box { background:var(--input); border-radius:10px; padding:11px 12px; font-size:12px; line-height:18px; color:var(--t2); }
+  .box b { color:var(--t1); }
+  .cta { margin-top:16px; background:#3182F6; color:white; text-align:center; font-weight:700; padding:13px; border-radius:10px; font-size:14px; }
+  .seg { display:flex; gap:18px; font-size:14px; margin-top:6px; }
+  .seg span { padding-bottom:6px; color:var(--t3); }
+  .seg .on { color:var(--t1); font-weight:700; border-bottom:2px solid var(--t1); }
+  .slider { position:relative; height:6px; background:var(--input); border-radius:3px; margin:22px 4px 8px; }
+  .slider .fill { position:absolute; left:0; top:0; bottom:0; width:40%; background:var(--gold); border-radius:3px; }
+  .slider .knob { position:absolute; left:40%; top:-7px; width:20px; height:20px; margin-left:-10px; background:white; border-radius:50%; }
+  .ticks { display:flex; justify-content:space-between; color:var(--t3); font-size:10px; margin:0 0 4px; }
+  table { width:100%; border-collapse:collapse; font-size:12px; margin-top:6px; }
+  td, th { padding:6px 4px; text-align:right; border-bottom:1px solid var(--line); }
+  th { color:var(--t3); font-weight:400; font-size:11px; }
+  td:first-child, th:first-child { text-align:left; }
+  tr.sel td { color:var(--gold); font-weight:700; }
+  .note { color:var(--t3); font-size:10px; margin-top:8px; line-height:14px; }
+</style></head>
+<body>
+
+<!-- ① 포트폴리오 탭 안 '리밸런싱' -->
+<div>
+<div class="cap">① 포트폴리오 탭 → 리밸런싱 (예시 숫자)</div>
+<div class="phone">
+  <div class="row">
+    <div>
+      <h1>리밸런싱</h1>
+      <div class="sub">동일 비중 · 분기마다 · 현금 20%</div>
+    </div>
+    <div class="sp"></div>
+    <div class="ghost">설정</div>
+  </div>
+
+  <div class="row" style="margin-top:14px">
+    <span class="pill" style="color:var(--buy);border-color:var(--buy)">맞출 때 · D-0</span>
+    <span class="sub" style="margin:0 0 0 8px">분기 말(9/30) 지남 — 이번 주 안에 맞추면 됩니다</span>
+  </div>
+
+  <div class="sec">투자 · 현금</div>
+  <div class="row"><span class="big mono">1억 2,480만</span><span class="sp"></span>
+    <span class="sub" style="margin:0">현금 <b style="color:var(--t1)">12%</b> · 목표 20%</span></div>
+  <div class="cashbar"><div class="inv" style="width:88%"></div><div class="tgt" style="left:80%"></div></div>
+  <div class="legend">회색 = 투자 88% · 금색 선 = 목표 투자 80%</div>
+
+  <div class="sec">목표 대비 (종목당 목표 475만)</div>
+  <!-- 오른쪽(파랑) = 목표보다 많음 → 매도 / 왼쪽(빨강) = 적음 → 매수 -->
+  <div class="dev"><span class="tk">SOXL</span><div class="track"><div class="mid"></div><div class="b" style="left:50%;width:31%;background:var(--sell)"></div></div><span class="v" style="color:var(--sell)">+62%</span></div>
+  <div class="dev"><span class="tk">005930</span><div class="track"><div class="mid"></div><div class="b" style="left:50%;width:22%;background:var(--sell)"></div></div><span class="v" style="color:var(--sell)">+44%</span></div>
+  <div class="dev"><span class="tk">NRGU</span><div class="track"><div class="mid"></div><div class="b" style="left:50%;width:14%;background:var(--sell)"></div></div><span class="v" style="color:var(--sell)">+28%</span></div>
+  <div class="dev"><span class="tk">WTIU</span><div class="track"><div class="mid"></div><div class="b" style="left:50%;width:9%;background:var(--sell)"></div></div><span class="v" style="color:var(--sell)">+18%</span></div>
+  <div class="dev"><span class="tk">TQQQ</span><div class="track"><div class="mid"></div><div class="b" style="left:50%;width:3%;background:var(--sell)"></div></div><span class="v" style="color:var(--t2)">+6%</span></div>
+  <div class="dev"><span class="tk">DPST</span><div class="track"><div class="mid"></div><div class="b" style="left:47%;width:3%;background:var(--buy)"></div></div><span class="v" style="color:var(--t2)">−6%</span></div>
+  <div class="dev"><span class="tk">NAIL</span><div class="track"><div class="mid"></div><div class="b" style="left:41%;width:9%;background:var(--buy)"></div></div><span class="v" style="color:var(--buy)">−18%</span></div>
+  <div class="dev"><span class="tk">DFEN</span><div class="track"><div class="mid"></div><div class="b" style="left:37%;width:13%;background:var(--buy)"></div></div><span class="v" style="color:var(--buy)">−26%</span></div>
+  <div class="dev"><span class="tk">KORU</span><div class="track"><div class="mid"></div><div class="b" style="left:31%;width:19%;background:var(--buy)"></div></div><span class="v" style="color:var(--buy)">−38%</span></div>
+  <div class="dev"><span class="tk">GDXU</span><div class="track"><div class="mid"></div><div class="b" style="left:27%;width:23%;background:var(--buy)"></div></div><span class="v" style="color:var(--buy)">−46%</span></div>
+  <div class="axis"><span></span><div class="lbl"><span>−100%</span><span>0</span><span>+100%</span></div><span></span></div>
+  <div class="legend">나머지 11개는 ±5% 안 · 펼치기 ›</div>
+
+  <div class="sec">이렇게 맞추면 — 매도 먼저</div>
+  <div class="ord"><span class="tk">SOXL</span><span class="mid">769만 → 475만</span>
+    <span class="act" style="color:var(--sell)">매도 2.31주<small>294만</small></span><span class="go">토스</span></div>
+  <div class="ord"><span class="tk">005930</span><span class="mid">684만 → 475만</span>
+    <span class="act" style="color:var(--sell)">매도 21주<small>209만</small></span><span class="go">토스</span></div>
+  <div class="ord"><span class="tk">NRGU</span><span class="mid">608만 → 475만</span>
+    <span class="act" style="color:var(--sell)">매도 3.40주<small>133만</small></span><span class="go">토스</span></div>
+  <div class="ord"><span class="tk">GDXU</span><span class="mid">257만 → 475만</span>
+    <span class="act" style="color:var(--buy)">매수 1.52주<small>218만</small></span><span class="go">토스</span></div>
+  <div class="ord"><span class="tk">KORU</span><span class="mid">295만 → 475만</span>
+    <span class="act" style="color:var(--buy)">매수 11.7주<small>180만</small></span><span class="go">토스</span></div>
+  <div class="legend" style="margin-top:8px">+ 9건 더 · 차이가 20만 원 아래인 종목은 건너뜀</div>
+
+  <div class="sec">합계</div>
+  <div class="box">
+    매도 <b>6건 760만</b> · 매수 <b>8건 1,690만</b> · 예상 비용 <b>약 4.9만</b><br>
+    현금 12% → <b>20%</b> 가 되도록 매수를 줄여 계산했습니다
+  </div>
+  <div class="box" style="margin-top:8px">
+    <b>해외주식 양도세</b> — 올해 실현 이익 186만 → 이번 매도 반영 시 <b>271만</b><br>
+    공제 250만 초과 21만 × 22% ≈ <b style="color:var(--buy)">4.6만</b> (내년 5월)
+  </div>
+  <div class="cta">순서대로 토스에서 주문하기</div>
+</div>
+</div>
+
+<!-- ② 설정 시트 -->
+<div>
+<div class="cap">② 설정 — 현금 비중을 고를 때 과거 결과를 같이 보여 줌</div>
+<div class="phone">
+  <div class="row"><h1>리밸런싱 설정</h1><span class="sp"></span><span style="color:var(--t2);font-size:20px">✕</span></div>
+
+  <div class="sec">언제 맞출까</div>
+  <div class="seg"><span>매월</span><span class="on">분기 (추천)</span><span>매년</span></div>
+  <div class="legend">2016년~ 세후: 매주 +26.3% · 매월 +27.2% · <b style="color:var(--t1)">분기 +28.0%</b> · 매년 +26.2%</div>
+
+  <div class="sec">현금으로 둘 비중</div>
+  <div class="row"><span class="big mono" style="color:var(--gold)">20%</span><span class="sp"></span>
+    <span class="sub" style="margin:0">이자 연 2.5% 가정</span></div>
+  <div class="slider"><div class="fill"></div><div class="knob"></div></div>
+  <div class="ticks"><span>0%</span><span>10</span><span>20</span><span>30</span><span>40</span><span>50%</span></div>
+
+  <!-- 현금 비중별 과거 결과 (2016~, 분기·매월 세후) — 그래프 라벨 영문 -->
+  <svg width="358" height="190" style="margin-top:10px">
+    <g font-family="Consolas,monospace" font-size="10" fill="#6B7684">
+      <line x1="40" y1="20" x2="40" y2="160" stroke="#24242A"/><line x1="40" y1="160" x2="330" y2="160" stroke="#24242A"/>
+      <text x="40" y="176">0%</text><text x="98" y="176">10</text><text x="156" y="176">20</text>
+      <text x="214" y="176">30</text><text x="272" y="176">40</text><text x="314" y="176">50%</text>
+      <text x="150" y="188" fill="#8B95A1">Cash weight</text>
+      <text x="4" y="24">80%</text><text x="4" y="94">40%</text><text x="4" y="162">0%</text>
+    </g>
+    <!-- 최대 낙폭: 72 67 60 54 47 40  (y = 160 - v*1.75) -->
+    <polyline fill="none" stroke="#3182F6" stroke-width="2.2"
+      points="44,34 102,43 160,55 218,65 276,78 334,90"/>
+    <!-- 세후 연수익: 27.2 25.9 24.3 22.4 20.1 17.7 -->
+    <polyline fill="none" stroke="#F04452" stroke-width="2.2"
+      points="44,112 102,115 160,117 218,121 276,125 334,129"/>
+    <line x1="160" y1="20" x2="160" y2="160" stroke="#E0A24A" stroke-dasharray="3,3"/>
+    <g font-family="Consolas,monospace" font-size="10">
+      <text x="230" y="58" fill="#3182F6">Max drawdown</text>
+      <text x="230" y="140" fill="#F04452">CAGR after tax</text>
+    </g>
+  </svg>
+
+  <table>
+    <tr><th>현금</th><th>세후 연수익</th><th>최대 낙폭</th><th>1억 최악일 때</th></tr>
+    <tr><td>0%</td><td>+27.2%</td><td>−72%</td><td>2,800만</td></tr>
+    <tr><td>10%</td><td>+25.9%</td><td>−67%</td><td>3,300만</td></tr>
+    <tr class="sel"><td>20%</td><td>+24.3%</td><td>−60%</td><td>4,000만</td></tr>
+    <tr><td>30%</td><td>+22.4%</td><td>−54%</td><td>4,600만</td></tr>
+    <tr><td>40%</td><td>+20.1%</td><td>−47%</td><td>5,300만</td></tr>
+    <tr><td>50%</td><td>+17.7%</td><td>−40%</td><td>6,000만</td></tr>
+  </table>
+  <div class="note">관심종목 21개 · 2016년~ 백테스트(매월, 세후). 지금 고른 종목이라 절대 수익은 과장돼 있다 —
+    현금 비중에 따라 <b>무엇을 얼마나 잃는지</b>의 비교로만 볼 것.</div>
+
+  <div class="sec">알림</div>
+  <div class="box"><b>분기 말 다음 날</b> 아침에 알림 · 그 사이 한 종목이 목표의 2배/절반을 넘으면 한 번 더</div>
+</div>
+</div>
+
+</body></html>
