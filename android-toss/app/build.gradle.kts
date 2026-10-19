@@ -101,7 +101,8 @@ dependencies {
  */
 tasks.register("versionJson") {
     val out = layout.buildDirectory.file("outputs/version.json")
-    val notes = (project.findProperty("releaseNotes") as String?) ?: ""
+    // 환경변수 우선 — 윈도에서 -P 인자로 넘기면 줄표(—) 같은 글자가 '?' 로 깨졌다
+    val notes = System.getenv("RELEASE_NOTES") ?: (project.findProperty("releaseNotes") as String?) ?: ""
     outputs.file(out)
     doLast {
         out.get().asFile.writeText(groovy.json.JsonOutput.toJson(
