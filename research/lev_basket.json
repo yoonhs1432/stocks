@@ -1,0 +1,360 @@
+[
+ {
+  "pick": "SSO",
+  "name": "ProShares Ultra S&P500",
+  "lev": 2.0,
+  "vol": 0.25281987719163773,
+  "dv": 217559966.83727264,
+  "size": 27,
+  "group": [
+   "SOXL",
+   "TQQQ",
+   "SPXL",
+   "NVDL",
+   "QLD",
+   "UPRO"
+  ]
+ },
+ {
+  "pick": "MUU",
+  "name": "Direxion Daily MU Bull 2X ETF",
+  "lev": 2.0,
+  "vol": 1.5904272042185876,
+  "dv": 939156008.5165026,
+  "size": 5,
+  "group": [
+   "MUU",
+   "KORU",
+   "MULL",
+   "EDC",
+   "LRCU"
+  ]
+ },
+ {
+  "pick": "BITX",
+  "name": "2x Bitcoin ETF",
+  "lev": 2.0,
+  "vol": 0.9021057647198287,
+  "dv": 183536247.37297195,
+  "size": 14,
+  "group": [
+   "MSTU",
+   "BITX",
+   "ETHU",
+   "CONL",
+   "MSTX",
+   "BMNU"
+  ]
+ },
+ {
+  "pick": "TSLL",
+  "name": "Direxion Daily TSLA Bull 2X ETF",
+  "lev": 2.0,
+  "vol": 0.9135285850104675,
+  "dv": 728240412.9392306,
+  "size": 5,
+  "group": [
+   "TSLL",
+   "TSLG",
+   "TSLT",
+   "TSLR",
+   "TSL"
+  ]
+ },
+ {
+  "pick": "UGL",
+  "name": "ProShares Ultra Gold",
+  "lev": 2.0,
+  "vol": 0.5951362751373914,
+  "dv": 143520786.1590318,
+  "size": 6,
+  "group": [
+   "GDXU",
+   "AGQ",
+   "UGL",
+   "NUGT",
+   "JNUG",
+   "SHNY"
+  ]
+ },
+ {
+  "pick": "UDOW",
+  "name": "ProShares UltraPro Dow30",
+  "lev": 3.0,
+  "vol": 0.37434364781106416,
+  "dv": 122524744.70318578,
+  "size": 10,
+  "group": [
+   "TNA",
+   "UDOW",
+   "FAS",
+   "DPST",
+   "URTY",
+   "UWM"
+  ]
+ },
+ {
+  "pick": "CWVX",
+  "name": "Tradr 2X Long CRWV Daily ETF",
+  "lev": 2.0,
+  "vol": 1.911481746803084,
+  "dv": 21808600.655947503,
+  "size": 7,
+  "group": [
+   "NBIL",
+   "NEBX",
+   "CRWG",
+   "CWVX",
+   "APLX",
+   "CRWU"
+  ]
+ },
+ {
+  "pick": "MSFU",
+  "name": "Direxion Daily MSFT Bull 2X ETF",
+  "lev": 2.0,
+  "vol": 0.6423770111101396,
+  "dv": 135448270.47361717,
+  "size": 5,
+  "group": [
+   "MSFU",
+   "NOWL",
+   "CRMG",
+   "ADBG",
+   "MSFL"
+  ]
+ },
+ {
+  "pick": "GGLL",
+  "name": "Direxion Daily GOOGL Bull 2X ETF",
+  "lev": 2.0,
+  "vol": 0.6255852215519419,
+  "dv": 133926879.05078684,
+  "size": 4,
+  "group": [
+   "GGLL",
+   "AMZU",
+   "GOOX",
+   "AMZZ"
+  ]
+ },
+ {
+  "pick": "TMF",
+  "name": "Direxion Daily 20+ Year Treasury Bull 3X ETF",
+  "lev": 3.0,
+  "vol": 0.2755848361739422,
+  "dv": 191944717.52668446,
+  "size": 1,
+  "group": [
+   "TMF"
+  ]
+ },
+ {
+  "pick": "ERX",
+  "name": "Direxion Daily Energy Bull 2X ETF",
+  "lev": 2.0,
+  "vol": 0.441487077042559,
+  "dv": 29624553.383895874,
+  "size": 6,
+  "group": [
+   "UCO",
+   "ERX",
+   "GUSH",
+   "OILU",
+   "DIG",
+   "NRGU"
+  ]
+ },
+ {
+  "pick": "AMDL",
+  "name": "GraniteShares 2x Long AMD Daily ETF",
+  "lev": 2.0,
+  "vol": 1.3531323174964094,
+  "dv": 151666956.41629595,
+  "size": 3,
+  "group": [
+   "AMDL",
+   "AMUU",
+   "AMDG"
+  ]
+ },
+ {
+  "pick": "METU",
+  "name": "Direxion Daily META Bull 2X ETF",
+  "lev": 2.0,
+  "vol": 0.843834136213017,
+  "dv": 136916998.30771068,
+  "size": 2,
+  "group": [
+   "METU",
+   "FBL"
+  ]
+ },
+ {
+  "pick": "PTIR",
+  "name": "GraniteShares 2x Long PLTR Daily ETF",
+  "lev": 2.0,
+  "vol": 1.1635827580856388,
+  "dv": 71681743.8151235,
+  "size": 2,
+  "group": [
+   "PTIR",
+   "PLTU"
+  ]
+ },
+ {
+  "pick": "INTW",
+  "name": "GraniteShares 2x Long INTC Daily ETF",
+  "lev": 2.0,
+  "vol": 1.5177372897620371,
+  "dv": 108729402.8750693,
+  "size": 1,
+  "group": [
+   "INTW"
+  ]
+ },
+ {
+  "pick": "IONX",
+  "name": "Defiance Daily Target 2X Long IONQ ETF",
+  "lev": 2.0,
+  "vol": 1.798594687709351,
+  "dv": 28097012.989324506,
+  "size": 7,
+  "group": [
+   "OKLL",
+   "IONX",
+   "QBTX",
+   "SMU",
+   "IONL",
+   "RGTX"
+  ]
+ },
+ {
+  "pick": "LABU",
+  "name": "Direxion Daily S&P Biotech Bull 3X ETF",
+  "lev": 3.0,
+  "vol": 0.8567276753304024,
+  "dv": 106548441.12759806,
+  "size": 1,
+  "group": [
+   "LABU"
+  ]
+ },
+ {
+  "pick": "RKLX",
+  "name": "Defiance Daily Target 2X Long RKLB ETF",
+  "lev": 2.0,
+  "vol": 1.831841551527469,
+  "dv": 49161196.49198748,
+  "size": 2,
+  "group": [
+   "ASTX",
+   "RKLX"
+  ]
+ },
+ {
+  "pick": "MVLL",
+  "name": "GraniteShares 2x Long MRVL Daily ETF",
+  "lev": 2.0,
+  "vol": 1.550427259460278,
+  "dv": 95472698.6032033,
+  "size": 1,
+  "group": [
+   "MVLL"
+  ]
+ },
+ {
+  "pick": "SMCX",
+  "name": "Defiance Daily Target 2x Long SMCI ETF",
+  "lev": 2.0,
+  "vol": 2.0731941676622556,
+  "dv": 67248086.77246928,
+  "size": 2,
+  "group": [
+   "SMCX",
+   "SMCL"
+  ]
+ },
+ {
+  "pick": "DLLL",
+  "name": "GraniteShares 2x Long DELL Daily ETF",
+  "lev": 2.0,
+  "vol": 1.419103132011015,
+  "dv": 53702958.1761343,
+  "size": 2,
+  "group": [
+   "DLLL",
+   "ARMG"
+  ]
+ },
+ {
+  "pick": "AAPU",
+  "name": "Direxion Daily AAPL Bull 2X ETF",
+  "lev": 2.0,
+  "vol": 0.48974112310387863,
+  "dv": 66159740.87669862,
+  "size": 1,
+  "group": [
+   "AAPU"
+  ]
+ },
+ {
+  "pick": "YINN",
+  "name": "Direxion Daily FTSE China Bull 3X ETF",
+  "lev": 3.0,
+  "vol": 0.5644673183913634,
+  "dv": 32863887.624440033,
+  "size": 3,
+  "group": [
+   "YINN",
+   "BABX",
+   "CWEB"
+  ]
+ },
+ {
+  "pick": "NAIL",
+  "name": "Direxion Daily Homebuilders & Supplies Bull 3X ETF",
+  "lev": 3.0,
+  "vol": 0.8628315383234151,
+  "dv": 54575564.38649368,
+  "size": 1,
+  "group": [
+   "NAIL"
+  ]
+ },
+ {
+  "pick": "ORCX",
+  "name": "Defiance Daily Target 2X Long ORCL ETF",
+  "lev": 2.0,
+  "vol": 1.1550484161216017,
+  "dv": 51963645.765574776,
+  "size": 1,
+  "group": [
+   "ORCX"
+  ]
+ },
+ {
+  "pick": "ROBN",
+  "name": "ETF Opportunities Trust T-Rex 2X Long HOOD Daily Target ETF",
+  "lev": 2.0,
+  "vol": 1.4326261367599245,
+  "dv": 22916954.846866988,
+  "size": 3,
+  "group": [
+   "ROBN",
+   "HOOG",
+   "SOFX"
+  ]
+ },
+ {
+  "pick": "APPX",
+  "name": "Tradr 2X Long APP Daily ETF",
+  "lev": 2.0,
+  "vol": 1.5369546775859027,
+  "dv": 21089089.28042946,
+  "size": 1,
+  "group": [
+   "APPX"
+  ]
+ }
+]

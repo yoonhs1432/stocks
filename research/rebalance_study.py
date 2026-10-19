@@ -65,9 +65,11 @@ def schedule(cal, kind):
     return set(np.array(cal)[last])
 
 
-def simulate(cal, krw, bars, kind, cash_w=0.0, band=None, wmap=None):
+def simulate(cal, krw, bars, kind, cash_w=0.0, band=None, wmap=None, dip=None, reset=-0.05):
     """kind: weekly/monthly/quarterly/yearly/band/none. band = 목표 대비 상대 이탈 한도(0.2 = ±20%).
-    wmap: 종목별 상대 비중(없으면 동일). 그날 살아 있는 종목끼리 다시 나눈다."""
+    wmap: 종목별 상대 비중(없으면 동일). 그날 살아 있는 종목끼리 다시 나눈다.
+    dip: 비상금 규칙 [(낙폭, 현금비중), …] — 계좌가 고점 대비 그만큼 빠지면 현금을 그 비중까지 투입.
+         고점 근처(reset, 기본 −5%)로 돌아오면 다시 cash_w 로 채운다. 더 깊어질 때만 내려간다."""
     cols = list(krw.columns)
     us = {t: not t[:1].isdigit() for t in cols}
     qty = {t: 0.0 for t in cols}; basis = {t: 0.0 for t in cols}     # basis = 평균단가 × 수량 (원화)
@@ -75,6 +77,7 @@ def simulate(cal, krw, bars, kind, cash_w=0.0, band=None, wmap=None):
     realized = {}; owed = {}; cost_total = 0.0; tax_total = 0.0; trades = 0
     checks = schedule(cal, kind)
     eq = []; live_prev = set(); pending = None
+    peak = float(CAPITAL); dip_cw = cash_w; cw_prev = cash_w
     dts = pd.to_datetime(pd.Series(cal) * 86400, unit="s")
 
     def sell(t, q, p, yr):
@@ -130,14 +133,24 @@ def simulate(cal, krw, bars, kind, cash_w=0.0, band=None, wmap=None):
         live = {t for t in cols if bars.loc[d, t] >= MIN_BARS and p[t] == p[t]}
         if not live or i == len(cal) - 1:
             continue
+        cw = cash_w
+        if dip:
+            peak = max(peak, val)
+            dd = val / peak - 1
+            lvl = cash_w
+            for th, w in dip:
+                if dd <= th:
+                    lvl = min(lvl, w)
+            dip_cw = cash_w if dd > reset else min(dip_cw, lvl)
+            cw = dip_cw
         if wmap:
             tot = sum(wmap.get(t, 0.0) for t in live) or 1.0
-            target = {t: (1 - cash_w) * wmap.get(t, 0.0) / tot for t in live}
+            target = {t: (1 - cw) * wmap.get(t, 0.0) / tot for t in live}
         else:
-            target = {t: (1 - cash_w) / len(live) for t in live}
+            target = {t: (1 - cw) / len(live) for t in live}
         do = False
-        if i == 0 or live != live_prev:
-            do = True                          # 처음·종목 편입은 항상
+        if i == 0 or live != live_prev or cw != cw_prev:
+            do = True                          # 처음·종목 편입·비상금 단계가 바뀔 때는 항상
         elif d in checks:
             if kind in ("weekly", "monthly", "quarterly", "yearly"):
                 do = True
@@ -151,6 +164,7 @@ def simulate(cal, krw, bars, kind, cash_w=0.0, band=None, wmap=None):
         if do:
             pending = target
         live_prev = live
+        cw_prev = cw
 
     idx = pd.to_datetime(pd.Series(cal) * 86400, unit="s")
     eqs = pd.Series(eq, index=idx)
