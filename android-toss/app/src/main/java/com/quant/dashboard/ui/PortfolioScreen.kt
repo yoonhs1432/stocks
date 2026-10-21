@@ -164,7 +164,6 @@ fun PortfolioScreen(onOpenAnalysis: (String) -> Unit = {}) {
                                 fontSize = 11.sp, modifier = Modifier.padding(top = 8.dp))
                         }
                         TossBody(a, usdMode, onOpenAnalysis)
-                        RebalanceEntry()
                     }
                     else -> Text(err?.let { "⚠️ $it\n다시 시도하는 중…" } ?: "계좌 정보를 불러오는 중…",
                         color = if (err != null) Loss else TextSecondary, fontSize = 13.sp)
@@ -184,6 +183,10 @@ fun PortfolioScreen(onOpenAnalysis: (String) -> Unit = {}) {
 @Composable
 private fun TossBody(a: TossSync.Account, usdMode: Boolean, onOpenAnalysis: (String) -> Unit) {
     val m = Money(usdMode, a.rate)
+    // 리밸런싱 바구니 — 보유 행에 '바구니 밖' 을 붙인다(홈·바구니 탭과 같은 값)
+    val rvm: RebalanceViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+    LaunchedEffect(Unit) { if (rvm.plan == null) rvm.load() }
+    val basket = rvm.plan?.basket?.toSet()
     // ── 총자산 히어로 (평가금액 + 예수금) ──
     Column(
         Modifier.fillMaxWidth().padding(top = 14.dp),
@@ -297,7 +300,11 @@ private fun TossBody(a: TossSync.Account, usdMode: Boolean, onOpenAnalysis: (Str
                         .background(colorOf[h.symbol] ?: Neutral))
                     Spacer(Modifier.size(8.dp))
                     Text(h.name, color = TextPrimary, fontSize = 16.sp, maxLines = 1,
-                        fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                        fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f, fill = false))
+                    if (basket != null && h.symbol !in basket) {
+                        Text(" 바구니 밖", color = TextMuted, fontSize = 10.sp, maxLines = 1)
+                    }
+                    Spacer(Modifier.weight(1f))
                     Text(m.of(evalKrw), color = TextPrimary, fontSize = 16.sp,
                         fontWeight = FontWeight.Bold, fontFamily = Mono, maxLines = 1)
                 }

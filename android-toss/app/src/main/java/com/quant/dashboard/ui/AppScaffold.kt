@@ -48,7 +48,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-private val TAB_LABELS = listOf("비교", "분석", "포트폴리오", "설정")
+// 2026-10-21 리밸런싱이 주력이 되면서 구조를 바꿨다 — 홈(맞추기)·바구니·계좌·더보기.
+// 예전 비교·분석·설정은 더보기 안쪽 화면(page)으로. 목업 research/mockup_app_v2.png
+private val TAB_LABELS = listOf("홈", "바구니", "계좌", "더보기")
 
 /**
  * 앱 전역 상태 — 설정이 바뀌면 모든 탭이 데이터를 다시 로드하도록 dataVersion 을 관찰.
@@ -67,8 +69,10 @@ object AppState {
 @Composable
 fun AppScaffold() {
     var tab by remember { mutableStateOf(0) }
-    // 분석 탭에서 뒤로가기 → 들어온 탭으로 복귀 (비교에서 왔으면 비교, 포트폴리오에서 왔으면 포트폴리오)
-    var backTab by remember { mutableStateOf(0) }
+    // 탭 위에 겹치는 안쪽 화면 — "compare"(종목 분석) · "analysis" · "settings". null 이면 탭 화면.
+    var page by remember { mutableStateOf<String?>(null) }
+    // 분석에서 뒤로 → 들어온 곳(종목 분석 표면 compare, 계좌에서 왔으면 null)
+    var pageBack by remember { mutableStateOf<String?>(null) }
 
     // ── 실시간 시세 틱 ──
     // 장이 열려 있을 때만, 설정한 주기로 `/prices` 를 한 번 호출해 전 종목 현재가를 갱신한다.
@@ -123,24 +127,35 @@ fun AppScaffold() {
     }
     Scaffold(
         containerColor = BgApp,
-        bottomBar = { TabBar(tab) { if (it == 1 && tab != 1) backTab = tab; tab = it } },
+        bottomBar = { TabBar(tab) { tab = it; page = null; pageBack = null } },
     ) { pad ->
         Column(Modifier.fillMaxSize().padding(pad)) {
             Box(Modifier.fillMaxWidth().weight(1f)) {
                 val openAnalysis: (String) -> Unit = {
                     AppState.pendingTicker = it
-                    if (tab != 1) backTab = tab
-                    tab = 1
+                    pageBack = page
+                    page = "analysis"
                 }
                 // 탭을 오가도 **보던 자리**가 남게 한다. 그냥 갈아 끼우면 스크롤이 매번 맨 위로
                 // 돌아가서, 분석을 보고 돌아오면 비교 표에서 보던 종목을 다시 찾아 내려가야 했다.
                 val keep = rememberSaveableStateHolder()
-                keep.SaveableStateProvider(tab) {
-                    when (tab) {
-                        0 -> CompareScreen(onOpenAnalysis = openAnalysis)
-                        1 -> AnalysisScreen(onBack = { tab = backTab })
-                        2 -> PortfolioScreen(onOpenAnalysis = openAnalysis)
-                        else -> SettingsScreen()
+                keep.SaveableStateProvider(page ?: "tab$tab") {
+                    when (page) {
+                        "compare" -> {
+                            androidx.activity.compose.BackHandler { page = null }
+                            CompareScreen(onOpenAnalysis = openAnalysis)
+                        }
+                        "analysis" -> AnalysisScreen(onBack = { page = pageBack; pageBack = null })
+                        "settings" -> {
+                            androidx.activity.compose.BackHandler { page = null }
+                            SettingsScreen()
+                        }
+                        else -> when (tab) {
+                            0 -> HomeScreen()
+                            1 -> BasketScreen()
+                            2 -> PortfolioScreen(onOpenAnalysis = openAnalysis)
+                            else -> MoreScreen(onOpen = { page = it })
+                        }
                     }
                 }
             }
@@ -173,25 +188,25 @@ private fun TabBar(current: Int, onSelect: (Int) -> Unit) {
     }
 }
 
-/** 단색 라인 탭 아이콘 (0=산점(비교) / 1=막대(분석) / 2=서류가방 / 3=톱니). */
+/** 단색 라인 탭 아이콘 (0=집(홈) / 1=과녁(바구니) / 2=서류가방(계좌) / 3=점 셋(더보기)). */
 @Composable
 private fun TabIcon(index: Int, color: Color) {
     Canvas(Modifier.size(22.dp)) {
         val w = size.width; val h = size.height
         when (index) {
-            0 -> {  // 산점도 점 (비교)
-                val r = w * 0.08f
-                for ((px, py) in listOf(0.3f to 0.36f, 0.62f to 0.5f, 0.42f to 0.7f, 0.74f to 0.3f)) {
-                    drawCircle(color, r, Offset(w * px, h * py))
+            0 -> {  // 집 (홈)
+                val sw = w * 0.085f
+                val p = androidx.compose.ui.graphics.Path().apply {
+                    moveTo(w * 0.16f, h * 0.48f); lineTo(w * 0.5f, h * 0.18f); lineTo(w * 0.84f, h * 0.48f)
                 }
+                drawPath(p, color, style = Stroke(sw))
+                drawRect(color, topLeft = Offset(w * 0.26f, h * 0.46f), size = Size(w * 0.48f, h * 0.38f), style = Stroke(sw))
             }
-            1 -> {  // 막대 차트 (분석)
-                val bw = w * 0.17f; val bottom = h * 0.84f
-                val cols = listOf(0.24f to 0.42f, 0.5f to 0.62f, 0.76f to 0.84f)
-                for ((cx, hh) in cols) {
-                    val top = bottom - h * hh
-                    drawRect(color, topLeft = Offset(w * cx - bw / 2, top), size = Size(bw, bottom - top))
-                }
+            1 -> {  // 과녁 (바구니)
+                val sw = w * 0.085f
+                drawCircle(color, w * 0.34f, Offset(w / 2, h / 2), style = Stroke(sw))
+                drawCircle(color, w * 0.18f, Offset(w / 2, h / 2), style = Stroke(sw))
+                drawCircle(color, w * 0.06f, Offset(w / 2, h / 2))
             }
             2 -> {  // 서류가방
                 val sw = w * 0.085f
@@ -204,16 +219,8 @@ private fun TabIcon(index: Int, color: Color) {
                     cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * 0.05f),
                     style = Stroke(sw))
             }
-            else -> {  // 톱니바퀴
-                val cx = w / 2; val cy = h / 2; val sw = w * 0.085f
-                drawCircle(color, w * 0.27f, Offset(cx, cy), style = Stroke(sw))
-                drawCircle(color, w * 0.1f, Offset(cx, cy))
-                for (k in 0 until 8) {
-                    val a = Math.PI / 4 * k
-                    val c1 = Offset((cx + w * 0.27f * cos(a)).toFloat(), (cy + w * 0.27f * sin(a)).toFloat())
-                    val c2 = Offset((cx + w * 0.42f * cos(a)).toFloat(), (cy + w * 0.42f * sin(a)).toFloat())
-                    drawLine(color, c1, c2, sw)
-                }
+            else -> {  // 점 셋 (더보기)
+                for (px in listOf(0.24f, 0.5f, 0.76f)) drawCircle(color, w * 0.075f, Offset(w * px, h * 0.5f))
             }
         }
     }

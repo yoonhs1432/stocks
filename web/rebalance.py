@@ -33,6 +33,14 @@ KST = timezone(timedelta(hours=9))
 DEFAULT_BASKET = ["UPRO", "UGL", "DDM", "KORU", "BITX", "UBT", "ERX", "BIB", "NAIL", "YINN",
                   "DRN", "QPUX", "BRZU"]
 
+# 종목 경고 — 바구니 카드에 붙는다
+NOTE = {
+    "KORU": "기초자산 대비 배수가 과하다(적정 ≈1.1배)", "NAIL": "기초자산 대비 배수가 과하다(적정 ≈0.6배)",
+    "YINN": "기초자산 대비 배수가 과하다(적정 ≈0.8배)", "DRN": "배수 과함 · 거래 얇음 — 지정가로",
+    "UBT": "거래 얇음 — 지정가로", "BIB": "거래 얇음 — 지정가로", "QPUX": "거래 얇음 — 지정가로",
+    "BRZU": "거래 얇음 — 지정가로", "BITX": "변동성 큼(적정 ≈1.5배)",
+}
+
 # 종목 설명 — 앱의 주문 목록·설정에 그대로 보인다(서버만 고치면 된다)
 DESC = {
     "UPRO": "S&P500 3배 · 미국 대형주 500개 (ProShares UltraPro S&P500)",
@@ -63,7 +71,9 @@ DESC = {
 }
 # fractional — 미국 종목을 소수점(0.01주)으로 주문할지. 기본은 정수 주: 소수점 주문이 안 되는 종목도 있고
 # 정수로 맞추는 쪽이 따라 하기 쉽다. 소수점 수량은 어느 쪽이든 같이 내려 준다.
-DEFAULTS = {"basket": DEFAULT_BASKET, "cashPct": 20, "period": "quarterly", "lastDone": None, "fractional": False}
+# sellOutside — 바구니 밖 보유도 총액에 넣고 '전량 매도'로 정리할지. 기본은 그대로 둔다(계산에서 뺀다).
+DEFAULTS = {"basket": DEFAULT_BASKET, "cashPct": 20, "period": "quarterly", "lastDone": None, "fractional": False,
+            "sellOutside": False}
 PERIODS = ("monthly", "quarterly", "yearly")
 
 COST = 0.002              # 매매 금액 대비 비용(수수료·환전·거래세 대략)
@@ -88,7 +98,7 @@ def settings() -> dict:
 
 def save(patch: dict) -> dict:
     cur = settings()
-    for k in ("basket", "cashPct", "period", "lastDone", "fractional"):
+    for k in ("basket", "cashPct", "period", "lastDone", "fractional", "sellOutside"):
         if k in patch:
             cur[k] = patch[k]
     store.put("rebalance", cur)
@@ -183,7 +193,10 @@ def plan(acc: dict, quote) -> dict:
                for t, it in held.items() if t not in basket]
     cash = acc.get("cashKrw", 0.0)
     invested = sum(held[t].get("evalKrw", 0.0) for t in priced if t in held)
-    total = cash + invested               # 바구니 밖 보유는 계산에서 뺀다(그대로 둔다)
+    outside_krw = sum(o["evalKrw"] for o in outside)
+    sell_out = bool(s.get("sellOutside"))
+    # 바구니 밖 보유는 기본으로 계산에서 뺀다(그대로 둔다). 정리하기로 했으면 총액에 넣고 전량 매도로 잡는다.
+    total = cash + invested + (outside_krw if sell_out else 0.0)
     cash_w = s["cashPct"] / 100
     per = total * (1 - cash_w) / len(priced) if priced else 0.0
 
@@ -236,7 +249,23 @@ def plan(acc: dict, quote) -> dict:
         r["amountKrw"] = r["qty"] * r["priceKrw"]
         if r["qty"] <= 0:
             r["action"], r["qty"], r["amountKrw"] = "none", 0.0, 0.0
+    if sell_out:
+        for t, it in held.items():
+            if t in basket:
+                continue
+            q = float(it.get("quantity") or 0.0)
+            v = it.get("evalKrw", 0.0)
+            if q <= 0 or v <= 0:
+                continue
+            krw = store.is_krw(t)
+            rows.append({
+                "ticker": t, "name": it.get("name") or t, "krw": krw, "valueKrw": v, "targetKrw": 0.0,
+                "diffKrw": -v, "devPct": 100.0, "action": "sell", "qty": q, "amountKrw": v,
+                "qtyWhole": q, "qtyFrac": q, "priceKrw": v / q, "price": it.get("lastPrice") or 0.0,
+                "held": True, "extreme": False, "outside": True,
+            })
     for r in rows:
+        r.setdefault("outside", False)
         # 맞춘 뒤 목표와의 차이(+면 목표보다 많이 담김)
         sign = 1 if r["action"] == "buy" else -1 if r["action"] == "sell" else 0
         r["afterGapKrw"] = r["valueKrw"] + sign * r["amountKrw"] - r["targetKrw"]
@@ -262,6 +291,10 @@ def plan(acc: dict, quote) -> dict:
         "totalKrw": total, "cashKrw": cash, "cashPctNow": cash / total * 100 if total else 0.0,
         "cashPctTarget": s["cashPct"], "perTargetKrw": per,
         "rows": rows, "outside": outside,
+        # 홈의 비중 막대 — 계좌 전체 기준(바구니 안·밖·현금)
+        "accountTotalKrw": cash + sum(it.get("evalKrw", 0.0) for it in held.values()),
+        "basketKrw": invested, "outsideKrw": outside_krw,
+        "notes": {t: NOTE[t] for t in basket if t in NOTE},
         "sells": {"count": len(sells), "amountKrw": sell_amt},
         "buys": {"count": len(buys), "amountKrw": buy_amt},
         "costKrw": (sell_amt + buy_amt) * COST,
@@ -359,8 +392,15 @@ def _compute_table(basket: list[str], period: str) -> dict:
         r = run(period, c / 100)
         cash_rows.append({"cashPct": c, **r})
     per_rows = [{"period": p, **run(p, settings()["cashPct"] / 100)} for p in PERIODS]
+    # 종목 카드용 — 최근 1년 변동성·수익(현지 통화, 일간 수정종가)
+    metrics = {}
+    for t, v in series.items():
+        ys = np.array([v[d] for d in sorted(v)][-253:])
+        if len(ys) > 60:
+            r = np.diff(np.log(ys))
+            metrics[t] = {"vol": float(r.std() * math.sqrt(252)), "ret1y": float(ys[-1] / ys[0] - 1)}
     return {"from": dts[0].isoformat(), "to": dts[-1].isoformat(), "tickers": cols,
-            "cash": cash_rows, "periods": per_rows}
+            "cash": cash_rows, "periods": per_rows, "metrics": metrics}
 
 
 def _simulate(P, live_ok, us, dts, period, cash_w) -> dict:

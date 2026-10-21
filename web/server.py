@@ -835,6 +835,8 @@ def api_rebalance_settings(body: dict):
         patch["period"] = body["period"]
     if "fractional" in body:
         patch["fractional"] = bool(body["fractional"])
+    if "sellOutside" in body:
+        patch["sellOutside"] = bool(body["sellOutside"])
     rebalance.save(patch)
     return api_rebalance()
 

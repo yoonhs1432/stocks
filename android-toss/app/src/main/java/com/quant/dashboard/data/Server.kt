@@ -480,7 +480,12 @@ object Server {
         /** 정수 주·소수점 수량(미국만 의미), 1주 가격(현지 통화·원화), 맞춘 뒤 목표와의 차이(+ = 목표보다 많음) */
         val qtyWhole: Double = 0.0, val qtyFrac: Double = 0.0,
         val price: Double = Double.NaN, val priceKrw: Double = Double.NaN, val afterGapKrw: Double = 0.0,
+        /** 바구니 밖 보유를 정리하는 줄(목표 0, 전량 매도) */
+        val outside: Boolean = false,
     )
+
+    /** 종목 카드용 최근 1년 숫자 — 변동성·수익(소수, 0.38 = 38%) */
+    data class RebalMetric(val vol: Double, val ret1y: Double)
 
     /** 과거 성과 한 줄 — [key] 는 현금 비중(“20”) 또는 주기(“quarterly”). */
     data class RebalStat(val key: String, val cagr: Double, val mdd: Double, val worst: Double)
@@ -489,6 +494,8 @@ object Server {
         val basket: List<String>, val cashPct: Int, val period: String,
         /** 미국 종목을 소수점으로 주문할지(아니면 정수 주) */
         val fractional: Boolean,
+        /** 바구니 밖 보유도 총액에 넣고 전량 매도로 정리할지 */
+        val sellOutside: Boolean,
         val due: Boolean, val periodEnd: String, val nextEnd: String, val daysLeft: Int, val lastDone: String?,
         val totalKrw: Double, val cashKrw: Double, val cashPctNow: Double, val perTargetKrw: Double,
         val rows: List<RebalRow>,
@@ -504,13 +511,19 @@ object Server {
         val defaultBasket: List<String>,
         /** 종목 설명(“S&P500 3배 · …”) — 서버가 준다 */
         val desc: Map<String, String> = emptyMap(),
+        /** 종목 경고(배수 과함·거래 얇음 등) */
+        val notes: Map<String, String> = emptyMap(),
+        /** 계좌 전체(바구니 안·밖·현금) — 홈의 비중 막대 */
+        val accountTotalKrw: Double = 0.0, val basketKrw: Double = 0.0, val outsideKrw: Double = 0.0,
+        val metrics: Map<String, RebalMetric> = emptyMap(),
     )
 
     fun rebalance(): Rebalance = rebalanceOf(obj("/api/rebalance"))
 
     fun saveRebalance(basket: List<String>? = null, cashPct: Int? = null, period: String? = null,
-                      fractional: Boolean? = null): Rebalance {
+                      fractional: Boolean? = null, sellOutside: Boolean? = null): Rebalance {
         val b = JSONObject()
+        sellOutside?.let { b.put("sellOutside", it) }
         fractional?.let { b.put("fractional", it) }
         basket?.let { b.put("basket", JSONArray(it)) }
         cashPct?.let { b.put("cashPct", it) }
@@ -537,7 +550,7 @@ object Server {
                 r.optBoolean("held"),
                 qtyWhole = r.optDouble("qtyWhole", 0.0), qtyFrac = r.optDouble("qtyFrac", 0.0),
                 price = r.optDouble("price", Double.NaN), priceKrw = r.optDouble("priceKrw", Double.NaN),
-                afterGapKrw = r.optDouble("afterGapKrw", 0.0),
+                afterGapKrw = r.optDouble("afterGapKrw", 0.0), outside = r.optBoolean("outside"),
             )
         }
         val oa = o.optJSONArray("outside") ?: JSONArray()
@@ -559,6 +572,7 @@ object Server {
         return Rebalance(
             basket = s.optJSONArray("basket").strings(), cashPct = s.optInt("cashPct", 20),
             period = s.optString("period", "quarterly"), fractional = s.optBoolean("fractional"),
+            sellOutside = s.optBoolean("sellOutside"),
             due = st.optBoolean("due"), periodEnd = st.optString("periodEnd"), nextEnd = st.optString("nextEnd"),
             daysLeft = st.optInt("daysLeft"), lastDone = if (st.isNull("lastDone")) null else st.optString("lastDone"),
             totalKrw = o.optDouble("totalKrw", 0.0), cashKrw = o.optDouble("cashKrw", 0.0),
@@ -575,6 +589,14 @@ object Server {
             watchlist = o.optJSONArray("watchlist").strings(),
             defaultBasket = o.optJSONArray("defaultBasket").strings(),
             desc = o.optJSONObject("desc")?.let { d -> d.keys().asSequence().associateWith { d.optString(it) } }.orEmpty(),
+            notes = o.optJSONObject("notes")?.let { d -> d.keys().asSequence().associateWith { d.optString(it) } }.orEmpty(),
+            accountTotalKrw = o.optDouble("accountTotalKrw", 0.0), basketKrw = o.optDouble("basketKrw", 0.0),
+            outsideKrw = o.optDouble("outsideKrw", 0.0),
+            metrics = tb?.optJSONObject("metrics")?.let { m ->
+                m.keys().asSequence().mapNotNull { k ->
+                    m.optJSONObject(k)?.let { x -> k to RebalMetric(x.optDouble("vol"), x.optDouble("ret1y")) }
+                }.toMap()
+            }.orEmpty(),
         )
     }
 
