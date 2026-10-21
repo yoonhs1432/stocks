@@ -495,6 +495,8 @@ object Server {
         /** 백그라운드 계산이 아직이면 null */
         val cashTable: List<RebalStat>?, val periodTable: List<RebalStat>?, val tableFrom: String,
         val watchlist: List<String>,
+        /** 서버가 정한 기본 바구니 — '기본' 단추. 서버만 바꾸면 앱은 그대로 따라간다. */
+        val defaultBasket: List<String>,
     )
 
     fun rebalance(): Rebalance = rebalanceOf(obj("/api/rebalance"))
@@ -559,6 +561,7 @@ object Server {
             cashTable = stats("cash", "cashPct"), periodTable = stats("periods", "period"),
             tableFrom = tb?.optString("from").orEmpty(),
             watchlist = o.optJSONArray("watchlist").strings(),
+            defaultBasket = o.optJSONArray("defaultBasket").strings(),
         )
     }
 

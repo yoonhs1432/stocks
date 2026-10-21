@@ -5,7 +5,7 @@
 
 ## 2026-10-20 리밸런싱 도우미
 
-- **`web/rebalance.py`** — 바구니(기본: 덜 닮은 10개)를 동일 비중으로 맞추려면 무엇을 얼마나.
+- **`web/rebalance.py`** — 바구니(기본: 덜 닮은 9개 — 2026-10-21 삼성전자 제외, 앱은 `defaultBasket` 응답을 따른다)를 동일 비중으로 맞추려면 무엇을 얼마나.
   실제 계좌(보유·현금·환율)로 계산, **바구니 밖 보유는 계산에서 뺀다**(그대로 둔다). 주문은 내지 않는다.
   - `GET /api/rebalance` · `POST /api/rebalance/settings`(basket·cashPct·period) · `POST /api/rebalance/done`
   - 설정은 `settings.json` 의 `rebalance`. 상태 = 마지막으로 맞춘 날(lastDone)이 직전 기간 끝 이전이면 '맞출 때'.

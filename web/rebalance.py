@@ -4,7 +4,8 @@
   - 동일 비중 리밸런싱은 **분기마다**가 세후로 가장 나았다(매주는 비용·양도세만 늘었다).
   - 현금 비중은 공짜 점심이 아니다 — 10%p 마다 연수익 −1.3~1.9%p, 최대 낙폭 −5~7%p.
     그래서 고를 때 보라고 **현금 비중별 과거 성과**를 바구니마다 다시 계산해 보여 준다.
-  - 기본 바구니는 관심종목 중 서로 덜 닮은 10개(주간 상관 묶음마다 하나). 단, 과거 백테스트로는
+  - 기본 바구니는 관심종목 중 서로 덜 닮은 종목(주간 상관 묶음마다 하나, 2026-10-21 사용자 요청으로
+    삼성전자 제외 → 9개). 단, 과거 백테스트로는
     21개 전체가 더 나았다 — 미국 기술주 묶음이 크게 오른 기간이라서. 설정에서 바꿀 수 있다.
 
 계좌 밖으로 돈이 나가지 않는다. 주문은 내지 않고 **무엇을 얼마나**만 계산한다.
@@ -24,8 +25,9 @@ import store
 
 KST = timezone(timedelta(hours=9))
 
-# 상관 묶음마다 하나 — research/correlation_pick.py (2026-10-20)
-DEFAULT_BASKET = ["TQQQ", "005930", "DPST", "WTIU", "BITU", "DFEN", "GDXU", "LABU", "NAIL", "URAA"]
+# 상관 묶음마다 하나 — research/correlation_pick.py (2026-10-20). 삼성전자는 사용자 요청으로 뺐다(2026-10-21).
+# 앱은 이 목록을 응답(defaultBasket)으로 받아 '기본' 단추에 쓴다 — 바꿔도 앱을 다시 빌드할 필요 없다.
+DEFAULT_BASKET = ["TQQQ", "DPST", "WTIU", "BITU", "DFEN", "GDXU", "LABU", "NAIL", "URAA"]
 DEFAULTS = {"basket": DEFAULT_BASKET, "cashPct": 20, "period": "quarterly", "lastDone": None}
 PERIODS = ("monthly", "quarterly", "yearly")
 
@@ -200,6 +202,7 @@ def plan(acc: dict, quote) -> dict:
         "alerts": [r["ticker"] for r in rows if r["extreme"]],
         "table": table_for(s),
         "watchlist": store.tickers(),
+        "defaultBasket": DEFAULT_BASKET,
     }
 
 

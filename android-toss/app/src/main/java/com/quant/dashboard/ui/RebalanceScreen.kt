@@ -438,7 +438,7 @@ private fun RebalanceSettings(p: Server.Rebalance, onDismiss: () -> Unit,
 
                 SectionLabel("바구니 (동일 비중으로 담을 종목)")
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    plan.watchlist.forEach { t ->
+                    (plan.watchlist + basket.filter { it !in plan.watchlist }).forEach { t ->
                         val on = t in basket
                         Box(
                             Modifier.clip(RoundedCornerShape(8.dp)).background(if (on) Gold.copy(alpha = 0.18f) else SurfaceInput)
@@ -448,12 +448,12 @@ private fun RebalanceSettings(p: Server.Rebalance, onDismiss: () -> Unit,
                         ) { Text(Tickers.displayName(t), color = if (on) Gold else TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.Bold) }
                     }
                 }
-                Text("기본은 서로 덜 닮은 10개(주간 상관 묶음마다 하나). 과거엔 관심종목 전체가 더 나았다 — " +
+                Text("기본은 서로 덜 닮은 종목(주간 상관 묶음마다 하나). 과거엔 관심종목 전체가 더 나았다 — " +
                     "미국 기술주 묶음이 크게 오른 기간이라서. 급락장에선 레버리지 주식끼리 같이 빠져, 낙폭을 줄이는 건 현금이다.",
                     color = TextMuted, fontSize = 11.sp, lineHeight = 15.sp, modifier = Modifier.padding(top = 8.dp))
                 Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    GhostButton("기본 10개") {
-                        basket.clear(); basket.addAll(listOf("TQQQ", "005930", "DPST", "WTIU", "BITU", "DFEN", "GDXU", "LABU", "NAIL", "URAA"))
+                    if (plan.defaultBasket.isNotEmpty()) {
+                        GhostButton("기본 ${plan.defaultBasket.size}개") { basket.clear(); basket.addAll(plan.defaultBasket) }
                     }
                     GhostButton("관심종목 전체") { basket.clear(); basket.addAll(plan.watchlist) }
                 }
