@@ -1,0 +1,213 @@
+{
+ "basket": [
+  "SSO",
+  "UGL",
+  "UDOW",
+  "KORU",
+  "BITX",
+  "TMF",
+  "ERX",
+  "LABU",
+  "NAIL",
+  "YINN",
+  "DRN",
+  "QPUX",
+  "MSOX",
+  "BRZU"
+ ],
+ "groups": [
+  {
+   "members": [
+    "SSO",
+    "SPUU",
+    "UPRO",
+    "SPXL",
+    "QLD",
+    "MQQQ",
+    "QQQU",
+    "MAGX",
+    "FNGG",
+    "SPYU",
+    "ROM",
+    "TQQQ",
+    "WEBL",
+    "FNGU",
+    "TARK",
+    "USD",
+    "EDC",
+    "TECL",
+    "HIBL",
+    "TSXU",
+    "BULZ",
+    "SOXL",
+    "SPCL"
+   ],
+   "rep": "SSO",
+   "note": "",
+   "inside": 0.8257016249428533,
+   "dvSum": 13928625225.462446
+  },
+  {
+   "members": [
+    "UGL",
+    "SHNY",
+    "NUGT",
+    "JNUG",
+    "AGQ",
+    "GDXU"
+   ],
+   "rep": "UGL",
+   "note": "",
+   "inside": 0.8632456217516762,
+   "dvSum": 722514718.5606564
+  },
+  {
+   "members": [
+    "DDM",
+    "UYG",
+    "UWM",
+    "UDOW",
+    "FAS",
+    "MIDU",
+    "DUSL",
+    "TNA",
+    "URTY",
+    "RETL",
+    "DPST",
+    "DFEN"
+   ],
+   "rep": "UDOW",
+   "note": "",
+   "inside": 0.7886020993253969,
+   "dvSum": 562998792.5072691
+  },
+  {
+   "members": [
+    "KORU"
+   ],
+   "rep": "KORU",
+   "note": "사용자 지정 — 단일 종목을 빼면 미국 기술 묶음과 상관이 높아 합쳐진다",
+   "inside": NaN,
+   "dvSum": 510828426.5337226
+  },
+  {
+   "members": [
+    "BITX",
+    "BITU",
+    "BTCL",
+    "ETHT",
+    "ETHU",
+    "SLON",
+    "SOLT",
+    "XRPT",
+    "XXRP",
+    "UXRP"
+   ],
+   "rep": "BITX",
+   "note": "",
+   "inside": 0.8596104851161861,
+   "dvSum": 496889835.16842955
+  },
+  {
+   "members": [
+    "UBT",
+    "TMF"
+   ],
+   "rep": "TMF",
+   "note": "",
+   "inside": 0.9960455640121986,
+   "dvSum": 193222331.28281486
+  },
+  {
+   "members": [
+    "DIG",
+    "ERX",
+    "GUSH",
+    "UCO",
+    "OILU",
+    "NRGU"
+   ],
+   "rep": "ERX",
+   "note": "",
+   "inside": 0.8699521003907832,
+   "dvSum": 188800609.18657818
+  },
+  {
+   "members": [
+    "BIB",
+    "CURE",
+    "LABU"
+   ],
+   "rep": "LABU",
+   "note": "",
+   "inside": 0.7610133615679925,
+   "dvSum": 115275782.82093354
+  },
+  {
+   "members": [
+    "NAIL"
+   ],
+   "rep": "NAIL",
+   "note": "",
+   "inside": NaN,
+   "dvSum": 54575564.38649368
+  },
+  {
+   "members": [
+    "CWEB",
+    "YINN"
+   ],
+   "rep": "YINN",
+   "note": "",
+   "inside": 0.9292628755336598,
+   "dvSum": 46310735.63726925
+  },
+  {
+   "members": [
+    "DRN",
+    "UTSL"
+   ],
+   "rep": "DRN",
+   "note": "거래 적음",
+   "inside": 0.6150084087181429,
+   "dvSum": 20697906.064728767
+  },
+  {
+   "members": [
+    "URAA",
+    "QPUX"
+   ],
+   "rep": "QPUX",
+   "note": "거래 적음",
+   "inside": 0.6699957110366468,
+   "dvSum": 5072982.3964467365
+  },
+  {
+   "members": [
+    "MSOX"
+   ],
+   "rep": "MSOX",
+   "note": "거래 적음",
+   "inside": NaN,
+   "dvSum": 4917916.294449191
+  },
+  {
+   "members": [
+    "BRZU"
+   ],
+   "rep": "BRZU",
+   "note": "거래 적음",
+   "inside": NaN,
+   "dvSum": 4128373.4172649374
+  },
+  {
+   "members": [
+    "CHAU"
+   ],
+   "rep": null,
+   "note": "거래 부족",
+   "inside": NaN,
+   "dvSum": 1423686.99333601
+  }
+ ]
+}
