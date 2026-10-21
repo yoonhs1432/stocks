@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8">
+<title>앱 구조 v2 — 리밸런싱 중심 목업</title>
+<style>
+  :root { --bg:#101013; --input:#1B1B20; --line:#24242A; --t1:#F2F4F6; --t2:#8B95A1; --t3:#6B7684;
+          --buy:#F04452; --sell:#3182F6; --gold:#E0A24A; --acc:#3182F6; --green:#2EA078; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { background:#2a2a30; font-family:"Malgun Gothic",sans-serif; color:var(--t1); padding:22px; }
+  .row-wrap { display:flex; gap:22px; align-items:flex-start; }
+  .cap { color:#ddd; font-size:13px; margin:0 0 8px 6px; font-weight:700; }
+  .sub-cap { color:#aaa; font-size:11px; margin:0 0 8px 6px; }
+  .phone { width:360px; height:760px; background:var(--bg); border-radius:28px; border:1px solid #333;
+           display:flex; flex-direction:column; overflow:hidden; }
+  .body { flex:1; padding:14px 16px; overflow:hidden; }
+  .hdr { display:flex; align-items:center; padding:14px 16px 10px; border-bottom:1px solid var(--line); }
+  .hdr h1 { font-size:19px; font-weight:800; flex:1; }
+  .tabs { display:flex; border-top:1px solid var(--line); height:58px; }
+  .tabs div { flex:1; text-align:center; font-size:10.5px; color:var(--t3); padding-top:9px; }
+  .tabs div b { display:block; font-size:17px; margin-bottom:2px; }
+  .tabs .on { color:var(--t1); font-weight:700; }
+  .sec { color:var(--t2); font-size:11.5px; font-weight:700; margin:14px 0 7px; }
+  .row { display:flex; align-items:center; }
+  .sp { flex:1; }
+  .mono { font-family:Consolas,monospace; }
+  .pill { font-size:11px; font-weight:700; padding:3px 8px; border-radius:6px; border:1px solid; white-space:nowrap; }
+  .ghost { background:var(--input); font-size:11.5px; font-weight:700; padding:6px 10px; border-radius:8px; color:var(--t1); }
+  .cta { background:var(--acc); color:#fff; text-align:center; font-weight:800; padding:12px; border-radius:11px; font-size:14px; }
+  .box { background:var(--input); border-radius:10px; padding:10px 12px; font-size:11.5px; line-height:17px; color:var(--t2); }
+  .box b { color:var(--t1); }
+  .small { font-size:10.5px; color:var(--t3); }
+  hr { border:0; border-top:1px solid var(--line); margin:10px 0; }
+  /* 비중 막대 (지금 vs 목표) */
+  .stack { display:flex; height:16px; border-radius:5px; overflow:hidden; }
+  .stack span { display:block; height:100%; }
+  /* 이탈 막대 */
+  .dev { display:grid; grid-template-columns:50px 1fr 40px; align-items:center; gap:5px; height:19px; }
+  .dev .tk { font-size:11px; font-weight:700; font-family:Consolas,monospace; }
+  .track { position:relative; height:9px; }
+  .track .mid { position:absolute; left:50%; top:-4px; bottom:-4px; width:1px; background:var(--line); }
+  .track .b { position:absolute; top:0; bottom:0; border-radius:3px; }
+  .dev .v { font-size:10.5px; text-align:right; font-family:Consolas,monospace; }
+  /* 주문 체크리스트 */
+  .ord { display:flex; align-items:center; padding:9px 0; border-bottom:1px solid var(--line); gap:8px; }
+  .chk { width:20px; height:20px; border-radius:6px; border:1.5px solid var(--t3); flex:none; text-align:center; font-size:13px; line-height:18px; }
+  .chk.done { background:var(--green); border-color:var(--green); color:#fff; }
+  .ord .tk { font-family:Consolas,monospace; font-weight:700; font-size:13px; width:46px; }
+  .ord .mid { flex:1; font-size:10.5px; color:var(--t2); line-height:14px; }
+  .ord .act { text-align:right; font-size:12.5px; font-weight:700; line-height:15px; }
+  .ord .act small { display:block; font-size:10px; color:var(--t2); font-weight:400; }
+  .prog { height:6px; background:var(--input); border-radius:3px; overflow:hidden; }
+  .prog span { display:block; height:100%; width:38%; background:var(--green); }
+  /* 바구니 카드 */
+  .card { padding:9px 0; border-bottom:1px solid var(--line); }
+  .card .t { font-family:Consolas,monospace; font-weight:800; font-size:13px; }
+  .lev { font-size:10px; font-weight:700; padding:1px 5px; border-radius:4px; background:#2a2a33; color:var(--t2); margin-left:5px; }
+  .card .d { font-size:10.5px; color:var(--t2); margin-top:2px; }
+  .card .m { font-size:10.5px; color:var(--t3); margin-top:3px; font-family:Consolas,monospace; }
+  .seg { display:flex; gap:14px; font-size:12.5px; }
+  .seg span { color:var(--t3); padding-bottom:5px; }
+  .seg .on { color:var(--acc); font-weight:800; border-bottom:2px solid var(--acc); }
+  .list .it { display:flex; align-items:center; padding:11px 0; border-bottom:1px solid var(--line); font-size:13px; }
+  .list .it small { color:var(--t3); font-size:10.5px; display:block; margin-top:2px; }
+  .badge { font-size:10px; color:var(--t3); background:var(--input); border-radius:4px; padding:1px 5px; margin-left:6px; }
+</style></head>
+<body>
+<div class="row-wrap">
+
+<!-- ① 홈 -->
+<div>
+<div class="cap">① 홈 — 지금 무엇을 해야 하나</div>
+<div class="sub-cap">앱을 켜면 바로 여기. 비교·분석 탭 대신 · 숫자는 예시</div>
+<div class="phone">
+  <div class="hdr"><h1>홈</h1><span class="small">PC 연결됨 · 2분 전</span></div>
+  <div class="body">
+    <div class="box" style="border:1px solid var(--buy);background:#22161a">
+      <div class="row"><span class="pill" style="color:var(--buy);border-color:var(--buy)">맞출 때</span>
+        <span style="margin-left:8px;color:var(--t1);font-weight:700;font-size:13px">3분기 끝 — 13개 중 11개 맞추기</span></div>
+      <div style="margin-top:8px" class="cta">지금 맞추기 · 매도 2 · 매수 11</div>
+    </div>
+
+    <div class="sec">계좌</div>
+    <div class="row"><span class="mono" style="font-size:24px;font-weight:800">1억 2,480만</span><span class="sp"></span>
+      <span style="color:var(--buy);font-weight:700;font-size:13px">+3.2% 오늘</span></div>
+    <div class="small" style="margin-top:3px">고점 대비 −4.1% · 현금 20% 목표 기준 과거 최악 −44%</div>
+
+    <div class="sec">비중 — 지금 / 목표</div>
+    <div class="small" style="margin-bottom:4px">지금</div>
+    <div class="stack"><span style="width:47%;background:#3a3f4b"></span><span style="width:16%;background:#5a4b2b"></span><span style="width:37%;background:#24242A"></span></div>
+    <div class="small" style="margin:7px 0 4px">목표</div>
+    <div class="stack"><span style="width:80%;background:#3a3f4b"></span><span style="width:20%;background:#24242A"></span></div>
+    <div class="small" style="margin-top:5px">■ 바구니 47% → 80% · ■ 바구니 밖 16% → 0% · □ 현금 37% → 20%</div>
+
+    <div class="sec">목표 대비 (종목당 목표 768만)</div>
+    <div class="dev"><span class="tk">QPUX</span><div class="track"><div class="mid"></div><div class="b" style="left:50%;width:9%;background:var(--sell)"></div></div><span class="v" style="color:var(--sell)">+19%</span></div>
+    <div class="dev"><span class="tk">KORU</span><div class="track"><div class="mid"></div><div class="b" style="left:50%;width:7%;background:var(--sell)"></div></div><span class="v" style="color:var(--sell)">+15%</span></div>
+    <div class="dev"><span class="tk">NAIL</span><div class="track"><div class="mid"></div><div class="b" style="left:12%;width:38%;background:var(--buy)"></div></div><span class="v" style="color:var(--buy)">−76%</span></div>
+    <div class="dev"><span class="tk">UPRO</span><div class="track"><div class="mid"></div><div class="b" style="left:0;width:50%;background:var(--buy)"></div></div><span class="v" style="color:var(--buy)">새로</span></div>
+    <div class="small" style="margin-top:4px">+ 9개 새로 담기 · 전체 보기 ›</div>
+
+    <div class="sec">알림</div>
+    <div class="box">다음 정기 맞추기 <b>12/31</b> · 그 사이 목표의 2배/절반을 넘으면 알림</div>
+  </div>
+  <div class="tabs"><div class="on"><b>⌂</b>홈</div><div><b>◎</b>바구니</div><div><b>▤</b>계좌</div><div><b>⋯</b>더보기</div></div>
+</div>
+</div>
+
+<!-- ② 맞추기 -->
+<div>
+<div class="cap">② 맞추기 — 체크리스트</div>
+<div class="sub-cap">홈의 '지금 맞추기'를 누르면. 하나씩 토스로 넘기고 체크</div>
+<div class="phone">
+  <div class="hdr"><span style="font-size:18px;margin-right:10px">‹</span><h1>맞추기</h1><span class="small">5 / 13</span></div>
+  <div class="body">
+    <div class="prog"><span></span></div>
+    <div class="small" style="margin:6px 0 2px">① 매도 먼저 — 현금을 만든다 · ② 매수 · 정수 주</div>
+
+    <div class="sec">① 매도</div>
+    <div class="ord"><div class="chk done">✓</div><span class="tk">QPUX</span><span class="mid">930만 → 768만<br>1주 9,047원 · 목표와 거의 같음</span>
+      <span class="act" style="color:var(--sell)">매도 179주<small>162만</small></span></div>
+    <div class="ord"><div class="chk done">✓</div><span class="tk">KORU</span><span class="mid">880만 → 768만<br>1주 1.6만 · 목표와 거의 같음</span>
+      <span class="act" style="color:var(--sell)">매도 69주<small>112만</small></span></div>
+    <div class="ord"><div class="chk done">✓</div><span class="tk">GDXU</span><span class="mid">바구니 밖 1,410만 → 0<br>전량 · 양도세 미리 보기에 반영</span>
+      <span class="act" style="color:var(--sell)">매도 전량<small>1,410만</small></span></div>
+
+    <div class="sec">② 매수</div>
+    <div class="ord"><div class="chk done">✓</div><span class="tk">UPRO</span><span class="mid">0 → 768만 · S&P500 3배<br>1주 $149.6(19.9만) · +8.1만</span>
+      <span class="act" style="color:var(--buy)">매수 39주<small>776만</small></span></div>
+    <div class="ord"><div class="chk done">✓</div><span class="tk">UGL</span><span class="mid">0 → 768만 · 금 2배<br>1주 $44.7(5.9만) · −3.8만</span>
+      <span class="act" style="color:var(--buy)">매수 129주<small>764만</small></span></div>
+    <div class="ord"><div class="chk"></div><span class="tk">DDM</span><span class="mid">0 → 768만 · 다우30 2배<br>1주 $64.9(8.6만) · −0.3만</span>
+      <span class="act" style="color:var(--buy)">매수 89주<small>768만</small></span></div>
+    <div class="ord"><div class="chk"></div><span class="tk">BITX</span><span class="mid">0 → 768만 · 비트코인 2배<br>1주 $18.9(2.5만) · −1.1만</span>
+      <span class="act" style="color:var(--buy)">매수 305주<small>767만</small></span></div>
+    <div class="small" style="margin-top:6px">+ 6개 더</div>
+
+    <div class="box" style="margin-top:10px">비용 약 <b>27만</b> · 양도세(추정) 올해 이익 186만 → <b>271만</b>, 늘어나는 세금 <b style="color:var(--buy)">4.6만</b></div>
+    <div class="cta" style="margin-top:10px">다음: DDM 토스에서 주문</div>
+  </div>
+  <div class="tabs"><div class="on"><b>⌂</b>홈</div><div><b>◎</b>바구니</div><div><b>▤</b>계좌</div><div><b>⋯</b>더보기</div></div>
+</div>
+</div>
+
+<!-- ③ 바구니 -->
+<div>
+<div class="cap">③ 바구니 — 무엇을 담나</div>
+<div class="sub-cap">종목 카드 + 규칙(주기·현금·단위) + 과거 성과</div>
+<div class="phone">
+  <div class="hdr"><h1>바구니</h1><span class="ghost">편집</span></div>
+  <div class="body">
+    <div class="seg"><span class="on">종목 13</span><span>규칙</span><span>과거 성과</span></div>
+    <div class="small" style="margin:8px 0 2px">동일 비중 · 분기 · 현금 20% · 정수 주</div>
+
+    <div class="card"><div class="row"><span class="t">UPRO</span><span class="lev">3배</span><span class="sp"></span><span class="mono" style="font-size:11px">0% / 6.2%</span></div>
+      <div class="d">S&P500 · 미국 대형주 500개</div><div class="m">변동성 38% · 1년 +31% · 거래 $287M</div></div>
+    <div class="card"><div class="row"><span class="t">UGL</span><span class="lev">2배</span><span class="sp"></span><span class="mono" style="font-size:11px">0% / 6.2%</span></div>
+      <div class="d">금 가격 · 주식과 따로 움직이는 편</div><div class="m">변동성 60% · 1년 +88% · 거래 $144M</div></div>
+    <div class="card"><div class="row"><span class="t">DDM</span><span class="lev">2배</span><span class="sp"></span><span class="mono" style="font-size:11px">0% / 6.2%</span></div>
+      <div class="d">다우존스30 · 미국 우량 대형주 30개</div><div class="m">변동성 25% · 1년 +18% · 거래 $12M</div></div>
+    <div class="card"><div class="row"><span class="t">KORU</span><span class="lev">3배</span><span class="sp"></span><span class="mono" style="font-size:11px;color:var(--sell)">7.1% / 6.2%</span></div>
+      <div class="d">MSCI 한국 · 삼성전자·SK하이닉스 비중 큼</div><div class="m">변동성 175% · 1년 +54% · 거래 $511M · ⚠️배수 과함</div></div>
+    <div class="card"><div class="row"><span class="t">UBT</span><span class="lev">2배</span><span class="sp"></span><span class="mono" style="font-size:11px">0% / 6.2%</span></div>
+      <div class="d">미국 20년+ 국채 · 주식 급락 때 완충</div><div class="m">변동성 19% · 1년 −22% · 거래 $1.3M · ⚠️지정가로</div></div>
+    <div class="small" style="margin-top:6px">+ 8개 · 비중: 지금 / 목표</div>
+
+    <div class="sec">규칙 미리 보기</div>
+    <div class="box">현금 <b>20%</b> → 과거 최악 <b>−44%</b>, 세후 연 <b>+16%</b> (2016~)<br>
+      현금 30%면 −38% / +15% · 0%면 −55% / +19%</div>
+  </div>
+  <div class="tabs"><div><b>⌂</b>홈</div><div class="on"><b>◎</b>바구니</div><div><b>▤</b>계좌</div><div><b>⋯</b>더보기</div></div>
+</div>
+</div>
+
+</div>
+<div class="row-wrap" style="margin-top:22px">
+
+<!-- ④ 계좌 -->
+<div>
+<div class="cap">④ 계좌 — 지금 포트폴리오 탭</div>
+<div class="sub-cap">자산 추이·손익은 그대로, 보유를 '바구니 안 / 밖'으로 나눔</div>
+<div class="phone">
+  <div class="hdr"><h1>계좌</h1><span class="seg"><span class="on">원</span><span>$</span></span></div>
+  <div class="body">
+    <div class="small">총자산</div>
+    <div class="row"><span class="mono" style="font-size:24px;font-weight:800">1억 2,480만</span><span class="sp"></span>
+      <span style="color:var(--buy);font-weight:700">+1,120만 (+9.9%)</span></div>
+    <svg width="328" height="110" style="margin-top:8px">
+      <polyline fill="none" stroke="#F04452" stroke-width="2" points="0,90 30,84 60,88 90,70 120,74 150,60 180,66 210,48 240,52 270,36 300,40 328,28"/>
+      <polyline fill="none" stroke="#6B7684" stroke-width="1" stroke-dasharray="3,3" points="0,80 328,64"/>
+    </svg>
+    <div class="small">— 총자산 · ┄ 원금</div>
+
+    <div class="sec">바구니 안 3 · 1,990만</div>
+    <div class="list">
+      <div class="it"><span class="mono" style="font-weight:700;width:58px">QPUX</span><span class="sp">930만</span><span style="color:var(--buy)">+12.4%</span></div>
+      <div class="it"><span class="mono" style="font-weight:700;width:58px">KORU</span><span class="sp">880만</span><span style="color:var(--buy)">+8.1%</span></div>
+      <div class="it"><span class="mono" style="font-weight:700;width:58px">NAIL</span><span class="sp">180만</span><span style="color:var(--sell)">−6.3%</span></div>
+    </div>
+    <div class="sec">바구니 밖 7 · 4,650만 <span class="badge">맞추기에서 정리 가능</span></div>
+    <div class="list">
+      <div class="it"><span class="mono" style="font-weight:700;width:58px">GDXU</span><span class="sp">1,410만</span><span style="color:var(--buy)">+21.0%</span></div>
+      <div class="it"><span class="mono" style="font-weight:700;width:58px">BITU</span><span class="sp">1,200만</span><span style="color:var(--sell)">−3.2%</span></div>
+      <div class="it"><span class="mono" style="font-weight:700;width:58px">DFEN</span><span class="sp">900만</span><span style="color:var(--sell)">−14.8%</span></div>
+    </div>
+    <div class="small" style="margin-top:6px">+ 4개 · 현금 5,840만</div>
+  </div>
+  <div class="tabs"><div><b>⌂</b>홈</div><div><b>◎</b>바구니</div><div class="on"><b>▤</b>계좌</div><div><b>⋯</b>더보기</div></div>
+</div>
+</div>
+
+<!-- ⑤ 더보기 -->
+<div>
+<div class="cap">⑤ 더보기 — 나머지는 여기로</div>
+<div class="sub-cap">비교·분석(Z·M 차트)은 '종목 분석'으로 한 단계 안쪽에</div>
+<div class="phone">
+  <div class="hdr"><h1>더보기</h1></div>
+  <div class="body">
+    <div class="list">
+      <div class="it"><div class="sp">종목 분석 <span class="badge">예전 비교·분석</span><small>관심종목 표, Z·M 차트, 장기 제안 카드</small></div><span>›</span></div>
+      <div class="it"><div class="sp">매매 일지<small>체결 내역 · 실현 손익 · 올해 양도세 추정</small></div><span>›</span></div>
+      <div class="it"><div class="sp">알림<small>분기 말 · 큰 이탈 · 앱 업데이트</small></div><span>›</span></div>
+      <div class="it"><div class="sp">원금 기록<small>입금 내역 — 수익률 계산에 쓴다</small></div><span>›</span></div>
+      <div class="it"><div class="sp">집 PC 연결<small>연결됨 · hsyunpc…ts.net</small></div><span>›</span></div>
+      <div class="it"><div class="sp">앱 정보<small>빌드 10-21 · 업데이트 확인</small></div><span>›</span></div>
+    </div>
+    <div class="box" style="margin-top:14px">왜 이렇게 바꾸나 — 검증해 보니 Z·M 으로 사고팔 시점을 맞히는 근거가 약했고,
+      <b>바구니 + 현금 + 분기 맞추기</b>가 가장 일관됐다. 매일 보는 화면을 그 일에 맞춘다.</div>
+  </div>
+  <div class="tabs"><div><b>⌂</b>홈</div><div><b>◎</b>바구니</div><div><b>▤</b>계좌</div><div class="on"><b>⋯</b>더보기</div></div>
+</div>
+</div>
+
+<!-- 정리 -->
+<div style="width:360px;color:#ddd;font-size:12.5px;line-height:20px">
+  <div class="cap" style="margin-left:0">바뀌는 것 한눈에</div>
+  <table style="border-collapse:collapse;width:100%;font-size:12px">
+    <tr><td style="padding:5px;border-bottom:1px solid #444;color:#999">지금</td><td style="padding:5px;border-bottom:1px solid #444;color:#999">바뀐 뒤</td></tr>
+    <tr><td style="padding:5px;border-bottom:1px solid #333">비교 (첫 화면)</td><td style="padding:5px;border-bottom:1px solid #333"><b>홈</b> — 맞출 때인지·비중·이탈</td></tr>
+    <tr><td style="padding:5px;border-bottom:1px solid #333">분석</td><td style="padding:5px;border-bottom:1px solid #333">더보기 › 종목 분석</td></tr>
+    <tr><td style="padding:5px;border-bottom:1px solid #333">포트폴리오 › 리밸런싱 줄</td><td style="padding:5px;border-bottom:1px solid #333"><b>맞추기</b> 체크리스트(홈에서) · <b>바구니</b> 탭</td></tr>
+    <tr><td style="padding:5px;border-bottom:1px solid #333">포트폴리오</td><td style="padding:5px;border-bottom:1px solid #333"><b>계좌</b> — 바구니 안/밖으로 나눔</td></tr>
+    <tr><td style="padding:5px;border-bottom:1px solid #333">설정</td><td style="padding:5px;border-bottom:1px solid #333">더보기 (+ 바구니 › 규칙)</td></tr>
+  </table>
+  <div style="margin-top:12px;color:#aaa;font-size:11.5px">새로 생기는 것: 바구니 밖 종목도 맞추기에서 '전량 매도'로 정리(선택),
+    주문 체크 표시(어디까지 했는지 기억), 비중 막대(지금/목표), 종목 카드(설명·배수·변동성·1년·거래대금·경고).</div>
+</div>
+
+</div>
+</body></html>
