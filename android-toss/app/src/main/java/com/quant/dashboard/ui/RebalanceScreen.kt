@@ -233,7 +233,9 @@ private fun RebalanceDialog(initial: Server.Rebalance?, onClose: () -> Unit, onP
                 if (orders.isEmpty()) {
                     Text("맞출 것이 없습니다 — 모든 종목이 목표에서 20만 원 안쪽", color = TextSecondary, fontSize = 13.sp)
                 }
-                orders.forEach { r -> OrderRow(r, done = r.ticker in opened) { opened.add(r.ticker); TossLink.openOrder(ctx, r.ticker) } }
+                orders.forEach { r ->
+                    OrderRow(r, p.desc[r.ticker], done = r.ticker in opened) { opened.add(r.ticker); TossLink.openOrder(ctx, r.ticker) }
+                }
                 Text("차이가 20만 원 아래인 종목은 건너뜀 · 미국은 0.01주, 국내는 1주 단위",
                     color = TextMuted, fontSize = 11.sp, modifier = Modifier.padding(top = 8.dp))
                 if (p.outside.isNotEmpty()) {
@@ -330,7 +332,7 @@ private fun DevBar(r: Server.RebalRow) {
 }
 
 @Composable
-private fun OrderRow(r: Server.RebalRow, done: Boolean, onToss: () -> Unit) {
+private fun OrderRow(r: Server.RebalRow, desc: String?, done: Boolean, onToss: () -> Unit) {
     val sell = r.action == "sell"
     val c = if (sell) Loss else Profit
     Column {
@@ -345,6 +347,9 @@ private fun OrderRow(r: Server.RebalRow, done: Boolean, onToss: () -> Unit) {
             }
             Spacer(Modifier.width(8.dp))
             GhostButton(if (done) "✓ 토스" else "토스", color = if (done) TextMuted else TextPrimary) { onToss() }
+        }
+        if (!desc.isNullOrBlank()) {
+            Text(desc, color = TextMuted, fontSize = 11.sp, modifier = Modifier.padding(bottom = 8.dp))
         }
         HDivider()
     }
@@ -448,8 +453,18 @@ private fun RebalanceSettings(p: Server.Rebalance, onDismiss: () -> Unit,
                         ) { Text(Tickers.displayName(t), color = if (on) Gold else TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.Bold) }
                     }
                 }
-                Text("기본은 서로 덜 닮은 종목(주간 상관 묶음마다 하나). 과거엔 관심종목 전체가 더 나았다 — " +
-                    "미국 기술주 묶음이 크게 오른 기간이라서. 급락장에선 레버리지 주식끼리 같이 빠져, 낙폭을 줄이는 건 현금이다.",
+                // 고른 종목이 무엇인지 — 설명은 서버가 준다
+                Column(Modifier.padding(top = 10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    basket.forEach { t ->
+                        Row {
+                            Text(Tickers.displayName(t), color = TextPrimary, fontSize = 12.sp, fontWeight = FontWeight.Bold,
+                                fontFamily = Mono, modifier = Modifier.width(64.dp))
+                            Text(plan.desc[t] ?: "", color = TextSecondary, fontSize = 12.sp, lineHeight = 16.sp)
+                        }
+                    }
+                }
+                Text("기본은 단일 종목 ETF 를 뺀 여러 종목 레버리지 ETF 의 상관 묶음 대표. 배수는 기초자산이 감당하는 만큼 — " +
+                    "S&P 만 3배, 나머지는 2배가 있으면 2배. 급락장에선 레버리지 주식끼리 같이 빠져, 낙폭을 줄이는 건 현금이다.",
                     color = TextMuted, fontSize = 11.sp, lineHeight = 15.sp, modifier = Modifier.padding(top = 8.dp))
                 Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (plan.defaultBasket.isNotEmpty()) {

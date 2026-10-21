@@ -23,14 +23,44 @@ import store
 
 KST = timezone(timedelta(hours=9))
 
-# 기본 바구니 (2026-10-21, research/lev_multi.py · lev_multi.md):
-# 토스에서 살 수 있는 미국 레버리지 롱 ETF 중 **단일 종목 ETF 를 뺀** 여러 종목 ETF(+원자재·코인)를
-# 주간 상관으로 묶고, 묶음마다 거래 충분한 것 중 변동성이 가장 낮은 대표. 한국은 사용자 지정으로 KORU.
-# MSOX(미국 대마초 2배 — 변동성 182%·거래 얇음·정책 의존)는 사용자 동의로 뺐다(2026-10-21) → 13개.
-# 2016~ 백테스트(분기·현금 20%·세후): 연 +15.1%·최대 낙폭 51% — 이전 9개(+18.9%·68%)보다 덜 벌고 덜 잃는다.
+# 기본 바구니 (2026-10-21, research/lev_multi.py · lev23_basket.py):
+# 토스에서 살 수 있는 미국 레버리지 롱 ETF 중 **단일 종목 ETF 를 뺀** 여러 종목 ETF(+원자재·코인)를 주간 상관으로
+# 묶고 묶음마다 대표 하나. 배수는 **기초자산이 감당하는 만큼** — 수익이 최대가 되는 배수 ≈ (수익−이자)/분산이
+# S&P 만 3배 근처라 S&P 는 3배(UPRO), 나머지는 2배가 있으면 2배(DDM·UBT·BIB). 중국·리츠는 2배(XPP·URE)가
+# 하루 거래 $0.1~0.2M 뿐이라 3배(YINN·DRN) 유지. 한국은 사용자 지정 KORU, MSOX 는 사용자 동의로 제외.
+# 2016~ 분기·세후: 현금 0% 연 +18.5%·최대 낙폭 55% (이전 13개 +16.6%·63%).
 # 앱은 이 목록을 응답(defaultBasket)으로 받아 '기본' 단추에 쓴다 — 바꿔도 앱을 다시 빌드할 필요 없다.
-DEFAULT_BASKET = ["SSO", "UGL", "UDOW", "KORU", "BITX", "TMF", "ERX", "LABU", "NAIL", "YINN",
+DEFAULT_BASKET = ["UPRO", "UGL", "DDM", "KORU", "BITX", "UBT", "ERX", "BIB", "NAIL", "YINN",
                   "DRN", "QPUX", "BRZU"]
+
+# 종목 설명 — 앱의 주문 목록·설정에 그대로 보인다(서버만 고치면 된다)
+DESC = {
+    "UPRO": "S&P500 3배 · 미국 대형주 500개 (ProShares UltraPro S&P500)",
+    "SSO": "S&P500 2배 (ProShares Ultra S&P500)",
+    "UGL": "금 가격 2배 · 주식과 따로 움직이는 편 (ProShares Ultra Gold)",
+    "DDM": "다우존스30 2배 · 미국 우량 대형주 30개 (ProShares Ultra Dow30)",
+    "UDOW": "다우존스30 3배 (ProShares UltraPro Dow30)",
+    "KORU": "MSCI 한국 3배 · 삼성전자·SK하이닉스 비중이 크다 (Direxion)",
+    "BITX": "비트코인 2배 · 선물로 추종 (Volatility Shares 2x Bitcoin)",
+    "BITU": "비트코인 2배 (ProShares Ultra Bitcoin)",
+    "UBT": "미국 20년+ 장기국채 2배 · 금리가 내리면 오른다, 주식 급락 때 완충(2022 처럼 같이 빠질 때도 있다)",
+    "TMF": "미국 20년+ 장기국채 3배 (Direxion)",
+    "ERX": "미국 에너지 업종 2배 · 엑슨모빌·셰브론 등 (Direxion)",
+    "BIB": "나스닥 바이오 2배 · 대형 바이오 중심 (ProShares Ultra Nasdaq Biotechnology)",
+    "LABU": "S&P 바이오 3배 · 중소형 바이오 균등 비중 (Direxion)",
+    "NAIL": "미국 주택건설·건자재 3배 · 금리에 민감 (Direxion)",
+    "YINN": "중국 대형주 50 3배 · 홍콩 상장 (Direxion FTSE China)",
+    "DRN": "미국 리츠(부동산) 3배 · 금리에 민감 (Direxion)",
+    "QPUX": "양자컴퓨팅 기업 지수 2배 · 아이온큐·리게티 등 (Defiance)",
+    "BRZU": "브라질 대형주 2배 · 페트로브라스·발레 등 (Direxion MSCI Brazil)",
+    "TQQQ": "나스닥100 3배 (ProShares UltraPro QQQ)",
+    "SOXL": "미국 반도체 3배 (Direxion)",
+    "DPST": "미국 지역은행 3배 (Direxion)",
+    "DFEN": "미국 항공·방산 3배 (Direxion)",
+    "GDXU": "금광주 3배 (MicroSectors ETN)",
+    "WTIU": "미국 에너지 3배 (MicroSectors ETN) · 거래가 매우 적다",
+    "BNKU": "미국 대형은행 3배 (MicroSectors ETN) · 거래가 매우 적다",
+}
 DEFAULTS = {"basket": DEFAULT_BASKET, "cashPct": 20, "period": "quarterly", "lastDone": None}
 PERIODS = ("monthly", "quarterly", "yearly")
 
@@ -206,6 +236,7 @@ def plan(acc: dict, quote) -> dict:
         "table": table_for(s),
         "watchlist": store.tickers(),
         "defaultBasket": DEFAULT_BASKET,
+        "desc": {t: DESC[t] for t in set(basket) | set(DEFAULT_BASKET) | set(store.tickers()) if DESC.get(t)},
     }
 
 

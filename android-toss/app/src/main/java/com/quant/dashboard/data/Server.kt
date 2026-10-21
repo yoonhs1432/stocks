@@ -497,6 +497,8 @@ object Server {
         val watchlist: List<String>,
         /** 서버가 정한 기본 바구니 — '기본' 단추. 서버만 바꾸면 앱은 그대로 따라간다. */
         val defaultBasket: List<String>,
+        /** 종목 설명(“S&P500 3배 · …”) — 서버가 준다 */
+        val desc: Map<String, String> = emptyMap(),
     )
 
     fun rebalance(): Rebalance = rebalanceOf(obj("/api/rebalance"))
@@ -562,6 +564,7 @@ object Server {
             tableFrom = tb?.optString("from").orEmpty(),
             watchlist = o.optJSONArray("watchlist").strings(),
             defaultBasket = o.optJSONArray("defaultBasket").strings(),
+            desc = o.optJSONObject("desc")?.let { d -> d.keys().asSequence().associateWith { d.optString(it) } }.orEmpty(),
         )
     }
 
