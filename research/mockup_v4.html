@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8">
+<title>시안 v4 — A 바구니 + E 홈</title>
+<style>
+  :root{--bg:#0E0E11;--card:#17171C;--card2:#1F1F26;--line:#2A2A33;--t1:#F2F4F6;--t2:#9AA3AE;--t3:#646E7A;
+    --up:#F04452;--down:#3182F6;--acc:#3182F6;--ok:#2EA078;
+    --cash:#2A2A33;--c1:#199e70;--c2:#d95926;--c3:#9085e9;--c4:#c98500;--c5:#d55181;}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#26262c;font-family:"Malgun Gothic",sans-serif;color:var(--t1);padding:20px;width:1180px}
+  h2{font-size:22px;margin:0 0 4px 4px} .lead{color:#b8b8c0;font-size:13px;margin:0 0 14px 4px}
+  .wrap{display:flex;gap:22px;align-items:flex-start}
+  .phone{width:360px;height:780px;background:var(--bg);border-radius:30px;border:1px solid #3a3a42;overflow:hidden;display:flex;flex-direction:column;position:relative}
+  .scr{flex:1;padding:16px 16px 0;overflow:hidden}
+  .tabs{display:flex;height:60px;border-top:1px solid var(--line);background:var(--bg)}
+  .tabs div{flex:1;text-align:center;font-size:10px;color:var(--t3);padding-top:10px}
+  .tabs div i{display:block;width:20px;height:20px;margin:0 auto 3px;border-radius:6px;border:2px solid var(--t3)}
+  .tabs .on{color:var(--t1);font-weight:700} .tabs .on i{border-color:var(--t1);background:var(--t1)}
+  .card{background:var(--card);border-radius:18px;padding:14px;margin-bottom:10px}
+  .lbl{font-size:12px;color:var(--t2)} .big{font-size:30px;font-weight:800;letter-spacing:-.5px}
+  .mid{font-size:18px;font-weight:800} .sm{font-size:11px;color:var(--t3)}
+  .row{display:flex;align-items:center} .sp{flex:1}
+  .up{color:var(--up)} .down{color:var(--down)}
+  .pill{font-size:11px;font-weight:700;padding:4px 9px;border-radius:99px;background:var(--card2);color:var(--t2)}
+  .pill.hot{background:rgba(240,68,82,.15);color:var(--up)}
+  .btn{background:var(--acc);color:#fff;font-weight:800;text-align:center;padding:14px;border-radius:14px;font-size:15px}
+  .chip{display:inline-flex;align-items:center;gap:6px;background:var(--card2);border-radius:12px;padding:8px 10px;font-size:12px;font-weight:700;white-space:nowrap}
+  .dot{width:8px;height:8px;border-radius:50%;display:inline-block}
+  .mono{font-family:Consolas,monospace}
+  .hdr{display:flex;align-items:center;margin-bottom:12px}.hdr b{font-size:20px;font-weight:800}
+  .seg{display:flex;background:var(--card);border-radius:12px;padding:3px;gap:2px;font-size:12px}
+  .seg span{flex:1;text-align:center;padding:7px 0;border-radius:9px;color:var(--t2)} .seg .on{background:var(--card2);color:var(--t1);font-weight:700}
+  .tile{background:var(--card);border-radius:16px;padding:11px}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .leg{display:flex;flex-wrap:wrap;gap:4px 10px;font-size:11px;color:var(--t2)}
+  .leg span{display:inline-flex;align-items:center;gap:5px}
+  .step{display:flex;gap:6px} .step i{flex:1;height:5px;border-radius:3px;background:var(--card2)} .step i.on{background:var(--ok)}
+  .lst .it{display:flex;align-items:center;padding:9px 0;border-bottom:1px solid var(--line);font-size:13px}
+  .ck{width:22px;height:22px;border-radius:7px;border:2px solid var(--t3);margin-right:10px;flex:none}
+  .ck.on{background:var(--ok);border-color:var(--ok)}
+</style></head>
+<body>
+<div id="root"></div>
+<script>
+// ───── 예시 데이터 (가상) ─────
+const G=[ // 자산군 — 지금/목표 비중(%)
+ {k:'미국 지수',c:'var(--c1)',now:20,tgt:12.3},{k:'해외',c:'var(--c2)',now:9,tgt:18.5},
+ {k:'업종·테마',c:'var(--c3)',now:22,tgt:24.6},{k:'원자재·코인',c:'var(--c4)',now:17,tgt:18.5},{k:'채권',c:'var(--c5)',now:3,tgt:6.2}];
+const CASH={now:29,tgt:20};
+const T=[ // 종목 — 그룹, 지금/목표(%), 1년, 변동성, 배수
+ ['UPRO',0,9.1,6.15,38,38,3],['DDM',0,10.9,6.15,24,25,2],['KORU',1,3.2,6.15,65,175,3],['YINN',1,2.4,6.15,-50,56,3],['BRZU',1,3.4,6.15,99,56,2],
+ ['BIB',2,7.9,6.15,70,45,2],['NAIL',2,3.1,6.15,-57,87,3],['DRN',2,5.8,6.15,-3,43,3],['QPUX',2,5.2,6.15,-40,177,2],
+ ['UGL',3,8.8,6.15,-18,59,2],['BITX',3,3.9,6.15,-57,90,2],['ERX',3,4.3,6.15,139,44,2],['UBT',4,3.0,6.15,-20,19,2]]
+ .map(([t,g,n,tg,r,v,l])=>({t,g,n,tg,r,v,l,d:(n/tg-1)*100}));
+function rnd(s){return()=>{s=Math.sin(s)*10000;return s-Math.floor(s)}}
+function walk(n,seed,drift=0.0006,vol=0.012,start=100){const r=rnd(seed);let v=start,a=[];for(let i=0;i<n;i++){v*=1+drift+(r()-.5)*2*vol;a.push(v)}return a}
+const HIST=walk(180,7,0.0009,0.014,0.72).map(x=>x*1e8);
+const fmt=v=>v>=1e8?`${Math.floor(v/1e8)}억 ${Math.round(v%1e8/1e4).toLocaleString()}만`:`${Math.round(v/1e4).toLocaleString()}만`;
+
+// ───── 그래프 조각 ─────
+function donut(seg,size,th,gap=2,inner=''){ // seg:[{v,c}]
+ const r=size/2-th/2,C=2*Math.PI*r,tot=seg.reduce((a,b)=>a+b.v,0);let off=0,s='';
+ seg.forEach(x=>{const L=x.v/tot*C-gap;s+=`<circle r="${r}" cx="${size/2}" cy="${size/2}" fill="none" stroke="${x.c}" stroke-width="${th}" stroke-dasharray="${Math.max(L,0)} ${C}" stroke-dashoffset="${-off}" transform="rotate(-90 ${size/2} ${size/2})"/>`;off+=x.v/tot*C});
+ return `<svg width="${size}" height="${size}">${s}${inner}</svg>`}
+function line(a,w,h,col='var(--up)',fill=true,marks=[]){
+ const mn=Math.min(...a),mx=Math.max(...a),X=i=>i/(a.length-1)*w,Y=v=>h-4-(v-mn)/(mx-mn)*(h-8);
+ const d=a.map((v,i)=>`${i?'L':'M'}${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join('');
+ const m=marks.map(i=>`<circle cx="${X(i)}" cy="${Y(a[i])}" r="4.5" fill="var(--bg)" stroke="var(--t1)" stroke-width="2"/>`).join('');
+ return `<svg width="${w}" height="${h}">${fill?`<defs><linearGradient id="g${w}${h}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${col}" stop-opacity=".28"/><stop offset="1" stop-color="${col}" stop-opacity="0"/></linearGradient></defs><path d="${d}L${w},${h}L0,${h}Z" fill="url(#g${w}${h})"/>`:''}<path d="${d}" fill="none" stroke="${col}" stroke-width="2"/>${m}</svg>`}
+function spark(seed,up,w=64,h=22){return line(walk(40,seed,up?0.004:-0.004,0.02),w,h,up?'var(--up)':'var(--down)',false)}
+function gauge(p,size){ // 반원 게이지 0..1
+ const r=size/2-10,cx=size/2,cy=size/2,a=Math.PI*(1-p),x=cx+r*Math.cos(a),y=cy-r*Math.sin(a);
+ return `<svg width="${size}" height="${size/2+10}"><path d="M${cx-r},${cy} A${r},${r} 0 0 1 ${cx+r},${cy}" stroke="var(--card2)" stroke-width="14" fill="none" stroke-linecap="round"/>
+ <path d="M${cx-r},${cy} A${r},${r} 0 0 1 ${x},${y}" stroke="var(--up)" stroke-width="14" fill="none" stroke-linecap="round"/></svg>`}
+function stack(items,h=12,r=6){return `<div style="display:flex;height:${h}px;border-radius:${r}px;overflow:hidden;gap:2px">${items.map(x=>`<div style="flex:${x.v};background:${x.c}"></div>`).join('')}</div>`}
+const legend=()=>`<div class="leg">${G.map(g=>`<span><i class="dot" style="background:${g.c}"></i>${g.k}</span>`).join('')}<span><i class="dot" style="background:var(--card2);border:1px solid var(--t3)"></i>현금</span></div>`;
+function devbar(d,w=120){const f=Math.min(Math.abs(d),100)/100*(w/2);return `<svg width="${w}" height="10"><rect x="0" y="4" width="${w}" height="2" fill="var(--card2)"/><rect x="${d>=0?w/2:w/2-f}" y="1" width="${f}" height="8" rx="3" fill="${d>=0?'var(--down)':'var(--up)'}"/><rect x="${w/2-1}" y="0" width="2" height="10" fill="var(--t3)"/></svg>`}
+const tabs=on=>`<div class="tabs">${['홈','바구니','계좌','더보기'].map((x,i)=>`<div class="${i===on?'on':''}"><i></i>${x}</div>`).join('')}</div>`;
+const todo=[...T.filter(x=>x.d>20).sort((a,b)=>b.d-a.d).slice(0,2),...T.filter(x=>x.d<-20).sort((a,b)=>a.d-b.d).slice(0,3)];
+
+// ───── v4 공통 조각 — A 의 바구니 타일 + E 의 홈 위젯을 바탕으로 ─────
+const fmtS=v=>(v>0?'+':'')+v+'%';
+function ringPct(p,size,th,col,bg='var(--card2)',inner=''){return donut([{v:p,c:col},{v:100-p,c:bg}],size,th,0,inner)}
+function tileA(x,opt={}){ // A 의 종목 타일 (opt.tag = [글자, 색] 이면 아래에 큰 배지)
+ const g=G[x.g];
+ const bar=stack([{v:Math.min(x.n,x.tg),c:g.c},{v:Math.abs(x.n-x.tg),c:x.n>x.tg?'var(--down)':'rgba(240,68,82,.5)'},{v:Math.max(12-Math.max(x.n,x.tg),0),c:'var(--card2)'}],6,3);
+ const badge=Math.abs(x.d)<=20?'<span class="sm">✓</span>':`<span class="${x.d>0?'down':'up'}" style="font-size:11px;font-weight:800">${x.d>0?'▼ 팔기':'▲ 사기'}</span>`;
+ return `<div class="tile" style="${opt.style||''}"><div class="row"><i class="dot" style="background:${g.c}"></i>&nbsp;<b class="mono">${x.t}</b><span class="sp"></span><span class="sm">${x.l}x</span></div>
+ <div class="row" style="margin-top:6px">${spark(x.t.length*7+x.n,x.r>0,opt.sw||64,opt.sh||22)}<span class="sp"></span><b class="${x.r>0?'up':'down'}" style="font-size:12px">${fmtS(x.r)}</b></div>
+ <div style="margin-top:7px">${bar}</div>${opt.tag?`<div style="margin-top:7px;font-size:12px;font-weight:800;color:${opt.tag[1]}">${opt.tag[0]}</div>`:''}${opt.badge?`<div class="row" style="margin-top:6px"><span class="sm">${x.n}% / ${x.tg}%</span><span class="sp"></span>${badge}</div>`:''}</div>`}
+const weightCard=(t='비중')=>`<div class="card"><div class="row"><b>${t}</b><span class="sp"></span><span class="sm">지금 / 목표</span></div>
+ <div style="margin-top:10px">${stack([...G.map(g=>({v:g.now,c:g.c})),{v:CASH.now,c:'var(--cash)'}],14,7)}</div><div style="margin-top:6px">${stack([...G.map(g=>({v:g.tgt,c:g.c})),{v:CASH.tgt,c:'var(--cash)'}],14,7)}</div><div style="margin-top:8px">${legend()}</div></div>`;
+const heroCard=(chartW=130,chartH=36,grad='linear-gradient(135deg,#2a1418,#17171C)')=>`<div class="card" style="background:${grad}"><div class="lbl">총자산</div><div class="big">1억 2,480만</div>
+ <div class="row"><b class="up">+1.2%</b>&nbsp;<span class="sm">오늘</span><span class="sp"></span>${line(HIST.slice(-60),chartW,chartH,'var(--up)',false)}</div></div>`;
+const miniTiles=()=>`<div class="grid2" style="margin-bottom:10px"><div class="tile"><div class="lbl">현금</div><div class="mid">29%</div>${stack([{v:29,c:'var(--ok)'},{v:71,c:'var(--card2)'}],6,3)}<div class="sm" style="margin-top:4px">목표 20%</div></div>
+ <div class="tile"><div class="lbl">고점 대비</div><div class="mid down">−4.1%</div>${stack([{v:4.1,c:'var(--down)'},{v:40,c:'var(--card2)'}],6,3)}<div class="sm" style="margin-top:4px">과거 최악 −44%</div></div></div>`;
+const basketHdr=(extra='')=>`<div class="hdr"><b>바구니</b><span class="sp"></span><span class="pill">13종목</span></div><div class="seg" style="margin-bottom:12px"><span class="on">종목</span><span>규칙</span><span>성과</span></div>${extra}`;
+
+// ───── F · 정제 — E 홈 + A 바구니를 그대로 다듬기 ─────
+function F(){return [`<div class="scr" style="padding-top:12px"><div class="row" style="margin-bottom:12px"><div><div class="lbl">10월 21일</div><b style="font-size:22px">맞출 때예요</b></div><span class="sp"></span><span class="pill hot">할 일 5</span></div>
+ ${heroCard()}${miniTiles()}${weightCard()}
+ <div class="card" style="padding:12px 14px"><div class="row"><b>맞추기</b><span class="sp"></span><span class="sm">2 / 5</span></div><div class="step" style="margin:8px 0 10px"><i class="on"></i><i class="on"></i><i></i><i></i><i></i></div>
+ <div class="row"><b class="mono">UPRO</b>&nbsp;<span class="up" style="font-weight:800">매수 4주</span>&nbsp;<span class="sm">79만</span><span class="sp"></span><span class="pill" style="background:var(--acc);color:#fff">토스 ›</span></div></div></div>${tabs(0)}`,
+ `<div class="scr">${basketHdr()}<div class="grid2">${T.slice(0,10).map(x=>tileA(x,{badge:true})).join('')}</div></div>${tabs(1)}`]}
+
+// ───── G · 라이트 — 같은 구성, 밝은 테마(토스·은행 앱 기본값) ─────
+function G_(){return F()}
+
+// ───── H · 위젯 그리드 — 2×2 위젯 + 바구니 타일에 지금/목표 미니 링 ─────
+function H(){
+ const w=(title,body)=>`<div class="tile" style="height:142px;display:flex;flex-direction:column"><div class="lbl">${title}</div><div style="flex:1;display:flex;align-items:center;justify-content:center">${body}</div></div>`;
+ const ring=ringPct(29,86,10,'var(--ok)','var(--card2)',`<text x="43" y="48" text-anchor="middle" fill="var(--t1)" font-size="17" font-weight="800">29%</text>`);
+ const todoRing=ringPct(40,86,10,'var(--up)','var(--card2)',`<text x="43" y="49" text-anchor="middle" fill="var(--t1)" font-size="18" font-weight="800">2/5</text>`);
+ const dd=line(walk(60,11,-0.001,0.02),130,60,'var(--down)',true);
+ return [`<div class="scr" style="padding-top:12px"><div class="row" style="margin-bottom:10px"><b style="font-size:22px">홈</b><span class="sp"></span><span class="pill hot">맞출 때</span></div>
+ ${heroCard(150,44)}
+ <div class="grid2" style="margin-bottom:10px">${w('현금 · 목표 20%',ring)}${w('맞추기',todoRing)}${w('고점 대비 −4.1%',dd)}${w('비중 지금',donut([...G.map(g=>({v:g.now,c:g.c})),{v:CASH.now,c:'var(--cash)'}],86,12,2))}</div>
+ <div class="btn">다음: UPRO 매수 4주</div></div>${tabs(0)}`,
+ `<div class="scr">${basketHdr()}<div class="grid2">${T.slice(0,10).map(x=>{const g=G[x.g];return `<div class="tile"><div class="row"><div style="width:44px;height:44px">${donut([{v:x.n,c:g.c},{v:Math.max(12-x.n,0),c:'var(--card2)'}],44,6,0)}</div>
+ <div style="margin-left:8px;flex:1"><b class="mono">${x.t}</b> <span class="sm">${x.l}x</span><div class="sm">${x.n}% → ${x.tg}%</div></div></div>
+ <div class="row" style="margin-top:6px">${spark(x.t.length*7+x.n,x.r>0,70,20)}<span class="sp"></span><b class="${x.r>0?'up':'down'}" style="font-size:12px">${fmtS(x.r)}</b></div></div>`}).join('')}</div></div>${tabs(1)}`]}
+
+// ───── I · 히어로 차트 — 큰 추이 카드 + 주문 가로 카드, 바구니는 자산군 섹션별 타일 ─────
+function I(){
+ const ord=[['DDM','매도',9,'+77%'],['UPRO','매도',6,'+48%'],['YINN','매수',7,'−61%'],['UBT','매수',43,'−51%']];
+ return [`<div class="scr" style="padding-top:12px"><div class="card" style="background:linear-gradient(160deg,#1d1f2b,#141418);padding:16px">
+ <div class="row"><div><div class="lbl">총자산</div><div class="big">1억 2,480만</div><div class="row" style="gap:8px"><b class="up">+2,180만</b><span class="sm">원금 대비 +21.2%</span></div></div></div>
+ <div style="margin:10px -4px 0">${line(HIST,304,110,'var(--up)',true,[60,121])}</div>
+ <div class="seg" style="margin-top:8px;background:transparent"><span>1M</span><span>3M</span><span class="on">6M</span><span>1Y</span><span>전체</span></div></div>
+ ${miniTiles()}
+ <div class="row" style="margin:4px 0 8px"><b style="font-size:16px">맞추기</b><span class="sp"></span><span class="pill hot">2 / 5</span></div>
+ <div style="display:flex;gap:8px;overflow:hidden">${ord.map(([t,a,q,d],i)=>`<div class="tile" style="min-width:118px;${i<2?'opacity:.45':''}"><div class="row"><b class="mono">${t}</b><span class="sp"></span>${i<2?'<span style="color:var(--ok)">✓</span>':''}</div>
+ <div class="${a==='매도'?'down':'up'}" style="font-weight:800;font-size:16px;margin-top:6px">${a} ${q}주</div><div class="sm">목표 대비 ${d}</div></div>`).join('')}</div></div>${tabs(0)}`,
+ `<div class="scr">${basketHdr()}${G.slice(0,3).map((g,gi)=>`<div class="row" style="margin:6px 0"><span style="width:4px;height:16px;border-radius:2px;background:${g.c}"></span>&nbsp;<b style="font-size:13px">${g.k}</b><span class="sp"></span><span class="sm">${g.now}% → ${g.tgt}%</span></div>
+ <div class="grid2" style="margin-bottom:8px">${T.filter(x=>x.g===gi).map(x=>tileA(x,{badge:true})).join('')}</div>`).join('')}</div>${tabs(1)}`]}
+
+// ───── J · 액션 우선 — 맨 위가 '다음 할 일' 큰 카드, 바구니는 사기/팔기 배지 큰 타일 ─────
+function J(){
+ return [`<div class="scr" style="padding-top:12px"><div class="row" style="margin-bottom:10px"><b style="font-size:22px">홈</b><span class="sp"></span><span class="sm">1억 2,480만 · <span class="up">+1.2%</span></span></div>
+ <div class="card" style="background:linear-gradient(135deg,#3a1219,#1b1218);padding:18px">
+ <div class="row"><span class="pill hot">다음 할 일 · 3/5</span><span class="sp"></span><div style="width:46px;height:46px">${ringPct(40,46,6,'var(--up)','rgba(255,255,255,.12)')}</div></div>
+ <div style="margin-top:6px"><span class="mono" style="font-size:30px;font-weight:800">UPRO</span></div>
+ <div class="up" style="font-size:24px;font-weight:800">매수 4주</div><div class="sm" style="margin:4px 0 12px">1주 $149.60 · 약 79만 · S&P500 3배</div>
+ <div class="btn" style="background:#fff;color:#111">토스에서 주문</div><div class="row sm" style="margin-top:10px"><span>건너뛰기</span><span class="sp"></span><span>목록 보기 ›</span></div></div>
+ ${miniTiles()}${weightCard('비중')}</div>${tabs(0)}`,
+ `<div class="scr">${basketHdr()}<div class="grid2">${T.slice(0,10).map(x=>{const st=Math.abs(x.d)<=20?['✓ 목표 근처','var(--t3)','transparent']:x.d>0?['▼ 팔 것','var(--down)','rgba(49,130,246,.12)']:['▲ 살 것','var(--up)','rgba(240,68,82,.12)'];
+ return tileA(x,{style:`background:linear-gradient(180deg,${st[2]},var(--card))`,tag:[st[0],st[1]]})}).join('')}</div></div>${tabs(1)}`]}
+
+const ALL={F:['F · 정제','E 홈 + A 바구니를 그대로 다듬기 — 바구니 타일에 지금/목표와 사기·팔기 배지',F],
+ G:['G · 라이트','F 와 같은 구성, 밝은 테마',G_],
+ H:['H · 위젯 그리드','홈은 2×2 위젯(현금 링·맞추기 링·낙폭·비중 도넛), 타일에 미니 링',H],
+ I:['I · 히어로 차트','큰 자산 추이 카드가 위, 맞추기는 가로로 넘기는 카드. 바구니는 자산군별로 묶은 타일',I],
+ J:['J · 액션 우선','맨 위가 "다음 할 일" 큰 카드 — 토스로 바로. 타일은 사기·팔기 색으로',J]};
+const k=(new URLSearchParams(location.search).get('c')||'F');const [title,lead,fn]=ALL[k];const [h,b]=fn();
+if(k==='G'){const r=document.documentElement.style;Object.entries({'--bg':'#F4F5F7','--card':'#FFFFFF','--card2':'#ECEEF1','--line':'#E2E5E9','--t1':'#191F28','--t2':'#4E5968','--t3':'#8B95A1','--cash':'#D5D9DE'}).forEach(([a,v])=>r.setProperty(a,v));}
+document.getElementById('root').innerHTML=`<h2 style="color:#F2F4F6">${title}</h2><div class="lead">${lead} · 숫자는 예시</div><div class="wrap"><div class="phone">${h}</div><div class="phone">${b}</div></div>`;
+if(k==='G'){document.querySelectorAll('.card').forEach(c=>{if(c.style.background.includes('gradient'))c.style.background='linear-gradient(135deg,#FFE9EC,#FFFFFF)'});document.querySelectorAll('.phone').forEach(p=>p.style.borderColor='#d0d3d8');document.querySelectorAll('svg [fill="#2A2A33"],svg [stroke="#2A2A33"]').forEach(e=>{});}
+document.body.style.width='790px';
+</script>
+</body></html>
