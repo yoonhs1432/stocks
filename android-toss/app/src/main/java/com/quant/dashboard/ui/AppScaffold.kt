@@ -48,9 +48,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-// 2026-10-21 리밸런싱이 주력이 되면서 구조를 바꿨다 — 홈(맞추기)·바구니·계좌·더보기.
-// 예전 비교·분석·설정은 더보기 안쪽 화면(page)으로. 목업 research/mockup_app_v2.png
-private val TAB_LABELS = listOf("홈", "바구니", "계좌", "더보기")
+// 2026-10-21 리밸런싱이 주력이 되면서 구조를 바꿨다 — 홈·바구니·더보기 3탭.
+// 계좌 탭은 홈과 겹쳐 없앴다(총자산 추이 = 홈, 보유 금액·손익 = 바구니 타일, 평단·세금 = 더보기 › 손익·세금).
+// 예전 포트폴리오·비교·분석·설정은 더보기 안쪽 화면(page). 목업 research/mockup_v4_I.png
+private val TAB_LABELS = listOf("홈", "바구니", "더보기")
 
 /**
  * 앱 전역 상태 — 설정이 바뀌면 모든 탭이 데이터를 다시 로드하도록 dataVersion 을 관찰.
@@ -69,7 +70,7 @@ object AppState {
 @Composable
 fun AppScaffold() {
     var tab by remember { mutableStateOf(0) }
-    // 탭 위에 겹치는 안쪽 화면 — "compare"(종목 분석) · "analysis" · "settings". null 이면 탭 화면.
+    // 탭 위에 겹치는 안쪽 화면 — "pnl" · "account" · "compare"(종목 분석) · "analysis" · "settings". null 이면 탭 화면.
     var page by remember { mutableStateOf<String?>(null) }
     // 분석에서 뒤로 → 들어온 곳(종목 분석 표면 compare, 계좌에서 왔으면 null)
     var pageBack by remember { mutableStateOf<String?>(null) }
@@ -150,10 +151,14 @@ fun AppScaffold() {
                             androidx.activity.compose.BackHandler { page = null }
                             SettingsScreen()
                         }
+                        "pnl" -> PnlScreen(onBack = { page = null })
+                        "account" -> {
+                            androidx.activity.compose.BackHandler { page = null }
+                            PortfolioScreen(onOpenAnalysis = openAnalysis)
+                        }
                         else -> when (tab) {
                             0 -> HomeScreen()
                             1 -> BasketScreen()
-                            2 -> PortfolioScreen(onOpenAnalysis = openAnalysis)
                             else -> MoreScreen(onOpen = { page = it })
                         }
                     }
@@ -188,7 +193,7 @@ private fun TabBar(current: Int, onSelect: (Int) -> Unit) {
     }
 }
 
-/** 단색 라인 탭 아이콘 (0=집(홈) / 1=과녁(바구니) / 2=서류가방(계좌) / 3=점 셋(더보기)). */
+/** 단색 라인 탭 아이콘 (0=집(홈) / 1=과녁(바구니) / 그 밖=점 셋(더보기)). */
 @Composable
 private fun TabIcon(index: Int, color: Color) {
     Canvas(Modifier.size(22.dp)) {
@@ -207,17 +212,6 @@ private fun TabIcon(index: Int, color: Color) {
                 drawCircle(color, w * 0.34f, Offset(w / 2, h / 2), style = Stroke(sw))
                 drawCircle(color, w * 0.18f, Offset(w / 2, h / 2), style = Stroke(sw))
                 drawCircle(color, w * 0.06f, Offset(w / 2, h / 2))
-            }
-            2 -> {  // 서류가방
-                val sw = w * 0.085f
-                drawRoundRect(color, topLeft = Offset(w * 0.14f, h * 0.38f),
-                    size = Size(w * 0.72f, h * 0.46f),
-                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * 0.08f),
-                    style = Stroke(sw))
-                drawRoundRect(color, topLeft = Offset(w * 0.37f, h * 0.26f),
-                    size = Size(w * 0.26f, h * 0.16f),
-                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * 0.05f),
-                    style = Stroke(sw))
             }
             else -> {  // 점 셋 (더보기)
                 for (px in listOf(0.24f, 0.5f, 0.76f)) drawCircle(color, w * 0.075f, Offset(w * px, h * 0.5f))

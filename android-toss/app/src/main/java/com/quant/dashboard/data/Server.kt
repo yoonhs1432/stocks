@@ -482,10 +482,12 @@ object Server {
         val price: Double = Double.NaN, val priceKrw: Double = Double.NaN, val afterGapKrw: Double = 0.0,
         /** 바구니 밖 보유를 정리하는 줄(목표 0, 전량 매도) */
         val outside: Boolean = false,
+        /** 평가손익률(소수, 0.12 = +12%) — 보유 중일 때 */
+        val pnlRate: Double = 0.0,
     )
 
     /** 종목 카드용 최근 1년 숫자 — 변동성·수익(소수, 0.38 = 38%) */
-    data class RebalMetric(val vol: Double, val ret1y: Double)
+    data class RebalMetric(val vol: Double, val ret1y: Double, val spark: DoubleArray = DoubleArray(0))
 
     /** 과거 성과 한 줄 — [key] 는 현금 비중(“20”) 또는 주기(“quarterly”). */
     data class RebalStat(val key: String, val cagr: Double, val mdd: Double, val worst: Double)
@@ -516,6 +518,10 @@ object Server {
         /** 계좌 전체(바구니 안·밖·현금) — 홈의 비중 막대 */
         val accountTotalKrw: Double = 0.0, val basketKrw: Double = 0.0, val outsideKrw: Double = 0.0,
         val metrics: Map<String, RebalMetric> = emptyMap(),
+        /** 자산군(us·intl·sector·real·bond·etc) — 비중 막대·바구니 섹션 */
+        val groups: Map<String, String> = emptyMap(),
+        /** 바구니 밖 보유의 평가손익률 */
+        val outsidePnl: Map<String, Double> = emptyMap(),
     )
 
     fun rebalance(): Rebalance = rebalanceOf(obj("/api/rebalance"))
@@ -551,6 +557,7 @@ object Server {
                 qtyWhole = r.optDouble("qtyWhole", 0.0), qtyFrac = r.optDouble("qtyFrac", 0.0),
                 price = r.optDouble("price", Double.NaN), priceKrw = r.optDouble("priceKrw", Double.NaN),
                 afterGapKrw = r.optDouble("afterGapKrw", 0.0), outside = r.optBoolean("outside"),
+                pnlRate = r.optDouble("pnlRate", 0.0),
             )
         }
         val oa = o.optJSONArray("outside") ?: JSONArray()
@@ -594,9 +601,17 @@ object Server {
             outsideKrw = o.optDouble("outsideKrw", 0.0),
             metrics = tb?.optJSONObject("metrics")?.let { m ->
                 m.keys().asSequence().mapNotNull { k ->
-                    m.optJSONObject(k)?.let { x -> k to RebalMetric(x.optDouble("vol"), x.optDouble("ret1y")) }
+                    m.optJSONObject(k)?.let { x ->
+                        val sp = x.optJSONArray("spark")
+                        k to RebalMetric(x.optDouble("vol"), x.optDouble("ret1y"),
+                            if (sp == null) DoubleArray(0) else DoubleArray(sp.length()) { sp.optDouble(it) })
+                    }
                 }.toMap()
             }.orEmpty(),
+            groups = o.optJSONObject("groups")?.let { d -> d.keys().asSequence().associateWith { d.optString(it) } }.orEmpty(),
+            outsidePnl = (0 until oa.length()).mapNotNull { i ->
+                oa.optJSONObject(i)?.let { it.optString("ticker") to it.optDouble("pnlRate", 0.0) }
+            }.toMap(),
         )
     }
 

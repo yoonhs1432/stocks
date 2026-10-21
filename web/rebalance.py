@@ -33,6 +33,17 @@ KST = timezone(timedelta(hours=9))
 DEFAULT_BASKET = ["UPRO", "UGL", "DDM", "KORU", "BITX", "UBT", "ERX", "BIB", "NAIL", "YINN",
                   "DRN", "QPUX", "BRZU"]
 
+# 자산군 — 앱의 비중 막대·바구니 섹션 색. 없으면 '기타'
+GROUP = {
+    "UPRO": "us", "SSO": "us", "DDM": "us", "UDOW": "us", "TQQQ": "us", "SOXL": "us", "SPYU": "us", "FNGU": "us",
+    "HIBL": "us", "TARK": "us",
+    "KORU": "intl", "YINN": "intl", "BRZU": "intl", "000660": "intl", "005930": "intl", "473460": "intl",
+    "BIB": "sector", "LABU": "sector", "NAIL": "sector", "DRN": "sector", "QPUX": "sector", "DPST": "sector",
+    "DFEN": "sector", "URAA": "sector", "BNKU": "sector",
+    "UGL": "real", "BITX": "real", "BITU": "real", "ERX": "real", "GDXU": "real", "WTIU": "real", "NRGU": "real",
+    "UBT": "bond", "TMF": "bond",
+}
+
 # 종목 경고 — 바구니 카드에 붙는다
 NOTE = {
     "KORU": "기초자산 대비 배수가 과하다(적정 ≈1.1배)", "NAIL": "기초자산 대비 배수가 과하다(적정 ≈0.6배)",
@@ -189,7 +200,8 @@ def plan(acc: dict, quote) -> dict:
         return p * (1.0 if store.is_krw(t) else rate)
 
     priced = [t for t in basket if price_krw(t)]
-    outside = [{"ticker": t, "name": it.get("name") or t, "evalKrw": it.get("evalKrw", 0.0)}
+    outside = [{"ticker": t, "name": it.get("name") or t, "evalKrw": it.get("evalKrw", 0.0),
+                "pnlRate": it.get("pnlRate", 0.0)}
                for t, it in held.items() if t not in basket]
     cash = acc.get("cashKrw", 0.0)
     invested = sum(held[t].get("evalKrw", 0.0) for t in priced if t in held)
@@ -229,6 +241,7 @@ def plan(acc: dict, quote) -> dict:
             # 주문 수량 두 가지 — 정수 주와 소수점(미국만). 맞춘 뒤 목표와 얼마나 차이 나는지도
             "qtyWhole": whole, "qtyFrac": part, "priceKrw": pk,
             "price": native, "held": t in held,
+            "pnlRate": (held.get(t) or {}).get("pnlRate", 0.0),     # 평가손익률(소수)
             # 아직 안 산 종목은 '새로 담기'일 뿐 이탈이 아니다 — 알림이 매번 울리지 않게
             "extreme": t in held and per > 0 and (now >= 2 * per or now <= 0.5 * per),
         })
@@ -295,6 +308,7 @@ def plan(acc: dict, quote) -> dict:
         "accountTotalKrw": cash + sum(it.get("evalKrw", 0.0) for it in held.values()),
         "basketKrw": invested, "outsideKrw": outside_krw,
         "notes": {t: NOTE[t] for t in basket if t in NOTE},
+        "groups": {t: GROUP.get(t, "etc") for t in set(basket) | set(held)},
         "sells": {"count": len(sells), "amountKrw": sell_amt},
         "buys": {"count": len(buys), "amountKrw": buy_amt},
         "costKrw": (sell_amt + buy_amt) * COST,
@@ -398,7 +412,10 @@ def _compute_table(basket: list[str], period: str) -> dict:
         ys = np.array([v[d] for d in sorted(v)][-253:])
         if len(ys) > 60:
             r = np.diff(np.log(ys))
-            metrics[t] = {"vol": float(r.std() * math.sqrt(252)), "ret1y": float(ys[-1] / ys[0] - 1)}
+            tail = ys[-60:]
+            metrics[t] = {"vol": float(r.std() * math.sqrt(252)), "ret1y": float(ys[-1] / ys[0] - 1),
+                          # 타일의 작은 추이 — 최근 60거래일, 첫날 = 1
+                          "spark": [round(float(v / tail[0]), 4) for v in tail]}
     return {"from": dts[0].isoformat(), "to": dts[-1].isoformat(), "tickers": cols,
             "cash": cash_rows, "periods": per_rows, "metrics": metrics}
 
