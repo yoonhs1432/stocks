@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8">
+<title>시안 v3 — 그래프 중심</title>
+<style>
+  :root{--bg:#0E0E11;--card:#17171C;--card2:#1F1F26;--line:#2A2A33;--t1:#F2F4F6;--t2:#9AA3AE;--t3:#646E7A;
+    --up:#F04452;--down:#3182F6;--acc:#3182F6;--ok:#2EA078;
+    --c1:#199e70;--c2:#d95926;--c3:#9085e9;--c4:#c98500;--c5:#d55181;}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#26262c;font-family:"Malgun Gothic",sans-serif;color:var(--t1);padding:20px;width:1180px}
+  h2{font-size:22px;margin:0 0 4px 4px} .lead{color:#b8b8c0;font-size:13px;margin:0 0 14px 4px}
+  .wrap{display:flex;gap:22px;align-items:flex-start}
+  .phone{width:360px;height:780px;background:var(--bg);border-radius:30px;border:1px solid #3a3a42;overflow:hidden;display:flex;flex-direction:column;position:relative}
+  .scr{flex:1;padding:16px 16px 0;overflow:hidden}
+  .tabs{display:flex;height:60px;border-top:1px solid var(--line);background:var(--bg)}
+  .tabs div{flex:1;text-align:center;font-size:10px;color:var(--t3);padding-top:10px}
+  .tabs div i{display:block;width:20px;height:20px;margin:0 auto 3px;border-radius:6px;border:2px solid var(--t3)}
+  .tabs .on{color:var(--t1);font-weight:700} .tabs .on i{border-color:var(--t1);background:var(--t1)}
+  .card{background:var(--card);border-radius:18px;padding:14px;margin-bottom:10px}
+  .lbl{font-size:12px;color:var(--t2)} .big{font-size:30px;font-weight:800;letter-spacing:-.5px}
+  .mid{font-size:18px;font-weight:800} .sm{font-size:11px;color:var(--t3)}
+  .row{display:flex;align-items:center} .sp{flex:1}
+  .up{color:var(--up)} .down{color:var(--down)}
+  .pill{font-size:11px;font-weight:700;padding:4px 9px;border-radius:99px;background:var(--card2);color:var(--t2)}
+  .pill.hot{background:rgba(240,68,82,.15);color:var(--up)}
+  .btn{background:var(--acc);color:#fff;font-weight:800;text-align:center;padding:14px;border-radius:14px;font-size:15px}
+  .chip{display:inline-flex;align-items:center;gap:6px;background:var(--card2);border-radius:12px;padding:8px 10px;font-size:12px;font-weight:700;white-space:nowrap}
+  .dot{width:8px;height:8px;border-radius:50%;display:inline-block}
+  .mono{font-family:Consolas,monospace}
+  .hdr{display:flex;align-items:center;margin-bottom:12px}.hdr b{font-size:20px;font-weight:800}
+  .seg{display:flex;background:var(--card);border-radius:12px;padding:3px;gap:2px;font-size:12px}
+  .seg span{flex:1;text-align:center;padding:7px 0;border-radius:9px;color:var(--t2)} .seg .on{background:var(--card2);color:var(--t1);font-weight:700}
+  .tile{background:var(--card);border-radius:16px;padding:11px}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .leg{display:flex;flex-wrap:wrap;gap:4px 10px;font-size:11px;color:var(--t2)}
+  .leg span{display:inline-flex;align-items:center;gap:5px}
+  .step{display:flex;gap:6px} .step i{flex:1;height:5px;border-radius:3px;background:var(--card2)} .step i.on{background:var(--ok)}
+  .lst .it{display:flex;align-items:center;padding:9px 0;border-bottom:1px solid var(--line);font-size:13px}
+  .ck{width:22px;height:22px;border-radius:7px;border:2px solid var(--t3);margin-right:10px;flex:none}
+  .ck.on{background:var(--ok);border-color:var(--ok)}
+</style></head>
+<body>
+<div id="root"></div>
+<script>
+// ───── 예시 데이터 (가상) ─────
+const G=[ // 자산군 — 지금/목표 비중(%)
+ {k:'미국 지수',c:'var(--c1)',now:20,tgt:12.3},{k:'해외',c:'var(--c2)',now:9,tgt:18.5},
+ {k:'업종·테마',c:'var(--c3)',now:22,tgt:24.6},{k:'원자재·코인',c:'var(--c4)',now:17,tgt:18.5},{k:'채권',c:'var(--c5)',now:3,tgt:6.2}];
+const CASH={now:29,tgt:20};
+const T=[ // 종목 — 그룹, 지금/목표(%), 1년, 변동성, 배수
+ ['UPRO',0,9.1,6.15,38,38,3],['DDM',0,10.9,6.15,24,25,2],['KORU',1,3.2,6.15,65,175,3],['YINN',1,2.4,6.15,-50,56,3],['BRZU',1,3.4,6.15,99,56,2],
+ ['BIB',2,7.9,6.15,70,45,2],['NAIL',2,3.1,6.15,-57,87,3],['DRN',2,5.8,6.15,-3,43,3],['QPUX',2,5.2,6.15,-40,177,2],
+ ['UGL',3,8.8,6.15,-18,59,2],['BITX',3,3.9,6.15,-57,90,2],['ERX',3,4.3,6.15,139,44,2],['UBT',4,3.0,6.15,-20,19,2]]
+ .map(([t,g,n,tg,r,v,l])=>({t,g,n,tg,r,v,l,d:(n/tg-1)*100}));
+function rnd(s){return()=>{s=Math.sin(s)*10000;return s-Math.floor(s)}}
+function walk(n,seed,drift=0.0006,vol=0.012,start=100){const r=rnd(seed);let v=start,a=[];for(let i=0;i<n;i++){v*=1+drift+(r()-.5)*2*vol;a.push(v)}return a}
+const HIST=walk(180,7,0.0009,0.014,0.72).map(x=>x*1e8);
+const fmt=v=>v>=1e8?`${Math.floor(v/1e8)}억 ${Math.round(v%1e8/1e4).toLocaleString()}만`:`${Math.round(v/1e4).toLocaleString()}만`;
+
+// ───── 그래프 조각 ─────
+function donut(seg,size,th,gap=2,inner=''){ // seg:[{v,c}]
+ const r=size/2-th/2,C=2*Math.PI*r,tot=seg.reduce((a,b)=>a+b.v,0);let off=0,s='';
+ seg.forEach(x=>{const L=x.v/tot*C-gap;s+=`<circle r="${r}" cx="${size/2}" cy="${size/2}" fill="none" stroke="${x.c}" stroke-width="${th}" stroke-dasharray="${Math.max(L,0)} ${C}" stroke-dashoffset="${-off}" transform="rotate(-90 ${size/2} ${size/2})"/>`;off+=x.v/tot*C});
+ return `<svg width="${size}" height="${size}">${s}${inner}</svg>`}
+function line(a,w,h,col='var(--up)',fill=true,marks=[]){
+ const mn=Math.min(...a),mx=Math.max(...a),X=i=>i/(a.length-1)*w,Y=v=>h-4-(v-mn)/(mx-mn)*(h-8);
+ const d=a.map((v,i)=>`${i?'L':'M'}${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join('');
+ const m=marks.map(i=>`<circle cx="${X(i)}" cy="${Y(a[i])}" r="4.5" fill="var(--bg)" stroke="var(--t1)" stroke-width="2"/>`).join('');
+ return `<svg width="${w}" height="${h}">${fill?`<defs><linearGradient id="g${w}${h}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${col}" stop-opacity=".28"/><stop offset="1" stop-color="${col}" stop-opacity="0"/></linearGradient></defs><path d="${d}L${w},${h}L0,${h}Z" fill="url(#g${w}${h})"/>`:''}<path d="${d}" fill="none" stroke="${col}" stroke-width="2"/>${m}</svg>`}
+function spark(seed,up,w=64,h=22){return line(walk(40,seed,up?0.004:-0.004,0.02),w,h,up?'var(--up)':'var(--down)',false)}
+function gauge(p,size){ // 반원 게이지 0..1
+ const r=size/2-10,cx=size/2,cy=size/2,a=Math.PI*(1-p),x=cx+r*Math.cos(a),y=cy-r*Math.sin(a);
+ return `<svg width="${size}" height="${size/2+10}"><path d="M${cx-r},${cy} A${r},${r} 0 0 1 ${cx+r},${cy}" stroke="var(--card2)" stroke-width="14" fill="none" stroke-linecap="round"/>
+ <path d="M${cx-r},${cy} A${r},${r} 0 0 1 ${x},${y}" stroke="var(--up)" stroke-width="14" fill="none" stroke-linecap="round"/></svg>`}
+function stack(items,h=12,r=6){return `<div style="display:flex;height:${h}px;border-radius:${r}px;overflow:hidden;gap:2px">${items.map(x=>`<div style="flex:${x.v};background:${x.c}"></div>`).join('')}</div>`}
+const legend=()=>`<div class="leg">${G.map(g=>`<span><i class="dot" style="background:${g.c}"></i>${g.k}</span>`).join('')}<span><i class="dot" style="background:var(--card2);border:1px solid var(--t3)"></i>현금</span></div>`;
+function devbar(d,w=120){const f=Math.min(Math.abs(d),100)/100*(w/2);return `<svg width="${w}" height="10"><rect x="0" y="4" width="${w}" height="2" fill="var(--card2)"/><rect x="${d>=0?w/2:w/2-f}" y="1" width="${f}" height="8" rx="3" fill="${d>=0?'var(--down)':'var(--up)'}"/><rect x="${w/2-1}" y="0" width="2" height="10" fill="var(--t3)"/></svg>`}
+const tabs=on=>`<div class="tabs">${['홈','바구니','계좌','더보기'].map((x,i)=>`<div class="${i===on?'on':''}"><i></i>${x}</div>`).join('')}</div>`;
+const todo=[...T.filter(x=>x.d>20).sort((a,b)=>b.d-a.d).slice(0,2),...T.filter(x=>x.d<-20).sort((a,b)=>a.d-b.d).slice(0,3)];
+
+// ───── 시안 A — 링 (토스풍) ─────
+function A(){
+ const ring=donut([...G.map(g=>({v:g.now,c:g.c})),{v:CASH.now,c:'#2A2A33'}],230,22,3,
+  `<text x="115" y="104" text-anchor="middle" fill="var(--t2)" font-size="12">총자산</text><text x="115" y="132" text-anchor="middle" fill="var(--t1)" font-size="24" font-weight="800">1억 2,480만</text><text x="115" y="154" text-anchor="middle" fill="var(--up)" font-size="13" font-weight="700">+1.2% 오늘</text>`);
+ const tgt=donut([...G.map(g=>({v:g.tgt,c:g.c})),{v:CASH.tgt,c:'#2A2A33'}],230,6,3);
+ return [`<div class="scr"><div class="hdr"><b>홈</b><span class="sp"></span><span class="pill hot">맞출 때</span></div>
+ <div style="position:relative;height:276px;display:flex;justify-content:center;align-items:center"><div style="position:absolute">${ring}</div><div style="position:absolute;transform:scale(1.18);opacity:.55">${tgt}</div></div>
+ <div style="text-align:center;margin-top:4px" class="sm">굵은 링 = 지금 · 얇은 링 = 목표</div><div style="margin:10px 0 14px">${legend()}</div>
+ <div class="row" style="margin-bottom:8px"><span class="mid">할 일 5</span><span class="sp"></span><span class="sm">매도 2 · 매수 3</span></div>
+ <div style="display:flex;gap:8px;overflow:hidden">${todo.slice(0,4).map(x=>`<div class="tile" style="min-width:104px"><div class="row"><b class="mono">${x.t}</b></div><div class="${x.d>0?'down':'up'}" style="font-weight:800;margin-top:6px">${x.d>0?'매도':'매수'} ${Math.round(Math.abs(x.d)/10)+1}주</div>${devbar(x.d,80)}</div>`).join('')}</div>
+ <div class="btn" style="margin-top:14px">맞추기 시작</div></div>${tabs(0)}`,
+ `<div class="scr"><div class="hdr"><b>바구니</b><span class="sp"></span><span class="pill">13종목</span></div>
+ <div class="seg" style="margin-bottom:12px"><span class="on">종목</span><span>규칙</span><span>성과</span></div>
+ <div class="grid2">${T.slice(0,10).map(x=>`<div class="tile"><div class="row"><i class="dot" style="background:${G[x.g].c}"></i>&nbsp;<b class="mono">${x.t}</b><span class="sp"></span><span class="sm">${x.l}x</span></div>
+ <div class="row" style="margin-top:6px">${spark(x.t.length*7+x.n,x.r>0)}<span class="sp"></span><b class="${x.r>0?'up':'down'}" style="font-size:12px">${x.r>0?'+':''}${x.r}%</b></div>
+ <div style="margin-top:6px">${stack([{v:Math.min(x.n,x.tg),c:G[x.g].c},{v:Math.abs(x.n-x.tg),c:x.n>x.tg?'var(--down)':'rgba(240,68,82,.45)'},{v:Math.max(12-Math.max(x.n,x.tg),0),c:'var(--card2)'}],6,3)}</div></div>`).join('')}</div></div>${tabs(1)}`]}
+
+// ───── 시안 B — 게이지 + 추이 ─────
+function B(){
+ return [`<div class="scr"><div class="hdr"><b>홈</b></div>
+ <div class="card" style="text-align:center"><div class="lbl">목표에서 벗어난 정도</div><div style="margin-top:6px">${gauge(.68,220)}</div>
+ <div style="margin-top:-46px" class="big">68<span style="font-size:15px;color:var(--t2)"> /100</span></div><div class="pill hot" style="display:inline-block;margin-top:8px">맞출 때 · 3분기 끝</div></div>
+ <div class="card"><div class="row"><div><div class="lbl">총자산</div><div class="mid">1억 2,480만</div></div><span class="sp"></span><div style="text-align:right"><div class="up" style="font-weight:800">+21.4%</div><div class="sm">6개월</div></div></div>
+ <div style="margin-top:8px">${line(HIST,300,90,'var(--up)',true,[60,121])}</div><div class="row sm"><span>4월</span><span class="sp"></span>○ 맞춘 날<span class="sp"></span><span>10월</span></div></div>
+ <div class="card" style="padding:12px 14px"><div class="row"><span class="lbl">현금 버퍼</span><span class="sp"></span><b>29%</b><span class="sm">&nbsp;/ 목표 20%</span></div>
+ <div style="margin-top:8px;position:relative">${stack([{v:29,c:'var(--ok)'},{v:71,c:'var(--card2)'}],10,5)}<div style="position:absolute;left:20%;top:-3px;width:2px;height:16px;background:var(--t1)"></div></div></div>
+ <div class="btn">맞추기 · 5개</div></div>${tabs(0)}`,
+ `<div class="scr"><div class="hdr"><b>바구니</b><span class="sp"></span><span class="pill">목표 6.2%씩</span></div>
+ ${T.map(x=>`<div class="row" style="height:42px;border-bottom:1px solid var(--line)"><i class="dot" style="background:${G[x.g].c}"></i>&nbsp;<b class="mono" style="width:52px">${x.t}</b>
+ <svg width="170" height="16"><rect x="0" y="6" width="170" height="4" rx="2" fill="var(--card2)"/><rect x="0" y="4" width="${x.n/12*170}" height="8" rx="4" fill="${G[x.g].c}"/><rect x="${x.tg/12*170-1}" y="0" width="2.5" height="16" fill="var(--t1)"/></svg>
+ <span class="sp"></span><b class="${x.d>20?'down':x.d<-20?'up':''}" style="font-size:12px;color:${Math.abs(x.d)<=20?'var(--t2)':''}">${x.d>0?'+':''}${Math.round(x.d)}%</b></div>`).join('')}
+ <div class="sm" style="margin-top:8px">막대 = 지금 · 흰 선 = 목표</div></div>${tabs(1)}`]}
+
+// ───── 시안 C — 트리맵 + 지도 ─────
+function squarify(items,x,y,w,h){ // 단순 슬라이스앤다이스(행 교대)
+ let out=[],tot=items.reduce((a,b)=>a+b.n,0),cx=x,cy=y,rest=[...items].sort((a,b)=>b.n-a.n),vert=w<h;
+ while(rest.length){const take=rest.splice(0,Math.min(3,rest.length)),s=take.reduce((a,b)=>a+b.n,0),frac=s/rest.concat(take).reduce((a,b)=>a+b.n,0);
+  if(!vert){const ww=w*frac;let yy=cy;take.forEach(t=>{const hh=h*t.n/s;out.push({...t,x:cx,y:yy,w:ww,h:hh});yy+=hh});cx+=ww;w-=ww}
+  else{const hh=h*frac;let xx=cx;take.forEach(t=>{const ww=w*t.n/s;out.push({...t,x:xx,y:cy,w:ww,h:hh});xx+=ww});cy+=hh;h-=hh}vert=!vert}return out}
+function C(){
+ const cells=squarify(T,0,0,328,300);
+ const col=d=>{const a=Math.min(Math.abs(d),80)/80;return d>0?`rgba(49,130,246,${.25+.6*a})`:`rgba(240,68,82,${.25+.6*a})`};
+ const tm=`<svg width="328" height="300">${cells.map(c=>`<rect x="${c.x+1}" y="${c.y+1}" width="${c.w-2}" height="${c.h-2}" rx="8" fill="${Math.abs(c.d)<=20?'#2A2A33':col(c.d)}"/>
+ <text x="${c.x+8}" y="${c.y+20}" fill="#fff" font-size="${c.w>70?13:11}" font-weight="800" font-family="Consolas">${c.t}</text>${c.h>44?`<text x="${c.x+8}" y="${c.y+37}" fill="rgba(255,255,255,.75)" font-size="11">${c.d>0?'+':''}${Math.round(c.d)}%</text>`:''}`).join('')}</svg>`;
+ const sc=`<svg width="328" height="260"><line x1="30" y1="230" x2="320" y2="230" stroke="var(--line)"/><line x1="30" y1="10" x2="30" y2="230" stroke="var(--line)"/>
+ <line x1="30" y1="150" x2="320" y2="150" stroke="var(--line)" stroke-dasharray="3 3"/>
+ ${(()=>{const used=[];return T.map(x=>{const X=34+x.v/200*270,Y=150-x.r/150*120;let ly=Y+4;while(used.some(u=>Math.abs(u[0]-X)<46&&Math.abs(u[1]-ly)<11))ly+=11;used.push([X,ly]);const right=X<250;
+   return `<circle cx="${X}" cy="${Y}" r="${3+x.n*.7}" fill="${G[x.g].c}" opacity=".9" stroke="var(--bg)" stroke-width="2"/><text x="${right?X+6+x.n*.7:X-6-x.n*.7}" y="${ly}" text-anchor="${right?'start':'end'}" fill="var(--t2)" font-size="10" font-family="Consolas">${x.t}</text>`}).join('')})()}
+ <text x="320" y="248" text-anchor="end" fill="var(--t3)" font-size="10">Volatility →</text><text x="34" y="20" fill="var(--t3)" font-size="10">1Y return ↑</text></svg>`;
+ return [`<div class="scr"><div class="hdr"><b>홈</b><span class="sp"></span><span class="pill hot">5개 맞출 때</span></div>
+ <div class="row" style="margin-bottom:10px"><div><div class="lbl">총자산</div><div class="big">1억 2,480만</div></div><span class="sp"></span><div class="up mid">+1.2%</div></div>
+ ${tm}<div class="row sm" style="margin:8px 0 12px"><span class="dot" style="background:var(--up)"></span>&nbsp;더 사야 함&nbsp;&nbsp;<span class="dot" style="background:var(--down)"></span>&nbsp;덜어내야 함&nbsp;&nbsp;<span class="dot" style="background:#2A2A33"></span>&nbsp;괜찮음 · 크기 = 비중</div>
+ <div class="btn">맞추기</div></div>${tabs(0)}`,
+ `<div class="scr"><div class="hdr"><b>바구니</b></div><div class="seg" style="margin-bottom:12px"><span class="on">지도</span><span>목록</span><span>규칙</span></div>
+ <div class="card" style="padding:10px 6px">${sc}</div>${legend()}
+ <div class="card" style="margin-top:10px"><div class="row"><span class="lbl">이 바구니 · 현금 20%</span></div>
+ <div class="row" style="margin-top:8px"><div style="flex:1"><div class="sm">연 수익(과거)</div><div class="mid up">+16%</div></div><div style="flex:1"><div class="sm">최악 하락</div><div class="mid down">−44%</div></div><div style="flex:1"><div class="sm">맞추기</div><div class="mid">분기</div></div></div></div></div>${tabs(1)}`]}
+
+// ───── 시안 D — 타임라인 ─────
+function D(){
+ const areas=(()=>{const w=296,h=150,n=24;let lay=G.map((g,i)=>walk(n,i+3,0,.04,g.tgt));let s='';let base=Array(n).fill(0);const tot=lay.reduce((a,l)=>a.map((v,i)=>v+l[i]),Array(n).fill(0));
+  lay.forEach((l,k)=>{const top=base.map((b,i)=>b+l[i]/tot[i]*h);const d=top.map((v,i)=>`${i?'L':'M'}${i/(n-1)*w},${h-v}`).join('')+base.map((v,i)=>`L${(n-1-i)/(n-1)*w},${h-base[n-1-i]}`).join('')+'Z';s+=`<path d="${d}" fill="${G[k].c}" stroke="var(--bg)" stroke-width="1.5"/>`;base=top});
+  return `<svg width="${w}" height="${h}">${s}${[5,11,17,23].map(i=>`<line x1="${i/23*w}" y1="0" x2="${i/23*w}" y2="${h}" stroke="var(--t1)" stroke-dasharray="2 3" opacity=".6"/>`).join('')}</svg>`})();
+ return [`<div class="scr"><div class="hdr"><b>홈</b><span class="sp"></span><span class="sm">10/21</span></div>
+ <div class="lbl">총자산</div><div class="big">1억 2,480만</div><div class="row" style="gap:10px;margin:2px 0 8px"><b class="up">+2,180만</b><span class="sm">원금 대비 +21.2%</span></div>
+ <div class="seg" style="margin-bottom:8px"><span>1M</span><span>3M</span><span class="on">6M</span><span>1Y</span><span>전체</span></div>
+ ${line(HIST,328,150,'var(--up)',true,[60,121])}<div class="row sm" style="margin:2px 0 14px"><span>○ 맞춘 날</span><span class="sp"></span><span>고점 대비 −4.1%</span></div>
+ <div class="card row"><div style="width:74px;height:74px;position:relative">${donut([{v:9,c:'var(--up)'},{v:91,c:'var(--card2)'}],74,8,0)}<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-weight:800">D-0</div></div>
+ <div style="margin-left:14px;flex:1"><div class="mid">맞출 때</div><div class="sm">매도 2 · 매수 3 · 약 6분</div></div><span class="pill hot">시작 ›</span></div></div>${tabs(0)}`,
+ `<div class="scr"><div class="hdr"><b>바구니</b><span class="sp"></span><span class="pill">비중 변화</span></div>
+ <div class="card">${areas}<div class="row sm" style="margin-top:6px"><span>2년 전</span><span class="sp"></span>┆ 맞춘 날<span class="sp"></span><span>지금</span></div></div>${legend()}
+ <div style="margin-top:12px">${G.map(g=>`<div class="row" style="height:38px;border-bottom:1px solid var(--line)"><i class="dot" style="background:${g.c}"></i>&nbsp;<span style="width:84px;font-size:13px">${g.k}</span>
+ <span class="mono" style="width:44px;text-align:right;font-weight:700">${g.now}%</span><span class="sm">&nbsp;→ ${g.tgt}%</span><span class="sp"></span>${devbar((g.now/g.tgt-1)*100,90)}</div>`).join('')}</div></div>${tabs(1)}`]}
+
+// ───── 시안 E — 카드 스택 ─────
+function E(){
+ return [`<div class="scr" style="padding-top:12px"><div class="row" style="margin-bottom:12px"><div><div class="lbl">안녕하세요</div><b style="font-size:20px">맞출 때예요</b></div><span class="sp"></span><span class="pill hot">5</span></div>
+ <div class="card" style="background:linear-gradient(135deg,#2a1418,#17171C)"><div class="lbl">총자산</div><div class="big">1억 2,480만</div><div class="row"><b class="up">+1.2%</b>&nbsp;<span class="sm">오늘</span><span class="sp"></span>${line(HIST.slice(-60),130,36,'var(--up)',false)}</div></div>
+ <div class="grid2" style="margin-bottom:10px"><div class="tile"><div class="lbl">현금</div><div class="mid">29%</div>${stack([{v:29,c:'var(--ok)'},{v:71,c:'var(--card2)'}],6,3)}<div class="sm" style="margin-top:4px">목표 20%</div></div>
+ <div class="tile"><div class="lbl">고점 대비</div><div class="mid down">−4.1%</div>${stack([{v:4.1,c:'var(--down)'},{v:40,c:'var(--card2)'}],6,3)}<div class="sm" style="margin-top:4px">과거 최악 −44%</div></div></div>
+ <div class="card"><div class="row"><b>비중</b><span class="sp"></span><span class="sm">지금 / 목표</span></div><div style="margin-top:10px">${stack([...G.map(g=>({v:g.now,c:g.c})),{v:CASH.now,c:'#2A2A33'}],14,7)}</div><div style="margin-top:6px">${stack([...G.map(g=>({v:g.tgt,c:g.c})),{v:CASH.tgt,c:'#2A2A33'}],14,7)}</div><div style="margin-top:8px">${legend()}</div></div>
+ <div class="card" style="padding:12px 14px"><div class="row"><b>맞추기</b><span class="sp"></span><span class="sm">2 / 5</span></div><div class="step" style="margin:8px 0 10px"><i class="on"></i><i class="on"></i><i></i><i></i><i></i></div>
+ <div class="row"><b class="mono">UPRO</b>&nbsp;<span class="up" style="font-weight:800">매수 4주</span><span class="sp"></span><span class="pill" style="background:var(--acc);color:#fff">토스 ›</span></div></div></div>${tabs(0)}`,
+ `<div class="scr"><div class="hdr"><b>바구니</b><span class="sp"></span><span class="pill">13</span></div>
+ ${G.map((g,gi)=>`<div class="row" style="margin:10px 0 6px"><i class="dot" style="background:${g.c}"></i>&nbsp;<b style="font-size:13px">${g.k}</b><span class="sp"></span><span class="sm">${g.now}% → ${g.tgt}%</span></div>
+ <div style="display:flex;gap:6px;flex-wrap:wrap">${T.filter(x=>x.g===gi).map(x=>`<div class="chip">${x.t}<span class="sm">${x.l}x</span><span class="${x.d>20?'down':x.d<-20?'up':''}" style="${Math.abs(x.d)<=20?'color:var(--t3)':''}">${Math.abs(x.d)<=20?'✓':(x.d>0?'▼':'▲')}</span></div>`).join('')}</div>`).join('')}
+ <div class="card" style="margin-top:14px"><div class="lbl">이 바구니 · 과거 10년</div><div class="row" style="margin-top:6px"><div style="flex:1"><div class="mid up">+16%</div><div class="sm">연 수익</div></div><div style="flex:1"><div class="mid down">−44%</div><div class="sm">최악</div></div><div style="flex:1"><div class="mid">20%</div><div class="sm">현금</div></div></div></div></div>${tabs(1)}`]}
+
+const ALL={A:['A · 링','토스처럼 — 큰 도넛 하나로 비중, 할 일은 가로 카드',A],B:['B · 게이지','"얼마나 벗어났나"를 점수 하나로, 아래에 자산 추이',B],
+ C:['C · 지도','트리맵 — 칸 크기는 비중, 색은 사야/팔아야. 바구니는 위험-수익 지도',C],D:['D · 타임라인','자산 추이가 주인공, 맞춘 날을 점으로. 바구니는 비중 변화 흐름',D],
+ E:['E · 카드','위젯 카드 묶음 — 숫자 + 작은 그래프. 맞추기는 단계 막대',E]};
+const k=(new URLSearchParams(location.search).get('c')||'A');const [title,lead,fn]=ALL[k];const [h,b]=fn();
+document.getElementById('root').innerHTML=`<h2>${title}</h2><div class="lead">${lead} · 숫자는 예시</div><div class="wrap"><div class="phone">${h}</div><div class="phone">${b}</div></div>`;
+document.body.style.width='790px';
+</script>
+</body></html>
