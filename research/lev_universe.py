@@ -15,15 +15,21 @@ from scipy.cluster.hierarchy import fcluster, linkage
 from scipy.spatial.distance import squareform
 
 CANDS, DATA, OUT = Path(sys.argv[1]), Path(sys.argv[2]), Path(sys.argv[3])
-MIN_DAYS = 252
-MIN_DV = 3_000_000
+# 기준은 인자로 바꿀 수 있다 — 기본은 처음 돌린 값(1년·$3M), 넓게 볼 땐 126일·$1M
+MIN_DAYS = int(sys.argv[4]) if len(sys.argv) > 4 else 252
+MIN_DV = float(sys.argv[5]) if len(sys.argv) > 5 else 3_000_000
+MIN_WEEKS = 20 if MIN_DAYS < 252 else 40
 TH = 0.6                         # 같은 묶음 = 평균 상관 0.6 이상
 
 names = {c["symbol"]: c["name"] for c in json.load(open(CANDS, encoding="utf-8"))}
 
 
+# 이름에 Ultra 가 들어가도 레버리지가 아닌 것 — 버퍼·옵션 인컴·배당
+NOT_LEV = re.compile(r"(Buffer|Option Income|Dividend|YieldMax|Income|Covered)", re.I)
+
+
 def lev_of(name):
-    m = re.search(r"(\d(?:\.\d+)?)\s?[xX]\b", name)
+    m = re.search(r"(\d(?:\.\d+)?)\s*(?:[xX]\b|Leveraged)", name)
     if m:
         return float(m.group(1))
     if re.search(r"UltraPro", name): return 3.0
@@ -33,6 +39,8 @@ def lev_of(name):
 
 px, info = {}, {}
 for sym in names:
+    if NOT_LEV.search(names[sym]):
+        continue
     f = DATA / f"{sym}.json"
     if not f.exists():
         continue
@@ -51,11 +59,11 @@ for sym in names:
                  "vol": float(r.tail(252).std() * math.sqrt(252)), "lev": lev_of(names[sym]),
                  "ret1y": float(df.adj.iloc[-1] / df.adj.iloc[-253] - 1) if len(df) > 253 else float("nan")}
 
-print(f"기록 1년+·거래대금 ${MIN_DV/1e6:.0f}M+ : {len(px)}개")
+print(f"기록 {MIN_DAYS}일+·거래대금 ${MIN_DV/1e6:.0f}M+ : {len(px)}개")
 W = pd.DataFrame(px).resample("W-FRI").last()
 R = np.log(W).diff()
 R = R[R.index >= R.index[-1] - pd.Timedelta(weeks=104)]
-C = R.corr(min_periods=40)
+C = R.corr(min_periods=MIN_WEEKS)
 keep = [s for s in C.columns if C[s].notna().sum() > 1]
 C = C.loc[keep, keep].fillna(0.0)          # 겹치는 주가 모자란 쌍은 '관계 없음'으로
 D = 1 - C.values
@@ -104,3 +112,11 @@ for b in basket:
     print(f"  {b['pick']:6s} {b['lev']:.1f}x  변동성 {b['vol']:4.0%}  ${b['dv']/1e6:6.0f}M  {'단일종목' if single else '지수/업종'}  "
           f"{b['name'][:46]}   (묶음 {b['size']}: {', '.join(b['group'][:4])})")
 json.dump({"groups": out, "basket": basket}, open(OUT, "w", encoding="utf-8"), ensure_ascii=False, indent=1, default=float)
+
+# 전체 표(종목 하나에 한 줄) — 묶음 번호·대표 여부 포함
+rows = []
+for i, o in enumerate(out, 1):
+    for s_ in o["members"]:
+        rows.append({"cluster": i, "symbol": s_, **info[s_], "rep_by_dv": s_ == o["rep"],
+                     "in_basket": any(b["pick"] == s_ for b in basket)})
+pd.DataFrame(rows).to_csv(OUT.with_suffix(".table.csv"), index=False, encoding="utf-8-sig")
