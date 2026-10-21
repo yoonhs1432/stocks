@@ -26,10 +26,11 @@ KST = timezone(timedelta(hours=9))
 # 기본 바구니 (2026-10-21, research/lev_multi.py · lev_multi.md):
 # 토스에서 살 수 있는 미국 레버리지 롱 ETF 중 **단일 종목 ETF 를 뺀** 여러 종목 ETF(+원자재·코인)를
 # 주간 상관으로 묶고, 묶음마다 거래 충분한 것 중 변동성이 가장 낮은 대표. 한국은 사용자 지정으로 KORU.
-# 2016~ 백테스트(분기·세후): 연 +15.2%·최대 낙폭 63% — 이전 9개(+17.1%·83%)보다 덜 벌고 덜 잃는다.
+# MSOX(미국 대마초 2배 — 변동성 182%·거래 얇음·정책 의존)는 사용자 동의로 뺐다(2026-10-21) → 13개.
+# 2016~ 백테스트(분기·현금 20%·세후): 연 +15.1%·최대 낙폭 51% — 이전 9개(+18.9%·68%)보다 덜 벌고 덜 잃는다.
 # 앱은 이 목록을 응답(defaultBasket)으로 받아 '기본' 단추에 쓴다 — 바꿔도 앱을 다시 빌드할 필요 없다.
 DEFAULT_BASKET = ["SSO", "UGL", "UDOW", "KORU", "BITX", "TMF", "ERX", "LABU", "NAIL", "YINN",
-                  "DRN", "QPUX", "MSOX", "BRZU"]
+                  "DRN", "QPUX", "BRZU"]
 DEFAULTS = {"basket": DEFAULT_BASKET, "cashPct": 20, "period": "quarterly", "lastDone": None}
 PERIODS = ("monthly", "quarterly", "yearly")
 
