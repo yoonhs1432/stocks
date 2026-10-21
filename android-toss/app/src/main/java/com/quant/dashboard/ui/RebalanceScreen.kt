@@ -97,8 +97,15 @@ private fun mmdd(iso: String): String = iso.takeIf { it.length >= 10 }?.let {
     "${it.substring(5, 7).toInt()}/${it.substring(8, 10).toInt()}"
 } ?: iso
 
-private fun qtyLabel(r: Server.RebalRow): String =
-    if (r.krw) "%,d주".format(r.qty.toLong()) else "%.2f주".format(r.qty)
+private fun qtyLabel(q: Double): String =
+    if (q == kotlin.math.floor(q)) "%,d주".format(q.toLong()) else "%.2f주".format(q)
+
+/** 1주 가격 — 미국은 달러와 원화 둘 다. */
+private fun priceLabel(r: Server.RebalRow): String = when {
+    r.price.isNaN() -> ""
+    r.krw -> "1주 %,d원".format(r.price.roundToLong())
+    else -> "1주 $%.2f(%s)".format(r.price, manwon(r.priceKrw))
+}
 
 /** 포트폴리오 탭의 진입 줄 — 상태만 보이고 누르면 도우미가 열린다. */
 @Composable
@@ -234,9 +241,11 @@ private fun RebalanceDialog(initial: Server.Rebalance?, onClose: () -> Unit, onP
                     Text("맞출 것이 없습니다 — 모든 종목이 목표에서 20만 원 안쪽", color = TextSecondary, fontSize = 13.sp)
                 }
                 orders.forEach { r ->
-                    OrderRow(r, p.desc[r.ticker], done = r.ticker in opened) { opened.add(r.ticker); TossLink.openOrder(ctx, r.ticker) }
+                    OrderRow(r, p.desc[r.ticker], p.fractional, done = r.ticker in opened) { opened.add(r.ticker); TossLink.openOrder(ctx, r.ticker) }
                 }
-                Text("차이가 20만 원 아래인 종목은 건너뜀 · 미국은 0.01주, 국내는 1주 단위",
+                Text("차이가 20만 원 아래인 종목은 건너뜀 · " +
+                    (if (p.fractional) "미국은 소수점(0.01주)" else "정수 주로 목표에 가장 가깝게(현금을 넘으면 1주씩 줄임)") +
+                    " · 국내는 1주 단위",
                     color = TextMuted, fontSize = 11.sp, modifier = Modifier.padding(top = 8.dp))
                 if (p.outside.isNotEmpty()) {
                     Text("바구니 밖 보유 ${p.outside.size}개(${manwon(p.outside.sumOf { it.second })})는 계산에서 뺐습니다 — " +
@@ -284,9 +293,9 @@ private fun RebalanceDialog(initial: Server.Rebalance?, onClose: () -> Unit, onP
     }
     if (settings) {
         plan?.let { p ->
-            RebalanceSettings(p, onDismiss = { settings = false }) { basket, cash, period ->
+            RebalanceSettings(p, onDismiss = { settings = false }) { basket, cash, period, frac ->
                 scope.launch {
-                    apply(withContext(Dispatchers.IO) { runCatching { Server.saveRebalance(basket, cash, period) } })
+                    apply(withContext(Dispatchers.IO) { runCatching { Server.saveRebalance(basket, cash, period, frac) } })
                     settings = false
                 }
             }
@@ -332,7 +341,7 @@ private fun DevBar(r: Server.RebalRow) {
 }
 
 @Composable
-private fun OrderRow(r: Server.RebalRow, desc: String?, done: Boolean, onToss: () -> Unit) {
+private fun OrderRow(r: Server.RebalRow, desc: String?, fractional: Boolean, done: Boolean, onToss: () -> Unit) {
     val sell = r.action == "sell"
     val c = if (sell) Loss else Profit
     Column {
@@ -342,12 +351,18 @@ private fun OrderRow(r: Server.RebalRow, desc: String?, done: Boolean, onToss: (
             Text("${manwon(r.valueKrw)} → ${manwon(r.targetKrw)}", color = TextSecondary, fontSize = 11.sp,
                 modifier = Modifier.weight(1f))
             Column(horizontalAlignment = Alignment.End) {
-                Text("${if (sell) "매도" else "매수"} ${qtyLabel(r)}", color = c, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                Text("${if (sell) "매도" else "매수"} ${qtyLabel(r.qty)}", color = c, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                 Text(manwon(r.amountKrw), color = TextSecondary, fontSize = 11.sp)
             }
             Spacer(Modifier.width(8.dp))
             GhostButton(if (done) "✓ 토스" else "토스", color = if (done) TextMuted else TextPrimary) { onToss() }
         }
+        // 1주 가격 · 맞춘 뒤 목표와의 차이 · (정수 주일 때) 소수점이면 몇 주
+        val gap = if (abs(r.afterGapKrw) < 10_000) "목표와 거의 같음"
+            else "맞추면 목표보다 ${if (r.afterGapKrw > 0) "+" else ""}${manwon(r.afterGapKrw)}"
+        val alt = if (!r.krw && !fractional && r.qtyFrac > 0 && r.qtyFrac != r.qty) " · 소수점이면 ${qtyLabel(r.qtyFrac)}" else ""
+        Text("${priceLabel(r)} · $gap$alt", color = TextSecondary, fontSize = 11.sp,
+            modifier = Modifier.padding(bottom = if (desc.isNullOrBlank()) 8.dp else 2.dp))
         if (!desc.isNullOrBlank()) {
             Text(desc, color = TextMuted, fontSize = 11.sp, modifier = Modifier.padding(bottom = 8.dp))
         }
@@ -367,8 +382,9 @@ private fun InfoBox(content: @Composable () -> Unit) {
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun RebalanceSettings(p: Server.Rebalance, onDismiss: () -> Unit,
-                              onSave: (List<String>, Int, String) -> Unit) {
+                              onSave: (List<String>, Int, String, Boolean) -> Unit) {
     var period by remember { mutableStateOf(p.period) }
+    var fractional by remember { mutableStateOf(p.fractional) }
     var cash by remember { mutableFloatStateOf(p.cashPct.toFloat()) }
     val basket = remember { mutableStateListOf<String>().also { it.addAll(p.basket) } }
     var plan by remember { mutableStateOf(p) }
@@ -401,6 +417,13 @@ private fun RebalanceSettings(p: Server.Rebalance, onDismiss: () -> Unit,
                         "${PERIOD_LABEL[it.key]} %+.1f%%".format(it.cagr * 100)
                     }, color = TextMuted, fontSize = 11.sp, modifier = Modifier.padding(top = 6.dp))
                 }
+
+                SectionLabel("미국 종목 주문 단위")
+                UnderlineSegments(listOf("whole" to "정수 주", "frac" to "소수점(0.01주)"),
+                    selected = if (fractional) "frac" else "whole", onSelect = { fractional = it == "frac" })
+                Text("정수 주 = 목표에 가장 가까운 주식 수(비싼 종목은 목표와 조금 차이). 소수점 = 목표 금액에 거의 딱 맞음 — " +
+                    "토스에서 그 종목의 소수점 주문이 될 때만.", color = TextMuted, fontSize = 11.sp, lineHeight = 15.sp,
+                    modifier = Modifier.padding(top = 6.dp))
 
                 SectionLabel("현금으로 둘 비중")
                 Row(verticalAlignment = Alignment.Bottom) {
@@ -479,7 +502,7 @@ private fun RebalanceSettings(p: Server.Rebalance, onDismiss: () -> Unit,
                         color = TextSecondary, fontSize = 12.sp)
                 }
                 Spacer(Modifier.height(16.dp))
-                PrimaryButton("저장", enabled = basket.isNotEmpty()) { onSave(basket.toList(), cash.toInt(), period) }
+                PrimaryButton("저장", enabled = basket.isNotEmpty()) { onSave(basket.toList(), cash.toInt(), period, fractional) }
             }
         }
     }

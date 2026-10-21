@@ -61,7 +61,9 @@ DESC = {
     "WTIU": "미국 에너지 3배 (MicroSectors ETN) · 거래가 매우 적다",
     "BNKU": "미국 대형은행 3배 (MicroSectors ETN) · 거래가 매우 적다",
 }
-DEFAULTS = {"basket": DEFAULT_BASKET, "cashPct": 20, "period": "quarterly", "lastDone": None}
+# fractional — 미국 종목을 소수점(0.01주)으로 주문할지. 기본은 정수 주: 소수점 주문이 안 되는 종목도 있고
+# 정수로 맞추는 쪽이 따라 하기 쉽다. 소수점 수량은 어느 쪽이든 같이 내려 준다.
+DEFAULTS = {"basket": DEFAULT_BASKET, "cashPct": 20, "period": "quarterly", "lastDone": None, "fractional": False}
 PERIODS = ("monthly", "quarterly", "yearly")
 
 COST = 0.002              # 매매 금액 대비 비용(수수료·환전·거래세 대략)
@@ -86,7 +88,7 @@ def settings() -> dict:
 
 def save(patch: dict) -> dict:
     cur = settings()
-    for k in ("basket", "cashPct", "period", "lastDone"):
+    for k in ("basket", "cashPct", "period", "lastDone", "fractional"):
         if k in patch:
             cur[k] = patch[k]
     store.put("rebalance", cur)
@@ -185,26 +187,59 @@ def plan(acc: dict, quote) -> dict:
     cash_w = s["cashPct"] / 100
     per = total * (1 - cash_w) / len(priced) if priced else 0.0
 
+    frac = bool(s.get("fractional"))
     rows = []
     for t in priced:
         pk = price_krw(t)
         now = held[t].get("evalKrw", 0.0) if t in held else 0.0
         diff = per - now
         krw = store.is_krw(t)
-        qty = _floor_qty(abs(diff) / pk, krw)
+        have = float((held.get(t) or {}).get("quantity") or 0.0)
+        # 정수 주 — 목표에 **가장 가까운** 주식 수(내림이 아니라 반올림). 비싼 종목은 1주가 목표의 수십 % 라
+        # 내림만 하면 계속 덜 사게 된다. 팔 때는 가진 수량을 넘지 않게.
+        whole = float(round(abs(diff) / pk))
+        if diff < 0:
+            whole = min(whole, math.floor(have))
+        part = _floor_qty(abs(diff) / pk, krw) if not krw else whole
+        if diff < 0:
+            part = min(part, have)
+        use = part if (frac and not krw) else whole
         act = "none"
-        if abs(diff) >= MIN_TRADE and qty > 0:
+        if abs(diff) >= MIN_TRADE and use > 0:
             act = "buy" if diff > 0 else "sell"
         native = pk / (1.0 if krw else rate)
         rows.append({
             "ticker": t, "name": (held.get(t) or {}).get("name") or store.name_of(t) or t, "krw": krw,
             "valueKrw": now, "targetKrw": per, "diffKrw": diff,
             "devPct": (now / per - 1) * 100 if per else 0.0,
-            "action": act, "qty": qty if act != "none" else 0.0, "amountKrw": qty * pk if act != "none" else 0.0,
+            "action": act, "qty": use if act != "none" else 0.0, "amountKrw": use * pk if act != "none" else 0.0,
+            # 주문 수량 두 가지 — 정수 주와 소수점(미국만). 맞춘 뒤 목표와 얼마나 차이 나는지도
+            "qtyWhole": whole, "qtyFrac": part, "priceKrw": pk,
             "price": native, "held": t in held,
             # 아직 안 산 종목은 '새로 담기'일 뿐 이탈이 아니다 — 알림이 매번 울리지 않게
             "extreme": t in held and per > 0 and (now >= 2 * per or now <= 0.5 * per),
         })
+
+    # 반올림으로 매수가 쓸 수 있는 현금을 넘으면, 가장 많이 올림된 종목부터 1주씩 줄인다
+    def spare():
+        sells_ = sum(r["amountKrw"] for r in rows if r["action"] == "sell")
+        buys_ = sum(r["amountKrw"] for r in rows if r["action"] == "buy")
+        return cash + sells_ * (1 - COST) - buys_ * (1 + COST)
+    guard = 0
+    while spare() < 0 and guard < 200:
+        guard += 1
+        cand = [r for r in rows if r["action"] == "buy" and r["qty"] >= 1]
+        if not cand:
+            break
+        r = max(cand, key=lambda x: x["amountKrw"] - abs(x["diffKrw"]))   # 목표보다 가장 많이 넘친 것
+        r["qty"] -= 1
+        r["amountKrw"] = r["qty"] * r["priceKrw"]
+        if r["qty"] <= 0:
+            r["action"], r["qty"], r["amountKrw"] = "none", 0.0, 0.0
+    for r in rows:
+        # 맞춘 뒤 목표와의 차이(+면 목표보다 많이 담김)
+        sign = 1 if r["action"] == "buy" else -1 if r["action"] == "sell" else 0
+        r["afterGapKrw"] = r["valueKrw"] + sign * r["amountKrw"] - r["targetKrw"]
     rows.sort(key=lambda r: -r["devPct"])
 
     sells = [r for r in rows if r["action"] == "sell"]

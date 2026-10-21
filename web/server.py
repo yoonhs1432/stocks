@@ -833,6 +833,8 @@ def api_rebalance_settings(body: dict):
         patch["cashPct"] = int(body["cashPct"])
     if body.get("period") in rebalance.PERIODS:
         patch["period"] = body["period"]
+    if "fractional" in body:
+        patch["fractional"] = bool(body["fractional"])
     rebalance.save(patch)
     return api_rebalance()
 

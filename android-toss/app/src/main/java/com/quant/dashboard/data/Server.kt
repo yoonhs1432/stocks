@@ -477,6 +477,9 @@ object Server {
         val valueKrw: Double, val targetKrw: Double, val devPct: Double,
         /** "buy"·"sell"·"none" — 20만 원보다 작은 차이는 none */
         val action: String, val qty: Double, val amountKrw: Double, val held: Boolean,
+        /** 정수 주·소수점 수량(미국만 의미), 1주 가격(현지 통화·원화), 맞춘 뒤 목표와의 차이(+ = 목표보다 많음) */
+        val qtyWhole: Double = 0.0, val qtyFrac: Double = 0.0,
+        val price: Double = Double.NaN, val priceKrw: Double = Double.NaN, val afterGapKrw: Double = 0.0,
     )
 
     /** 과거 성과 한 줄 — [key] 는 현금 비중(“20”) 또는 주기(“quarterly”). */
@@ -484,6 +487,8 @@ object Server {
 
     data class Rebalance(
         val basket: List<String>, val cashPct: Int, val period: String,
+        /** 미국 종목을 소수점으로 주문할지(아니면 정수 주) */
+        val fractional: Boolean,
         val due: Boolean, val periodEnd: String, val nextEnd: String, val daysLeft: Int, val lastDone: String?,
         val totalKrw: Double, val cashKrw: Double, val cashPctNow: Double, val perTargetKrw: Double,
         val rows: List<RebalRow>,
@@ -503,8 +508,10 @@ object Server {
 
     fun rebalance(): Rebalance = rebalanceOf(obj("/api/rebalance"))
 
-    fun saveRebalance(basket: List<String>? = null, cashPct: Int? = null, period: String? = null): Rebalance {
+    fun saveRebalance(basket: List<String>? = null, cashPct: Int? = null, period: String? = null,
+                      fractional: Boolean? = null): Rebalance {
         val b = JSONObject()
+        fractional?.let { b.put("fractional", it) }
         basket?.let { b.put("basket", JSONArray(it)) }
         cashPct?.let { b.put("cashPct", it) }
         period?.let { b.put("period", it) }
@@ -528,6 +535,9 @@ object Server {
                 r.optDouble("valueKrw", 0.0), r.optDouble("targetKrw", 0.0), r.optDouble("devPct", 0.0),
                 r.optString("action", "none"), r.optDouble("qty", 0.0), r.optDouble("amountKrw", 0.0),
                 r.optBoolean("held"),
+                qtyWhole = r.optDouble("qtyWhole", 0.0), qtyFrac = r.optDouble("qtyFrac", 0.0),
+                price = r.optDouble("price", Double.NaN), priceKrw = r.optDouble("priceKrw", Double.NaN),
+                afterGapKrw = r.optDouble("afterGapKrw", 0.0),
             )
         }
         val oa = o.optJSONArray("outside") ?: JSONArray()
@@ -548,7 +558,7 @@ object Server {
         val tax = o.optJSONObject("tax") ?: JSONObject()
         return Rebalance(
             basket = s.optJSONArray("basket").strings(), cashPct = s.optInt("cashPct", 20),
-            period = s.optString("period", "quarterly"),
+            period = s.optString("period", "quarterly"), fractional = s.optBoolean("fractional"),
             due = st.optBoolean("due"), periodEnd = st.optString("periodEnd"), nextEnd = st.optString("nextEnd"),
             daysLeft = st.optInt("daysLeft"), lastDone = if (st.isNull("lastDone")) null else st.optString("lastDone"),
             totalKrw = o.optDouble("totalKrw", 0.0), cashKrw = o.optDouble("cashKrw", 0.0),
