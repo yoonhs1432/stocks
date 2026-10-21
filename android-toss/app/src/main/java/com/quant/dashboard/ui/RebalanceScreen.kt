@@ -139,6 +139,7 @@ private val RANGES = listOf("1M" to 22, "3M" to 66, "6M" to 130, "1Y" to 260, "�
 @Composable
 fun HomeScreen(vm: RebalanceViewModel = viewModel()) {
     LaunchedEffect(AppState.dataVersion) { vm.load() }
+    LaunchedEffect(Unit) { vm.autoRefresh() }
     val ctx = LocalContext.current
     var range by rememberSaveable { mutableStateOf("6M") }
     val snapRev = Snapshots.rev
@@ -349,9 +350,10 @@ private fun OrderCard(r: Server.RebalRow, checked: Boolean, onCheck: () -> Unit,
 @Composable
 fun BasketScreen(vm: RebalanceViewModel = viewModel()) {
     LaunchedEffect(AppState.dataVersion) { if (vm.plan == null) vm.load() }
+    LaunchedEffect(Unit) { vm.autoRefresh() }
     // 과거 성과·종목 숫자는 PC 가 백그라운드로 계산한다 — 아직이면 잠깐씩 다시 묻는다
     LaunchedEffect(vm.plan?.cashTable == null) {
-        while (vm.plan != null && vm.plan?.cashTable == null) { delay(4_000); vm.load() }
+        while (vm.plan != null && vm.plan?.cashTable == null) { delay(4_000); vm.load(quiet = true) }
     }
     var seg by rememberSaveable { mutableStateOf("items") }
     Column(Modifier.fillMaxSize().background(BgApp).padding(horizontal = 16.dp)) {

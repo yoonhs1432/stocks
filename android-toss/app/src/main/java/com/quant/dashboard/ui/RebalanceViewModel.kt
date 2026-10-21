@@ -44,12 +44,28 @@ class RebalanceViewModel(app: Application) : AndroidViewModel(app) {
     /** 체크를 묶는 열쇠 — 기간 끝 + 마지막으로 맞춘 날. '다 맞췄어요' 를 누르면 바뀐다. */
     private fun Server.Rebalance.status() = "$periodEnd|${lastDone.orEmpty()}"
 
-    fun load() {
-        if (loading) return
-        loading = true
+    private var busy = false
+
+    /** @param quiet 자동 갱신 — 당겨서 새로고침 표시(loading)를 켜지 않는다 */
+    fun load(quiet: Boolean = false) {
+        if (busy) return
+        busy = true
+        if (!quiet) loading = true
         viewModelScope.launch {
             apply(withContext(Dispatchers.IO) { runCatching { Server.rebalance() } })
+            busy = false
             loading = false
+        }
+    }
+
+    /**
+     * 화면이 보이는 동안 — 장중이면 1분마다, 아직 못 받았으면 8초마다 조용히 다시 받는다.
+     * 예전 비교·포트폴리오 탭과 같은 주기다. PC 는 계좌를 20초 캐시하므로 토스를 더 부르지 않는다.
+     */
+    suspend fun autoRefresh() {
+        while (true) {
+            kotlinx.coroutines.delay(if (plan == null) 8_000 else 60_000)
+            if (plan == null || com.quant.dashboard.data.MarketHours.anyOpen()) load(quiet = true)
         }
     }
 
