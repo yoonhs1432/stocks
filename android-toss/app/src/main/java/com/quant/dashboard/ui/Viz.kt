@@ -102,6 +102,29 @@ fun StackBar(parts: List<Pair<Double, Color>>, height: Dp, modifier: Modifier = 
     }
 }
 
+/**
+ * 목표 막대 — 칠한 길이 = 지금 비중(자산군 색), 흰 세로선 = 목표.
+ * 목표를 넘은 부분은 파랑(많음 → 팔기), 목표까지 모자란 부분은 연한 빨강(모자람 → 사기). 눈금은 0 ~ 목표의 2배.
+ */
+@Composable
+fun TargetBar(now: Double, target: Double, color: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier.fillMaxWidth().height(14.dp)) {
+        val scale = maxOf(target * 2, now * 1.05, 0.1)
+        fun x(v: Double) = (v / scale).toFloat().coerceIn(0f, 1f) * size.width
+        val h = 8.dp.toPx(); val top = (size.height - h) / 2
+        val r = androidx.compose.ui.geometry.CornerRadius(h / 2)
+        drawRoundRect(CARD2, Offset(0f, top), Size(size.width, h), r)
+        if (now >= target) {
+            drawRoundRect(color, Offset(0f, top), Size(x(target), h), r)
+            drawRect(Loss, Offset(x(target), top), Size(x(now) - x(target), h))
+        } else {
+            drawRoundRect(color, Offset(0f, top), Size(x(now), h), r)
+            drawRect(Profit.copy(alpha = 0.35f), Offset(x(now), top), Size(x(target) - x(now), h))
+        }
+        drawLine(Color.White, Offset(x(target), 0f), Offset(x(target), size.height), strokeWidth = 2.5.dp.toPx())
+    }
+}
+
 /** 반원 게이지 0..1. */
 @Composable
 fun SemiGauge(p: Double, width: Dp, color: Color = Profit) {

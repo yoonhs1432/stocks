@@ -304,17 +304,30 @@ private fun WeightCard(p: Server.Rebalance) {
             Text("지금 / 목표", color = TextMuted, fontSize = 11.sp)
         }
         Spacer(Modifier.height(10.dp))
-        StackBar(keys.map { (nowBy[it] ?: 0.0) to GROUP_COLOR[it]!! } + (cashNow to CASH_COLOR), 14.dp)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("지금", color = TextSecondary, fontSize = 11.sp, modifier = Modifier.width(30.dp))
+            StackBar(keys.map { (nowBy[it] ?: 0.0) to GROUP_COLOR[it]!! } + (cashNow to CASH_COLOR), 14.dp, Modifier.weight(1f))
+        }
         Spacer(Modifier.height(6.dp))
-        StackBar(keys.map { (tgtBy[it] ?: 0.0) to GROUP_COLOR[it]!! } + (cashTgt to CASH_COLOR), 14.dp)
-        Spacer(Modifier.height(8.dp))
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            (keys.map { GROUP_LABEL[it]!! to GROUP_COLOR[it]!! } + ("현금" to CASH_COLOR)).forEach { (l, c) ->
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(8.dp).clip(RoundedCornerShape(50)).background(c).border(1.dp, if (c == CASH_COLOR) TextMuted else c, RoundedCornerShape(50)))
-                    Spacer(Modifier.width(5.dp))
-                    Text(l, color = TextSecondary, fontSize = 11.sp)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("목표", color = TextSecondary, fontSize = 11.sp, modifier = Modifier.width(30.dp))
+            StackBar(keys.map { (tgtBy[it] ?: 0.0) to GROUP_COLOR[it]!! } + (cashTgt to CASH_COLOR), 14.dp, Modifier.weight(1f))
+        }
+        Spacer(Modifier.height(10.dp))
+        // 범례 — 자산군마다 지금 → 목표 숫자
+        (keys.map { Triple(GROUP_LABEL[it]!!, GROUP_COLOR[it]!!, (nowBy[it] ?: 0.0) to (tgtBy[it] ?: 0.0)) } +
+            Triple("현금", CASH_COLOR, cashNow to cashTgt)).chunked(2).forEach { pair ->
+            Row(Modifier.padding(vertical = 2.dp)) {
+                pair.forEach { (l, c, v) ->
+                    Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(8.dp).clip(RoundedCornerShape(50)).background(c).border(1.dp, if (c == CASH_COLOR) TextMuted else c, RoundedCornerShape(50)))
+                        Spacer(Modifier.width(5.dp))
+                        Text(l, color = TextSecondary, fontSize = 11.sp, modifier = Modifier.weight(1f))
+                        Text("%.0f%% → %.0f%%".format(v.first, v.second), color = TextPrimary, fontSize = 11.sp, fontFamily = Mono,
+                            modifier = Modifier.padding(end = 10.dp))
+                    }
                 }
+                if (pair.size == 1) Spacer(Modifier.weight(1f))
             }
         }
     }
@@ -394,6 +407,21 @@ private val PRICE_RANGES = listOf(21 to "1개월", 63 to "3개월", 252 to "1년
 private fun ItemsPanel(p: Server.Rebalance, priceDays: Int, onPriceDays: (Int) -> Unit) {
     val rows = p.rows.associateBy { it.ticker }
     val tot = p.totalKrw.takeIf { it > 0 } ?: 1.0
+    // 막대 읽는 법 — 두 줄 범례
+    Row(Modifier.padding(bottom = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text("막대  ", color = TextMuted, fontSize = 11.sp)
+        Box(Modifier.size(14.dp, 6.dp).clip(RoundedCornerShape(3.dp)).background(GROUP_COLOR["us"]!!))
+        Text(" 지금  ", color = TextSecondary, fontSize = 11.sp)
+        Box(Modifier.size(2.dp, 12.dp).background(Color.White))
+        Text(" 목표", color = TextSecondary, fontSize = 11.sp)
+    }
+    Row(Modifier.padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text("        ", color = TextMuted, fontSize = 11.sp)
+        Box(Modifier.size(14.dp, 6.dp).background(Loss))
+        Text(" 많음(팔기)  ", color = TextSecondary, fontSize = 11.sp)
+        Box(Modifier.size(14.dp, 6.dp).background(Profit.copy(alpha = 0.35f)))
+        Text(" 모자람(사기)", color = TextSecondary, fontSize = 11.sp)
+    }
     // 가격 추이 기간 — 타일 맨 아래 줄에 쓴다(내 수익률과 헷갈리지 않게 라벨을 붙여 작게)
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 6.dp)) {
         Text("가격 추이", color = TextMuted, fontSize = 12.sp, modifier = Modifier.weight(1f))
@@ -487,18 +515,20 @@ private fun Tile(t: String, p: Server.Rebalance, r: Server.RebalRow?, tot: Doubl
             Text("미보유", color = TextMuted, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(top = 4.dp))
             Text(r?.let { "새로 담기 ${manwon(it.targetKrw)}" } ?: "", color = TextSecondary, fontSize = 11.sp, maxLines = 1)
         }
-        // 지금 / 목표 비중
+        // 지금 / 목표 비중 — 막대 + 뜻을 글로
         if (r != null) {
             val now = r.valueKrw / tot * 100
             val tg = r.targetKrw / tot * 100
-            val scale = maxOf(tg * 2, now, 0.1)
+            val gap = now - tg
             Spacer(Modifier.height(8.dp))
-            StackBar(listOf(
-                minOf(now, tg) to gc,
-                abs(now - tg) to if (now > tg) Loss else Profit.copy(alpha = 0.5f),
-                (scale - maxOf(now, tg)).coerceAtLeast(0.0) to CARD2,
-            ), 6.dp)
-            Text("지금 %.1f%% / 목표 %.1f%%".format(now, tg), color = TextMuted, fontSize = 11.sp, modifier = Modifier.padding(top = 4.dp))
+            TargetBar(now, tg, gc)
+            val (txt, col) = when (r.action) {
+                "sell" -> "목표보다 %.1f%%p 많음".format(gap) to Loss
+                "buy" -> "목표보다 %.1f%%p 모자람".format(-gap) to Profit
+                else -> "목표 근처" to TextMuted
+            }
+            Text(txt, color = col, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 3.dp))
+            Text("지금 %.1f%% · 목표 %.1f%%".format(now, tg), color = TextMuted, fontSize = 10.sp)
         }
         // 가격 추이 — 라벨을 붙여 맨 아래에 작게
         if (m != null && m.spark.size > 2) {
