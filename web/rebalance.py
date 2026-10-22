@@ -412,10 +412,9 @@ def _compute_table(basket: list[str], period: str) -> dict:
         ys = np.array([v[d] for d in sorted(v)][-253:])
         if len(ys) > 60:
             r = np.diff(np.log(ys))
-            tail = ys[-60:]
             metrics[t] = {"vol": float(r.std() * math.sqrt(252)), "ret1y": float(ys[-1] / ys[0] - 1),
-                          # 타일의 작은 추이 — 최근 60거래일, 첫날 = 1
-                          "spark": [round(float(v / tail[0]), 4) for v in tail]}
+                          # 타일의 가격 추이 — 최근 1년(약 253거래일) 종가, 첫날 = 1. 앱이 1개월·3개월·1년으로 자른다
+                          "spark": [round(float(v / ys[0]), 4) for v in ys]}
     return {"from": dts[0].isoformat(), "to": dts[-1].isoformat(), "tickers": cols,
             "cash": cash_rows, "periods": per_rows, "metrics": metrics}
 

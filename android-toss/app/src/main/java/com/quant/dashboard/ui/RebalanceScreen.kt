@@ -356,6 +356,8 @@ fun BasketScreen(vm: RebalanceViewModel = viewModel()) {
         while (vm.plan != null && vm.plan?.cashTable == null) { delay(4_000); vm.load(quiet = true) }
     }
     var seg by rememberSaveable { mutableStateOf("items") }
+    // 타일 아래 가격 추이의 기간(거래일) — 모든 타일에 같이
+    var priceDays by rememberSaveable { mutableStateOf(63) }
     Column(Modifier.fillMaxSize().background(BgApp).padding(horizontal = 16.dp)) {
         val p = vm.plan
         Row(Modifier.padding(top = 14.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -380,16 +382,29 @@ fun BasketScreen(vm: RebalanceViewModel = viewModel()) {
             when (seg) {
                 "rules" -> RulesPanel(p, vm)
                 "history" -> HistoryPanel(p)
-                else -> ItemsPanel(p)
+                else -> ItemsPanel(p, priceDays) { priceDays = it }
             }
         }
     }
 }
 
+private val PRICE_RANGES = listOf(21 to "1개월", 63 to "3개월", 252 to "1년")
+
 @Composable
-private fun ItemsPanel(p: Server.Rebalance) {
+private fun ItemsPanel(p: Server.Rebalance, priceDays: Int, onPriceDays: (Int) -> Unit) {
     val rows = p.rows.associateBy { it.ticker }
     val tot = p.totalKrw.takeIf { it > 0 } ?: 1.0
+    // 가격 추이 기간 — 타일 맨 아래 줄에 쓴다(내 수익률과 헷갈리지 않게 라벨을 붙여 작게)
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 6.dp)) {
+        Text("가격 추이", color = TextMuted, fontSize = 12.sp, modifier = Modifier.weight(1f))
+        PRICE_RANGES.forEach { (d, l) ->
+            val on = d == priceDays
+            Box(Modifier.padding(start = 4.dp).clip(RoundedCornerShape(99.dp)).background(if (on) CARD2 else Color.Transparent)
+                .clickable { onPriceDays(d) }.padding(horizontal = 10.dp, vertical = 5.dp)) {
+                Text(l, color = if (on) TextPrimary else TextMuted, fontSize = 12.sp, fontWeight = if (on) FontWeight.Bold else FontWeight.Normal)
+            }
+        }
+    }
     val byGroup = p.basket.groupBy { p.groups[it] ?: "etc" }
     GROUP_ORDER.filter { byGroup[it] != null }.forEach { g ->
         val members = byGroup[g]!!
@@ -403,7 +418,7 @@ private fun ItemsPanel(p: Server.Rebalance) {
         }
         members.chunked(2).forEach { pair ->
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 8.dp)) {
-                pair.forEach { t -> Tile(t, p, rows[t], tot, Modifier.weight(1f)) }
+                pair.forEach { t -> Tile(t, p, rows[t], tot, priceDays, Modifier.weight(1f)) }
                 if (pair.size == 1) Spacer(Modifier.weight(1f))
             }
         }
@@ -438,47 +453,64 @@ private fun ItemsPanel(p: Server.Rebalance) {
     }
 }
 
-/** 종목 타일 — 배수·작은 추이·1년 수익·지금/목표 막대·보유 금액·평가손익·사기/팔기. */
+/**
+ * 종목 타일 — **내 수익률이 주인공**. 위: 이름·배수·사기/팔기 / 크게: 평가손익률 / 작게: 손익 금액·보유 금액 /
+ * 막대: 지금·목표 비중 / 맨 아래 한 줄: 라벨 붙인 가격 추이(기간은 위에서 고른다).
+ * 예전엔 가격 1년 등락률을 크게 써서 내 수익률로 읽혔다(사용자 지적, 2026-10-22).
+ */
 @Composable
-private fun Tile(t: String, p: Server.Rebalance, r: Server.RebalRow?, tot: Double, modifier: Modifier) {
+private fun Tile(t: String, p: Server.Rebalance, r: Server.RebalRow?, tot: Double, priceDays: Int, modifier: Modifier) {
     val gc = GROUP_COLOR[p.groups[t] ?: "etc"]!!
     val m = p.metrics[t]
-    Column(modifier.clip(RoundedCornerShape(16.dp)).background(CARD).padding(11.dp)) {
+    Column(modifier.clip(RoundedCornerShape(16.dp)).background(CARD).padding(12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(8.dp).clip(RoundedCornerShape(50)).background(gc))
             Spacer(Modifier.width(6.dp))
-            Text(Tickers.displayName(t), color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.ExtraBold, fontFamily = Mono,
-                maxLines = 1, modifier = Modifier.weight(1f))
-            if (p.notes[t] != null) Text("⚠", color = Gold, fontSize = 11.sp)
+            Text(Tickers.displayName(t), color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.ExtraBold, fontFamily = Mono, maxLines = 1)
             levOf(p.desc[t])?.let { Text(" ${it}x", color = TextMuted, fontSize = 11.sp) }
-        }
-        Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-            if (m != null && m.spark.size > 1) Sparkline(m.spark, 64.dp, 22.dp) else Spacer(Modifier.size(64.dp, 22.dp))
+            if (p.notes[t] != null) Text(" ⚠", color = Gold, fontSize = 11.sp)
             Spacer(Modifier.weight(1f))
-            m?.let { Text(pct(it.ret1y * 100, 0), color = if (it.ret1y >= 0) Profit else Loss, fontSize = 12.sp, fontWeight = FontWeight.Bold) }
+            when (r?.action) {
+                "buy" -> Text("▲ 사기", color = Profit, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold)
+                "sell" -> Text("▼ 팔기", color = Loss, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold)
+                else -> Text("✓", color = TextMuted, fontSize = 11.sp)
+            }
         }
+        // 내 수익률 — 크게
+        if (r != null && r.held) {
+            val pr = r.pnlRate * 100
+            val gain = r.valueKrw * r.pnlRate / (1 + r.pnlRate)
+            Text(pct(pr), color = if (pr >= 0) Profit else Loss, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold,
+                modifier = Modifier.padding(top = 4.dp))
+            Text("${signed(gain)} · 보유 ${manwon(r.valueKrw)}", color = TextSecondary, fontSize = 11.sp, maxLines = 1)
+        } else {
+            Text("미보유", color = TextMuted, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(top = 4.dp))
+            Text(r?.let { "새로 담기 ${manwon(it.targetKrw)}" } ?: "", color = TextSecondary, fontSize = 11.sp, maxLines = 1)
+        }
+        // 지금 / 목표 비중
         if (r != null) {
             val now = r.valueKrw / tot * 100
             val tg = r.targetKrw / tot * 100
             val scale = maxOf(tg * 2, now, 0.1)
-            Spacer(Modifier.height(7.dp))
+            Spacer(Modifier.height(8.dp))
             StackBar(listOf(
                 minOf(now, tg) to gc,
                 abs(now - tg) to if (now > tg) Loss else Profit.copy(alpha = 0.5f),
                 (scale - maxOf(now, tg)).coerceAtLeast(0.0) to CARD2,
             ), 6.dp)
-            Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(if (r.held) manwon(r.valueKrw) else "미보유", color = TextSecondary, fontSize = 11.sp)
-                if (r.held) {
-                    val pr = r.pnlRate * 100
-                    Text(" ${pct(pr, 0)}", color = if (pr >= 0) Profit else Loss, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                }
+            Text("지금 %.1f%% / 목표 %.1f%%".format(now, tg), color = TextMuted, fontSize = 11.sp, modifier = Modifier.padding(top = 4.dp))
+        }
+        // 가격 추이 — 라벨을 붙여 맨 아래에 작게
+        if (m != null && m.spark.size > 2) {
+            val sl = m.spark.copyOfRange((m.spark.size - 1 - priceDays).coerceAtLeast(0), m.spark.size)
+            val chg = (sl.last() / sl.first() - 1) * 100
+            HDivider(Modifier.padding(top = 8.dp, bottom = 6.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("가격 ${PRICE_RANGES.first { it.first == priceDays }.second}", color = TextMuted, fontSize = 10.sp)
+                Spacer(Modifier.width(6.dp))
+                Sparkline(sl, 46.dp, 16.dp)
                 Spacer(Modifier.weight(1f))
-                when (r.action) {
-                    "buy" -> Text("▲ 사기", color = Profit, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold)
-                    "sell" -> Text("▼ 팔기", color = Loss, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold)
-                    else -> Text("✓", color = TextMuted, fontSize = 11.sp)
-                }
+                Text(pct(chg, 0), color = TextSecondary, fontSize = 11.sp)
             }
         }
     }
