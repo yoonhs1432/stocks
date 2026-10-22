@@ -83,7 +83,9 @@ DESC = {
 # fractional — 미국 종목을 소수점(0.01주)으로 주문할지. 기본은 정수 주: 소수점 주문이 안 되는 종목도 있고
 # 정수로 맞추는 쪽이 따라 하기 쉽다. 소수점 수량은 어느 쪽이든 같이 내려 준다.
 # sellOutside — 바구니 밖 보유도 총액에 넣고 '전량 매도'로 정리할지. 기본은 그대로 둔다(계산에서 뺀다).
-DEFAULTS = {"basket": DEFAULT_BASKET, "cashPct": 20, "period": "quarterly", "lastDone": None, "fractional": False,
+# 주기 기본 = 매월 — 간격 1~6개월 비교(research/rebal_interval.py)에서 짧을수록 평균이 조금 높고,
+# 분기는 맞추는 달(위상) 운에 크게 흔들렸다(3·6·9·12월만 유독 좋았다).
+DEFAULTS = {"basket": DEFAULT_BASKET, "cashPct": 20, "period": "monthly", "lastDone": None, "fractional": False,
             "sellOutside": False}
 PERIODS = ("monthly", "quarterly", "yearly")
 
@@ -102,7 +104,7 @@ def settings() -> dict:
     cur = store.settings().get("rebalance") or {}
     out = {**DEFAULTS, **cur}
     if out["period"] not in PERIODS:
-        out["period"] = "quarterly"
+        out["period"] = "monthly"
     out["cashPct"] = int(max(0, min(80, out.get("cashPct", 20))))
     return out
 

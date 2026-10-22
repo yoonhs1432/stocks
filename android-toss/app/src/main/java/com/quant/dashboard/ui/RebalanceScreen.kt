@@ -742,7 +742,8 @@ private fun RulesPanel(p: Server.Rebalance, vm: RebalanceViewModel) {
     val basket = remember(p) { mutableStateListOf<String>().also { it.addAll(p.basket) } }
 
     SectionLabel("언제 맞출까", top = 4.dp)
-    val best = p.periodTable?.maxByOrNull { it.cagr }?.key ?: "quarterly"
+    // 추천은 매월로 고정 — 과거 표의 최고값으로 고르면 분기(3·6·9·12월)가 위상 운으로 뽑힌다(research/rebal_interval.py)
+    val best = "monthly"
     UnderlineSegments(
         listOf("monthly", "quarterly", "yearly").map { it to (PERIOD_LABEL[it]!! + if (it == best) " (추천)" else "") },
         selected = period, onSelect = { period = it },

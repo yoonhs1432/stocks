@@ -580,7 +580,7 @@ object Server {
         val tax = o.optJSONObject("tax") ?: JSONObject()
         return Rebalance(
             basket = s.optJSONArray("basket").strings(), cashPct = s.optInt("cashPct", 20),
-            period = s.optString("period", "quarterly"), fractional = s.optBoolean("fractional"),
+            period = s.optString("period", "monthly"), fractional = s.optBoolean("fractional"),
             sellOutside = s.optBoolean("sellOutside"),
             due = st.optBoolean("due"), periodEnd = st.optString("periodEnd"), nextEnd = st.optString("nextEnd"),
             daysLeft = st.optInt("daysLeft"), lastDone = if (st.isNull("lastDone")) null else st.optString("lastDone"),
