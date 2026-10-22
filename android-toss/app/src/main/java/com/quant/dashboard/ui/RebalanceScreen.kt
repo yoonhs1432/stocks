@@ -426,6 +426,7 @@ private fun ItemsPanel(p: Server.Rebalance, priceDays: Int, onPriceDays: (Int) -
         Box(Modifier.size(14.dp, 6.dp).background(Profit.copy(alpha = 0.35f)))
         Text(" 모자람(사기)", color = TextSecondary, fontSize = 11.sp)
     }
+    Text("타일을 누르면 종목 설명과 ⚠ 의 뜻이 펼쳐집니다", color = TextMuted, fontSize = 11.sp, modifier = Modifier.padding(bottom = 8.dp))
     // 가격 추이 기간 — 타일 맨 아래 줄에 쓴다(내 수익률과 헷갈리지 않게 라벨을 붙여 작게)
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 6.dp)) {
         Text("가격 추이", color = TextMuted, fontSize = 12.sp, modifier = Modifier.weight(1f))
@@ -494,7 +495,9 @@ private fun ItemsPanel(p: Server.Rebalance, priceDays: Int, onPriceDays: (Int) -
 private fun Tile(t: String, p: Server.Rebalance, r: Server.RebalRow?, tot: Double, priceDays: Int, modifier: Modifier) {
     val gc = GROUP_COLOR[p.groups[t] ?: "etc"]!!
     val m = p.metrics[t]
-    Column(modifier.clip(RoundedCornerShape(16.dp)).background(CARD).padding(12.dp)) {
+    // 누르면 펼쳐진다 — 종목 설명·경고(⚠ 의 뜻)
+    var open by rememberSaveable(t) { mutableStateOf(false) }
+    Column(modifier.clip(RoundedCornerShape(16.dp)).background(CARD).clickable { open = !open }.padding(12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(8.dp).clip(RoundedCornerShape(50)).background(gc))
             Spacer(Modifier.width(6.dp))
@@ -507,6 +510,10 @@ private fun Tile(t: String, p: Server.Rebalance, r: Server.RebalRow?, tot: Doubl
                 "sell" -> Text("▼ 팔기", color = Loss, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold)
                 else -> Text("✓", color = TextMuted, fontSize = 11.sp)
             }
+        }
+        if (open) {
+            p.desc[t]?.let { Text(it, color = TextSecondary, fontSize = 11.sp, lineHeight = 15.sp, modifier = Modifier.padding(top = 6.dp)) }
+            p.notes[t]?.let { Text("⚠ $it", color = Gold, fontSize = 11.sp, lineHeight = 15.sp, modifier = Modifier.padding(top = 4.dp)) }
         }
         // 내 수익률 — 크게
         if (r != null && r.held) {
