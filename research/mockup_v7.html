@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8">
+<title>종목 상세 3변형</title>
+<style>
+  :root{--bg:#0E0E11;--card:#17171C;--card2:#1F1F26;--line:#2A2A33;--t1:#F2F4F6;--t2:#9AA3AE;--t3:#646E7A;
+    --up:#F04452;--down:#3182F6;--acc:#3182F6;--ok:#2EA078;
+    --cash:#2A2A33;--gold:#E0A24A;--c1:#199e70;--c2:#d95926;--c3:#9085e9;--c4:#c98500;--c5:#d55181;}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#26262c;font-family:"Malgun Gothic",sans-serif;color:var(--t1);padding:20px;width:1180px}
+  h2{font-size:22px;margin:0 0 4px 4px} .lead{color:#b8b8c0;font-size:13px;margin:0 0 14px 4px}
+  .wrap{display:flex;gap:22px;align-items:flex-start}
+  .phone{width:360px;height:780px;background:var(--bg);border-radius:30px;border:1px solid #3a3a42;overflow:hidden;display:flex;flex-direction:column;position:relative}
+  .scr{flex:1;padding:16px 16px 0;overflow:hidden}
+  .tabs{display:flex;height:60px;border-top:1px solid var(--line);background:var(--bg)}
+  .tabs div{flex:1;text-align:center;font-size:10px;color:var(--t3);padding-top:10px}
+  .tabs div i{display:block;width:20px;height:20px;margin:0 auto 3px;border-radius:6px;border:2px solid var(--t3)}
+  .tabs .on{color:var(--t1);font-weight:700} .tabs .on i{border-color:var(--t1);background:var(--t1)}
+  .card{background:var(--card);border-radius:18px;padding:14px;margin-bottom:10px}
+  .lbl{font-size:12px;color:var(--t2)} .big{font-size:30px;font-weight:800;letter-spacing:-.5px}
+  .mid{font-size:18px;font-weight:800} .sm{font-size:11px;color:var(--t3)}
+  .row{display:flex;align-items:center} .sp{flex:1}
+  .up{color:var(--up)} .down{color:var(--down)}
+  .pill{font-size:11px;font-weight:700;padding:4px 9px;border-radius:99px;background:var(--card2);color:var(--t2)}
+  .pill.hot{background:rgba(240,68,82,.15);color:var(--up)}
+  .btn{background:var(--acc);color:#fff;font-weight:800;text-align:center;padding:14px;border-radius:14px;font-size:15px}
+  .chip{display:inline-flex;align-items:center;gap:6px;background:var(--card2);border-radius:12px;padding:8px 10px;font-size:12px;font-weight:700;white-space:nowrap}
+  .dot{width:8px;height:8px;border-radius:50%;display:inline-block}
+  .mono{font-family:Consolas,monospace}
+  .hdr{display:flex;align-items:center;margin-bottom:12px}.hdr b{font-size:20px;font-weight:800}
+  .seg{display:flex;background:var(--card);border-radius:12px;padding:3px;gap:2px;font-size:12px}
+  .seg span{flex:1;text-align:center;padding:7px 0;border-radius:9px;color:var(--t2)} .seg .on{background:var(--card2);color:var(--t1);font-weight:700}
+  .tile{background:var(--card);border-radius:16px;padding:11px}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .leg{display:flex;flex-wrap:wrap;gap:4px 10px;font-size:11px;color:var(--t2)}
+  .leg span{display:inline-flex;align-items:center;gap:5px}
+  .step{display:flex;gap:6px} .step i{flex:1;height:5px;border-radius:3px;background:var(--card2)} .step i.on{background:var(--ok)}
+  .lst .it{display:flex;align-items:center;padding:9px 0;border-bottom:1px solid var(--line);font-size:13px}
+  .ck{width:22px;height:22px;border-radius:7px;border:2px solid var(--t3);margin-right:10px;flex:none}
+  .ck.on{background:var(--ok);border-color:var(--ok)}
+</style></head>
+<body>
+<div id="root"></div>
+<script>
+// ───── 예시 데이터 (가상) ─────
+const G=[ // 자산군 — 지금/목표 비중(%)
+ {k:'미국 지수',c:'var(--c1)',now:20,tgt:12.3},{k:'해외',c:'var(--c2)',now:9,tgt:18.5},
+ {k:'업종·테마',c:'var(--c3)',now:22,tgt:24.6},{k:'원자재·코인',c:'var(--c4)',now:17,tgt:18.5},{k:'채권',c:'var(--c5)',now:3,tgt:6.2}];
+const CASH={now:29,tgt:20};
+const T=[ // 종목 — 그룹, 지금/목표(%), 1년, 변동성, 배수
+ ['UPRO',0,9.1,6.15,38,38,3],['DDM',0,10.9,6.15,24,25,2],['KORU',1,3.2,6.15,65,175,3],['YINN',1,2.4,6.15,-50,56,3],['BRZU',1,3.4,6.15,99,56,2],
+ ['BIB',2,7.9,6.15,70,45,2],['NAIL',2,3.1,6.15,-57,87,3],['DRN',2,5.8,6.15,-3,43,3],['QPUX',2,5.2,6.15,-40,177,2],
+ ['UGL',3,8.8,6.15,-18,59,2],['BITX',3,3.9,6.15,-57,90,2],['ERX',3,4.3,6.15,139,44,2],['UBT',4,3.0,6.15,-20,19,2]]
+ .map(([t,g,n,tg,r,v,l])=>({t,g,n,tg,r,v,l,d:(n/tg-1)*100}));
+function rnd(s){return()=>{s=Math.sin(s)*10000;return s-Math.floor(s)}}
+function walk(n,seed,drift=0.0006,vol=0.012,start=100){const r=rnd(seed);let v=start,a=[];for(let i=0;i<n;i++){v*=1+drift+(r()-.5)*2*vol;a.push(v)}return a}
+const HIST=walk(180,7,0.0009,0.014,0.72).map(x=>x*1e8);
+const fmt=v=>v>=1e8?`${Math.floor(v/1e8)}억 ${Math.round(v%1e8/1e4).toLocaleString()}만`:`${Math.round(v/1e4).toLocaleString()}만`;
+
+// ───── 그래프 조각 ─────
+function donut(seg,size,th,gap=2,inner=''){ // seg:[{v,c}]
+ const r=size/2-th/2,C=2*Math.PI*r,tot=seg.reduce((a,b)=>a+b.v,0);let off=0,s='';
+ seg.forEach(x=>{const L=x.v/tot*C-gap;s+=`<circle r="${r}" cx="${size/2}" cy="${size/2}" fill="none" stroke="${x.c}" stroke-width="${th}" stroke-dasharray="${Math.max(L,0)} ${C}" stroke-dashoffset="${-off}" transform="rotate(-90 ${size/2} ${size/2})"/>`;off+=x.v/tot*C});
+ return `<svg width="${size}" height="${size}">${s}${inner}</svg>`}
+function line(a,w,h,col='var(--up)',fill=true,marks=[]){
+ const mn=Math.min(...a),mx=Math.max(...a),X=i=>i/(a.length-1)*w,Y=v=>h-4-(v-mn)/(mx-mn)*(h-8);
+ const d=a.map((v,i)=>`${i?'L':'M'}${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join('');
+ const m=marks.map(i=>`<circle cx="${X(i)}" cy="${Y(a[i])}" r="4.5" fill="var(--bg)" stroke="var(--t1)" stroke-width="2"/>`).join('');
+ return `<svg width="${w}" height="${h}">${fill?`<defs><linearGradient id="g${w}${h}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${col}" stop-opacity=".28"/><stop offset="1" stop-color="${col}" stop-opacity="0"/></linearGradient></defs><path d="${d}L${w},${h}L0,${h}Z" fill="url(#g${w}${h})"/>`:''}<path d="${d}" fill="none" stroke="${col}" stroke-width="2"/>${m}</svg>`}
+function spark(seed,up,w=64,h=22){return line(walk(40,seed,up?0.004:-0.004,0.02),w,h,up?'var(--up)':'var(--down)',false)}
+function gauge(p,size){ // 반원 게이지 0..1
+ const r=size/2-10,cx=size/2,cy=size/2,a=Math.PI*(1-p),x=cx+r*Math.cos(a),y=cy-r*Math.sin(a);
+ return `<svg width="${size}" height="${size/2+10}"><path d="M${cx-r},${cy} A${r},${r} 0 0 1 ${cx+r},${cy}" stroke="var(--card2)" stroke-width="14" fill="none" stroke-linecap="round"/>
+ <path d="M${cx-r},${cy} A${r},${r} 0 0 1 ${x},${y}" stroke="var(--up)" stroke-width="14" fill="none" stroke-linecap="round"/></svg>`}
+function stack(items,h=12,r=6){return `<div style="display:flex;height:${h}px;border-radius:${r}px;overflow:hidden;gap:2px">${items.map(x=>`<div style="flex:${x.v};background:${x.c}"></div>`).join('')}</div>`}
+const legend=()=>`<div class="leg">${G.map(g=>`<span><i class="dot" style="background:${g.c}"></i>${g.k}</span>`).join('')}<span><i class="dot" style="background:var(--card2);border:1px solid var(--t3)"></i>현금</span></div>`;
+function devbar(d,w=120){const f=Math.min(Math.abs(d),100)/100*(w/2);return `<svg width="${w}" height="10"><rect x="0" y="4" width="${w}" height="2" fill="var(--card2)"/><rect x="${d>=0?w/2:w/2-f}" y="1" width="${f}" height="8" rx="3" fill="${d>=0?'var(--down)':'var(--up)'}"/><rect x="${w/2-1}" y="0" width="2" height="10" fill="var(--t3)"/></svg>`}
+const tabs=on=>`<div class="tabs">${['홈','바구니','계좌','더보기'].map((x,i)=>`<div class="${i===on?'on':''}"><i></i>${x}</div>`).join('')}</div>`;
+const todo=[...T.filter(x=>x.d>20).sort((a,b)=>b.d-a.d).slice(0,2),...T.filter(x=>x.d<-20).sort((a,b)=>a.d-b.d).slice(0,3)];
+
+// ───── v4 공통 조각 — A 의 바구니 타일 + E 의 홈 위젯을 바탕으로 ─────
+const fmtS=v=>(v>0?'+':'')+v+'%';
+function ringPct(p,size,th,col,bg='var(--card2)',inner=''){return donut([{v:p,c:col},{v:100-p,c:bg}],size,th,0,inner)}
+function tileA(x,opt={}){ // A 의 종목 타일 (opt.tag = [글자, 색] 이면 아래에 큰 배지)
+ const g=G[x.g];
+ const bar=stack([{v:Math.min(x.n,x.tg),c:g.c},{v:Math.abs(x.n-x.tg),c:x.n>x.tg?'var(--down)':'rgba(240,68,82,.5)'},{v:Math.max(12-Math.max(x.n,x.tg),0),c:'var(--card2)'}],6,3);
+ const badge=Math.abs(x.d)<=20?'<span class="sm">✓</span>':`<span class="${x.d>0?'down':'up'}" style="font-size:11px;font-weight:800">${x.d>0?'▼ 팔기':'▲ 사기'}</span>`;
+ return `<div class="tile" style="${opt.style||''}"><div class="row"><i class="dot" style="background:${g.c}"></i>&nbsp;<b class="mono">${x.t}</b><span class="sp"></span><span class="sm">${x.l}x</span></div>
+ <div class="row" style="margin-top:6px">${spark(x.t.length*7+x.n,x.r>0,opt.sw||64,opt.sh||22)}<span class="sp"></span><b class="${x.r>0?'up':'down'}" style="font-size:12px">${fmtS(x.r)}</b></div>
+ <div style="margin-top:7px">${bar}</div>${opt.tag?`<div style="margin-top:7px;font-size:12px;font-weight:800;color:${opt.tag[1]}">${opt.tag[0]}</div>`:''}${opt.badge?`<div class="row" style="margin-top:6px"><span class="sm">${x.n}% / ${x.tg}%</span><span class="sp"></span>${badge}</div>`:''}</div>`}
+const weightCard=(t='비중')=>`<div class="card"><div class="row"><b>${t}</b><span class="sp"></span><span class="sm">지금 / 목표</span></div>
+ <div style="margin-top:10px">${stack([...G.map(g=>({v:g.now,c:g.c})),{v:CASH.now,c:'var(--cash)'}],14,7)}</div><div style="margin-top:6px">${stack([...G.map(g=>({v:g.tgt,c:g.c})),{v:CASH.tgt,c:'var(--cash)'}],14,7)}</div><div style="margin-top:8px">${legend()}</div></div>`;
+const heroCard=(chartW=130,chartH=36,grad='linear-gradient(135deg,#2a1418,#17171C)')=>`<div class="card" style="background:${grad}"><div class="lbl">총자산</div><div class="big">1억 2,480만</div>
+ <div class="row"><b class="up">+1.2%</b>&nbsp;<span class="sm">오늘</span><span class="sp"></span>${line(HIST.slice(-60),chartW,chartH,'var(--up)',false)}</div></div>`;
+const miniTiles=()=>`<div class="grid2" style="margin-bottom:10px"><div class="tile"><div class="lbl">현금</div><div class="mid">29%</div>${stack([{v:29,c:'var(--ok)'},{v:71,c:'var(--card2)'}],6,3)}<div class="sm" style="margin-top:4px">목표 20%</div></div>
+ <div class="tile"><div class="lbl">고점 대비</div><div class="mid down">−4.1%</div>${stack([{v:4.1,c:'var(--down)'},{v:40,c:'var(--card2)'}],6,3)}<div class="sm" style="margin-top:4px">과거 최악 −44%</div></div></div>`;
+const basketHdr=(extra='')=>`<div class="hdr"><b>바구니</b><span class="sp"></span><span class="pill">13종목</span></div><div class="seg" style="margin-bottom:12px"><span class="on">종목</span><span>규칙</span><span>성과</span></div>${extra}`;
+
+
+// ───── 안 1 변형 3개 — 종목 상세 시트 ─────
+const sheet=(inner,foot='')=>`<div class="scr" style="padding:0;position:relative;background:#08080a">
+ <div style="padding:16px;opacity:.25"><div class="hdr"><b>바구니</b></div><div class="grid2">${T.slice(0,4).map(x=>tileA(x)).join('')}</div></div>
+ <div style="position:absolute;left:0;right:0;bottom:0;top:48px;background:var(--bg);border-radius:24px 24px 0 0;border-top:1px solid var(--line);padding:10px 16px ${foot?'86px':'16px'};overflow:hidden">
+ <div style="width:40px;height:4px;border-radius:2px;background:var(--t3);margin:0 auto 12px"></div>${inner}</div>
+ ${foot?`<div style="position:absolute;left:0;right:0;bottom:0;padding:12px 16px 14px;background:linear-gradient(180deg,rgba(14,14,17,0),var(--bg) 30%)">${foot}</div>`:''}</div>`;
+const top1=(price=true)=>`<div class="row"><i class="dot" style="background:var(--c1)"></i>&nbsp;<b class="mono" style="font-size:20px">UPRO</b>&nbsp;<span class="pill">3x</span>&nbsp;<span class="sm">S&P500 3배</span><span class="sp"></span><span class="pill">✕</span></div>
+ ${price?`<div class="row" style="margin-top:6px"><span class="big" style="font-size:26px">$149.60</span>&nbsp;&nbsp;<b class="up">+2.1%</b><span class="sm">&nbsp;오늘</span></div>`:''}`;
+const PA=walk(130,21,0.0018,0.022,100);
+function pchart(w,h,{avg=true,marks=true,grid=false}={}){const a=PA,mn=Math.min(...a),mx=Math.max(...a),X=i=>i/(a.length-1)*w,Y=v=>h-6-(v-mn)/(mx-mn)*(h-12);
+ const d=a.map((v,i)=>`${i?'L':'M'}${X(i)},${Y(v)}`).join(''),av=a[40]*1.02;
+ const mk=marks?[[40,'B'],[75,'B'],[110,'S']].map(([i,t])=>`<circle cx="${X(i)}" cy="${Y(a[i])}" r="7" fill="${t==='B'?'var(--up)':'var(--down)'}" stroke="var(--bg)" stroke-width="2"/><text x="${X(i)}" y="${Y(a[i])+3.5}" text-anchor="middle" fill="#fff" font-size="8.5" font-weight="800">${t==='B'?'B':'S'}</text>`).join(''):'';
+ return `<svg width="${w}" height="${h}"><defs><linearGradient id="pg${w}${h}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--up)" stop-opacity=".25"/><stop offset="1" stop-color="var(--up)" stop-opacity="0"/></linearGradient></defs>
+ ${grid?[.25,.5,.75].map(f=>`<line x1="0" y1="${h*f}" x2="${w}" y2="${h*f}" stroke="var(--line)"/>`).join(''):''}
+ <path d="${d}L${w},${h}L0,${h}Z" fill="url(#pg${w}${h})"/><path d="${d}" fill="none" stroke="var(--up)" stroke-width="2"/>
+ ${avg?`<line x1="0" y1="${Y(av)}" x2="${w}" y2="${Y(av)}" stroke="var(--gold)" stroke-dasharray="4 4" stroke-width="1.5"/><text x="${w-4}" y="${Y(av)-5}" text-anchor="end" fill="var(--gold)" font-size="10">평단 $132.4</text>`:''}${mk}</svg>`}
+const periods=(on='3M')=>`<div class="seg" style="margin:8px 0 10px">${['1주','1M','3M','1Y','전체'].map(p=>`<span class="${p===on?'on':''}">${p}</span>`).join('')}</div>`;
+const ctaSell=`<div class="row" style="background:rgba(49,130,246,.14);border-radius:16px;padding:12px 14px"><div><div class="lbl">목표까지</div><b class="down" style="font-size:18px">2주 매도</b><span class="sm"> · 약 40만</span></div><span class="sp"></span><span class="btn" style="padding:10px 18px;font-size:14px">토스에서 주문</span></div>`;
+
+// 1-A · 차트 크게 + 탭
+function V1(){return sheet(`${top1()}
+ <div style="margin:10px -2px 0">${pchart(330,190,{grid:true})}</div>${periods()}
+ <div class="row" style="gap:18px;border-bottom:1px solid var(--line);margin-bottom:10px;font-size:14px"><span style="padding-bottom:8px;border-bottom:2px solid var(--t1);font-weight:800">내 보유</span><span style="padding-bottom:8px;color:var(--t3)">정보</span><span style="padding-bottom:8px;color:var(--t3)">매매 기록</span></div>
+ <div class="grid2"><div class="tile"><div class="lbl">내 수익률</div><div class="mid up">+12.3%</div><div class="sm">+106만</div></div><div class="tile"><div class="lbl">보유</div><div class="mid">966만</div><div class="sm">6.4주 · 평단 $132.4</div></div>
+ <div class="tile"><div class="lbl">오늘</div><div class="mid up">+20만</div><div class="sm">+2.1%</div></div><div class="tile"><div class="lbl">비중</div><div class="mid">6.8%</div><div class="sm">목표 6.2%</div></div></div>`,ctaSell)}
+
+// 1-B · 내 보유 먼저 + 매매 기록 타임라인
+function V2(){
+ const hist=[['10/02','매수',3.0,'$128.10'],['09/15','매수',2.4,'$135.60'],['08/21','매도',1.0,'$141.20'],['07/30','매수',2.0,'$131.00']];
+ return sheet(`${top1(false)}
+ <div class="card" style="margin-top:10px;background:linear-gradient(135deg,#2a1418,#17171C)"><div class="lbl">내 수익률</div><div class="row"><span class="big up">+12.3%</span><span class="sp"></span><div style="text-align:right"><b class="up">+106만</b><div class="sm">보유 966만 · 6.4주</div></div></div>
+ <div style="margin-top:10px;position:relative">${stack([{v:6.2,c:'var(--c1)'},{v:.6,c:'var(--down)'},{v:5.6,c:'var(--card2)'}],8,4)}<div style="position:absolute;left:50%;top:-4px;width:2px;height:16px;background:#fff"></div></div>
+ <div class="row sm" style="margin-top:5px"><span class="down" style="font-weight:700">목표보다 0.6%p 많음</span><span class="sp"></span><span>지금 6.8% · 목표 6.2%</span></div></div>
+ <div class="row"><span class="mid">$149.60</span>&nbsp;<b class="up" style="font-size:13px">+2.1%</b><span class="sp"></span><span class="sm">평단 $132.4 대비 +13%</span></div>
+ <div style="margin-top:6px">${pchart(328,120)}</div>${periods()}
+ <div class="row" style="margin-bottom:4px"><b>매매 기록</b><span class="sp"></span><span class="sm">4건</span></div>
+ ${hist.map(([d,a,q,p])=>`<div class="row" style="height:36px;border-bottom:1px solid var(--line);font-size:13px"><span class="sm" style="width:44px">${d}</span><span class="${a==='매수'?'up':'down'}" style="font-weight:800;width:40px">${a}</span><span>${q}주</span><span class="sp"></span><span class="mono">${p}</span></div>`).join('')}`,ctaSell)}
+
+// 1-C · 캔들 + 거래량 + 52주 범위 + 주문 준비
+function V3(){
+ const r=rnd(9),n=40;let c=100,cs=[];for(let i=0;i<n;i++){const o=c;c=o*(1+(r()-.47)*.06);const hi=Math.max(o,c)*(1+r()*.02),lo=Math.min(o,c)*(1-r()*.02);cs.push([o,c,hi,lo,.3+r()])}
+ const w=328,h=150,mn=Math.min(...cs.map(x=>x[3])),mx=Math.max(...cs.map(x=>x[2])),Y=v=>h-4-(v-mn)/(mx-mn)*(h-8),bw=w/n;
+ const candles=`<svg width="${w}" height="${h+40}">${cs.map(([o,c2,hi,lo,v],i)=>{const x=i*bw+bw/2,col=c2>=o?'var(--up)':'var(--down)';return `<line x1="${x}" y1="${Y(hi)}" x2="${x}" y2="${Y(lo)}" stroke="${col}"/><rect x="${x-bw*.32}" y="${Y(Math.max(o,c2))}" width="${bw*.64}" height="${Math.max(1.5,Math.abs(Y(o)-Y(c2)))}" fill="${col}"/><rect x="${x-bw*.32}" y="${h+40-v*26}" width="${bw*.64}" height="${v*26}" fill="${col}" opacity=".35"/>`}).join('')}
+ <line x1="0" y1="${Y(cs[12][1])}" x2="${w}" y2="${Y(cs[12][1])}" stroke="var(--gold)" stroke-dasharray="4 4"/><text x="4" y="${Y(cs[12][1])-4}" fill="var(--gold)" font-size="10">평단</text></svg>`;
+ return sheet(`${top1()}
+ <div style="margin-top:8px">${candles}</div><div class="row sm"><span>일봉 · 거래량</span><span class="sp"></span><span>2개월</span></div>${periods('1M')}
+ <div class="card" style="padding:12px"><div class="row sm"><span>52주 최저 $88</span><span class="sp"></span><span>최고 $162</span></div>
+ <svg width="296" height="22"><rect x="0" y="9" width="296" height="4" rx="2" fill="var(--card2)"/><circle cx="${(149.6-88)/(162-88)*296}" cy="11" r="7" fill="var(--t1)"/><rect x="${(132.4-88)/(162-88)*296-1}" y="2" width="2" height="18" fill="var(--gold)"/></svg>
+ <div class="row sm"><span>● 지금 · <span style="color:var(--gold)">│</span> 평단</span><span class="sp"></span><span>1년 +38% · 변동성 38%</span></div></div>`,
+ `<div style="background:var(--card);border-radius:18px;padding:12px">
+ <div class="row" style="gap:6px;margin-bottom:10px"><div class="seg" style="flex:1;padding:3px"><span>매수</span><span class="on" style="color:var(--down)">매도</span></div>
+ <div class="row" style="gap:10px;background:var(--card2);border-radius:12px;padding:6px 12px"><b>−</b><b class="mono" style="font-size:16px">2주</b><b>+</b></div></div>
+ <div class="row"><span class="sm">약 40만 · 맞추면 목표와 거의 같음</span><span class="sp"></span><span class="btn" style="padding:10px 16px;font-size:14px">토스 ›</span></div></div>`)}
+
+const cap=t=>`<div style="color:#ddd;font-size:13px;font-weight:700;margin:0 0 8px 6px">${t}</div>`;
+document.getElementById('root').innerHTML=`<h2>안 1 변형 — 종목 상세 3개</h2><div class="lead">타일을 누르면 아래에서 올라오는 시트 · 숫자는 예시</div>
+<div class="wrap"><div>${cap('1-A · 차트 크게 + 탭 (내 보유 · 정보 · 매매 기록)')}<div class="phone">${V1()}</div></div>
+<div>${cap('1-B · 내 보유 먼저 + 매매 기록')}<div class="phone">${V2()}</div></div>
+<div>${cap('1-C · 캔들·52주 범위 + 주문 준비')}<div class="phone">${V3()}</div></div></div>`;
+document.body.style.width='1170px';
+</script></body></html>
