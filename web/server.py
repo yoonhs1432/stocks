@@ -816,9 +816,10 @@ def _quotes(syms: list[str]) -> dict[str, float]:
 
 
 @app.get("/api/rebalance")
-def api_rebalance():
-    """바구니를 동일 비중으로 맞추려면 무엇을 얼마나 — 주문은 내지 않는다."""
-    acc = api_account()
+def api_rebalance(force: bool = False):
+    """바구니를 동일 비중으로 맞추려면 무엇을 얼마나 — 주문은 내지 않는다.
+    force — 앱에서 당겨서 새로고침: 계좌 20초 캐시를 건너뛰고 토스에서 바로 받는다."""
+    acc = api_account(force=force)
     if isinstance(acc, JSONResponse):
         return acc
     return _clean(rebalance.plan(acc, _quotes))

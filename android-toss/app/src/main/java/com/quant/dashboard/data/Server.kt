@@ -524,7 +524,9 @@ object Server {
         val outsidePnl: Map<String, Double> = emptyMap(),
     )
 
-    fun rebalance(): Rebalance = rebalanceOf(obj("/api/rebalance"))
+    /** @param force 당겨서 새로고침 — PC 의 계좌 캐시(20초)를 건너뛴다 */
+    fun rebalance(force: Boolean = false): Rebalance =
+        rebalanceOf(obj("/api/rebalance" + if (force) "?force=true" else ""))
 
     fun saveRebalance(basket: List<String>? = null, cashPct: Int? = null, period: String? = null,
                       fractional: Boolean? = null, sellOutside: Boolean? = null): Rebalance {

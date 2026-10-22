@@ -145,7 +145,7 @@ fun HomeScreen(vm: RebalanceViewModel = viewModel()) {
     val snapRev = Snapshots.rev
     val sr = remember(snapRev, AppState.dataVersion) { Snapshots.series(false) }
 
-    PullToRefreshBox(isRefreshing = vm.loading, onRefresh = { vm.load(); AppState.bump() },
+    PullToRefreshBox(isRefreshing = vm.loading, onRefresh = { vm.load(force = true) },
         modifier = Modifier.fillMaxSize().background(BgApp)) {
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 14.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -360,6 +360,7 @@ private fun OrderCard(r: Server.RebalRow, checked: Boolean, onCheck: () -> Unit,
 
 // ══════════════════════ ② 바구니 ══════════════════════
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BasketScreen(vm: RebalanceViewModel = viewModel()) {
     LaunchedEffect(AppState.dataVersion) { if (vm.plan == null) vm.load() }
@@ -386,16 +387,19 @@ fun BasketScreen(vm: RebalanceViewModel = viewModel()) {
                 }
             }
         }
-        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(top = 12.dp, bottom = 20.dp)) {
-            vm.error?.let { Text("⚠️ $it", color = Loss, fontSize = 12.sp, modifier = Modifier.padding(bottom = 8.dp)) }
-            if (p == null) {
-                Text("PC 에서 받는 중…", color = TextSecondary, fontSize = 13.sp)
-                return@Column
-            }
-            when (seg) {
-                "rules" -> RulesPanel(p, vm)
-                "history" -> HistoryPanel(p)
-                else -> ItemsPanel(p, priceDays) { priceDays = it }
+        // 당겨서 새로고침 — 계좌를 토스에서 바로 다시 받는다
+        PullToRefreshBox(isRefreshing = vm.loading, onRefresh = { vm.load(force = true) }, modifier = Modifier.fillMaxSize()) {
+            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(top = 12.dp, bottom = 20.dp)) {
+                vm.error?.let { Text("⚠️ $it", color = Loss, fontSize = 12.sp, modifier = Modifier.padding(bottom = 8.dp)) }
+                if (p == null) {
+                    Text("PC 에서 받는 중…", color = TextSecondary, fontSize = 13.sp)
+                    return@Column
+                }
+                when (seg) {
+                    "rules" -> RulesPanel(p, vm)
+                    "history" -> HistoryPanel(p)
+                    else -> ItemsPanel(p, priceDays) { priceDays = it }
+                }
             }
         }
     }

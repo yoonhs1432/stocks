@@ -46,13 +46,17 @@ class RebalanceViewModel(app: Application) : AndroidViewModel(app) {
 
     private var busy = false
 
-    /** @param quiet 자동 갱신 — 당겨서 새로고침 표시(loading)를 켜지 않는다 */
-    fun load(quiet: Boolean = false) {
-        if (busy) return
+    /**
+     * @param quiet 자동 갱신 — 당겨서 새로고침 표시(loading)를 켜지 않는다
+     * @param force 당겨서 새로고침 — PC 의 계좌 캐시를 건너뛰고, 자산 기록(홈 차트)도 새로 받는다
+     */
+    fun load(quiet: Boolean = false, force: Boolean = false) {
+        if (busy && !force) return
         busy = true
         if (!quiet) loading = true
         viewModelScope.launch {
-            apply(withContext(Dispatchers.IO) { runCatching { Server.rebalance() } })
+            if (force) launch(Dispatchers.IO) { runCatching { com.quant.dashboard.data.Snapshots.ensure(force = true) } }
+            apply(withContext(Dispatchers.IO) { runCatching { Server.rebalance(force) } })
             busy = false
             loading = false
         }
