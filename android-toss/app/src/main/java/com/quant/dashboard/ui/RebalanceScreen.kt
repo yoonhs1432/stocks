@@ -108,6 +108,12 @@ private fun mmdd(iso: String): String = iso.takeIf { it.length >= 10 }?.let {
     "${it.substring(5, 7).toInt()}/${it.substring(8, 10).toInt()}"
 } ?: iso
 
+/** "11/2(월)" — 맞추는 날은 그 달 첫 미국장 거래일(서버가 주말·NYSE 휴장일을 건너뛰어 준다). */
+private fun dayLabel(iso: String): String = runCatching {
+    val d = java.time.LocalDate.parse(iso.take(10))
+    "${d.monthValue}/${d.dayOfMonth}(${"월화수목금토일"[d.dayOfWeek.value - 1]})"
+}.getOrDefault(iso)
+
 private fun qtyLabel(q: Double): String =
     if (q == kotlin.math.floor(q)) "%,d주".format(q.toLong()) else "%.2f주".format(q)
 
@@ -166,7 +172,7 @@ fun HomeScreen(vm: RebalanceViewModel = viewModel()) {
                         p == null -> "홈"
                         p.due && orders.isNotEmpty() -> "맞출 때예요"
                         p.due -> "모두 목표 근처예요"
-                        else -> "다음 맞추기 ${mmdd(p.nextEnd)}"
+                        else -> "다음 맞추기 ${dayLabel(p.nextEnd)}"
                     },
                     color = TextPrimary, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.weight(1f),
                 )
@@ -258,7 +264,7 @@ fun HomeScreen(vm: RebalanceViewModel = viewModel()) {
             if (orders.isEmpty()) {
                 Card(pad = 14.dp) {
                     Text("모든 종목이 목표에서 20만 원 안쪽이에요", color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                    Text("다음 맞추기 ${mmdd(p.nextEnd)} · 그 사이 목표의 2배/절반을 넘으면 알려 드려요", color = TextMuted, fontSize = 12.sp)
+                    Text("다음 맞추기 ${dayLabel(p.nextEnd)} 미국장 · 그 사이 목표의 2배/절반을 넘으면 알려 드려요", color = TextMuted, fontSize = 12.sp)
                 }
             } else {
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {

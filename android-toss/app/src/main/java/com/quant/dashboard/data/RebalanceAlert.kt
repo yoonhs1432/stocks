@@ -50,10 +50,10 @@ object RebalanceAlert {
         Store.init(ctx); ServerConfig.init(ctx)
         val p = Server.rebalance()
         val pref = ctx.getSharedPreferences("rebalance", Context.MODE_PRIVATE)
-        val label = mapOf("monthly" to "월", "quarterly" to "분기", "yearly" to "연")[p.period] ?: "기간"
+        val label = mapOf("monthly" to "이번 달", "quarterly" to "이번 분기", "yearly" to "올해")[p.period] ?: "이번 기간"
         if (p.due && pref.getString("dueFor", "") != p.periodEnd) {
             val n = p.rows.count { it.action != "none" }
-            notify(ctx, "리밸런싱 할 때", "${label} 말(${p.periodEnd})이 지났습니다 · 맞출 종목 ${n}개")
+            notify(ctx, "리밸런싱 할 때", "${label} 첫 거래일 — 오늘 미국장에서 맞출 종목 ${n}개")
             pref.edit().putString("dueFor", p.periodEnd).apply()
             return
         }

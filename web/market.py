@@ -131,3 +131,50 @@ def status(toss, now: float | None = None) -> dict:
         # 안드로이드 앱이 '이번 장 체결 없음'을 직접 판정하는 데 쓴다
         "sessions": [s for s in ses if s["end"] >= now - 86400],
     }
+
+
+# ── NYSE 휴장일 — 리밸런싱 날짜를 '그 달 첫 거래일'로 잡을 때 쓴다(app.py _us_holidays 와 같은 규칙) ──
+
+def _easter(y: int):
+    from datetime import date
+    a = y % 19; b, c = divmod(y, 100); d, e = divmod(b, 4)
+    g = (8 * b + 13) // 25; h = (19 * a + b - d - g + 15) % 30
+    i, k = divmod(c, 4); l = (32 + 2 * e + 2 * i - h - k) % 7
+    m = (a + 11 * h + 19 * l) // 433
+    mo = (h + l - 7 * m + 90) // 25
+    return date(y, mo, (h + l - 7 * m + 33 * mo + 19) % 32)
+
+
+def nyse_holidays(y: int) -> set:
+    """신정·MLK·Presidents·Good Friday·Memorial·Juneteenth(2022~)·독립기념일·Labor·Thanksgiving·크리스마스.
+    고정일이 토요일이면 전날, 일요일이면 다음날 휴장(1/1 이 토요일이면 대체 없음)."""
+    from datetime import date, timedelta
+
+    def nth(mo, wd, n):                      # mo 월의 n번째 wd 요일
+        d = date(y, mo, 1)
+        d += timedelta(days=(wd - d.weekday()) % 7)
+        return d + timedelta(weeks=n - 1)
+
+    out = set()
+    for d, sat_ok in ((date(y, 1, 1), False), (date(y, 6, 19), True), (date(y, 7, 4), True), (date(y, 12, 25), True)):
+        if d.month == 6 and y < 2022:
+            continue
+        if d.weekday() == 5:
+            if sat_ok:
+                out.add(d - timedelta(days=1))
+        elif d.weekday() == 6:
+            out.add(d + timedelta(days=1))
+        else:
+            out.add(d)
+    out |= {nth(1, 0, 3), nth(2, 0, 3), nth(9, 0, 1), nth(11, 3, 4), _easter(y) - timedelta(days=2)}
+    may31 = date(y, 5, 31)
+    out.add(may31 - timedelta(days=may31.weekday()))     # 5월 마지막 월요일
+    return out
+
+
+def first_us_trading_day(d):
+    """d 또는 그 뒤의 첫 NYSE 거래일(주말·휴장일 건너뜀)."""
+    from datetime import timedelta
+    while d.weekday() >= 5 or d in nyse_holidays(d.year):
+        d += timedelta(days=1)
+    return d

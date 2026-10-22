@@ -19,6 +19,7 @@ from datetime import date, datetime, timedelta, timezone
 import numpy as np
 
 import insight
+import market
 import store
 
 KST = timezone(timedelta(hours=9))
@@ -134,21 +135,30 @@ def _period_end(d: date, period: str) -> date:
 
 
 def status(s: dict, today: date | None = None) -> dict:
-    """지금 맞출 때인가 — 마지막으로 맞춘 날이 직전 기간 끝보다 앞이면 '맞출 때'."""
+    """지금 맞출 때인가 — 기간이 바뀐 뒤 **첫 미국장 거래일**부터 '맞출 때'.
+
+    백테스트 규칙(기간 말 종가로 판단 → 다음 거래일에 매매)과 같은 날. 말일이 주말·휴장이면 기계적으로
+    말일을 대지 않고, 실제로 주문할 수 있는 날(한국 시각으로 그날 밤 미국장)을 알려 준다.
+    nextDay = 다음에 맞출 날(이번 기간을 아직 안 맞췄고 거래일 전이면 이번 기간의 그날).
+    """
     today = today or datetime.now(KST).date()
-    cur_end = _period_end(today, s["period"])
-    # 이번 기간의 첫날 → 그 하루 전이 직전 기간의 끝
-    if s["period"] == "monthly":
+    p = s["period"]
+    if p == "monthly":
         start = date(today.year, today.month, 1)
-    elif s["period"] == "quarterly":
+    elif p == "quarterly":
         start = date(today.year, (today.month - 1) // 3 * 3 + 1, 1)
     else:
         start = date(today.year, 1, 1)
     prev_end = start - timedelta(days=1)
+    this_day = market.first_us_trading_day(start)
+    next_day = market.first_us_trading_day(_period_end(today, p) + timedelta(days=1))
     done = date.fromisoformat(s["lastDone"]) if s.get("lastDone") else None
-    due = done is None or done <= prev_end
-    return {"due": due, "periodEnd": prev_end.isoformat(), "nextEnd": cur_end.isoformat(),
-            "daysLeft": (cur_end - today).days, "lastDone": s.get("lastDone")}
+    done_this = done is not None and done > prev_end
+    due = not done_this and today >= this_day
+    upcoming = this_day if (not done_this and today < this_day) else next_day
+    return {"due": due, "periodEnd": prev_end.isoformat(), "nextEnd": upcoming.isoformat(),
+            "nextDay": upcoming.isoformat(), "dueDay": this_day.isoformat(),
+            "daysLeft": (upcoming - today).days, "lastDone": s.get("lastDone")}
 
 
 # ── 해외 실현이익(올해) — 체결내역으로 평균단가를 따라가며 ──
