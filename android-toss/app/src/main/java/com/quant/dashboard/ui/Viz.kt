@@ -21,8 +21,14 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.drawText
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.quant.dashboard.ui.theme.Gold
 import com.quant.dashboard.ui.theme.Loss
 import com.quant.dashboard.ui.theme.Profit
 import com.quant.dashboard.ui.theme.TextMuted
@@ -134,5 +140,52 @@ fun SemiGauge(p: Double, width: Dp, color: Color = Profit) {
         val tl = Offset(sw / 2, sw / 2)
         drawArc(CARD2, 180f, 180f, false, tl, Size(d, d), style = Stroke(sw, cap = StrokeCap.Round))
         drawArc(color, 180f, (180f * p.coerceIn(0.0, 1.0)).toFloat(), false, tl, Size(d, d), style = Stroke(sw, cap = StrokeCap.Round))
+    }
+}
+
+/**
+ * 종목 상세 가격 차트 — 종가 영역 + 금색 점선 평단 + 매매 점(빨강 B = 매수, 파랑 S = 매도).
+ * [marks] 는 (봉 인덱스, 매수 여부). 평단이 범위 밖이면 축을 넓혀 늘 보이게 한다.
+ */
+@Composable
+fun PriceChart(closes: DoubleArray, avg: Double?, avgLabel: String?, marks: List<Pair<Int, Boolean>>, height: Dp, modifier: Modifier = Modifier) {
+    val tm = rememberTextMeasurer()
+    Canvas(modifier.fillMaxWidth().height(height)) {
+        if (closes.size < 2) return@Canvas
+        val a = avg?.takeIf { it.isFinite() && it > 0 }
+        var mn = closes.min(); var mx = closes.max()
+        if (a != null) { mn = minOf(mn, a); mx = maxOf(mx, a) }
+        val pad = (mx - mn).coerceAtLeast(mx * 1e-4) * 0.08
+        mn -= pad; mx += pad
+        val top = 14.dp.toPx(); val bot = size.height - 12.dp.toPx()
+        fun x(i: Int) = size.width * i / (closes.size - 1)
+        fun y(v: Double) = bot - ((v - mn) / (mx - mn)).toFloat() * (bot - top)
+        val up = closes.last() >= closes.first()
+        val col = if (up) Profit else Loss
+        val line = Path()
+        closes.forEachIndexed { i, v -> if (i == 0) line.moveTo(x(i), y(v)) else line.lineTo(x(i), y(v)) }
+        val area = Path().apply { addPath(line); lineTo(size.width, size.height); lineTo(0f, size.height); close() }
+        drawPath(area, Brush.verticalGradient(listOf(col.copy(alpha = 0.28f), col.copy(alpha = 0f))))
+        drawPath(line, col, style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round))
+        if (a != null) {
+            val ya = y(a)
+            drawLine(Gold, Offset(0f, ya), Offset(size.width, ya), strokeWidth = 1.5.dp.toPx(),
+                pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 8f)))
+            avgLabel?.let {
+                val lay = tm.measure(it, TextStyle(color = Gold, fontSize = 10.sp, fontWeight = FontWeight.Bold))
+                val ly = if (ya - lay.size.height - 2f < 0) ya + 2f else ya - lay.size.height - 2f
+                drawText(lay, topLeft = Offset(4f, ly))
+            }
+        }
+        // 매매 점 — 원 + 글자, 바깥에 배경색 테두리(겹쳐도 구분되게)
+        val r = 8.dp.toPx()
+        marks.forEach { (i, buy) ->
+            if (i !in closes.indices) return@forEach
+            val c = Offset(x(i).coerceIn(r, size.width - r), y(closes[i]))
+            drawCircle(CARD, r + 2.dp.toPx(), c)
+            drawCircle(if (buy) Profit else Loss, r, c)
+            val lay = tm.measure(if (buy) "B" else "S", TextStyle(color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.ExtraBold))
+            drawText(lay, topLeft = Offset(c.x - lay.size.width / 2f, c.y - lay.size.height / 2f))
+        }
     }
 }

@@ -29,6 +29,12 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
+import com.quant.dashboard.data.AnalysisCache
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -398,7 +404,7 @@ fun BasketScreen(vm: RebalanceViewModel = viewModel()) {
                 when (seg) {
                     "rules" -> RulesPanel(p, vm)
                     "history" -> HistoryPanel(p)
-                    else -> ItemsPanel(p, priceDays) { priceDays = it }
+                    else -> ItemsPanel(p, vm, priceDays) { priceDays = it }
                 }
             }
         }
@@ -408,7 +414,10 @@ fun BasketScreen(vm: RebalanceViewModel = viewModel()) {
 private val PRICE_RANGES = listOf(21 to "1개월", 63 to "3개월", 252 to "1년")
 
 @Composable
-private fun ItemsPanel(p: Server.Rebalance, priceDays: Int, onPriceDays: (Int) -> Unit) {
+private fun ItemsPanel(p: Server.Rebalance, vm: RebalanceViewModel, priceDays: Int, onPriceDays: (Int) -> Unit) {
+    // 누른 타일 → 종목 상세 시트
+    var sheet by rememberSaveable { mutableStateOf<String?>(null) }
+    sheet?.let { TickerSheet(it, p, vm) { sheet = null } }
     val rows = p.rows.associateBy { it.ticker }
     val tot = p.totalKrw.takeIf { it > 0 } ?: 1.0
     // 막대 읽는 법 — 두 줄 범례
@@ -426,7 +435,7 @@ private fun ItemsPanel(p: Server.Rebalance, priceDays: Int, onPriceDays: (Int) -
         Box(Modifier.size(14.dp, 6.dp).background(Profit.copy(alpha = 0.35f)))
         Text(" 모자람(사기)", color = TextSecondary, fontSize = 11.sp)
     }
-    Text("타일을 누르면 종목 설명과 ⚠ 의 뜻이 펼쳐집니다", color = TextMuted, fontSize = 11.sp, modifier = Modifier.padding(bottom = 8.dp))
+    Text("타일을 누르면 종목 상세 — 평단선 차트·매매 기록·주문", color = TextMuted, fontSize = 11.sp, modifier = Modifier.padding(bottom = 8.dp))
     // 가격 추이 기간 — 타일 맨 아래 줄에 쓴다(내 수익률과 헷갈리지 않게 라벨을 붙여 작게)
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 6.dp)) {
         Text("가격 추이", color = TextMuted, fontSize = 12.sp, modifier = Modifier.weight(1f))
@@ -451,7 +460,7 @@ private fun ItemsPanel(p: Server.Rebalance, priceDays: Int, onPriceDays: (Int) -
         }
         members.chunked(2).forEach { pair ->
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 8.dp)) {
-                pair.forEach { t -> Tile(t, p, rows[t], tot, priceDays, Modifier.weight(1f)) }
+                pair.forEach { t -> Tile(t, p, rows[t], tot, priceDays, Modifier.weight(1f)) { sheet = t } }
                 if (pair.size == 1) Spacer(Modifier.weight(1f))
             }
         }
@@ -492,12 +501,11 @@ private fun ItemsPanel(p: Server.Rebalance, priceDays: Int, onPriceDays: (Int) -
  * 예전엔 가격 1년 등락률을 크게 써서 내 수익률로 읽혔다(사용자 지적, 2026-10-22).
  */
 @Composable
-private fun Tile(t: String, p: Server.Rebalance, r: Server.RebalRow?, tot: Double, priceDays: Int, modifier: Modifier) {
+private fun Tile(t: String, p: Server.Rebalance, r: Server.RebalRow?, tot: Double, priceDays: Int, modifier: Modifier, onOpen: () -> Unit) {
     val gc = GROUP_COLOR[p.groups[t] ?: "etc"]!!
     val m = p.metrics[t]
-    // 누르면 펼쳐진다 — 종목 설명·경고(⚠ 의 뜻)
-    var open by rememberSaveable(t) { mutableStateOf(false) }
-    Column(modifier.clip(RoundedCornerShape(16.dp)).background(CARD).clickable { open = !open }.padding(12.dp)) {
+    // 누르면 종목 상세 시트(설명·⚠ 의 뜻도 거기에)
+    Column(modifier.clip(RoundedCornerShape(16.dp)).background(CARD).clickable { onOpen() }.padding(12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(8.dp).clip(RoundedCornerShape(50)).background(gc))
             Spacer(Modifier.width(6.dp))
@@ -510,10 +518,6 @@ private fun Tile(t: String, p: Server.Rebalance, r: Server.RebalRow?, tot: Doubl
                 "sell" -> Text("▼ 팔기", color = Loss, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold)
                 else -> Text("✓", color = TextMuted, fontSize = 11.sp)
             }
-        }
-        if (open) {
-            p.desc[t]?.let { Text(it, color = TextSecondary, fontSize = 11.sp, lineHeight = 15.sp, modifier = Modifier.padding(top = 6.dp)) }
-            p.notes[t]?.let { Text("⚠ $it", color = Gold, fontSize = 11.sp, lineHeight = 15.sp, modifier = Modifier.padding(top = 4.dp)) }
         }
         // 내 수익률 — 크게
         if (r != null && r.held) {
@@ -552,6 +556,177 @@ private fun Tile(t: String, p: Server.Rebalance, r: Server.RebalRow?, tot: Doubl
                 Sparkline(sl, 46.dp, 16.dp)
                 Spacer(Modifier.weight(1f))
                 Text(pct(chg, 0), color = TextSecondary, fontSize = 11.sp)
+            }
+        }
+    }
+}
+
+private val SHEET_RANGES = listOf(5 to "1주", 21 to "1M", 63 to "3M", 252 to "1Y", 0 to "전체")
+
+/** 1주 가격 표시 — 원화는 정수, 달러는 소수 2자리. */
+private fun money(v: Double, krw: Boolean) = if (krw) "%,d원".format(v.roundToLong()) else "$%,.2f".format(v)
+
+/**
+ * 종목 상세 시트(목업 research/mockup_v7 의 1-B) — 내 보유 먼저.
+ * 내 수익률·목표 막대 → 지금 가격·평단 대비 → 평단선·매매 점 차트 → 매매 기록 → 아래 고정 주문 버튼.
+ * 일봉·매매·평단은 서버의 종목 분석(/api/analysis)을 그대로 쓴다(받아 둔 게 있으면 먼저 보여 준다).
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TickerSheet(t: String, p: Server.Rebalance, vm: RebalanceViewModel, onClose: () -> Unit) {
+    val ctx = LocalContext.current
+    val r = p.rows.firstOrNull { it.ticker == t }
+    val tot = p.totalKrw.takeIf { it > 0 } ?: 1.0
+    val gc = GROUP_COLOR[p.groups[t] ?: "etc"]!!
+    var an by remember(t) { mutableStateOf(AnalysisCache.peek(t)?.a) }
+    var err by remember(t) { mutableStateOf<String?>(null) }
+    var days by rememberSaveable { mutableIntStateOf(63) }
+    LaunchedEffect(t) {
+        if (an == null) withContext(Dispatchers.IO) { runCatching { AnalysisCache.get(t) }.getOrNull() }?.let { an = it.a }
+        withContext(Dispatchers.IO) { runCatching { AnalysisCache.fetch(t) } }
+            .onSuccess { an = it }.onFailure { if (an == null) err = it.message ?: "받지 못했어요" }
+    }
+    ModalBottomSheet(onDismissRequest = onClose, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        containerColor = BgApp) {
+        Column(Modifier.fillMaxWidth().fillMaxHeight(0.92f)) {
+            Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                // 머리 — 이름·배수·설명·닫기
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(10.dp).clip(RoundedCornerShape(50)).background(gc))
+                    Spacer(Modifier.width(8.dp))
+                    Text(Tickers.displayName(t), color = TextPrimary, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, fontFamily = Mono)
+                    Spacer(Modifier.width(8.dp))
+                    levOf(p.desc[t])?.let { Pill("${it}x") }
+                    Spacer(Modifier.weight(1f))
+                    Text("✕", color = TextSecondary, fontSize = 20.sp, modifier = Modifier.clickable { onClose() }.padding(6.dp))
+                }
+                p.desc[t]?.let { Text(it, color = TextSecondary, fontSize = 12.sp, lineHeight = 17.sp) }
+                p.notes[t]?.let { Text("⚠ $it", color = Gold, fontSize = 12.sp, lineHeight = 17.sp) }
+
+                // 내 수익률 — 주인공
+                val pr = (r?.pnlRate ?: 0.0) * 100
+                val held = r != null && r.held
+                val qty = an?.qty ?: 0.0
+                val tone = if (!held) TextMuted else if (pr >= 0) Profit else Loss
+                Card(brush = Brush.linearGradient(listOf(tone.copy(alpha = 0.22f), CARD))) {
+                    Text("내 수익률", color = TextSecondary, fontSize = 12.sp)
+                    Row(verticalAlignment = Alignment.Bottom) {
+                        Text(if (held) pct(pr) else "미보유", color = tone, fontSize = 32.sp, fontWeight = FontWeight.ExtraBold,
+                            modifier = Modifier.weight(1f))
+                        Column(horizontalAlignment = Alignment.End) {
+                            if (r != null && held) {
+                                Text(signed(r.valueKrw * r.pnlRate / (1 + r.pnlRate)), color = tone, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                                Text("보유 ${manwon(r.valueKrw)}" + (if (qty > 0) " · ${qtyLabel(qty)}" else ""), color = TextSecondary, fontSize = 12.sp)
+                            } else if (r != null) {
+                                Text("목표 ${manwon(r.targetKrw)}", color = TextSecondary, fontSize = 12.sp)
+                            }
+                        }
+                    }
+                    if (r != null) {
+                        val now = r.valueKrw / tot * 100
+                        val tg = r.targetKrw / tot * 100
+                        Spacer(Modifier.height(10.dp))
+                        TargetBar(now, tg, gc)
+                        Row(Modifier.padding(top = 4.dp)) {
+                            val (txt, col) = when (r.action) {
+                                "sell" -> "목표보다 %.1f%%p 많음".format(now - tg) to Loss
+                                "buy" -> "목표보다 %.1f%%p 모자람".format(tg - now) to Profit
+                                else -> "목표 근처" to TextMuted
+                            }
+                            Text(txt, color = col, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                            Text("지금 %.1f%% · 목표 %.1f%%".format(now, tg), color = TextMuted, fontSize = 11.sp)
+                        }
+                    }
+                }
+
+                val a = an
+                if (a == null) {
+                    Text(err?.let { "⚠️ $it" } ?: "차트 받는 중…", color = if (err != null) Loss else TextSecondary, fontSize = 13.sp)
+                } else {
+                    val cs = a.candles
+                    // 지금 가격 · 하루 등락 · 평단 대비
+                    if (cs.size >= 2) {
+                        val last = cs.last().close
+                        val dc = (last / cs[cs.size - 2].close - 1) * 100
+                        Row(verticalAlignment = Alignment.Bottom, modifier = Modifier.padding(top = 4.dp)) {
+                            Text(money(last, a.krw), color = TextPrimary, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, fontFamily = Mono)
+                            Text("  ${pct(dc)}", color = if (dc >= 0) Profit else Loss, fontSize = 13.sp, fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(bottom = 2.dp))
+                            Spacer(Modifier.weight(1f))
+                            if (a.qty > 0 && a.avgPrice > 0) {
+                                val vs = (last / a.avgPrice - 1) * 100
+                                Text("평단 ${money(a.avgPrice, a.krw)} 대비 ", color = TextMuted, fontSize = 12.sp, modifier = Modifier.padding(bottom = 2.dp))
+                                Text(pct(vs, 0), color = if (vs >= 0) Profit else Loss, fontSize = 12.sp, fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(bottom = 2.dp))
+                            }
+                        }
+                    }
+                    // 차트 — 일봉 시각은 UTC 자정이라 날짜는 epoch 일로 바로 바꾼다
+                    val n = if (days == 0) cs.size else minOf(cs.size, days + 1)
+                    val sl = cs.takeLast(n)
+                    val dates = sl.map { java.time.LocalDate.ofEpochDay(Math.floorDiv(it.t, 86_400L)).toString() }
+                    val marks = a.trades.mapNotNull { tr ->
+                        if (dates.isEmpty() || tr.date < dates.first()) return@mapNotNull null
+                        val i = dates.indexOfFirst { it >= tr.date }.let { if (it < 0) dates.size - 1 else it }
+                        i to (tr.type == "buy")
+                    }
+                    val hasAvg = a.qty > 0 && a.avgPrice > 0
+                    Card(pad = 12.dp) {
+                        PriceChart(sl.map { it.close }.toDoubleArray(), a.avgPrice.takeIf { hasAvg },
+                            if (hasAvg) "avg ${money(a.avgPrice, a.krw)}" else null, marks, 180.dp)
+                        Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                            SHEET_RANGES.forEach { (d, l) ->
+                                val on = d == days
+                                Box(Modifier.clip(RoundedCornerShape(99.dp)).background(if (on) CARD2 else Color.Transparent)
+                                    .clickable { days = d }.padding(horizontal = 12.dp, vertical = 6.dp)) {
+                                    Text(l, color = if (on) TextPrimary else TextMuted, fontSize = 12.sp, fontWeight = if (on) FontWeight.Bold else FontWeight.Normal)
+                                }
+                            }
+                        }
+                    }
+                    // 매매 기록
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
+                        Text("매매 기록", color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.weight(1f))
+                        Text("${a.trades.size}건", color = TextMuted, fontSize = 12.sp)
+                    }
+                    if (a.trades.isEmpty()) Text("아직 사고판 기록이 없어요", color = TextMuted, fontSize = 12.sp)
+                    Column {
+                        a.trades.sortedByDescending { it.date }.take(12).forEach { tr ->
+                            val buy = tr.type == "buy"
+                            Row(Modifier.fillMaxWidth().height(40.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Text(tr.date.drop(2).replace('-', '.'), color = TextSecondary, fontSize = 13.sp, fontFamily = Mono, modifier = Modifier.width(82.dp))
+                                Text(if (buy) "매수" else "매도", color = if (buy) Profit else Loss, fontSize = 13.sp, fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.width(44.dp))
+                                Text(qtyLabel(tr.qty), color = TextPrimary, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                                Text(money(tr.price, a.krw), color = TextPrimary, fontSize = 13.sp, fontFamily = Mono)
+                            }
+                            HDivider()
+                        }
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+            }
+            // 아래 고정 — 목표까지 주문
+            val act = r?.action
+            if (r != null && (act == "buy" || act == "sell")) {
+                val sell = act == "sell"
+                val c = if (sell) Loss else Profit
+                Row(Modifier.fillMaxWidth().background(c.copy(alpha = 0.14f)).padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("목표까지 ${if (r.outside) "전량" else qtyLabel(r.qty)} ${if (sell) "매도" else "매수"}",
+                            color = c, fontSize = 15.sp, fontWeight = FontWeight.ExtraBold)
+                        Text("약 ${manwon(r.amountKrw)}", color = TextSecondary, fontSize = 12.sp)
+                    }
+                    Box(Modifier.clip(RoundedCornerShape(12.dp)).background(c).clickable { vm.check(t); TossLink.openOrder(ctx, t) }
+                        .padding(horizontal = 18.dp, vertical = 12.dp)) {
+                        Text("토스에서 주문", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            } else if (r != null) {
+                Text("✓ 목표 근처 — 이번엔 할 일 없음", color = TextMuted, fontSize = 13.sp,
+                    modifier = Modifier.fillMaxWidth().padding(16.dp))
             }
         }
     }

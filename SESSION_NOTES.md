@@ -10,6 +10,7 @@
   예전 포트폴리오는 더보기 › 계좌 상세(page `account`), 비교·분석은 종목 분석.
 - 홈: 상태 한 줄 → 히어로(총자산·원금 대비·추이) → 현금/고점 대비 타일 → 자산군 비중 두 줄 → 맞추기 가로 카드 + 다음 단추.
 - 바구니: 자산군 섹션(색 막대·지금→목표) 안에 2열 타일(배수·60일 추이·1년·지금/목표 막대·보유 금액·손익·사기/팔기).
+  - 타일을 누르면 **종목 상세 시트**(`TickerSheet`, 목업 mockup_v7 의 1-B): 내 수익률·목표 막대 → 지금 가격·평단 대비 → `PriceChart`(평단 금색 점선·B/S 점, 1주~전체) → 매매 기록 → 아래 고정 "목표까지 N주 매수/매도 · 토스에서 주문". 데이터는 /api/analysis(AnalysisCache).
 - 그래프 조각은 `ui/Viz.kt`(AssetChart·Sparkline·StackBar·SemiGauge). 자산군 5색은 dataviz 검증기 통과 순서.
 - 서버: `GROUP`(자산군) → 응답 `groups`, 행 `pnlRate`, 표 계산 때 `metrics[t].spark`(60일, 첫날=1).
 - 목업: `research/mockup_v4_I.png`(채택), 계좌 탭 시안 `mockup_v5_*.png`(결국 탭 자체를 없앰).
