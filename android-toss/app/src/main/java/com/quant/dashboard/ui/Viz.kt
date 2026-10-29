@@ -108,29 +108,6 @@ fun StackBar(parts: List<Pair<Double, Color>>, height: Dp, modifier: Modifier = 
     }
 }
 
-/**
- * 목표 막대 — 칠한 길이 = 지금 비중(자산군 색), 흰 세로선 = 목표.
- * 목표를 넘은 부분은 파랑(많음 → 팔기), 목표까지 모자란 부분은 연한 빨강(모자람 → 사기). 눈금은 0 ~ 목표의 2배.
- */
-@Composable
-fun TargetBar(now: Double, target: Double, color: Color, modifier: Modifier = Modifier) {
-    Canvas(modifier.fillMaxWidth().height(14.dp)) {
-        val scale = maxOf(target * 2, now * 1.05, 0.1)
-        fun x(v: Double) = (v / scale).toFloat().coerceIn(0f, 1f) * size.width
-        val h = 8.dp.toPx(); val top = (size.height - h) / 2
-        val r = androidx.compose.ui.geometry.CornerRadius(h / 2)
-        drawRoundRect(CARD2, Offset(0f, top), Size(size.width, h), r)
-        if (now >= target) {
-            drawRoundRect(color, Offset(0f, top), Size(x(target), h), r)
-            drawRect(Loss, Offset(x(target), top), Size(x(now) - x(target), h))
-        } else {
-            drawRoundRect(color, Offset(0f, top), Size(x(now), h), r)
-            drawRect(Profit.copy(alpha = 0.35f), Offset(x(now), top), Size(x(target) - x(now), h))
-        }
-        drawLine(Color.White, Offset(x(target), 0f), Offset(x(target), size.height), strokeWidth = 2.5.dp.toPx())
-    }
-}
-
 /** 반원 게이지 0..1. */
 @Composable
 fun SemiGauge(p: Double, width: Dp, color: Color = Profit) {
@@ -187,5 +164,38 @@ fun PriceChart(closes: DoubleArray, avg: Double?, avgLabel: String?, marks: List
             val lay = tm.measure(if (buy) "B" else "S", TextStyle(color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.ExtraBold))
             drawText(lay, topLeft = Offset(c.x - lay.size.width / 2f, c.y - lay.size.height / 2f))
         }
+    }
+}
+
+/**
+ * 목표 대비 막대 — 가운데 흰 선 = 목표(0%). 오른쪽 파랑 = 많음(팔기), 왼쪽 빨강 = 모자람(사기).
+ * 눈금 ±10·20%, ±[lim]% 를 넘으면 끝에 흰 화살표. [muted] 면 회색(목표 근처 — 할 일 없음).
+ */
+@Composable
+fun DevBar(d: Double, modifier: Modifier = Modifier, height: Dp = 10.dp, lim: Double = 30.0, muted: Boolean = false) {
+    Canvas(modifier.fillMaxWidth().height(height + 6.dp)) {
+        val half = size.width / 2
+        val cy = size.height / 2
+        val h = height.toPx()
+        drawRoundRect(CARD2, Offset(0f, cy - 2.dp.toPx()), Size(size.width, 4.dp.toPx()),
+            androidx.compose.ui.geometry.CornerRadius(2.dp.toPx()))
+        listOf(-20.0, -10.0, 10.0, 20.0).forEach { v ->
+            val x = half + (v / lim).toFloat() * half
+            drawLine(Color(0xFF3A3A44), Offset(x, cy - 3.dp.toPx()), Offset(x, cy + 3.dp.toPx()), strokeWidth = 1.dp.toPx())
+        }
+        val f = (minOf(kotlin.math.abs(d), lim) / lim).toFloat() * half
+        val col = if (muted) TextMuted else if (d >= 0) Loss else Profit
+        val x0 = if (d >= 0) half else half - f
+        drawRoundRect(col, Offset(x0, cy - h / 2), Size(maxOf(f, 1.5f), h), androidx.compose.ui.geometry.CornerRadius(3.dp.toPx()))
+        if (kotlin.math.abs(d) > lim) {
+            val a = 6.dp.toPx()
+            val p = Path().apply {
+                if (d > 0) { moveTo(size.width, cy); lineTo(size.width - a, cy - a * 0.8f); lineTo(size.width - a, cy + a * 0.8f) }
+                else { moveTo(0f, cy); lineTo(a, cy - a * 0.8f); lineTo(a, cy + a * 0.8f) }
+                close()
+            }
+            drawPath(p, Color.White)
+        }
+        drawLine(Color.White, Offset(half, 0f), Offset(half, size.height), strokeWidth = 2.5.dp.toPx())
     }
 }
