@@ -61,8 +61,10 @@ object RebalanceAlert {
             val key = p.alerts.sorted().joinToString(",")
             val now = System.currentTimeMillis()
             if (pref.getString("alertKey", "") != key || now - pref.getLong("alertAt", 0) > 7 * 86_400_000L) {
+                // 매매 신호가 아니다 — 일찍 맞추면 백테스트에서 더 나빴다(research/extreme_trigger.py)
+                val day = p.nextEnd.takeIf { it.length >= 10 }?.let { "${it.substring(5, 7).toInt()}/${it.substring(8, 10).toInt()}" } ?: p.nextEnd
                 notify(ctx, "목표에서 많이 벗어났습니다",
-                    p.alerts.joinToString(", ") { Tickers.displayName(it) } + " — 목표의 2배 또는 절반을 넘었습니다")
+                    p.alerts.joinToString(", ") { Tickers.displayName(it) } + " — 목표의 2배·절반. 맞추는 날(${day})까지 기다리세요")
                 pref.edit().putString("alertKey", key).putLong("alertAt", now).apply()
             }
         }

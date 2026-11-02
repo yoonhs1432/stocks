@@ -47,6 +47,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -305,8 +306,10 @@ fun HomeScreen(vm: RebalanceViewModel = viewModel()) {
             // 맞추기 — 가로로 넘기는 카드
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
                 Text("맞추기", color = TextPrimary, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.weight(1f))
-                if (orders.isNotEmpty()) Pill("$doneN / ${orders.size}", if (p.due) Profit else TextSecondary,
-                    if (p.due) Profit.copy(alpha = 0.15f) else CARD2)
+                if (orders.isNotEmpty()) {
+                    if (p.due) Pill("$doneN / ${orders.size}", Profit, Profit.copy(alpha = 0.15f))
+                    else Pill("${dayLabel(p.nextEnd)}부터")
+                }
             }
             if (orders.isEmpty()) {
                 Card(pad = 14.dp) {
@@ -316,17 +319,25 @@ fun HomeScreen(vm: RebalanceViewModel = viewModel()) {
             } else {
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     orders.forEach { r ->
-                        OrderCard(r, checked = r.ticker in vm.checked, onCheck = { vm.toggle(r.ticker) }) {
-                            vm.check(r.ticker); TossLink.openOrder(ctx, r.ticker)
+                        // 맞추는 날 전에는 미리 보기 — 누르면 주문 대신 종목 상세
+                        OrderCard(r, checked = r.ticker in vm.checked, enabled = p.due, onCheck = { vm.toggle(r.ticker) }) {
+                            if (p.due) { vm.check(r.ticker); TossLink.openOrder(ctx, r.ticker) } else sheet = r.ticker
                         }
                     }
                 }
                 val next = orders.firstOrNull { it.ticker !in vm.checked }
+                // 정해진 날에만 사고판다 — 2배/절반에 일찍 닿아도 기다리는 쪽이 백테스트에서 나았다(research/extreme_trigger.py)
                 PrimaryButton(
-                    if (next != null) "다음: ${Tickers.displayName(next.ticker)} ${if (next.action == "sell") "매도" else "매수"} " +
-                        (if (next.outside) "전량" else qtyLabel(next.qty)) else "모두 체크했어요",
-                    enabled = next != null,
+                    when {
+                        !p.due -> "${dayLabel(p.nextEnd)} 미국장부터 주문할 수 있어요"
+                        next != null -> "다음: ${Tickers.displayName(next.ticker)} ${if (next.action == "sell") "매도" else "매수"} " +
+                            (if (next.outside) "전량" else qtyLabel(next.qty))
+                        else -> "모두 체크했어요"
+                    },
+                    enabled = p.due && next != null,
                 ) { next?.let { vm.check(it.ticker); TossLink.openOrder(ctx, it.ticker) } }
+                if (!p.due) Text("미리 보기 — 맞추는 날의 가격으로 다시 계산돼요. 그 전에 목표의 2배·절반에 닿아도 기다리는 게 나았어요.",
+                    color = TextMuted, fontSize = 11.sp, lineHeight = 15.sp)
                 Text(
                     "매도 ${p.sellCount}건 ${manwon(p.sellKrw)} · 매수 ${p.buyCount}건 ${manwon(p.buyKrw)} · 비용 약 ${manwon(p.costKrw)}" +
                         if (p.taxThis > 0) " · 양도세 약 ${manwon(p.taxThis)}" else "",
@@ -338,8 +349,6 @@ fun HomeScreen(vm: RebalanceViewModel = viewModel()) {
     }
 }
 
-/** 자산군별 비중 두 줄(지금/목표) + 범례. 현금은 맨 끝 회색. */
-@OptIn(ExperimentalLayoutApi::class)
 /**
  * 홈 한눈에 — 종목마다 목표 대비 %(많은 순). 위 = 팔 종목, 아래 = 살 종목, 맨 아래 현금. 누르면 종목 상세.
  * 예전엔 자산군 비중을 지금/목표 두 줄로 그렸는데 6.2% vs 6.4% 같은 차이가 읽히지 않았다(사용자 지적, 2026-10-30).
@@ -392,16 +401,17 @@ private fun DevRow(dot: Color, name: String, d: Double, label: String, color: Co
 }
 
 @Composable
-private fun OrderCard(r: Server.RebalRow, checked: Boolean, onCheck: () -> Unit, onToss: () -> Unit) {
+private fun OrderCard(r: Server.RebalRow, checked: Boolean, enabled: Boolean, onCheck: () -> Unit, onToss: () -> Unit) {
     val sell = r.action == "sell"
+    // enabled = 맞추는 날 — 아니면 흐리게, 체크 칸 없이(미리 보기)
     Column(
         Modifier.width(128.dp).clip(RoundedCornerShape(16.dp)).background(CARD).clickable { onToss() }
-            .padding(12.dp).then(if (checked) Modifier else Modifier),
+            .padding(12.dp).alpha(if (enabled) 1f else 0.5f),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(Tickers.displayName(r.ticker), color = if (checked) TextMuted else TextPrimary, fontSize = 14.sp,
                 fontWeight = FontWeight.ExtraBold, fontFamily = Mono, maxLines = 1, modifier = Modifier.weight(1f))
-            Box(Modifier.size(20.dp).clip(RoundedCornerShape(6.dp)).background(if (checked) OK else Color.Transparent)
+            if (enabled) Box(Modifier.size(20.dp).clip(RoundedCornerShape(6.dp)).background(if (checked) OK else Color.Transparent)
                 .border(1.5.dp, if (checked) OK else TextMuted, RoundedCornerShape(6.dp)).clickable { onCheck() },
                 contentAlignment = Alignment.Center) {
                 if (checked) Text("✓", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
@@ -733,9 +743,16 @@ private fun TickerSheet(t: String, p: Server.Rebalance, vm: RebalanceViewModel, 
                             color = c, fontSize = 15.sp, fontWeight = FontWeight.ExtraBold)
                         Text("약 ${manwon(r.amountKrw)}", color = TextSecondary, fontSize = 12.sp)
                     }
-                    Box(Modifier.clip(RoundedCornerShape(12.dp)).background(c).clickable { vm.check(t); TossLink.openOrder(ctx, t) }
-                        .padding(horizontal = 18.dp, vertical = 12.dp)) {
-                        Text("토스에서 주문", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    if (p.due) {
+                        Box(Modifier.clip(RoundedCornerShape(12.dp)).background(c).clickable { vm.check(t); TossLink.openOrder(ctx, t) }
+                            .padding(horizontal = 18.dp, vertical = 12.dp)) {
+                            Text("토스에서 주문", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        }
+                    } else {
+                        // 정해진 날에만 사고판다 — 그 전엔 잠가 둔다
+                        Box(Modifier.clip(RoundedCornerShape(12.dp)).background(CARD2).padding(horizontal = 14.dp, vertical = 12.dp)) {
+                            Text("${dayLabel(p.nextEnd)}부터", color = TextSecondary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
             } else if (r != null) {
