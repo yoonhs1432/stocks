@@ -65,12 +65,13 @@ def schedule(cal, kind):
     return set(np.array(cal)[last])
 
 
-def simulate(cal, krw, bars, kind, cash_w=0.0, band=None, wmap=None, dip=None, reset=-0.05, pick=None, slot=False):
+def simulate(cal, krw, bars, kind, cash_w=0.0, band=None, wmap=None, dip=None, reset=-0.05, pick=None, slot=False, extreme=None):
     """kind: weekly/monthly/quarterly/yearly/band/none. band = 목표 대비 상대 이탈 한도(0.2 = ±20%).
     wmap: 종목별 상대 비중(없으면 동일). 그날 살아 있는 종목끼리 다시 나눈다.
     dip: 비상금 규칙 [(낙폭, 현금비중), …] — 계좌가 고점 대비 그만큼 빠지면 현금을 그 비중까지 투입.
          고점 근처(reset, 기본 −5%)로 돌아오면 다시 cash_w 로 채운다. 더 깊어질 때만 내려간다.
     pick: pick(i, live) → 담을 종목. 정기 리밸런싱 날·종목 편입 때만 다시 고른다(그 사이엔 유지).
+    extreme: (아래, 위) 배수 — 정기일이 아니어도 어느 종목이 목표의 그 배수 밖으로 나가면 그날 바로 맞춘다(매일 점검).
     slot: True 면 고른 종목도 '살아 있는 종목 수' 로 나눈 자리만 쓴다(안 고른 자리는 현금)."""
     cols = list(krw.columns)
     us = {t: not t[:1].isdigit() for t in cols}
@@ -160,6 +161,9 @@ def simulate(cal, krw, bars, kind, cash_w=0.0, band=None, wmap=None, dip=None, r
         do = False
         if i == 0 or live != live_prev or cw != cw_prev:
             do = True                          # 처음·종목 편입·비상금 단계가 바뀔 때는 항상
+        elif extreme and any(target.get(t, 0) > 0 and not (extreme[0] < qty[t] * p[t] / val / target[t] < extreme[1])
+                             for t in live_sel):
+            do = True                          # 목표의 2배·절반 같은 극단 — 정기일 전이라도
         elif d in checks:
             if kind in ("weekly", "monthly", "quarterly", "yearly"):
                 do = True
