@@ -487,7 +487,9 @@ object Server {
     )
 
     /** 종목 카드용 최근 1년 숫자 — 변동성·수익(소수, 0.38 = 38%) */
-    data class RebalMetric(val vol: Double, val ret1y: Double, val spark: DoubleArray = DoubleArray(0))
+    /** [days] = spark 각 점의 날짜(epoch 일), [last] = 마지막 종가(현지 통화) — 지금 가격을 이어 붙일 때 */
+    data class RebalMetric(val vol: Double, val ret1y: Double, val spark: DoubleArray = DoubleArray(0),
+                           val days: IntArray = IntArray(0), val last: Double = Double.NaN)
 
     /** 과거 성과 한 줄 — [key] 는 현금 비중(“20”) 또는 주기(“quarterly”). */
     data class RebalStat(val key: String, val cagr: Double, val mdd: Double, val worst: Double)
@@ -605,8 +607,11 @@ object Server {
                 m.keys().asSequence().mapNotNull { k ->
                     m.optJSONObject(k)?.let { x ->
                         val sp = x.optJSONArray("spark")
+                        val ds = x.optJSONArray("days")
                         k to RebalMetric(x.optDouble("vol"), x.optDouble("ret1y"),
-                            if (sp == null) DoubleArray(0) else DoubleArray(sp.length()) { sp.optDouble(it) })
+                            if (sp == null) DoubleArray(0) else DoubleArray(sp.length()) { sp.optDouble(it) },
+                            if (ds == null) IntArray(0) else IntArray(ds.length()) { ds.optInt(it) },
+                            x.optDouble("last", Double.NaN))
                     }
                 }.toMap()
             }.orEmpty(),

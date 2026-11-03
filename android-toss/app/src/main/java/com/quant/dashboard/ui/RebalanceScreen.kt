@@ -60,6 +60,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.quant.dashboard.data.LivePrices
 import com.quant.dashboard.data.Server
 import com.quant.dashboard.data.Snapshots
 import com.quant.dashboard.data.Tickers
@@ -345,6 +346,102 @@ fun HomeScreen(vm: RebalanceViewModel = viewModel()) {
                 )
             }
             if (p.due) GhostButton("다 맞췄어요", modifier = Modifier.fillMaxWidth()) { vm.done() }
+
+            // 종목 주가 겹쳐 보기 — 기준일 = 0%
+            PriceOverlayCard(p)
+        }
+    }
+}
+
+/** 겹쳐 보기 기간 — -1 = 마지막으로 맞춘 날부터. */
+private val OVERLAY_RANGES = listOf(-1 to "맞춘 뒤", 21 to "1M", 63 to "3M", 252 to "1Y")
+
+/**
+ * 홈 · 종목 주가 겹쳐 보기(목업 research/mockup_v9 의 2안) — 기준일 종가 = 0%.
+ * 13종목을 한 그래프에 회색으로 깔고, 많이 오른·내린 2개씩(또는 칩으로 고른 종목)만 자산군 색으로.
+ * '맞춘 뒤'로 보면 위로 벌어진 종목 = 다음에 팔 쪽, 아래 = 살 쪽.
+ * 일봉은 서버 표(metrics.spark·days, 하루 한 번)이고 마지막 점에 지금 가격을 이어 붙인다.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun PriceOverlayCard(p: Server.Rebalance) {
+    var days by rememberSaveable { mutableIntStateOf(63) }
+    // null = 자동(위·아래 2개씩). 칩을 누르면 그때부터 직접 고른 목록
+    var picked by rememberSaveable { mutableStateOf<List<String>?>(null) }
+    @Suppress("UNUSED_VARIABLE") val liveRev = LivePrices.quotes      // 지금 가격이 바뀌면 다시 그린다
+    val nyToday = java.time.LocalDate.now(java.time.ZoneId.of("America/New_York"))
+    // 종목별 날짜 → 값(정규화 종가), 지금 가격을 마지막에
+    val ser = p.basket.mapNotNull { t ->
+        val m = p.metrics[t] ?: return@mapNotNull null
+        if (m.days.size != m.spark.size || m.spark.size < 2) return@mapNotNull null
+        val map = LinkedHashMap<Int, Double>()
+        m.days.forEachIndexed { i, d -> map[d] = m.spark[i] }
+        val px = LivePrices.price(t) ?: p.rows.firstOrNull { it.ticker == t }?.price
+        if (px != null && px.isFinite() && px > 0 && m.last.isFinite() && m.last > 0) {
+            val v = m.spark.last() * px / m.last
+            val td = nyToday.toEpochDay().toInt()
+            if (td > m.days.last() && nyToday.dayOfWeek.value <= 5) map[td] = v else map[m.days.last()] = v
+        }
+        t to map
+    }
+    if (ser.isEmpty()) return
+    val cal = ser.flatMap { it.second.keys }.toSortedSet().toList()
+    val doneDay = p.lastDone?.let { runCatching { java.time.LocalDate.parse(it.take(10)).toEpochDay().toInt() }.getOrNull() }
+    val doneIdx = doneDay?.let { d -> cal.indexOfFirst { it >= d }.takeIf { it >= 0 && it < cal.size - 1 } }
+    val since = days == -1 && doneIdx != null
+    val start = if (since) doneIdx!! else (cal.size - 1 - (if (days == -1) 63 else days)).coerceAtLeast(0)
+    val win = cal.subList(start, cal.size)
+    // 기준 = 창 첫날 값(그날 없으면 그 종목의 창 안 첫 값). 빈 날은 직전 값으로 잇는다
+    val lines = ser.map { (t, map) ->
+        var lastV = Double.NaN
+        val raw = DoubleArray(win.size) { i -> map[win[i]]?.also { lastV = it } ?: lastV }
+        val base = raw.firstOrNull { it.isFinite() } ?: Double.NaN
+        OverlayLine(Tickers.displayName(t), GROUP_COLOR[p.groups[t] ?: "etc"]!!, DoubleArray(raw.size) { (raw[it] / base - 1) * 100 }) to t
+    }
+    val lastOf = { l: OverlayLine -> l.ys.lastOrNull { it.isFinite() } ?: 0.0 }
+    val sorted = lines.sortedByDescending { lastOf(it.first) }
+    val auto = (sorted.take(2) + sorted.takeLast(2)).map { it.second }.toSet()
+    val hi = (picked?.toSet() ?: auto)
+    val fmt = java.time.format.DateTimeFormatter.ofPattern("MMM d", java.util.Locale.US)
+    fun dl(d: Int) = java.time.LocalDate.ofEpochDay(d.toLong()).format(fmt)
+    Card {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("종목 주가", color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.weight(1f))
+            Text(if (since) "맞춘 날 = 0%" else "기준일 = 0%" + if (doneIdx != null && doneIdx >= start) " · ┆ 맞춘 날" else "",
+                color = TextMuted, fontSize = 11.sp)
+        }
+        Row(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 6.dp).clip(RoundedCornerShape(12.dp)).background(CARD2).padding(3.dp)) {
+            OVERLAY_RANGES.forEach { (d, l) ->
+                val on = d == days
+                val ok = d != -1 || doneIdx != null
+                Box(Modifier.weight(1f).clip(RoundedCornerShape(9.dp)).background(if (on) CARD else Color.Transparent)
+                    .clickable(enabled = ok) { days = d }.padding(vertical = 7.dp), contentAlignment = Alignment.Center) {
+                    Text(l, color = if (on) TextPrimary else if (ok) TextSecondary else TextMuted, fontSize = 12.sp,
+                        fontWeight = if (on) FontWeight.Bold else FontWeight.Normal)
+                }
+            }
+        }
+        OverlayChart(lines.map { it.first }, lines.filter { it.second in hi }.map { it.first.name }.toSet(),
+            if (!since) doneIdx?.minus(start)?.takeIf { it > 0 } else null, dl(win.first()), dl(win.last()), 240.dp)
+        Text(if (picked == null) "많이 오름 · 내림 2개씩 강조 · 눌러서 고르기" else "고른 종목 강조 · 다시 누르면 빠짐",
+            color = TextMuted, fontSize = 11.sp, modifier = Modifier.padding(top = 6.dp, bottom = 6.dp))
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(5.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            sorted.forEach { (l, t) ->
+                val on = t in hi
+                val v = lastOf(l)
+                Row(Modifier.clip(RoundedCornerShape(12.dp)).background(if (on) l.color.copy(alpha = 0.15f) else CARD2)
+                    .border(1.dp, if (on) l.color else Color.Transparent, RoundedCornerShape(12.dp))
+                    .clickable { picked = (hi.toMutableSet().apply { if (!add(t)) remove(t) }).toList() }
+                    .padding(horizontal = 8.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(7.dp).clip(RoundedCornerShape(50)).background(if (on) l.color else TextMuted))
+                    Spacer(Modifier.width(5.dp))
+                    Text(l.name, color = TextPrimary, fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = Mono)
+                    Spacer(Modifier.width(4.dp))
+                    Text(pct(v, 0), color = if (v >= 0) Profit else Loss, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+            if (picked != null) Box(Modifier.clip(RoundedCornerShape(12.dp)).background(CARD2).clickable { picked = null }
+                .padding(horizontal = 8.dp, vertical = 5.dp)) { Text("자동", color = TextSecondary, fontSize = 11.sp) }
         }
     }
 }

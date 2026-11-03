@@ -421,12 +421,15 @@ def _compute_table(basket: list[str], period: str) -> dict:
     # 종목 카드용 — 최근 1년 변동성·수익(현지 통화, 일간 수정종가)
     metrics = {}
     for t, v in series.items():
-        ys = np.array([v[d] for d in sorted(v)][-253:])
+        ds = sorted(v)[-253:]
+        ys = np.array([v[d] for d in ds])
         if len(ys) > 60:
             r = np.diff(np.log(ys))
             metrics[t] = {"vol": float(r.std() * math.sqrt(252)), "ret1y": float(ys[-1] / ys[0] - 1),
                           # 타일의 가격 추이 — 최근 1년(약 253거래일) 종가, 첫날 = 1. 앱이 1개월·3개월·1년으로 자른다
-                          "spark": [round(float(v / ys[0]), 4) for v in ys]}
+                          "spark": [round(float(v / ys[0]), 4) for v in ys],
+                          # 홈의 '종목 주가 겹쳐 보기' — 날짜(epoch 일)와 마지막 종가(앱이 지금 가격을 이어 붙인다)
+                          "days": [int(d) for d in ds], "last": float(ys[-1])}
     return {"from": dts[0].isoformat(), "to": dts[-1].isoformat(), "tickers": cols,
             "cash": cash_rows, "periods": per_rows, "metrics": metrics}
 

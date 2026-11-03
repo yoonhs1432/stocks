@@ -32,6 +32,7 @@ import com.quant.dashboard.ui.theme.Gold
 import com.quant.dashboard.ui.theme.Loss
 import com.quant.dashboard.ui.theme.Profit
 import com.quant.dashboard.ui.theme.TextMuted
+import com.quant.dashboard.ui.theme.TextSecondary
 
 /*
  * 리밸런싱 화면용 작은 그래프들 — 목업 research/mockup_v4_I.png 의 모양.
@@ -197,5 +198,77 @@ fun DevBar(d: Double, modifier: Modifier = Modifier, height: Dp = 10.dp, lim: Do
             drawPath(p, Color.White)
         }
         drawLine(Color.White, Offset(half, 0f), Offset(half, size.height), strokeWidth = 2.5.dp.toPx())
+    }
+}
+
+/** 겹쳐 보기 한 줄 — [ys] 는 기준일 대비 %(0 = 기준일), x 는 0..n-1 인덱스. */
+class OverlayLine(val name: String, val color: Color, val ys: DoubleArray)
+
+/**
+ * 종목 주가 겹쳐 보기(목업 research/mockup_v9 의 2안) — 기준일 = 0%(흰 선).
+ * [hi] 에 든 종목만 자산군 색·굵게, 나머지는 회색 바탕. 강조 종목은 오른쪽 끝에 이름(겹치지 않게 벌린다).
+ * [mark] = '맞춘 날' 세로 점선 위치(없으면 null).
+ */
+@Composable
+fun OverlayChart(lines: List<OverlayLine>, hi: Set<String>, mark: Int?, startLabel: String, endLabel: String,
+                 height: Dp, modifier: Modifier = Modifier) {
+    val tm = rememberTextMeasurer()
+    Canvas(modifier.fillMaxWidth().height(height)) {
+        val n = lines.maxOfOrNull { it.ys.size } ?: return@Canvas
+        if (n < 2) return@Canvas
+        val all = lines.flatMap { l -> l.ys.filter { it.isFinite() } }
+        val mn = minOf(all.minOrNull() ?: 0.0, -2.0)
+        val mx = maxOf(all.maxOrNull() ?: 0.0, 2.0)
+        val labW = 44.dp.toPx()
+        val pw = size.width - labW
+        val top = 6.dp.toPx(); val bot = size.height - 16.dp.toPx()
+        fun x(i: Int) = pw * i / (n - 1)
+        fun y(v: Double) = top + ((mx - v) / (mx - mn)).toFloat() * (bot - top)
+        val small = TextStyle(color = TextMuted, fontSize = 9.sp)
+        // 눈금 — 범위에 맞춰 10% 또는 20%·50% 간격
+        val step = listOf(5.0, 10.0, 20.0, 50.0, 100.0).first { (mx - mn) / it <= 6 }
+        var g = kotlin.math.ceil(mn / step) * step
+        while (g <= mx) {
+            if (g != 0.0) {
+                drawLine(Color(0xFF2A2A33), Offset(0f, y(g)), Offset(pw, y(g)), strokeWidth = 1f,
+                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(4f, 8f)))
+                drawText(tm.measure("${if (g > 0) "+" else ""}${g.toInt()}%", small), topLeft = Offset(2f, y(g) - 13.dp.toPx()))
+            }
+            g += step
+        }
+        drawLine(Color.White, Offset(0f, y(0.0)), Offset(pw, y(0.0)), strokeWidth = 1.5.dp.toPx())
+        mark?.takeIf { it in 0 until n }?.let { m ->
+            drawLine(TextSecondary, Offset(x(m), top), Offset(x(m), bot), strokeWidth = 1.dp.toPx(),
+                pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 6f)))
+            val lay = tm.measure("rebal", small)
+            drawText(lay, topLeft = Offset((x(m) - lay.size.width - 3f).coerceAtLeast(0f), top))
+        }
+        fun path(l: OverlayLine): Path {
+            val p = Path(); var started = false
+            l.ys.forEachIndexed { i, v ->
+                if (!v.isFinite()) return@forEachIndexed
+                if (!started) { p.moveTo(x(i), y(v)); started = true } else p.lineTo(x(i), y(v))
+            }
+            return p
+        }
+        // 회색 바탕 먼저, 강조는 위에
+        lines.filter { it.name !in hi }.forEach { drawPath(path(it), Color(0xFF3A3A44), style = Stroke(width = 1.2.dp.toPx())) }
+        val shown = lines.filter { it.name in hi }
+        shown.forEach { drawPath(path(it), it.color, style = Stroke(width = 2.4.dp.toPx(), join = androidx.compose.ui.graphics.StrokeJoin.Round)) }
+        // 끝 이름 — 위에서부터 최소 간격으로 벌린다
+        val gap = 12.dp.toPx()
+        val ends = shown.mapNotNull { l -> l.ys.lastOrNull { it.isFinite() }?.let { l to y(it) } }.sortedBy { it.second }
+        val ly = FloatArray(ends.size)
+        ends.forEachIndexed { k, (_, yy) -> ly[k] = if (k == 0) yy.coerceAtLeast(top + 4f) else maxOf(yy, ly[k - 1] + gap) }
+        val over = (ly.lastOrNull() ?: 0f) - (bot - 4f)
+        if (over > 0) for (k in ly.indices) ly[k] -= over
+        ends.forEachIndexed { k, (l, yy) ->
+            drawLine(l.color, Offset(pw, yy), Offset(pw + 4.dp.toPx(), ly[k]), strokeWidth = 1f)
+            val lay = tm.measure(l.name, TextStyle(color = l.color, fontSize = 10.sp, fontWeight = FontWeight.Bold))
+            drawText(lay, topLeft = Offset(pw + 6.dp.toPx(), ly[k] - lay.size.height / 2f))
+        }
+        drawText(tm.measure(startLabel, small), topLeft = Offset(0f, size.height - 13.dp.toPx()))
+        val el = tm.measure(endLabel, small)
+        drawText(el, topLeft = Offset(pw - el.size.width, size.height - 13.dp.toPx()))
     }
 }
