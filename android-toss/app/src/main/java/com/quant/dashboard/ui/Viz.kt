@@ -201,13 +201,15 @@ fun DevBar(d: Double, modifier: Modifier = Modifier, height: Dp = 10.dp, lim: Do
     }
 }
 
-/** 겹쳐 보기 한 줄 — [ys] 는 기준일 대비 %(0 = 기준일), x 는 0..n-1 인덱스. */
-class OverlayLine(val name: String, val color: Color, val ys: DoubleArray)
+/** 겹쳐 보기 한 줄 — [ys] 는 기준일 대비 %(0 = 기준일), x 는 0..n-1 인덱스. [marks] = (인덱스, 매수 여부) 매매 시점. */
+class OverlayLine(val name: String, val color: Color, val ys: DoubleArray, val marks: List<Pair<Int, Boolean>> = emptyList())
 
 /**
  * 종목 주가 겹쳐 보기(목업 research/mockup_v9 의 2안) — 기준일 = 0%(흰 선).
  * [hi] 에 든 종목만 자산군 색·굵게, 나머지는 회색 바탕. 강조 종목은 오른쪽 끝에 이름(겹치지 않게 벌린다).
  * [mark] = '맞춘 날' 세로 점선 위치(없으면 null).
+ * 세로축은 비율(로그) — +100% 와 −50% 가 같은 높이. 1년에 +600% 넘는 종목(KORU)이 있어도 나머지가 납작해지지 않는다.
+ * (선형 축 + 고정 눈금 후보로는 범위가 600% 를 넘으면 눈금을 못 골라 앱이 죽었다, 2026-11-03)
  */
 @Composable
 fun OverlayChart(lines: List<OverlayLine>, hi: Set<String>, mark: Int?, startLabel: String, endLabel: String,
@@ -216,26 +218,29 @@ fun OverlayChart(lines: List<OverlayLine>, hi: Set<String>, mark: Int?, startLab
     Canvas(modifier.fillMaxWidth().height(height)) {
         val n = lines.maxOfOrNull { it.ys.size } ?: return@Canvas
         if (n < 2) return@Canvas
-        val all = lines.flatMap { l -> l.ys.filter { it.isFinite() } }
-        val mn = minOf(all.minOrNull() ?: 0.0, -2.0)
-        val mx = maxOf(all.maxOrNull() ?: 0.0, 2.0)
+        fun f(v: Double) = kotlin.math.ln(1 + v.coerceAtLeast(-99.0) / 100)
+        val all = lines.flatMap { l -> l.ys.filter { it.isFinite() }.map { f(it) } }
+        val mn = minOf(all.minOrNull() ?: 0.0, f(-2.0))
+        val mx = maxOf(all.maxOrNull() ?: 0.0, f(2.0))
         val labW = 44.dp.toPx()
         val pw = size.width - labW
         val top = 6.dp.toPx(); val bot = size.height - 16.dp.toPx()
         fun x(i: Int) = pw * i / (n - 1)
-        fun y(v: Double) = top + ((mx - v) / (mx - mn)).toFloat() * (bot - top)
+        fun y(v: Double) = top + ((mx - f(v)) / (mx - mn)).toFloat() * (bot - top)
         val small = TextStyle(color = TextMuted, fontSize = 9.sp)
-        // 눈금 — 범위에 맞춰 10% 또는 20%·50% 간격
-        val step = listOf(5.0, 10.0, 20.0, 50.0, 100.0).first { (mx - mn) / it <= 6 }
-        var g = kotlin.math.ceil(mn / step) * step
-        while (g <= mx) {
-            if (g != 0.0) {
-                drawLine(Color(0xFF2A2A33), Offset(0f, y(g)), Offset(pw, y(g)), strokeWidth = 1f,
+        // 눈금 — 후보 중 범위 안에 들고 서로(그리고 0 선과) 20dp 이상 떨어진 것만
+        val minGap = 20.dp.toPx()
+        val kept = mutableListOf(y(0.0))
+        listOf(5.0, -5.0, 10.0, -10.0, 20.0, -20.0, 30.0, -30.0, 50.0, -50.0, 100.0, -75.0, 200.0, -90.0, 300.0, 500.0, 1000.0)
+            .filter { f(it) in mn..mx }
+            .forEach { g ->
+                val yy = y(g)
+                if (kept.any { kotlin.math.abs(it - yy) < minGap }) return@forEach
+                kept += yy
+                drawLine(Color(0xFF2A2A33), Offset(0f, yy), Offset(pw, yy), strokeWidth = 1f,
                     pathEffect = PathEffect.dashPathEffect(floatArrayOf(4f, 8f)))
-                drawText(tm.measure("${if (g > 0) "+" else ""}${g.toInt()}%", small), topLeft = Offset(2f, y(g) - 13.dp.toPx()))
+                drawText(tm.measure("${if (g > 0) "+" else ""}${g.toInt()}%", small), topLeft = Offset(2f, yy - 13.dp.toPx()))
             }
-            g += step
-        }
         drawLine(Color.White, Offset(0f, y(0.0)), Offset(pw, y(0.0)), strokeWidth = 1.5.dp.toPx())
         mark?.takeIf { it in 0 until n }?.let { m ->
             drawLine(TextSecondary, Offset(x(m), top), Offset(x(m), bot), strokeWidth = 1.dp.toPx(),
@@ -255,6 +260,16 @@ fun OverlayChart(lines: List<OverlayLine>, hi: Set<String>, mark: Int?, startLab
         lines.filter { it.name !in hi }.forEach { drawPath(path(it), Color(0xFF3A3A44), style = Stroke(width = 1.2.dp.toPx())) }
         val shown = lines.filter { it.name in hi }
         shown.forEach { drawPath(path(it), it.color, style = Stroke(width = 2.4.dp.toPx(), join = androidx.compose.ui.graphics.StrokeJoin.Round)) }
+        // 매매 시점 — 빨강 = 매수, 파랑 = 매도. 강조 종목은 크게(바탕색 테두리), 나머지는 작고 흐리게
+        fun marks(l: OverlayLine, big: Boolean) = l.marks.forEach { (i, buy) ->
+            val v = l.ys.getOrNull(i)?.takeIf { it.isFinite() } ?: return@forEach
+            val c = Offset(x(i), y(v))
+            val col = if (buy) Profit else Loss
+            if (big) { drawCircle(CARD, 6.dp.toPx(), c); drawCircle(col, 4.5.dp.toPx(), c) }
+            else drawCircle(col.copy(alpha = 0.55f), 2.5.dp.toPx(), c)
+        }
+        lines.filter { it.name !in hi }.forEach { marks(it, false) }
+        shown.forEach { marks(it, true) }
         // 끝 이름 — 위에서부터 최소 간격으로 벌린다
         val gap = 12.dp.toPx()
         val ends = shown.mapNotNull { l -> l.ys.lastOrNull { it.isFinite() }?.let { l to y(it) } }.sortedBy { it.second }

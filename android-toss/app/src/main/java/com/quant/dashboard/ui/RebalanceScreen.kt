@@ -62,6 +62,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.quant.dashboard.data.LivePrices
 import com.quant.dashboard.data.Server
+import com.quant.dashboard.data.Store
 import com.quant.dashboard.data.Snapshots
 import com.quant.dashboard.data.Tickers
 import com.quant.dashboard.data.TossLink
@@ -391,12 +392,20 @@ private fun PriceOverlayCard(p: Server.Rebalance) {
     val since = days == -1 && doneIdx != null
     val start = if (since) doneIdx!! else (cal.size - 1 - (if (days == -1) 63 else days)).coerceAtLeast(0)
     val win = cal.subList(start, cal.size)
+    // 매매 시점 — PC 가 받아 둔 체결내역(매매 일지). 날짜가 창 밖이면 뺀다
+    val trades = Store.loadTrades()
+    fun idxOf(iso: String): Int? {
+        val d = runCatching { java.time.LocalDate.parse(iso.take(10)).toEpochDay().toInt() }.getOrNull() ?: return null
+        if (d < win.first()) return null
+        return win.indexOfLast { it <= d }.takeIf { it >= 0 }
+    }
     // 기준 = 창 첫날 값(그날 없으면 그 종목의 창 안 첫 값). 빈 날은 직전 값으로 잇는다
     val lines = ser.map { (t, map) ->
         var lastV = Double.NaN
         val raw = DoubleArray(win.size) { i -> map[win[i]]?.also { lastV = it } ?: lastV }
         val base = raw.firstOrNull { it.isFinite() } ?: Double.NaN
-        OverlayLine(Tickers.displayName(t), GROUP_COLOR[p.groups[t] ?: "etc"]!!, DoubleArray(raw.size) { (raw[it] / base - 1) * 100 }) to t
+        val mk = trades[t].orEmpty().mapNotNull { tr -> idxOf(tr.date)?.let { it to (tr.type == "buy") } }.distinct()
+        OverlayLine(Tickers.displayName(t), GROUP_COLOR[p.groups[t] ?: "etc"]!!, DoubleArray(raw.size) { (raw[it] / base - 1) * 100 }, mk) to t
     }
     val lastOf = { l: OverlayLine -> l.ys.lastOrNull { it.isFinite() } ?: 0.0 }
     val sorted = lines.sortedByDescending { lastOf(it.first) }
@@ -423,8 +432,14 @@ private fun PriceOverlayCard(p: Server.Rebalance) {
         }
         OverlayChart(lines.map { it.first }, lines.filter { it.second in hi }.map { it.first.name }.toSet(),
             if (!since) doneIdx?.minus(start)?.takeIf { it > 0 } else null, dl(win.first()), dl(win.last()), 240.dp)
-        Text(if (picked == null) "많이 오름 · 내림 2개씩 강조 · 눌러서 고르기" else "고른 종목 강조 · 다시 누르면 빠짐",
-            color = TextMuted, fontSize = 11.sp, modifier = Modifier.padding(top = 6.dp, bottom = 6.dp))
+        Row(Modifier.padding(top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(if (picked == null) "많이 오름 · 내림 2개씩 강조 · 눌러서 고르기" else "고른 종목 강조 · 다시 누르면 빠짐",
+                color = TextMuted, fontSize = 11.sp, modifier = Modifier.weight(1f))
+            Box(Modifier.size(7.dp).clip(RoundedCornerShape(50)).background(Profit))
+            Text(" 매수  ", color = TextSecondary, fontSize = 11.sp)
+            Box(Modifier.size(7.dp).clip(RoundedCornerShape(50)).background(Loss))
+            Text(" 매도", color = TextSecondary, fontSize = 11.sp)
+        }
         FlowRow(horizontalArrangement = Arrangement.spacedBy(5.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
             sorted.forEach { (l, t) ->
                 val on = t in hi
