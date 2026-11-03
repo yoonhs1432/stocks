@@ -354,6 +354,16 @@ fun HomeScreen(vm: RebalanceViewModel = viewModel()) {
     }
 }
 
+/**
+ * 겹쳐 보기 종목 색 — 바구니 순서대로 하나씩(같은 종목은 늘 같은 색). 자산군 5색을 나눠 쓰면 같은 군끼리 겹쳤다(사용자 지적).
+ * 빨강·파랑은 매수·매도 점과 등락에 쓰므로 뺐다. 비슷한 색 쌍(청록·민트, 주황·귤색)은 끝 이름·칩으로 구분된다.
+ */
+private val OVERLAY_COLORS = listOf(
+    Color(0xFF199E70), Color(0xFFFFD43B), Color(0xFF22B8CF), Color(0xFFD95926), Color(0xFFE599F7),
+    Color(0xFF82C91E), Color(0xFFD55181), Color(0xFF9085E9), Color(0xFFC98500), Color(0xFF63E6BE),
+    Color(0xFFA9744F), Color(0xFFDEE2E6), Color(0xFFFF922B),
+)
+
 /** 겹쳐 보기 기간 — -1 = 마지막으로 맞춘 날부터. */
 private val OVERLAY_RANGES = listOf(-1 to "맞춘 뒤", 21 to "1M", 63 to "3M", 252 to "1Y")
 
@@ -405,7 +415,8 @@ private fun PriceOverlayCard(p: Server.Rebalance) {
         val raw = DoubleArray(win.size) { i -> map[win[i]]?.also { lastV = it } ?: lastV }
         val base = raw.firstOrNull { it.isFinite() } ?: Double.NaN
         val mk = trades[t].orEmpty().mapNotNull { tr -> idxOf(tr.date)?.let { it to (tr.type == "buy") } }.distinct()
-        OverlayLine(Tickers.displayName(t), GROUP_COLOR[p.groups[t] ?: "etc"]!!, DoubleArray(raw.size) { (raw[it] / base - 1) * 100 }, mk) to t
+        val ci = p.basket.indexOf(t).coerceAtLeast(0) % OVERLAY_COLORS.size
+        OverlayLine(Tickers.displayName(t), OVERLAY_COLORS[ci], DoubleArray(raw.size) { (raw[it] / base - 1) * 100 }, mk) to t
     }
     val lastOf = { l: OverlayLine -> l.ys.lastOrNull { it.isFinite() } ?: 0.0 }
     val sorted = lines.sortedByDescending { lastOf(it.first) }
