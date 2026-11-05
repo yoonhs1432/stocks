@@ -524,6 +524,9 @@ object Server {
         val groups: Map<String, String> = emptyMap(),
         /** 바구니 밖 보유의 평가손익률 */
         val outsidePnl: Map<String, Double> = emptyMap(),
+        /** 목표 대비 % 의 지난 흐름 — [devDays] 날짜(epoch 일), [devSeries] 종목 → 그날 %(없으면 NaN). 마지막 점 = 지금 */
+        val devDays: IntArray = IntArray(0),
+        val devSeries: Map<String, DoubleArray> = emptyMap(),
     )
 
     /** @param force 당겨서 새로고침 — PC 의 계좌 캐시(20초)를 건너뛴다 */
@@ -619,6 +622,13 @@ object Server {
             outsidePnl = (0 until oa.length()).mapNotNull { i ->
                 oa.optJSONObject(i)?.let { it.optString("ticker") to it.optDouble("pnlRate", 0.0) }
             }.toMap(),
+            devDays = o.optJSONObject("devHistory")?.optJSONArray("days")?.let { a -> IntArray(a.length()) { a.optInt(it) } } ?: IntArray(0),
+            devSeries = o.optJSONObject("devHistory")?.optJSONObject("series")?.let { m ->
+                m.keys().asSequence().associateWith { k ->
+                    val a = m.optJSONArray(k)
+                    if (a == null) DoubleArray(0) else DoubleArray(a.length()) { if (a.isNull(it)) Double.NaN else a.optDouble(it) }
+                }
+            }.orEmpty(),
         )
     }
 

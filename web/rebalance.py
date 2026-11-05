@@ -17,6 +17,7 @@ import time
 from datetime import date, datetime, timedelta, timezone
 
 import numpy as np
+from zoneinfo import ZoneInfo
 
 import insight
 import market
@@ -327,12 +328,117 @@ def plan(acc: dict, quote) -> dict:
         "tax": {"realizedYtd": ytd, "afterSells": ytd + planned, "exempt": EXEMPT,
                 "thisTrade": tax_after - tax_before, "yearTotal": tax_after},
         "alerts": [r["ticker"] for r in rows if r["extreme"]],
+        "devHistory": _safe_dev_history(held, cash, rows, cash_w, sell_out, outside_krw),
         "table": table_for(s),
         "watchlist": store.tickers(),
         "defaultBasket": DEFAULT_BASKET,
         "desc": {t: DESC[t] for t in set(basket) | set(DEFAULT_BASKET) | set(store.tickers()) if DESC.get(t)},
     }
 
+
+# ── 목표 대비 % 의 지난 흐름 — 홈 '목표 대비 추이' 그래프 ──
+
+def _dev_history(held: dict, cash_now: float, rows: list[dict], cash_w: float, sell_out: bool,
+                 outside_krw: float, days: int = 260) -> dict:
+    """종목마다 날짜별 목표 대비 %((평가금액 ÷ 목표 금액 − 1) × 100) — 기준일과 상관없는 값.
+
+    지금 보유 수량·현금에서 **체결내역·입금을 거꾸로 되돌려** 그날의 수량·현금을 만든다.
+    그날 평가금액 = 수량 × 수정종가 × 환율, 목표 = (현금 + 바구니 평가금액) × (1 − 현금 비중) ÷ 종목 수.
+    마지막 점은 지금 계산(rows 의 devPct)으로 맞춘다 — 홈의 '목표 대비' 카드와 같은 숫자.
+    (배당·이자·환전 차이는 무시하므로 지난 값은 근사다.)
+    """
+    basket = [r["ticker"] for r in rows]
+    if not basket:
+        return {}
+    fx = insight._fetch("KRW=X")
+    px = {t: insight._fetch(t) for t in basket}
+    cal = sorted(set().union(*[set(v) for v in px.values() if v]))[-days:]
+    if not cal or not fx:
+        return {}
+    fx_days = sorted(fx)
+    # 종목별 종가를 달력에 맞춰 직전 값으로 채운다
+    pf = {}
+    for t in basket:
+        v, lastp, arr = px[t], None, []
+        for d in cal:
+            lastp = v.get(d, lastp)
+            arr.append(lastp)
+        pf[t] = arr
+
+    def fx_at(d: int) -> float:
+        import bisect
+        i = bisect.bisect_right(fx_days, d) - 1
+        return fx[fx_days[max(i, 0)]]
+
+    def eday(iso: str) -> int:
+        return (date.fromisoformat(iso[:10]) - date(1970, 1, 1)).days
+
+    # 체결·입금 — (날짜, 종목, 수량 변화, 현금 변화)
+    events = []
+    for tk, fills in store.trades().items():
+        krw = store.is_krw(tk)
+        for f in fills:
+            try:
+                d = eday(str(f.get("date", "")))
+            except ValueError:
+                continue
+            q, p = float(f.get("qty") or 0), float(f.get("price") or 0)
+            amt = q * p * (1.0 if krw else fx_at(d))
+            buy = f.get("type") == "buy"
+            events.append((d, tk, q if buy else -q, -amt if buy else amt))
+    for dp in store.deposits():
+        try:
+            events.append((eday(dp["date"]), None, 0.0, float(dp.get("krw") or 0)))
+        except (ValueError, KeyError):
+            pass
+    events.sort(key=lambda e: e[0], reverse=True)
+
+    qty = {t: float((held.get(t) or {}).get("quantity") or 0.0) for t in basket}
+    cash = cash_now
+    n = len(basket)
+    out = {t: [None] * len(cal) for t in basket}
+    k = 0
+    # 오늘에서 과거로 — 그날 종가 '뒤'에 일어난 일(날짜가 그날보다 뒤)을 되돌린다
+    for i in range(len(cal) - 1, -1, -1):
+        d = cal[i]
+        while k < len(events) and events[k][0] > d:
+            _, tk, dq, dc = events[k]
+            if tk in qty:
+                qty[tk] -= dq
+            cash -= dc
+            k += 1
+        r = fx_at(d)
+        vals = {}
+        for t in basket:
+            p = pf[t][i]
+            vals[t] = max(qty[t], 0.0) * (p or 0.0) * (1.0 if store.is_krw(t) else r)
+        total = cash + sum(vals.values()) + (outside_krw if sell_out else 0.0)
+        per = total * (1 - cash_w) / n
+        if per <= 0 or sum(vals.values()) <= 0:   # 계좌를 열기 전 — 그 앞은 비운다
+            break
+        for t in basket:
+            out[t][i] = round((vals[t] / per - 1) * 100, 1)
+    # 마지막 점 = 지금 계산(장중이면 오늘 점을 하나 더)
+    today = (datetime.now(ZoneInfo("America/New_York")).date() - date(1970, 1, 1)).days
+    cal = list(cal)
+    if today > cal[-1]:
+        cal.append(today)
+        for t in basket:
+            out[t].append(None)
+    for rr in rows:
+        out[rr["ticker"]][-1] = round(rr["devPct"], 1)
+    # 바구니를 다 갖춘 날부터 — 그 앞은 예전 포트폴리오라 −100%·+400% 같은 뜻 없는 값이 나온다
+    full = [i for i in range(len(cal)) if all(out[t][i] is not None and out[t][i] > -99 for t in basket)]
+    first = full[0] if full else max(len(cal) - 2, 0)
+    return {"days": [int(d) for d in cal[first:]], "series": {t: v[first:] for t, v in out.items()}}
+
+
+def _safe_dev_history(*a) -> dict:
+    """흐름 그래프가 실패해도 계획은 내려 준다."""
+    try:
+        return _dev_history(*a)
+    except Exception as e:
+        return {"error": str(e)}
 
 # ── 현금 비중별 과거 성과 — 바구니가 바뀌면 백그라운드로 다시 ──
 

@@ -213,16 +213,17 @@ class OverlayLine(val name: String, val color: Color, val ys: DoubleArray, val m
  */
 @Composable
 fun OverlayChart(lines: List<OverlayLine>, hi: Set<String>, mark: Int?, startLabel: String, endLabel: String,
-                 height: Dp, modifier: Modifier = Modifier) {
+                 height: Dp, modifier: Modifier = Modifier, log: Boolean = true, zeroLabel: String? = null, endValue: Boolean = false) {
     val tm = rememberTextMeasurer()
     Canvas(modifier.fillMaxWidth().height(height)) {
         val n = lines.maxOfOrNull { it.ys.size } ?: return@Canvas
         if (n < 2) return@Canvas
-        fun f(v: Double) = kotlin.math.ln(1 + v.coerceAtLeast(-99.0) / 100)
+        // log = 비율 축(주가), 아니면 그대로(목표 대비 %)
+        fun f(v: Double) = if (log) kotlin.math.ln(1 + v.coerceAtLeast(-99.0) / 100) else v
         val all = lines.flatMap { l -> l.ys.filter { it.isFinite() }.map { f(it) } }
         val mn = minOf(all.minOrNull() ?: 0.0, f(-2.0))
         val mx = maxOf(all.maxOrNull() ?: 0.0, f(2.0))
-        val labW = 44.dp.toPx()
+        val labW = (if (endValue) 74 else 44).dp.toPx()
         val pw = size.width - labW
         val top = 6.dp.toPx(); val bot = size.height - 16.dp.toPx()
         fun x(i: Int) = pw * i / (n - 1)
@@ -235,13 +236,17 @@ fun OverlayChart(lines: List<OverlayLine>, hi: Set<String>, mark: Int?, startLab
             .filter { f(it) in mn..mx }
             .forEach { g ->
                 val yy = y(g)
-                if (kept.any { kotlin.math.abs(it - yy) < minGap }) return@forEach
+                if (kept.any { kotlin.math.abs(it - yy) < minGap } || g <= -100.0) return@forEach
                 kept += yy
                 drawLine(Color(0xFF2A2A33), Offset(0f, yy), Offset(pw, yy), strokeWidth = 1f,
                     pathEffect = PathEffect.dashPathEffect(floatArrayOf(4f, 8f)))
                 drawText(tm.measure("${if (g > 0) "+" else ""}${g.toInt()}%", small), topLeft = Offset(2f, yy - 13.dp.toPx()))
             }
         drawLine(Color.White, Offset(0f, y(0.0)), Offset(pw, y(0.0)), strokeWidth = 1.5.dp.toPx())
+        zeroLabel?.let {
+            drawText(tm.measure(it, TextStyle(color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold)),
+                topLeft = Offset(2f, y(0.0) - 13.dp.toPx()))
+        }
         mark?.takeIf { it in 0 until n }?.let { m ->
             drawLine(TextSecondary, Offset(x(m), top), Offset(x(m), bot), strokeWidth = 1.dp.toPx(),
                 pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 6f)))
@@ -272,14 +277,16 @@ fun OverlayChart(lines: List<OverlayLine>, hi: Set<String>, mark: Int?, startLab
         shown.forEach { marks(it, true) }
         // 끝 이름 — 위에서부터 최소 간격으로 벌린다
         val gap = 12.dp.toPx()
-        val ends = shown.mapNotNull { l -> l.ys.lastOrNull { it.isFinite() }?.let { l to y(it) } }.sortedBy { it.second }
+        val ends = shown.mapNotNull { l -> l.ys.lastOrNull { it.isFinite() }?.let { Triple(l, y(it), it) } }.sortedBy { it.second }
         val ly = FloatArray(ends.size)
-        ends.forEachIndexed { k, (_, yy) -> ly[k] = if (k == 0) yy.coerceAtLeast(top + 4f) else maxOf(yy, ly[k - 1] + gap) }
+        ends.forEachIndexed { k, (_, yy, _) -> ly[k] = if (k == 0) yy.coerceAtLeast(top + 4f) else maxOf(yy, ly[k - 1] + gap) }
         val over = (ly.lastOrNull() ?: 0f) - (bot - 4f)
         if (over > 0) for (k in ly.indices) ly[k] -= over
-        ends.forEachIndexed { k, (l, yy) ->
+        ends.forEachIndexed { k, (l, yy, v) ->
             drawLine(l.color, Offset(pw, yy), Offset(pw + 4.dp.toPx(), ly[k]), strokeWidth = 1f)
-            val lay = tm.measure(l.name, TextStyle(color = l.color, fontSize = 10.sp, fontWeight = FontWeight.Bold))
+            val sign = if (v >= 0.5) "+" else if (v <= -0.5) "−" else ""
+            val txt = if (endValue) "${l.name} $sign${"%.0f".format(kotlin.math.abs(v))}%" else l.name
+            val lay = tm.measure(txt, TextStyle(color = l.color, fontSize = 10.sp, fontWeight = FontWeight.Bold))
             drawText(lay, topLeft = Offset(pw + 6.dp.toPx(), ly[k] - lay.size.height / 2f))
         }
         drawText(tm.measure(startLabel, small), topLeft = Offset(0f, size.height - 13.dp.toPx()))
