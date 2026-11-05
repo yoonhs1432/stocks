@@ -373,13 +373,30 @@ def _dev_history(held: dict, cash_now: float, rows: list[dict], cash_w: float, s
     def eday(iso: str) -> int:
         return (date.fromisoformat(iso[:10]) - date(1970, 1, 1)).days
 
+    ny = ZoneInfo("America/New_York")
+
+    def session_day(f: dict, krw: bool) -> int:
+        """체결이 반영되는 거래일 — 미국 종목은 뉴욕 날짜. 한국 날짜로만 적으면 새벽 체결이 하루 밀린다."""
+        at = str(f.get("at") or "")
+        try:
+            dt = datetime.fromisoformat(at.replace("Z", "+00:00"))
+            if dt.tzinfo is not None:
+                return (dt.astimezone(KST if krw else ny).date() - date(1970, 1, 1)).days
+        except ValueError:
+            pass
+        d = date.fromisoformat(str(f.get("date", ""))[:10])
+        if not krw:                       # 시각이 없으면 — 주말 날짜는 금요일 밤 미국장
+            while d.weekday() >= 5:
+                d -= timedelta(days=1)
+        return (d - date(1970, 1, 1)).days
+
     # 체결·입금 — (날짜, 종목, 수량 변화, 현금 변화)
     events = []
     for tk, fills in store.trades().items():
         krw = store.is_krw(tk)
         for f in fills:
             try:
-                d = eday(str(f.get("date", "")))
+                d = session_day(f, krw)
             except ValueError:
                 continue
             q, p = float(f.get("qty") or 0), float(f.get("price") or 0)
@@ -430,7 +447,15 @@ def _dev_history(held: dict, cash_now: float, rows: list[dict], cash_w: float, s
     # 바구니를 다 갖춘 날부터 — 그 앞은 예전 포트폴리오라 −100%·+400% 같은 뜻 없는 값이 나온다
     full = [i for i in range(len(cal)) if all(out[t][i] is not None and out[t][i] > -99 for t in basket)]
     first = full[0] if full else max(len(cal) - 2, 0)
-    return {"days": [int(d) for d in cal[first:]], "series": {t: v[first:] for t, v in out.items()}}
+    # 매매 점 — 그 체결이 처음 반영된 날(그 거래일, 휴장이면 다음 거래일)
+    days_out = [int(d) for d in cal[first:]]
+    marks: dict[str, list] = {t: [] for t in basket}
+    for d, tk, dq, _ in events:
+        if tk in marks and dq != 0 and days_out and d >= days_out[0]:
+            j = next((i for i, x in enumerate(days_out) if x >= d), None)
+            if j is not None and [j, dq > 0] not in marks[tk]:
+                marks[tk].append([j, dq > 0])
+    return {"days": days_out, "series": {t: v[first:] for t, v in out.items()}, "marks": marks}
 
 
 def _safe_dev_history(*a) -> dict:

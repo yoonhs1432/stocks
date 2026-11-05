@@ -389,16 +389,11 @@ private fun DevTrendCard(p: Server.Rebalance) {
         else -> (cal.size - 1 - days).coerceAtLeast(0)
     }
     val win = cal.copyOfRange(start, cal.size)
-    val trades = Store.loadTrades()
-    fun idxOf(iso: String): Int? {
-        val d = runCatching { java.time.LocalDate.parse(iso.take(10)).toEpochDay().toInt() }.getOrNull() ?: return null
-        if (d < win.first()) return null
-        return win.indexOfLast { it <= d }.takeIf { it >= 0 }
-    }
     val rows = p.rows.associateBy { it.ticker }
     val lines = p.basket.mapNotNull { t ->
         val ys = p.devSeries[t]?.takeIf { it.size == cal.size } ?: return@mapNotNull null
-        val mk = trades[t].orEmpty().mapNotNull { tr -> idxOf(tr.date)?.let { it to (tr.type == "buy") } }.distinct()
+        // 매매 점 — 서버가 체결 시각을 미국장 거래일로 바꿔 준 인덱스(그래프가 꺾이는 날과 같다)
+        val mk = p.devMarks[t].orEmpty().filter { it.first >= start }.map { (it.first - start) to it.second }
         val ci = p.basket.indexOf(t).coerceAtLeast(0) % OVERLAY_COLORS.size
         OverlayLine(Tickers.displayName(t), OVERLAY_COLORS[ci], ys.copyOfRange(start, ys.size), mk) to t
     }

@@ -190,6 +190,7 @@ def save_fills(fills: list[dict]) -> int:
         by.setdefault(sym, {})[f["orderId"]] = {
             "orderId": f["orderId"], "date": f["date"], "qty": f["quantity"],
             "price": f["price"], "type": "buy" if f["buy"] else "sell",
+            **({"at": f["at"]} if f.get("at") else {}),
         }
     out = {t: sorted(d.values(), key=lambda x: x["date"]) for t, d in by.items()}
     set_trades(out)

@@ -387,6 +387,7 @@ class Toss:
                     "symbol": o.get("symbol", ""),
                     "buy": o.get("side") == "BUY",
                     "date": date,
+                    "at": stamp,          # 체결 시각 원문 — 미국장 거래일을 정확히 가리려고(한국 새벽 체결)
                     "quantity": qty,
                     "price": price,
                     "currency": o.get("currency", "KRW"),

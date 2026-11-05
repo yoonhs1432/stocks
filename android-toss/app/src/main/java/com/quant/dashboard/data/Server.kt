@@ -527,6 +527,8 @@ object Server {
         /** 목표 대비 % 의 지난 흐름 — [devDays] 날짜(epoch 일), [devSeries] 종목 → 그날 %(없으면 NaN). 마지막 점 = 지금 */
         val devDays: IntArray = IntArray(0),
         val devSeries: Map<String, DoubleArray> = emptyMap(),
+        /** 매매 점 — 종목 → (devDays 인덱스, 매수 여부). 서버가 미국장 거래일로 맞춰 준다 */
+        val devMarks: Map<String, List<Pair<Int, Boolean>>> = emptyMap(),
     )
 
     /** @param force 당겨서 새로고침 — PC 의 계좌 캐시(20초)를 건너뛴다 */
@@ -627,6 +629,12 @@ object Server {
                 m.keys().asSequence().associateWith { k ->
                     val a = m.optJSONArray(k)
                     if (a == null) DoubleArray(0) else DoubleArray(a.length()) { if (a.isNull(it)) Double.NaN else a.optDouble(it) }
+                }
+            }.orEmpty(),
+            devMarks = o.optJSONObject("devHistory")?.optJSONObject("marks")?.let { m ->
+                m.keys().asSequence().associateWith { k ->
+                    val a = m.optJSONArray(k)
+                    (0 until (a?.length() ?: 0)).mapNotNull { i -> a!!.optJSONArray(i)?.let { it.optInt(0) to it.optBoolean(1) } }
                 }
             }.orEmpty(),
         )
