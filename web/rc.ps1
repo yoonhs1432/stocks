@@ -17,8 +17,10 @@ param([string]$Name = "quant-pc", [switch]$Auto)
 
 $ErrorActionPreference = "Stop"
 
-# 저장소 루트에서 띄운다 (web 뿐 아니라 전체를 볼 수 있게)
-Set-Location (Split-Path $PSScriptRoot -Parent)
+# 저장소 루트에서 띄운다 (web 뿐 아니라 전체를 볼 수 있게).
+# Push/Pop 으로 감싼다 — Set-Location 만 쓰면 끝난 뒤에도 호출한 창의 위치가 바뀌어 있다.
+Push-Location (Split-Path $PSScriptRoot -Parent)
+try {
 
 # 방금 설치했다면 이 창의 PATH 에 아직 반영되지 않았다
 $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" +
@@ -72,3 +74,5 @@ Write-Host "  · 끝낼 때는 이 창에서 Ctrl+C."
 Write-Host ""
 
 & $claude remote-control --name $Name
+}
+finally { Pop-Location }
