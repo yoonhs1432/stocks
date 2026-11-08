@@ -155,6 +155,7 @@ claude                                    # 한 번 실행해 로그인 (Pro/Max
 세션 목록에서 `quant-pc` 를 고르면 된다. 끝낼 때는 그 창에서 Ctrl+C.
 
 > 이 창이 떠 있는 동안에만 연결된다. PC 가 잠자기에서 깨면 알아서 다시 붙는다.
+> **재부팅할 때마다 손으로 띄우기 싫으면** 아래 7절의 `-RemoteControl` 로 등록한다.
 > 접근 권한은 **본인 claude.ai 계정 하나**뿐이고, 이 웹앱의 접속 암호와는 무관하다.
 
 | 상황 | 쓸 것 |
@@ -170,13 +171,20 @@ claude                                    # 한 번 실행해 로그인 (Pro/Max
 ```powershell
 .\install-task.ps1            # 서버만
 .\install-task.ps1 -Tunnel    # 터널까지 (외부 접속)
+.\install-task.ps1 -Funnel -RemoteControl   # 고정 주소 + 폰에서 PC 조종(rc.ps1)까지 — 권장
 ```
+
+`-RemoteControl` 은 작업 `QuantRemoteControl` 을 하나 더 등록해, 로그인하면 `rc.ps1 -Auto` 가
+최소화된 창으로 떠서 `quant-pc` 로 붙는다. 끊기거나 죽으면 저절로 다시 붙는다(기록 `data\rc.log`).
+등록 전에 **한 번은 손으로 `.\rc.ps1`** 을 띄워 `Enable Remote Control?` 에 y 를 눌러 둘 것 —
+자동 실행 창에서는 그 질문에 답할 사람이 없다.
 
 | 하고 싶은 것 | 명령 |
 |---|---|
 | 지금 바로 시작 | `Start-ScheduledTask -TaskName QuantDashboard` |
 | 중지 | `Stop-ScheduledTask -TaskName QuantDashboard` |
-| 해제 | `.\install-task.ps1 -Remove` |
+| Remote Control 만 지금 시작 | `Start-ScheduledTask -TaskName QuantRemoteControl` |
+| 해제 (둘 다) | `.\install-task.ps1 -Remove` |
 
 네트워크가 늦게 붙는 경우가 있어 로그인 후 30초 뒤에 시작하고, 노트북이 배터리로 돌 때도
 멈추지 않게 해 뒀다.

@@ -1,7 +1,16 @@
 # SESSION_NOTES — 최근 작업 핸드오프
 
 > 새 세션 시작 시 이 파일을 읽으면 직전 세션의 맥락을 이어받을 수 있음.
-> 마지막 업데이트: 2026-10-21 (**디자인 v4-I · 3탭**)
+> 마지막 업데이트: 2026-11-08 (**재부팅 시 Remote Control 자동 실행**)
+
+## 2026-11-08 재부팅하면 Remote Control 도 저절로
+
+- `install-task.ps1 -RemoteControl` → 작업 스케줄러 `QuantRemoteControl` 추가 등록(트리거·권한·재시작 설정은
+  `QuantDashboard` 와 같음, `-AtStartup` 도 같이 적용). `rc.ps1 -Auto` 를 최소화 창으로 띄운다.
+- `rc.ps1 -Auto` — 안내 없이 `claude remote-control --name quant-pc` 를 돌리고, 끝나면 10초(연달아면 최대 5분) 뒤 다시.
+  기록 `web/data/rc.log`. `-Remove` 는 두 작업 모두 해제.
+- PC 에서 할 일(아직 안 했을 수 있음): `.\rc.ps1` 한 번 손으로 → y, 그 다음 `.\install-task.ps1 -Funnel -RemoteControl`.
+- PowerShell 이 없는 클라우드에서 작성해 **실행 검증은 못 했다.**
 
 ## 2026-10-21 (2) 디자인 v4-I · 3탭
 

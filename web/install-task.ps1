@@ -5,8 +5,13 @@
 #   .\install-task.ps1 -Funnel      Tailscale 고정 주소까지 (주소가 안 바뀐다 — 권장)
 #   .\install-task.ps1 -Remove      등록 해제
 #   .\install-task.ps1 -Funnel -AtStartup   **로그인하지 않아도** 부팅하자마자 (관리자 창에서)
+#   .\install-task.ps1 -Funnel -RemoteControl   서버 + 폰에서 PC 조종(rc.ps1)까지 — 권장
 #
 # 관리자 권한이 필요 없다. 로그인할 때 숨겨진 창으로 실행된다.
+#
+# -RemoteControl — 재부팅 뒤 PowerShell 을 열어 rc.ps1 을 칠 필요가 없다. 작업 `QuantRemoteControl` 이
+#   `rc.ps1 -Auto` 를 최소화된 창으로 띄우고, 끊기면 다시 붙인다(기록은 data\rc.log).
+#   등록하기 전에 **한 번은 손으로 .\rc.ps1** 을 띄워 'Enable Remote Control?' 에 y 를 눌러 둔다.
 #
 # -AtStartup — 정전·수동 재부팅 뒤 PC 가 **로그인 화면에 멈춰 있어도** 서버가 뜬다.
 #   암호를 저장하지 않는 S4U 방식이라 관리자 권한으로 한 번 등록해야 한다.
@@ -15,14 +20,16 @@
 # ⚠️ 트리거에 **이 사용자**를 꼭 적는다. `-AtLogOn` 만 쓰면 "아무 사용자나 로그인할 때" 가
 #    되어 관리자 권한을 요구하고, 일반 창에서는 '액세스가 거부되었습니다' 로 실패한다.
 
-param([switch]$Tunnel, [switch]$Funnel, [switch]$Remove, [switch]$AtStartup)
+param([switch]$Tunnel, [switch]$Funnel, [switch]$Remove, [switch]$AtStartup, [switch]$RemoteControl)
 
 $ErrorActionPreference = "Stop"
 $name = "QuantDashboard"
+$rcName = "QuantRemoteControl"
 $user = "$env:USERDOMAIN\$env:USERNAME"
 
 if ($Remove) {
     Unregister-ScheduledTask -TaskName $name -Confirm:$false -ErrorAction SilentlyContinue
+    Unregister-ScheduledTask -TaskName $rcName -Confirm:$false -ErrorAction SilentlyContinue
     Write-Host "  등록을 해제했습니다." -ForegroundColor Yellow
     return
 }
@@ -66,6 +73,15 @@ $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries `
 Register-ScheduledTask -TaskName $name -Action $action -Trigger $triggers -Principal $principal `
     -Settings $settings -Description "퀀트 대시보드 서버" -Force | Out-Null
 
+if ($RemoteControl) {
+    # 트리거·권한·재시작 설정은 서버와 같다. 창만 최소화로 — 작업 표시줄에서 상태를 볼 수 있게
+    $rcAction = New-ScheduledTaskAction -Execute "powershell.exe" `
+        -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Minimized -File `"$here\rc.ps1`" -Auto" `
+        -WorkingDirectory (Split-Path $here -Parent)
+    Register-ScheduledTask -TaskName $rcName -Action $rcAction -Trigger $triggers -Principal $principal `
+        -Settings $settings -Description "폰에서 이 PC 조종 (Claude Code Remote Control)" -Force | Out-Null
+}
+
 Write-Host ""
 if ($AtStartup) {
     Write-Host "  등록했습니다. 다음 부팅부터 로그인하지 않아도 실행됩니다." -ForegroundColor Green
@@ -77,7 +93,12 @@ if ($Funnel) {
 } elseif ($Tunnel) {
     Write-Host "  ⚠️ 터널 주소는 실행할 때마다 바뀝니다. 고정하려면 README 의 '고정 주소' 참고." -ForegroundColor Yellow
 }
+if ($RemoteControl) {
+    Write-Host "  Remote Control(quant-pc)도 같이 뜹니다. 폰의 Claude 앱 세션 목록에서 quant-pc 를 고르세요." -ForegroundColor Cyan
+    Write-Host "  처음이라면 먼저 .\rc.ps1 을 한 번 손으로 띄워 'Enable Remote Control?' 에 y 를 눌러 두세요." -ForegroundColor Yellow
+}
 Write-Host ""
 Write-Host "  지금 바로 시작:  Start-ScheduledTask -TaskName $name"
+if ($RemoteControl) { Write-Host "                  Start-ScheduledTask -TaskName $rcName" }
 Write-Host "  중지:            Stop-ScheduledTask -TaskName $name"
 Write-Host "  해제:            .\install-task.ps1 -Remove"
