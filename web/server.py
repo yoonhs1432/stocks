@@ -1037,6 +1037,19 @@ def _refresher() -> None:
 
 threading.Thread(target=_recorder, daemon=True).start()
 threading.Thread(target=_refresher, daemon=True).start()
+
+
+def _warm_start() -> None:
+    """켜자마자 비교 표를 미리 만든다 — 재부팅 직후 첫 화면이 10초 넘게 기다리지 않게."""
+    try:
+        api_account()               # 보유 종목까지 넣어야 화면이 쓰는 표와 같은 키가 된다
+    except Exception:
+        pass
+    for mk in ("US", "KR"):
+        _warm_market(mk)
+
+
+threading.Thread(target=_warm_start, daemon=True).start()
 # 장기 제안 통계 — 하루 한 번 Yahoo 긴 일봉으로. 가짜 시세 검사에서는 밖으로 나가지 않는다.
 if os.environ.get("QUANT_MOCK") != "1":
     threading.Thread(target=insight.loop, args=(store.tickers,), daemon=True).start()
