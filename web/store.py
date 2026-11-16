@@ -6,9 +6,11 @@
 
 from __future__ import annotations
 
+import copy
 import json
 import os
 import threading
+import time
 from pathlib import Path
 
 # 기본은 web/data. QUANT_DATA 로 바꿀 수 있는데, 이건 테스트가 진짜 기록(입금·매매·
@@ -34,20 +36,45 @@ BASE = "SPY"          # 회귀 기준 자산
 MAX_MONTHS = 24
 
 
+# 읽은 파일을 기억해 둔다 — 이름 → ((수정 시각, 크기), 값).
+# is_krw 가 종목·날짜마다 불려 요청 하나에 markets.json 을 수백 번 열었다(리밸런싱 ~800번).
+# Windows 에서는 파일을 열 때마다 백신 검사가 끼어 응답이 1~2초씩 늘었다.
+# 수정 시각·크기가 같으면 디스크를 다시 읽지 않는다. 호출하는 쪽이 값을 고쳐도
+# 기억해 둔 원본이 바뀌지 않게 복사본을 돌려준다.
+# 1초 안에 다시 읽으면 수정 시각도 보지 않는다(이 서버가 쓰는 건 _write_now 가 바로 비운다).
+_mem: dict[str, tuple[tuple[int, int], object, float]] = {}
+_RECHECK = 1.0
+
+
 def _read(name: str, default):
+    hit = _mem.get(name)
+    now = time.monotonic()
+    if hit is not None and now - hit[2] < _RECHECK:
+        return copy.deepcopy(hit[1])
     f = DATA / name
-    if not f.exists():
-        return default
     try:
-        return json.loads(f.read_text(encoding="utf-8"))
-    except (ValueError, OSError):
+        st = os.stat(f)
+    except OSError:
+        _mem.pop(name, None)
         return default
+    sig = (st.st_mtime_ns, st.st_size)
+    if hit is None or hit[0] != sig:
+        try:
+            v = json.loads(f.read_text(encoding="utf-8"))
+        except (ValueError, OSError):
+            return default
+        hit = (sig, v, now)
+    else:
+        hit = (sig, hit[1], now)
+    _mem[name] = hit
+    return copy.deepcopy(hit[1])
 
 
 def _write_now(name: str, value) -> None:
     DATA.mkdir(parents=True, exist_ok=True)
     (DATA / name).write_text(
         json.dumps(value, ensure_ascii=False, indent=1), encoding="utf-8")
+    _mem.pop(name, None)      # 다음 읽기에서 새로 읽는다
 
 
 def _write(name: str, value) -> None:

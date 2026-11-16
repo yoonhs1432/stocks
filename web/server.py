@@ -199,6 +199,33 @@ def api_account(force: bool = False):
 _ov_lock = threading.Lock()
 _ov_cache: dict[str, tuple[float, list]] = {}
 OV_TTL = 300.0
+_ov_busy: set[str] = set()      # 뒤에서 다시 계산 중인 표
+
+
+def _kick_overview(key: str, tickers: list[str], held: set[str]) -> None:
+    """오래된 비교 표를 뒤에서 다시 계산한다. 같은 표는 한 번에 하나만."""
+    if key in _ov_busy:
+        return
+    _ov_busy.add(key)
+
+    def go():
+        try:
+            rows = repo.overview(_toss, tickers, False, held)
+            with _ov_lock:
+                _ov_cache[key] = (time.time(), rows)
+        except Exception:
+            pass                    # 지난 표를 계속 쓴다 — 다음 요청에서 다시 시도
+        finally:
+            _ov_busy.discard(key)
+
+    threading.Thread(target=go, daemon=True).start()
+
+
+def _expire_overview() -> None:
+    """표를 지우지 않고 '오래됨' 으로만 표시한다 — 다음 요청이 지난 표를 바로 받고 뒤에서 새로 계산."""
+    with _ov_lock:
+        for k, (at, rows) in list(_ov_cache.items()):
+            _ov_cache[k] = (min(at, time.time() - OV_TTL), rows)
 
 
 @app.get("/api/compare")
@@ -230,8 +257,13 @@ def api_compare(market: str = "US", force: bool = False):
     with _ov_lock:
         hit = _ov_cache.get(key)
         rows_at = time.time()
-        if not force and hit and time.time() - hit[0] < OV_TTL:
+        if not force and hit:
+            # 지난 표가 있으면 **바로** 준다. 오래됐으면 뒤에서 새로 계산해 둔다 —
+            # 예전에는 5분이 지나면 다음 요청이 22종목 일봉을 다 받을 때까지(10초+) 기다렸다.
+            # 현재가는 어차피 /api/prices 가 몇 초마다 덮어쓴다.
             rows, rows_at = hit[1], hit[0]
+            if time.time() - hit[0] >= OV_TTL:
+                _kick_overview(key, tickers, held)
         else:
             try:
                 rows = repo.overview(_toss, tickers, force, held)
@@ -996,8 +1028,7 @@ def _refresher() -> None:
                 if repo.refresh_tail(_toss, t):
                     changed = True
             if changed:
-                with _ov_lock:
-                    _ov_cache.clear()       # 표를 새 일봉으로 다시 계산하게
+                _expire_overview()          # 표를 새 일봉으로 다시 계산하게(지난 표는 그동안 쓴다)
                 with _an_lock:
                     _an_cache.clear()
         except Exception:
