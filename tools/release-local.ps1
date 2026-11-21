@@ -4,6 +4,11 @@
 #   powershell -NoProfile -ExecutionPolicy Bypass -File tools\release-local.ps1 -Notes "..."  # 릴리스 노트 지정
 #   powershell -NoProfile -ExecutionPolicy Bypass -File tools\release-local.ps1 -NoPublish    # 빌드 검증만 (publish=false)
 #   powershell -NoProfile -ExecutionPolicy Bypass -File tools\release-local.ps1 -Test         # draft 'local-release-test-stocks' 에 올림
+#   powershell -NoProfile -ExecutionPolicy Bypass -File tools\release-local.ps1 -VerifyTag -SourceDir <체크아웃> -Notes "..."
+#       # 검증: 실제와 같은 발행 코드(create / edit + upload --clobber)로 'local-release-verify-stocks-android-latest'
+#       #       에 올린다 (prerelease, --latest=false). android-latest 는 건드리지 않는다. 끝나면 지운다:
+#       #       gh release delete local-release-verify-stocks-android-latest -R yoonhs1432/stocks --yes --cleanup-tag
+#   -SourceDir <폴더>  빌드할 소스 체크아웃(기본: 이 스크립트가 든 저장소). 예: git worktree add <폴더> <커밋>
 #
 # workflow 와 같은 것:
 #   - android/ assembleDebug, android-toss/ assembleDebug versionJson (RELEASE_NOTES = 노트 또는 마지막 커밋 제목)
@@ -21,7 +26,9 @@
 param(
     [switch]$Test,
     [switch]$NoPublish,
-    [string]$Notes = ""
+    [string]$Notes = "",
+    [string]$SourceDir = "",
+    [switch]$VerifyTag
 )
 
 $ErrorActionPreference = 'Stop'
@@ -32,7 +39,23 @@ $Repo     = 'yoonhs1432/stocks'
 $RealTag  = 'android-latest'
 $TestTag  = 'local-release-test-stocks'
 $Title    = 'Android 최신 빌드 (debug)'
-$Root     = Split-Path -Parent $PSScriptRoot
+$VerifyName = 'local-release-verify-stocks-android-latest'
+$Root     = if ($SourceDir) { (Resolve-Path $SourceDir).Path } else { Split-Path -Parent $PSScriptRoot }
+# 검증 모드: 발행 코드는 실제와 그대로 같고, 태그 이름과 --latest=false, 새로 만들 때의 target 만 다르다.
+# (폰의 AppUpdate.kt 는 releases/download/android-latest/ 고정 URL 만 보므로 이 태그를 집어 가지 않는다.)
+$PubTag   = $RealTag
+$PubTarget = 'main'
+$relFlags = @()
+if ($VerifyTag) {
+    if ($Test -or $NoPublish) { throw "-VerifyTag 는 -Test / -NoPublish 와 같이 쓸 수 없다." }
+    $PubTag   = $VerifyName
+    $relFlags = @('--latest=false')
+}
+function Assert-VerifyName($tag) {
+    if (-not $VerifyTag) { return }
+    if ($tag -ne $VerifyName -or $tag -eq $RealTag) { throw "GUARD: 검증 모드인데 실제 이름 '$tag' 를 쓰려 했다 - 중단" }
+    if ($relFlags -notcontains '--latest=false') { throw "GUARD: 검증 모드 플래그 누락 - 중단" }
+}
 $Build    = 'C:\Users\yoonh\android-build'
 $Jdk      = Join-Path $Build 'jdk-17.0.20.1+1'
 $GradleBat = Join-Path $Build 'gradle-8.9\bin\gradle.bat'
@@ -62,7 +85,14 @@ if ($publish -and -not $Test) {
     git fetch -q origin main
     Check-Exit 'git fetch'
     $originMain = (git rev-parse origin/main).Trim()
-    if ($branch -ne 'main' -and $sha -ne $originMain) {
+    if ($VerifyTag) {
+        # 검증은 과거 커밋(기준 릴리스를 만든 커밋)을 다시 빌드한다 - 그 커밋이 main 에 있었는지만 본다
+        $old = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+        & git merge-base --is-ancestor $sha $originMain; $anc = $LASTEXITCODE
+        $ErrorActionPreference = $old
+        if ($anc -ne 0) { throw "검증: $sha 가 origin/main 에 없다." }
+        $PubTarget = $sha
+    } elseif ($branch -ne 'main' -and $sha -ne $originMain) {
         throw "실제 게시는 main 에서만 한다 (지금 $branch @ $sha, origin/main @ $originMain). -Test 나 -NoPublish 를 쓰세요."
     }
     if (git status --porcelain --untracked-files=no) { throw "추적 파일에 커밋 안 된 변경이 있다 - 먼저 커밋하세요." }
@@ -128,15 +158,16 @@ if ($Test) {
     exit 0
 }
 
-Step "Publish to rolling release $RealTag"
-if (Test-Release $RealTag) {
+Step "Publish to rolling release $PubTag"
+Assert-VerifyName $PubTag
+if (Test-Release $PubTag) {
     # softprops: 기존 릴리스는 태그를 그대로 두고 제목/본문/prerelease 를 갱신, 같은 이름 자산은 교체
-    & gh release edit $RealTag -R $Repo --title $Title --prerelease --notes-file $notesFile
+    & gh release edit $PubTag -R $Repo --title $Title --prerelease --notes-file $notesFile @relFlags
     Check-Exit 'gh release edit'
-    & gh release upload $RealTag -R $Repo --clobber $files
+    & gh release upload $PubTag -R $Repo --clobber $files
     Check-Exit 'gh release upload'
 } else {
-    & gh release create $RealTag -R $Repo --prerelease --target main --title $Title --notes-file $notesFile $files
+    & gh release create $PubTag -R $Repo --prerelease --target $PubTarget --title $Title --notes-file $notesFile @relFlags $files
     Check-Exit 'gh release create'
 }
-Write-Host "게시 완료: https://github.com/$Repo/releases/tag/$RealTag"
+Write-Host "게시 완료: https://github.com/$Repo/releases/tag/$PubTag"
